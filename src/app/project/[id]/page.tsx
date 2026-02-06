@@ -5,9 +5,6 @@ import { useRouter, useParams } from 'next/navigation';
 import { Project, getProjectStats, getAreaStats } from '@/types';
 import { getProject, saveProject, createArea } from '@/lib/db';
 import { applyTemplateToArea } from '@/lib/template';
-import { generateProjectPDF, downloadPDF } from '@/lib/pdfExport';
-import { uploadPdfToOneDrive, getNextOneDriveExportFilename } from '@/lib/oneDrive';
-import { useMicrosoftAuth } from '@/contexts/MicrosoftAuthContext';
 import Link from 'next/link';
 import {
   ArrowLeft,
@@ -19,10 +16,8 @@ import {
   CheckCircle,
   AlertTriangle,
   Circle,
-  FileDown,
   MapPin,
   User,
-  Loader2,
 } from 'lucide-react';
 
 type SortOption = 'name' | 'recent' | 'progress';
@@ -41,10 +36,6 @@ export default function ProjectDetailPage() {
   const [newAreaName, setNewAreaName] = useState('');
   const [sortOption, setSortOption] = useState<SortOption>('name');
   const [showSortMenu, setShowSortMenu] = useState(false);
-  const [showMenu, setShowMenu] = useState(false);
-  const [exporting, setExporting] = useState(false);
-  const [exportingToDrive, setExportingToDrive] = useState(false);
-  const { accessToken, isSignedIn, signIn, ensureAccessToken } = useMicrosoftAuth();
 
   const sortLabels: Record<SortOption, string> = {
     name: 'Name',
@@ -142,44 +133,6 @@ export default function ProjectDetailPage() {
   function cancelSelectionMode() {
     setDeleteMode(false);
     setSelectedAreaIds(new Set());
-    setShowMenu(false);
-  }
-
-  async function handleExportPDF() {
-    if (!project) return;
-    setShowMenu(false);
-    setExporting(true);
-    try {
-      const blob = await generateProjectPDF(project);
-      const filename = `${project.projectName.replace(/[^a-z0-9]/gi, '_')}_Report.pdf`;
-      downloadPDF(blob, filename);
-    } catch (error) {
-      console.error('Failed to export PDF:', error);
-      alert('Failed to export PDF. Please try again.');
-    } finally {
-      setExporting(false);
-    }
-  }
-
-  async function handleExportPDFToDrive() {
-    if (!project) return;
-    setShowMenu(false);
-    setExportingToDrive(true);
-    try {
-      const token = accessToken ?? (await ensureAccessToken());
-      if (!token) {
-        signIn();
-        return;
-      }
-      const blob = await generateProjectPDF(project);
-      const filename = await getNextOneDriveExportFilename(token, [project.projectName]);
-      await uploadPdfToOneDrive(token, filename, blob);
-    } catch (error) {
-      console.error('Failed to export PDF to Drive:', error);
-      alert('Failed to export PDF to Drive. Please try again.');
-    } finally {
-      setExportingToDrive(false);
-    }
   }
 
   if (loading) {
@@ -246,7 +199,6 @@ export default function ProjectDetailPage() {
                   void handleDeleteSelectedAreas();
                 } else {
                   setDeleteMode(true);
-                  setShowMenu(false);
                   setSelectedAreaIds(new Set());
                 }
               }}
@@ -259,49 +211,6 @@ export default function ProjectDetailPage() {
             >
               <Trash2 className="w-4 h-4" />
             </button>
-            <div className="relative">
-              <button
-                onClick={() => setShowMenu(!showMenu)}
-                className="h-9 w-9 flex items-center justify-center text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg"
-                aria-label="Export"
-              >
-                <FileDown className="w-4 h-4" />
-              </button>
-              {showMenu && (
-                <>
-                  <div
-                    className="fixed inset-0 z-10"
-                    onClick={() => setShowMenu(false)}
-                  />
-                  <div className="absolute right-0 mt-1 w-48 bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 z-20">
-                    <button
-                      onClick={handleExportPDF}
-                      disabled={exporting}
-                      className="w-full px-4 py-2 text-left text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center gap-2 disabled:opacity-50"
-                    >
-                      {exporting ? (
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                      ) : (
-                        <FileDown className="w-4 h-4" />
-                      )}
-                      Export PDF
-                    </button>
-                    <button
-                      onClick={handleExportPDFToDrive}
-                      disabled={exportingToDrive}
-                      className="w-full px-4 py-2 text-left text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center gap-2 disabled:opacity-50"
-                    >
-                      {exportingToDrive ? (
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                      ) : (
-                        <FileDown className="w-4 h-4" />
-                      )}
-                      {isSignedIn ? 'Export PDF to Drive' : 'Sign in to Export'}
-                    </button>
-                  </div>
-                </>
-              )}
-            </div>
             <div className="w-[4.75rem] flex justify-end">
               {deleteMode ? (
                 <button
@@ -494,15 +403,6 @@ export default function ProjectDetailPage() {
         </div>
       )}
 
-      {/* Export loading overlay */}
-      {exporting && (
-        <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50">
-          <div className="bg-white dark:bg-gray-800 rounded-lg p-6 flex items-center gap-3">
-            <Loader2 className="w-6 h-6 animate-spin text-blue-500" />
-            <span className="text-gray-900 dark:text-white">Generating PDF...</span>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
