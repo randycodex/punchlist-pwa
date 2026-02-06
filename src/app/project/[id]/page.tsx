@@ -211,16 +211,14 @@ export default function ProjectDetailPage() {
             >
               <Trash2 className="w-4 h-4" />
             </button>
-            <div className="w-[4.75rem] flex justify-end">
-              {deleteMode ? (
-                <button
-                  onClick={cancelSelectionMode}
-                  className="h-9 px-3 text-sm text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg"
-                >
-                  Cancel
-                </button>
-              ) : null}
-            </div>
+            {deleteMode ? (
+              <button
+                onClick={cancelSelectionMode}
+                className="h-9 px-3 text-sm text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg"
+              >
+                Cancel
+              </button>
+            ) : null}
             <button
               onClick={() => setShowAddArea(true)}
               className="h-9 w-9 flex items-center justify-center text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded-lg"
