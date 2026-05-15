@@ -2,7 +2,7 @@
 /* eslint-disable @next/next/no-img-element */
 
 import { useEffect, useRef, useState } from 'react';
-import { Camera, Paperclip, X } from 'lucide-react';
+import { Camera, X } from 'lucide-react';
 import { PhotoAttachment, FileAttachment } from '@/types';
 
 interface PhotoCaptureProps {
@@ -36,13 +36,9 @@ export default function PhotoCapture({
   const [capturedBatch, setCapturedBatch] = useState<Array<{ imageData: string; thumbnail?: string }>>([]);
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [savingPhotos, setSavingPhotos] = useState(false);
-  const [attachmentMenuOpen, setAttachmentMenuOpen] = useState(false);
   const pinchDistanceRef = useRef<number | null>(null);
   const pinchScaleRef = useRef(1);
   const cameraInputRef = useRef<HTMLInputElement>(null);
-  const photoLibraryInputRef = useRef<HTMLInputElement>(null);
-  const attachmentInputRef = useRef<HTMLInputElement>(null);
-  const attachmentMenuRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const maxImageSize = 1280;
@@ -228,70 +224,6 @@ export default function PhotoCapture({
     });
   }
 
-  function fileToAttachmentPayload(
-    file: File
-  ): Promise<{ data: string; name: string; mimeType: string; size: number } | null> {
-    return new Promise((resolve) => {
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        const data = event.target?.result;
-        if (typeof data !== 'string') {
-          resolve(null);
-          return;
-        }
-        resolve({
-          data,
-          name: file.name,
-          mimeType: file.type || 'application/octet-stream',
-          size: file.size,
-        });
-      };
-      reader.onerror = () => resolve(null);
-      reader.readAsDataURL(file);
-    });
-  }
-
-  async function handleAttachmentSelect(e: React.ChangeEvent<HTMLInputElement>) {
-    const selected = Array.from(e.target.files ?? []);
-    if (selected.length === 0) return;
-
-    const imageFiles = selected.filter((file) => file.type.startsWith('image/'));
-    const nonImageFiles = selected.filter((file) => !file.type.startsWith('image/'));
-
-    setSavingPhotos(true);
-    try {
-      if (imageFiles.length > 0) {
-        const processedPhotos = await Promise.all(imageFiles.map((file) => fileToPhotoPayload(file)));
-        const readyPhotos = processedPhotos.filter(
-          (photo): photo is { imageData: string; thumbnail?: string } => photo !== null
-        );
-        if (readyPhotos.length > 0) {
-          if (onAddPhotos) {
-            await onAddPhotos(readyPhotos);
-          } else {
-            for (const photo of readyPhotos) {
-              await onAddPhoto(photo.imageData, photo.thumbnail);
-            }
-          }
-        }
-      }
-
-      if (nonImageFiles.length > 0 && onAddFiles) {
-        const processedFiles = await Promise.all(nonImageFiles.map((file) => fileToAttachmentPayload(file)));
-        const readyFiles = processedFiles.filter(
-          (file): file is { data: string; name: string; mimeType: string; size: number } => file !== null
-        );
-        if (readyFiles.length > 0) {
-          await onAddFiles(readyFiles);
-        }
-      }
-    } finally {
-      setSavingPhotos(false);
-      setAttachmentMenuOpen(false);
-      if (attachmentInputRef.current) attachmentInputRef.current.value = '';
-    }
-  }
-
   async function handlePhotoSelect(e: React.ChangeEvent<HTMLInputElement>) {
     const selected = Array.from(e.target.files ?? []);
     if (selected.length === 0) return;
@@ -311,8 +243,6 @@ export default function PhotoCapture({
       }
     } finally {
       setSavingPhotos(false);
-      setAttachmentMenuOpen(false);
-      if (photoLibraryInputRef.current) photoLibraryInputRef.current.value = '';
       if (cameraInputRef.current) cameraInputRef.current.value = '';
     }
   }
@@ -330,29 +260,6 @@ export default function PhotoCapture({
       stopCameraStream();
     };
   }, []);
-
-  useEffect(() => {
-    if (!attachmentMenuOpen) return;
-
-    function handlePointerDown(event: PointerEvent) {
-      if (!attachmentMenuRef.current?.contains(event.target as Node)) {
-        setAttachmentMenuOpen(false);
-      }
-    }
-
-    function handleEscape(event: KeyboardEvent) {
-      if (event.key === 'Escape') {
-        setAttachmentMenuOpen(false);
-      }
-    }
-
-    window.addEventListener('pointerdown', handlePointerDown);
-    window.addEventListener('keydown', handleEscape);
-    return () => {
-      window.removeEventListener('pointerdown', handlePointerDown);
-      window.removeEventListener('keydown', handleEscape);
-    };
-  }, [attachmentMenuOpen]);
 
   useEffect(() => {
     if (!openCameraSignal) return;
@@ -405,7 +312,6 @@ export default function PhotoCapture({
               className={`flex items-center gap-2 rounded-full bg-gray-100 text-xs dark:bg-zinc-900 ${compactActions ? 'pr-1 pl-2 py-1.5' : 'border border-gray-200 dark:border-zinc-700 px-3 py-2'}`}
             >
               <div className="flex min-w-0 items-center gap-2">
-                <Paperclip className="w-3.5 h-3.5 text-gray-500 dark:text-gray-400" />
                 <a
                   href={file.data}
                   download={file.name}
@@ -442,61 +348,12 @@ export default function PhotoCapture({
             <Camera className={compactActions ? 'h-4 w-4' : 'h-4.5 w-4.5'} />
           </button>
         )}
-        <div className="relative" ref={attachmentMenuRef}>
-          <button
-            onClick={() => setAttachmentMenuOpen((open) => !open)}
-            disabled={savingPhotos}
-            className={`flex items-center justify-center rounded-[1rem] bg-gray-100 text-gray-700 transition hover:bg-gray-200 dark:bg-zinc-800 dark:text-gray-100 dark:hover:bg-zinc-700 ${
-              compactActions ? 'h-10 w-10' : 'h-11 w-11'
-            }`}
-            aria-label="Add attachments"
-            aria-expanded={attachmentMenuOpen}
-            aria-haspopup="menu"
-          >
-            <Paperclip className={compactActions ? 'h-4 w-4' : 'h-4.5 w-4.5'} />
-          </button>
-          {attachmentMenuOpen && (
-            <div className="absolute bottom-full left-0 z-20 mb-2 min-w-[12rem] rounded-[1rem] border border-black/5 bg-[var(--surface-strong)] p-1.5 shadow-[var(--card-shadow)] dark:border-white/8">
-              <button
-                type="button"
-                onClick={() => photoLibraryInputRef.current?.click()}
-                className="flex w-full items-center rounded-[0.8rem] px-3 py-2 text-left text-sm text-[var(--foreground)] transition hover:bg-black/[0.04] dark:hover:bg-white/[0.06]"
-              >
-                Photo Library
-              </button>
-              <button
-                type="button"
-                onClick={() => attachmentInputRef.current?.click()}
-                className="flex w-full items-center rounded-[0.8rem] px-3 py-2 text-left text-sm text-[var(--foreground)] transition hover:bg-black/[0.04] dark:hover:bg-white/[0.06]"
-              >
-                Choose Files
-              </button>
-            </div>
-          )}
-        </div>
         {cameraError && <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">{cameraError}</p>}
         <input
           ref={cameraInputRef}
           type="file"
           accept="image/*"
           onChange={handlePhotoSelect}
-          disabled={savingPhotos}
-          className="hidden"
-        />
-        <input
-          ref={photoLibraryInputRef}
-          type="file"
-          accept=".jpg,.jpeg,.png,.heic,.heif,.webp,.gif"
-          multiple
-          onChange={handlePhotoSelect}
-          disabled={savingPhotos}
-          className="hidden"
-        />
-        <input
-          ref={attachmentInputRef}
-          type="file"
-          multiple
-          onChange={handleAttachmentSelect}
           disabled={savingPhotos}
           className="hidden"
         />
