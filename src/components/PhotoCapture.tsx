@@ -36,10 +36,13 @@ export default function PhotoCapture({
   const [capturedBatch, setCapturedBatch] = useState<Array<{ imageData: string; thumbnail?: string }>>([]);
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [savingPhotos, setSavingPhotos] = useState(false);
+  const [attachmentMenuOpen, setAttachmentMenuOpen] = useState(false);
   const pinchDistanceRef = useRef<number | null>(null);
   const pinchScaleRef = useRef(1);
   const cameraInputRef = useRef<HTMLInputElement>(null);
+  const photoLibraryInputRef = useRef<HTMLInputElement>(null);
   const attachmentInputRef = useRef<HTMLInputElement>(null);
+  const attachmentMenuRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const maxImageSize = 1280;
@@ -284,6 +287,7 @@ export default function PhotoCapture({
       }
     } finally {
       setSavingPhotos(false);
+      setAttachmentMenuOpen(false);
       if (attachmentInputRef.current) attachmentInputRef.current.value = '';
     }
   }
@@ -307,6 +311,8 @@ export default function PhotoCapture({
       }
     } finally {
       setSavingPhotos(false);
+      setAttachmentMenuOpen(false);
+      if (photoLibraryInputRef.current) photoLibraryInputRef.current.value = '';
       if (cameraInputRef.current) cameraInputRef.current.value = '';
     }
   }
@@ -324,6 +330,29 @@ export default function PhotoCapture({
       stopCameraStream();
     };
   }, []);
+
+  useEffect(() => {
+    if (!attachmentMenuOpen) return;
+
+    function handlePointerDown(event: PointerEvent) {
+      if (!attachmentMenuRef.current?.contains(event.target as Node)) {
+        setAttachmentMenuOpen(false);
+      }
+    }
+
+    function handleEscape(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        setAttachmentMenuOpen(false);
+      }
+    }
+
+    window.addEventListener('pointerdown', handlePointerDown);
+    window.addEventListener('keydown', handleEscape);
+    return () => {
+      window.removeEventListener('pointerdown', handlePointerDown);
+      window.removeEventListener('keydown', handleEscape);
+    };
+  }, [attachmentMenuOpen]);
 
   useEffect(() => {
     if (!openCameraSignal) return;
@@ -413,21 +442,52 @@ export default function PhotoCapture({
             <Camera className={compactActions ? 'h-4 w-4' : 'h-4.5 w-4.5'} />
           </button>
         )}
-        <button
-          onClick={() => attachmentInputRef.current?.click()}
-          disabled={savingPhotos}
-          className={`flex items-center justify-center rounded-[1rem] bg-gray-100 text-gray-700 transition hover:bg-gray-200 dark:bg-zinc-800 dark:text-gray-100 dark:hover:bg-zinc-700 ${
-            compactActions ? 'h-10 w-10' : 'h-11 w-11'
-          }`}
-          aria-label="Add attachments"
-        >
-          <Paperclip className={compactActions ? 'h-4 w-4' : 'h-4.5 w-4.5'} />
-        </button>
+        <div className="relative" ref={attachmentMenuRef}>
+          <button
+            onClick={() => setAttachmentMenuOpen((open) => !open)}
+            disabled={savingPhotos}
+            className={`flex items-center justify-center rounded-[1rem] bg-gray-100 text-gray-700 transition hover:bg-gray-200 dark:bg-zinc-800 dark:text-gray-100 dark:hover:bg-zinc-700 ${
+              compactActions ? 'h-10 w-10' : 'h-11 w-11'
+            }`}
+            aria-label="Add attachments"
+            aria-expanded={attachmentMenuOpen}
+            aria-haspopup="menu"
+          >
+            <Paperclip className={compactActions ? 'h-4 w-4' : 'h-4.5 w-4.5'} />
+          </button>
+          {attachmentMenuOpen && (
+            <div className="absolute bottom-full left-0 z-20 mb-2 min-w-[12rem] rounded-[1rem] border border-black/5 bg-[var(--surface-strong)] p-1.5 shadow-[var(--card-shadow)] dark:border-white/8">
+              <button
+                type="button"
+                onClick={() => photoLibraryInputRef.current?.click()}
+                className="flex w-full items-center rounded-[0.8rem] px-3 py-2 text-left text-sm text-[var(--foreground)] transition hover:bg-black/[0.04] dark:hover:bg-white/[0.06]"
+              >
+                Photo Library
+              </button>
+              <button
+                type="button"
+                onClick={() => attachmentInputRef.current?.click()}
+                className="flex w-full items-center rounded-[0.8rem] px-3 py-2 text-left text-sm text-[var(--foreground)] transition hover:bg-black/[0.04] dark:hover:bg-white/[0.06]"
+              >
+                Choose Files
+              </button>
+            </div>
+          )}
+        </div>
         {cameraError && <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">{cameraError}</p>}
         <input
           ref={cameraInputRef}
           type="file"
           accept="image/*"
+          onChange={handlePhotoSelect}
+          disabled={savingPhotos}
+          className="hidden"
+        />
+        <input
+          ref={photoLibraryInputRef}
+          type="file"
+          accept=".jpg,.jpeg,.png,.heic,.heif,.webp,.gif"
+          multiple
           onChange={handlePhotoSelect}
           disabled={savingPhotos}
           className="hidden"
