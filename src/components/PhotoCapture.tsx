@@ -45,6 +45,36 @@ export default function PhotoCapture({
   const maxImageSize = 1280;
   const thumbnailSize = 360;
 
+  async function configureAutoFocus(stream: MediaStream) {
+    type FocusCapabilities = MediaTrackCapabilities & { focusMode?: string[] };
+    type FocusConstraintSet = MediaTrackConstraintSet & { focusMode?: string };
+
+    const [track] = stream.getVideoTracks();
+    if (!track) return;
+
+    const capabilities =
+      typeof track.getCapabilities === 'function' ? (track.getCapabilities() as FocusCapabilities) : null;
+    if (!capabilities) return;
+
+    const focusMode = capabilities.focusMode;
+
+    const advanced: FocusConstraintSet[] = [];
+
+    if (Array.isArray(focusMode) && focusMode.includes('continuous')) {
+      advanced.push({ focusMode: 'continuous' });
+    } else if (Array.isArray(focusMode) && focusMode.includes('single-shot')) {
+      advanced.push({ focusMode: 'single-shot' });
+    }
+
+    if (advanced.length === 0) return;
+
+    try {
+      await track.applyConstraints({ advanced });
+    } catch {
+      // Some mobile browsers expose focus capabilities but reject the constraint at runtime.
+    }
+  }
+
   function createScaledImageData(img: HTMLImageElement, maxSize: number, quality: number) {
     const scale = Math.min(1, maxSize / Math.max(img.width, img.height));
     const width = Math.max(1, Math.round(img.width * scale));
@@ -81,9 +111,14 @@ export default function PhotoCapture({
     setCameraError(null);
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: { ideal: 'environment' } },
+        video: {
+          facingMode: { ideal: 'environment' },
+          width: { ideal: 1920 },
+          height: { ideal: 1080 },
+        },
         audio: false,
       });
+      await configureAutoFocus(stream);
       streamRef.current = stream;
       setCapturedBatch([]);
       setCameraOpen(true);
@@ -393,7 +428,6 @@ export default function PhotoCapture({
           ref={cameraInputRef}
           type="file"
           accept="image/*"
-          capture="environment"
           onChange={handlePhotoSelect}
           disabled={savingPhotos}
           className="hidden"
