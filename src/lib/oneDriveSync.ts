@@ -1068,13 +1068,16 @@ export async function pushProjectsToOneDrive(token: string, projectIds: string[]
       return;
     }
 
+    const localProjectWithFolder = withProjectFolderName(localProject, targetFolderName);
+    await saveProjectPreserveTimestamps(localProjectWithFolder);
+
     if (freshnessComparison === 0) {
+      await migrateLegacyProjectPhotos(token, localProjectWithFolder, targetFolderName);
+      await syncProjectPhotosToOneDrive(token, localProjectWithFolder, targetFolderName);
       return;
     }
 
     try {
-      const localProjectWithFolder = withProjectFolderName(localProject, targetFolderName);
-      await saveProjectPreserveTimestamps(localProjectWithFolder);
       const uploadedRemote = await uploadProjectFile(
         token,
         targetFolderName,
