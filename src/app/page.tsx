@@ -537,6 +537,7 @@ export default function ProjectsPage() {
       if (shouldRunFullSync) {
         fullSyncNeededRef.current = true;
       }
+      setSyncError(getMicrosoftErrorMessage(error, 'Background sync failed.'));
       setSyncStatus('error');
       console.error('Background sync failed:', error);
     } finally {

@@ -5,7 +5,6 @@ const SHARED_EXPORTS_PATH = `${PUNCHLIST_ROOT}/exports`;
 const LEGACY_PROJECTS_PATH = `${PUNCHLIST_ROOT}/projects`;
 const LEGACY_PHOTOS_PATH = `${PUNCHLIST_ROOT}/photos`;
 const RESERVED_PUNCHLIST_FOLDER_NAMES = new Set(['exports', 'projects', 'photos', 'Trash Bin']);
-let hasEnsuredPunchListFolders = false;
 
 export type DriveItem = {
   id: string;
@@ -195,12 +194,8 @@ function dedupeDriveItems(items: DriveItem[]) {
 }
 
 export async function ensurePunchListFolders(token: string) {
-  if (hasEnsuredPunchListFolders) {
-    return;
-  }
   await ensureFolder(token, PUNCHLIST_ROOT);
   await ensureFolder(token, TRASH_BIN_ROOT);
-  hasEnsuredPunchListFolders = true;
 }
 
 async function listFolderChildrenByPath(token: string, path: string): Promise<DriveItem[]> {

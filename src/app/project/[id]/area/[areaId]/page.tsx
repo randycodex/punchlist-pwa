@@ -1126,6 +1126,7 @@ export default function AreaDetailPage() {
       if (shouldRunFullSync) {
         fullSyncNeededRef.current = true;
       }
+      setSyncError(getMicrosoftErrorMessage(error, 'Background sync failed.'));
       setSyncStatus('error');
       console.error('Background sync failed:', error);
     } finally {
