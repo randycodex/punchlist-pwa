@@ -42,7 +42,7 @@ export function getMicrosoftErrorMessage(error: unknown, fallback: string): stri
     message.includes('network') ||
     message.includes('failed to fetch')
   ) {
-    return 'Microsoft sync is temporarily unavailable. Retry in a moment.';
+    return 'Saved locally. Microsoft sync is temporarily unavailable.';
   }
 
   if (
@@ -73,7 +73,12 @@ export function getMicrosoftRetryDelayMs(error: unknown): number | null {
   if (
     message.includes('throttled') ||
     message.includes('too many requests') ||
-    message.includes('429')
+    message.includes('429') ||
+    message.includes('timeout') ||
+    message.includes('temporarily unavailable') ||
+    message.includes('service unavailable') ||
+    message.includes('network') ||
+    message.includes('failed to fetch')
   ) {
     return 60_000;
   }

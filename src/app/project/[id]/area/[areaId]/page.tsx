@@ -1128,7 +1128,7 @@ export default function AreaDetailPage() {
       }
       const retryDelayMs = getMicrosoftRetryDelayMs(error);
       if (retryDelayMs) {
-        setSyncError(`Microsoft is limiting sync right now. Retrying in about ${Math.ceil(retryDelayMs / 1000)} seconds.`);
+        setSyncError(`Saved locally. Microsoft sync will retry in about ${Math.ceil(retryDelayMs / 1000)} seconds.`);
         scheduleSync(undefined, { delayMs: retryDelayMs });
         backgroundSyncQueuedRef.current = false;
         return;
