@@ -5,6 +5,8 @@ const SHARED_EXPORTS_PATH = `${PUNCHLIST_ROOT}/exports`;
 const LEGACY_PROJECTS_PATH = `${PUNCHLIST_ROOT}/projects`;
 const LEGACY_PHOTOS_PATH = `${PUNCHLIST_ROOT}/photos`;
 const RESERVED_PUNCHLIST_FOLDER_NAMES = new Set(['exports', 'projects', 'photos', 'Trash Bin']);
+const ENSURED_FOLDER_CACHE_MS = 5 * 60 * 1000;
+const ensuredFolderCache = new Map<string, number>();
 
 export type DriveItem = {
   id: string;
@@ -19,6 +21,28 @@ type DriveChildrenResponse = {
   value: DriveItem[];
   '@odata.nextLink'?: string;
 };
+
+function getTokenCacheKey(token: string) {
+  try {
+    const payload = token.split('.')[1];
+    if (!payload) throw new Error('Missing token payload.');
+    const normalized = payload.replace(/-/g, '+').replace(/_/g, '/');
+    const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '=');
+    const claims = JSON.parse(atob(padded)) as {
+      oid?: string;
+      preferred_username?: string;
+      sub?: string;
+      tid?: string;
+      upn?: string;
+    };
+    const tenant = claims.tid ?? 'tenant';
+    const account = claims.oid ?? claims.sub ?? claims.preferred_username ?? claims.upn;
+    if (account) return `${tenant}:${account}`;
+  } catch {
+    // Fall back to the token itself when Microsoft changes claim shape.
+  }
+  return token;
+}
 
 function getRetryAfterMs(response: Response): number | undefined {
   const retryAfter = response.headers.get('Retry-After');
@@ -35,6 +59,23 @@ function getRetryAfterMs(response: Response): number | undefined {
   }
 
   return undefined;
+}
+
+async function getGraphErrorMessage(response: Response) {
+  try {
+    const data = await response.clone().json();
+    if (typeof data?.error?.message === 'string') {
+      return data.error.message;
+    }
+  } catch {
+    // Try text below.
+  }
+
+  try {
+    return await response.clone().text();
+  } catch {
+    return '';
+  }
 }
 
 function buildGraphError(response: Response, message: string) {
@@ -59,13 +100,7 @@ async function graphFetch<T>(token: string, path: string, options?: RequestInit)
   });
 
   if (!response.ok) {
-    let message = '';
-    try {
-      const data = await response.json();
-      message = data?.error?.message ?? '';
-    } catch {
-      message = '';
-    }
+    const message = await getGraphErrorMessage(response);
     throw buildGraphError(response, message);
   }
 
@@ -85,13 +120,7 @@ async function graphFetchAbsolute<T>(token: string, url: string, options?: Reque
   });
 
   if (!response.ok) {
-    let message = '';
-    try {
-      const data = await response.json();
-      message = data?.error?.message ?? '';
-    } catch {
-      message = '';
-    }
+    const message = await getGraphErrorMessage(response);
     throw buildGraphError(response, message);
   }
 
@@ -223,8 +252,15 @@ function dedupeDriveItems(items: DriveItem[]) {
 }
 
 export async function ensurePunchListFolders(token: string) {
+  const cacheKey = getTokenCacheKey(token);
+  const cachedUntil = ensuredFolderCache.get(cacheKey) ?? 0;
+  if (cachedUntil > Date.now()) {
+    return;
+  }
+
   await ensureFolder(token, PUNCHLIST_ROOT);
   await ensureFolder(token, TRASH_BIN_ROOT);
+  ensuredFolderCache.set(cacheKey, Date.now() + ENSURED_FOLDER_CACHE_MS);
 }
 
 async function listFolderChildrenByPath(token: string, path: string): Promise<DriveItem[]> {
@@ -297,7 +333,7 @@ export async function downloadProjectFile(token: string, id: string): Promise<st
     },
   });
   if (!response.ok) {
-    throw new Error(`Drive download failed: ${response.status}`);
+    throw buildGraphError(response, await getGraphErrorMessage(response));
   }
   return response.text();
 }
@@ -309,7 +345,7 @@ export async function downloadDriveItemAsDataUrl(token: string, id: string): Pro
     },
   });
   if (!response.ok) {
-    throw new Error(`Drive download failed: ${response.status}`);
+    throw buildGraphError(response, await getGraphErrorMessage(response));
   }
 
   const blob = await response.blob();
@@ -561,13 +597,23 @@ export async function downloadDeletionLog(token: string): Promise<Record<string,
       },
     });
     if (!response.ok) {
+      if (response.status === 429) {
+        throw buildGraphError(response, await getGraphErrorMessage(response));
+      }
       return {};
     }
     const text = await response.text();
     if (!text) return {};
     const parsed = JSON.parse(text) as Record<string, unknown>;
     return parsed ?? {};
-  } catch {
+  } catch (error) {
+    if (
+      typeof error === 'object' &&
+      error !== null &&
+      'retryAfterMs' in error
+    ) {
+      throw error;
+    }
     return {};
   }
 }
