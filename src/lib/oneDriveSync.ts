@@ -605,7 +605,16 @@ async function syncProjectPhotosToOneDrive(
 }
 
 function isConflictError(error: unknown) {
-  return error instanceof Error && error.message.includes('Precondition Failed');
+  if (!(error instanceof Error)) return false;
+  const message = error.message.toLowerCase();
+  return (
+    message.includes('precondition failed') ||
+    message.includes('etag mismatch') ||
+    message.includes('resource has changed') ||
+    message.includes('caller last read') ||
+    message.includes('name already exists') ||
+    message.includes('already exists')
+  );
 }
 
 function isItemNotFoundError(error: unknown) {
