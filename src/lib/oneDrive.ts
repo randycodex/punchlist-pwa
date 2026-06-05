@@ -20,6 +20,35 @@ type DriveChildrenResponse = {
   '@odata.nextLink'?: string;
 };
 
+function getRetryAfterMs(response: Response): number | undefined {
+  const retryAfter = response.headers.get('Retry-After');
+  if (!retryAfter) return undefined;
+
+  const seconds = Number.parseInt(retryAfter, 10);
+  if (Number.isFinite(seconds)) {
+    return Math.max(seconds * 1000, 0);
+  }
+
+  const retryAt = new Date(retryAfter).getTime();
+  if (Number.isFinite(retryAt)) {
+    return Math.max(retryAt - Date.now(), 0);
+  }
+
+  return undefined;
+}
+
+function buildGraphError(response: Response, message: string) {
+  const error = new Error(message || `Graph request failed: ${response.status}`) as Error & {
+    retryAfterMs?: number;
+    status?: number;
+  };
+  error.status = response.status;
+  if (response.status === 429 || error.message.toLowerCase().includes('throttled')) {
+    error.retryAfterMs = getRetryAfterMs(response) ?? 60_000;
+  }
+  return error;
+}
+
 async function graphFetch<T>(token: string, path: string, options?: RequestInit): Promise<T> {
   const response = await fetch(`${GRAPH_API}${path}`, {
     ...options,
@@ -37,7 +66,7 @@ async function graphFetch<T>(token: string, path: string, options?: RequestInit)
     } catch {
       message = '';
     }
-    throw new Error(message || `Graph request failed: ${response.status}`);
+    throw buildGraphError(response, message);
   }
 
   if (response.status === 204) {
@@ -63,7 +92,7 @@ async function graphFetchAbsolute<T>(token: string, url: string, options?: Reque
     } catch {
       message = '';
     }
-    throw new Error(message || `Graph request failed: ${response.status}`);
+    throw buildGraphError(response, message);
   }
 
   if (response.status === 204) {

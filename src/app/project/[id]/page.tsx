@@ -4,7 +4,7 @@ import { memo, useState, useEffect, useMemo, useRef, useCallback, type TouchEven
 import { useRouter, useParams } from 'next/navigation';
 import { Project, checkpointHasIssue, getReviewMetrics } from '@/types';
 import { getProject, saveProject, createArea } from '@/lib/db';
-import { getMicrosoftErrorMessage } from '@/lib/microsoftErrors';
+import { getMicrosoftErrorMessage, getMicrosoftRetryDelayMs } from '@/lib/microsoftErrors';
 import AreaEditorModal from '@/components/AreaEditorModal';
 import ProjectEditModal from '@/components/ProjectEditModal';
 import { buildAreaName, getDefaultAreaFormValue, type AreaTypeKey } from '@/lib/areas';
@@ -463,6 +463,13 @@ export default function ProjectDetailPage() {
       if (shouldRunFullSync) {
         fullSyncNeededRef.current = true;
       }
+      const retryDelayMs = getMicrosoftRetryDelayMs(error);
+      if (retryDelayMs) {
+        setSyncError(`Microsoft is limiting sync right now. Retrying in about ${Math.ceil(retryDelayMs / 1000)} seconds.`);
+        scheduleSync(undefined, { delayMs: retryDelayMs });
+        backgroundSyncQueuedRef.current = false;
+        return;
+      }
       setSyncError(getMicrosoftErrorMessage(error, 'Background sync failed.'));
       setSyncStatus('error');
       console.error('Background sync failed:', error);
@@ -475,7 +482,7 @@ export default function ProjectDetailPage() {
     }
   }
 
-  function scheduleSync(projectId?: string) {
+  function scheduleSync(projectId?: string, options?: { delayMs?: number }) {
     if (projectId) {
       dirtyProjectIdsRef.current.add(projectId);
     }
@@ -486,7 +493,7 @@ export default function ProjectDetailPage() {
     }
     syncTimerRef.current = setTimeout(() => {
       void runBackgroundSync();
-    }, 800);
+    }, options?.delayMs ?? 800);
   }
 
   function cancelSelectionMode() {

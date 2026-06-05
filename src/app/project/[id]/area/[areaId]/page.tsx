@@ -12,7 +12,7 @@ import {
   type IssueState,
 } from '@/types';
 import { getActiveProjectCount, getProject, saveProject, createPhotoAttachment, createFileAttachment, createLocation, createItem, createCheckpoint } from '@/lib/db';
-import { getMicrosoftErrorMessage } from '@/lib/microsoftErrors';
+import { getMicrosoftErrorMessage, getMicrosoftRetryDelayMs } from '@/lib/microsoftErrors';
 import AreaEditorModal from '@/components/AreaEditorModal';
 import {
   areaHasRecordedActivity,
@@ -1126,6 +1126,13 @@ export default function AreaDetailPage() {
       if (shouldRunFullSync) {
         fullSyncNeededRef.current = true;
       }
+      const retryDelayMs = getMicrosoftRetryDelayMs(error);
+      if (retryDelayMs) {
+        setSyncError(`Microsoft is limiting sync right now. Retrying in about ${Math.ceil(retryDelayMs / 1000)} seconds.`);
+        scheduleSync(undefined, { delayMs: retryDelayMs });
+        backgroundSyncQueuedRef.current = false;
+        return;
+      }
       setSyncError(getMicrosoftErrorMessage(error, 'Background sync failed.'));
       setSyncStatus('error');
       console.error('Background sync failed:', error);
@@ -1138,7 +1145,7 @@ export default function AreaDetailPage() {
     }
   }
 
-  function scheduleSync(projectId?: string) {
+  function scheduleSync(projectId?: string, options?: { delayMs?: number }) {
     if (projectId) {
       dirtyProjectIdsRef.current.add(projectId);
     }
@@ -1149,7 +1156,7 @@ export default function AreaDetailPage() {
     }
     syncTimerRef.current = setTimeout(() => {
       void runBackgroundSync();
-    }, 800);
+    }, options?.delayMs ?? 800);
   }
 
   async function closeExpandedCheckpoint() {

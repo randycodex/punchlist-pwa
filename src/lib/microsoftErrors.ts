@@ -38,6 +38,7 @@ export function getMicrosoftErrorMessage(error: unknown, fallback: string): stri
     message.includes('temporarily unavailable') ||
     message.includes('service unavailable') ||
     message.includes('too many requests') ||
+    message.includes('throttled') ||
     message.includes('network') ||
     message.includes('failed to fetch')
   ) {
@@ -56,4 +57,26 @@ export function getMicrosoftErrorMessage(error: unknown, fallback: string): stri
   }
 
   return `${fallback} ${rawMessage}`;
+}
+
+export function getMicrosoftRetryDelayMs(error: unknown): number | null {
+  const retryAfterMs =
+    typeof error === 'object' && error !== null && 'retryAfterMs' in error
+      ? Number((error as { retryAfterMs?: unknown }).retryAfterMs)
+      : Number.NaN;
+
+  if (Number.isFinite(retryAfterMs) && retryAfterMs > 0) {
+    return retryAfterMs;
+  }
+
+  const message = extractErrorMessage(error).toLowerCase();
+  if (
+    message.includes('throttled') ||
+    message.includes('too many requests') ||
+    message.includes('429')
+  ) {
+    return 60_000;
+  }
+
+  return null;
 }

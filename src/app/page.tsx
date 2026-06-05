@@ -20,7 +20,7 @@ import {
 } from '@/lib/pendingSync';
 import { generateMultiProjectPDF, downloadPDF, type PdfExportMode } from '@/lib/pdfExport';
 import { uploadPdfToOneDrive, getNextOneDriveExportFilename } from '@/lib/oneDrive';
-import { getMicrosoftErrorMessage } from '@/lib/microsoftErrors';
+import { getMicrosoftErrorMessage, getMicrosoftRetryDelayMs } from '@/lib/microsoftErrors';
 import { useMicrosoftAuth } from '@/contexts/MicrosoftAuthContext';
 import { useSyncStatus } from '@/contexts/SyncStatusContext';
 import { useAppSettings } from '@/contexts/AppSettingsContext';
@@ -537,6 +537,13 @@ export default function ProjectsPage() {
       if (shouldRunFullSync) {
         fullSyncNeededRef.current = true;
       }
+      const retryDelayMs = getMicrosoftRetryDelayMs(error);
+      if (retryDelayMs) {
+        setSyncError(`Microsoft is limiting sync right now. Retrying in about ${Math.ceil(retryDelayMs / 1000)} seconds.`);
+        scheduleSync(undefined, { fullSync: shouldRunFullSync, delayMs: retryDelayMs });
+        backgroundSyncQueuedRef.current = false;
+        return;
+      }
       setSyncError(getMicrosoftErrorMessage(error, 'Background sync failed.'));
       setSyncStatus('error');
       console.error('Background sync failed:', error);
@@ -549,7 +556,7 @@ export default function ProjectsPage() {
     }
   }
 
-  function scheduleSync(projectId?: string, options?: { fullSync?: boolean }) {
+  function scheduleSync(projectId?: string, options?: { fullSync?: boolean; delayMs?: number }) {
     if (projectId) {
       dirtyProjectIdsRef.current.add(projectId);
     }
@@ -563,7 +570,7 @@ export default function ProjectsPage() {
     }
     syncTimerRef.current = setTimeout(() => {
       void runBackgroundSync();
-    }, 800);
+    }, options?.delayMs ?? 800);
   }
 
   const projectMetrics = useMemo(() => {
