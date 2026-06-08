@@ -418,7 +418,14 @@ export default function ProjectDetailPage() {
         setSyncStatus('pending');
         return;
       }
-      setSyncError(getMicrosoftErrorMessage(error, 'Sync failed.'));
+      const message = getMicrosoftErrorMessage(error, 'Sync failed.');
+      if (message.startsWith('Saved locally.')) {
+        setSyncError('Saved locally. Microsoft sync will retry in about 60 seconds.');
+        scheduleSync(undefined, { fullSync: true, delayMs: 60_000 });
+        setSyncStatus('pending');
+        return;
+      }
+      setSyncError(message);
       setSyncStatus('error');
     } finally {
       setSyncing(false);
@@ -501,7 +508,15 @@ export default function ProjectDetailPage() {
         backgroundSyncQueuedRef.current = false;
         return;
       }
-      setSyncError(getMicrosoftErrorMessage(error, 'Background sync failed.'));
+      const message = getMicrosoftErrorMessage(error, 'Background sync failed.');
+      if (message.startsWith('Saved locally.')) {
+        setSyncError('Saved locally. Microsoft sync will retry in about 60 seconds.');
+        scheduleSync(undefined, { fullSync: shouldRunFullSync, delayMs: 60_000 });
+        backgroundSyncQueuedRef.current = false;
+        setSyncStatus('pending');
+        return;
+      }
+      setSyncError(message);
       setSyncStatus('error');
       console.error('Background sync failed:', error);
     } finally {
