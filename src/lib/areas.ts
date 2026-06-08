@@ -239,16 +239,16 @@ export function getAreaCreationForms(form: AreaFormValue, facadeLevelOptions: st
 
 function getAreaLevelSortValue(area: Pick<Area, 'facadeLevel' | 'name'>): number | null {
   const source = area.facadeLevel || area.name;
-  const match = source.match(/\bLevel\s+(-?\d+)\b/i);
+  const match = source.match(/\bLevel\s*(-?\d+)\b/i);
   return match ? Number.parseInt(match[1], 10) : null;
 }
 
 function getAreaNameWithoutLevel(area: Pick<Area, 'facadeLevel' | 'name'>): string {
-  return area.name.replace(/\s+-\s+Level\s+-?\d+\b/i, '').trim();
+  return area.name.replace(/\s+-\s+Level\s*-?\d+\b/i, '').trim();
 }
 
 export function getLevelSortValue(name: string): number | null {
-  const match = name.match(/^Level\s+(-?\d+)$/i);
+  const match = name.match(/^Level\s*(-?\d+)$/i);
   return match ? Number.parseInt(match[1], 10) : null;
 }
 

@@ -375,21 +375,24 @@ export default function AreaDetailPage() {
     if (hasSectionLabels) return [...filteredStandardLocations].sort((a, b) => a.sortOrder - b.sortOrder);
 
     return [...filteredStandardLocations].sort((a, b) => {
+      const levelCompare = compareLevelNames(a.name, b.name);
+      if (levelCompare !== 0) return levelCompare;
+
       if (quickSort === 'alphabetical') {
-        return a.name.localeCompare(b.name);
+        return a.sortOrder - b.sortOrder;
       }
 
       if (quickSort === 'issues') {
         const issuesA = areaDerived?.locationMetrics.get(a.id)?.stats.issues ?? 0;
         const issuesB = areaDerived?.locationMetrics.get(b.id)?.stats.issues ?? 0;
         if (issuesB !== issuesA) return issuesB - issuesA;
-        return a.name.localeCompare(b.name);
+        return a.sortOrder - b.sortOrder;
       }
 
       const progressA = areaDerived?.locationMetrics.get(a.id)?.progress ?? 0;
       const progressB = areaDerived?.locationMetrics.get(b.id)?.progress ?? 0;
       if (progressB !== progressA) return progressB - progressA;
-      return a.name.localeCompare(b.name);
+      return a.sortOrder - b.sortOrder;
     });
   }, [areaDerived, filteredStandardLocations, quickSort]);
 
