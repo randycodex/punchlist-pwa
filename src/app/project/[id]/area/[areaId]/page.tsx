@@ -18,6 +18,7 @@ import {
   areaHasRecordedActivity,
   buildAreaName,
   buildFacadeLevelOptions,
+  compareLevelNames,
   getAreaFormValue,
   isApartmentArea,
   type AreaTypeKey,
@@ -230,9 +231,9 @@ export default function AreaDetailPage() {
 
   const standardLocations = useMemo(
     () =>
-      visibleLocations.filter(
-        (location) => location.name.trim().toLowerCase() !== CUSTOM_ITEMS_LOCATION_NAME.toLowerCase()
-      ),
+      visibleLocations
+        .filter((location) => location.name.trim().toLowerCase() !== CUSTOM_ITEMS_LOCATION_NAME.toLowerCase())
+        .sort((a, b) => compareLevelNames(a.name, b.name)),
     [visibleLocations]
   );
 

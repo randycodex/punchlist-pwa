@@ -247,6 +247,20 @@ function getAreaNameWithoutLevel(area: Pick<Area, 'facadeLevel' | 'name'>): stri
   return area.name.replace(/\s+-\s+Level\s+-?\d+\b/i, '').trim();
 }
 
+export function getLevelSortValue(name: string): number | null {
+  const match = name.match(/^Level\s+(-?\d+)$/i);
+  return match ? Number.parseInt(match[1], 10) : null;
+}
+
+export function compareLevelNames(a: string, b: string): number {
+  const levelA = getLevelSortValue(a);
+  const levelB = getLevelSortValue(b);
+  if (levelA !== null && levelB !== null && levelA !== levelB) {
+    return levelA - levelB;
+  }
+  return 0;
+}
+
 export function compareAreaNames(a: Pick<Area, 'facadeLevel' | 'name'>, b: Pick<Area, 'facadeLevel' | 'name'>): number {
   const baseCompare = getAreaNameWithoutLevel(a).localeCompare(getAreaNameWithoutLevel(b));
   if (baseCompare !== 0) return baseCompare;

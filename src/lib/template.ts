@@ -461,7 +461,7 @@ function populateFacadeArea(area: Area): boolean {
   populateArea(
     area,
     facadeLevels.map((level) => ({
-      name: level.replace(/^Level\s+/i, ''),
+      name: level,
       items: facadeTemplateLocations.flatMap((location) => location.items),
     }))
   );
