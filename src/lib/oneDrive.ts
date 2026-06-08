@@ -450,6 +450,20 @@ export async function uploadProjectPhotoFile(
   );
 }
 
+function isItemNotFoundError(error: unknown) {
+  return isGraphItemNotFoundError(error);
+}
+
+async function deleteDriveItemIfExists(token: string, id: string): Promise<void> {
+  try {
+    await deleteDriveItem(token, id);
+  } catch (error) {
+    if (!isItemNotFoundError(error)) {
+      throw error;
+    }
+  }
+}
+
 export async function deleteProjectPhotoFolder(token: string, projectFolderName: string): Promise<void> {
   await ensurePunchListFolders(token);
   const [activeProjectFolderPhotos, trashedProjectFolderPhotos, legacyFolder] = await Promise.all([
@@ -463,7 +477,7 @@ export async function deleteProjectPhotoFolder(token: string, projectFolderName:
     )
   );
   for (const folder of folders) {
-    await deleteDriveItem(token, folder.id);
+    await deleteDriveItemIfExists(token, folder.id);
   }
 }
 
@@ -478,7 +492,7 @@ export async function deleteProjectFolder(token: string, projectFolderName: stri
     ).filter((item): item is DriveItem => !!item?.id)
   );
   for (const folder of folders) {
-    await deleteDriveItem(token, folder.id);
+    await deleteDriveItemIfExists(token, folder.id);
   }
 }
 
@@ -641,7 +655,7 @@ export async function cleanupLegacyPunchListFolders(token: string): Promise<void
     if (!folder?.id) continue;
     const children = await listFolderChildrenByPath(token, path);
     if (children.length === 0) {
-      await deleteDriveItem(token, folder.id);
+      await deleteDriveItemIfExists(token, folder.id);
     }
   }
 }

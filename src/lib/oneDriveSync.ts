@@ -829,11 +829,29 @@ function reviveProjectDates(project: Project): Project {
 }
 
 async function downloadRemoteProject(token: string, remoteId: string): Promise<Project | null> {
-  const raw = await downloadProjectFile(token, remoteId);
+  let raw: string;
+  try {
+    raw = await downloadProjectFile(token, remoteId);
+  } catch (error) {
+    if (isItemNotFoundError(error)) {
+      return null;
+    }
+    throw error;
+  }
   try {
     return reviveProjectDates(JSON.parse(raw) as Project);
   } catch {
     return null;
+  }
+}
+
+async function ignoreMissingRemoteItem(action: () => Promise<void>) {
+  try {
+    await action();
+  } catch (error) {
+    if (!isItemNotFoundError(error)) {
+      throw error;
+    }
   }
 }
 
@@ -908,12 +926,14 @@ export async function syncProjectsWithOneDrive(token: string): Promise<SyncResul
     }
   }
 
-  await runWithConcurrency(remoteDeleteQueue, 4, (remoteId) => deleteDriveItem(token, remoteId));
+  await runWithConcurrency(remoteDeleteQueue, 4, (remoteId) =>
+    ignoreMissingRemoteItem(() => deleteDriveItem(token, remoteId))
+  );
   await runWithConcurrency([...remoteProjectFolderDeleteQueue], 2, (folderName) =>
-    deleteProjectFolder(token, folderName)
+    ignoreMissingRemoteItem(() => deleteProjectFolder(token, folderName))
   );
   await runWithConcurrency([...remotePhotoDeleteQueue], 2, (folderName) =>
-    deleteProjectPhotoFolder(token, folderName)
+    ignoreMissingRemoteItem(() => deleteProjectPhotoFolder(token, folderName))
   );
 
   // Pull newer or missing projects from OneDrive
