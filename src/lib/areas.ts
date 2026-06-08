@@ -58,6 +58,7 @@ export type AreaFormValue = {
   unitType: ApartmentUnitType | FacadeOrientation | '';
   customAreaName: string;
   areaNumber: string;
+  facadeLevel: string;
 };
 
 export const APARTMENT_UNIT_TYPES: ApartmentUnitType[] = ['EFF', '1BR', '2BR', '3BR'];
@@ -147,7 +148,11 @@ export function buildAreaName(form: AreaFormValue): string {
   const baseName = definition.requiresCustomName ? form.customAreaName.trim() : definition.label;
   const areaNumber = form.areaNumber.trim();
 
-  if (form.areaTypeKey === 'apartment_unit' || form.areaTypeKey === 'facade') {
+  if (form.areaTypeKey === 'facade') {
+    return [baseName, form.unitType, form.facadeLevel.trim()].filter(Boolean).join(' - ').trim();
+  }
+
+  if (form.areaTypeKey === 'apartment_unit') {
     return [baseName, form.unitType].filter(Boolean).join(' - ').trim();
   }
 
@@ -160,6 +165,7 @@ export function getDefaultAreaFormValue(): AreaFormValue {
     unitType: '',
     customAreaName: '',
     areaNumber: '',
+    facadeLevel: '',
   };
 }
 
@@ -177,6 +183,7 @@ export function getAreaFormValue(area?: Area | null): AreaFormValue {
     unitType,
     customAreaName: areaTypeKey === 'custom' ? area?.name ?? '' : '',
     areaNumber: area?.areaNumber ?? '',
+    facadeLevel: areaTypeKey === 'facade' ? area?.facadeLevel ?? '' : '',
   };
 }
 

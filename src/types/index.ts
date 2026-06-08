@@ -108,6 +108,7 @@ export interface Area {
   unitType?: string;
   customAreaName?: string;
   areaNumber?: string;
+  facadeLevel?: string;
   sortOrder: number;
   isComplete: boolean;
   notes: string;

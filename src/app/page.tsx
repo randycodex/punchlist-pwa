@@ -784,11 +784,13 @@ export default function ProjectsPage() {
       unitType: newAreaForm.unitType,
       customAreaName: newAreaForm.customAreaName,
       areaNumber: newAreaForm.areaNumber,
+      facadeLevel: newAreaForm.facadeLevel,
     });
     area.areaTypeKey = newAreaForm.areaTypeKey;
     area.unitType = newAreaForm.unitType || undefined;
     area.customAreaName = newAreaForm.customAreaName.trim() || undefined;
     area.areaNumber = newAreaForm.areaNumber.trim() || undefined;
+    area.facadeLevel = newAreaForm.facadeLevel.trim() || undefined;
     applyTemplateToArea(area);
     targetProject.areas.push(area);
     await saveProject(targetProject);

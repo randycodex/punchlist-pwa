@@ -475,12 +475,14 @@ export default function AreaDetailPage() {
     const originalTypeKey = targetArea.areaTypeKey;
     const originalUnitType = targetArea.unitType;
     const originalAreaNumber = targetArea.areaNumber;
+    const originalFacadeLevel = targetArea.facadeLevel;
     const nextName = buildAreaName(areaForm);
     targetArea.name = nextName;
     targetArea.areaTypeKey = areaForm.areaTypeKey;
     targetArea.unitType = areaForm.unitType || undefined;
     targetArea.customAreaName = areaForm.customAreaName.trim() || undefined;
     targetArea.areaNumber = areaForm.areaNumber.trim() || undefined;
+    targetArea.facadeLevel = areaForm.facadeLevel.trim() || undefined;
 
     const templateChanged =
       originalTypeKey !== areaForm.areaTypeKey ||
@@ -498,6 +500,7 @@ export default function AreaDetailPage() {
         targetArea.unitType = originalUnitType;
         targetArea.customAreaName = area.customAreaName;
         targetArea.areaNumber = area.areaNumber;
+        targetArea.facadeLevel = originalFacadeLevel;
         return;
       }
       applyTemplateToArea(targetArea);

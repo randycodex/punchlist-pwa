@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import {
   APARTMENT_UNIT_TYPES,
   AREA_TYPE_DEFINITIONS,
@@ -11,8 +11,9 @@ import {
   type AreaTypeKey,
   type ApartmentUnitType,
   type FacadeOrientation,
-  type FacadeType,
 } from '@/lib/areas';
+
+const FACADE_LEVEL_CUSTOM_VALUE = '__custom__';
 
 type AreaEditorModalProps = {
   open: boolean;
@@ -35,6 +36,7 @@ export default function AreaEditorModal({
   onSubmit,
   submitLabel,
 }: AreaEditorModalProps) {
+  const [levelMode, setLevelMode] = useState('');
   const orderedAreaTypes = useMemo(() => {
     const preferredOrder: AreaTypeKey[] = ['apartment_unit', 'custom'];
     const recentSet = new Set(recentAreaTypeKeys);
@@ -56,6 +58,7 @@ export default function AreaEditorModal({
   if (!open) return null;
 
   const selectedDefinition = getAreaTypeDefinition(value.areaTypeKey);
+  const selectedLevelMode = value.facadeLevel.trim() ? FACADE_LEVEL_CUSTOM_VALUE : levelMode;
 
   return (
     <div className="modal-overlay fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -70,15 +73,17 @@ export default function AreaEditorModal({
             </label>
             <select
               value={value.areaTypeKey}
-              onChange={(e) =>
+              onChange={(e) => {
+                setLevelMode('');
                 onChange({
                   ...value,
                   areaTypeKey: e.target.value as AreaTypeKey,
                   unitType: e.target.value === 'apartment_unit' ? value.unitType : '',
                   customAreaName: e.target.value === 'custom' ? value.customAreaName : '',
                   areaNumber: e.target.value === 'facade' ? value.areaNumber : '',
-                })
-              }
+                  facadeLevel: e.target.value === 'facade' ? value.facadeLevel : '',
+                });
+              }}
               className="field-shell"
             >
               {orderedAreaTypes.map((definition) => (
@@ -136,6 +141,42 @@ export default function AreaEditorModal({
                   </option>
                 ))}
               </select>
+            </div>
+          )}
+
+          {selectedDefinition.requiresOrientation && (
+            <div>
+              <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                Level
+              </label>
+              <select
+                value={selectedLevelMode}
+                onChange={(e) => {
+                  setLevelMode(e.target.value);
+                  onChange({
+                    ...value,
+                    facadeLevel: e.target.value === FACADE_LEVEL_CUSTOM_VALUE ? value.facadeLevel : '',
+                  });
+                }}
+                className="field-shell"
+              >
+                <option value="">Select level</option>
+                <option value={FACADE_LEVEL_CUSTOM_VALUE}>Custom</option>
+              </select>
+              {selectedLevelMode === FACADE_LEVEL_CUSTOM_VALUE && (
+                <input
+                  type="text"
+                  value={value.facadeLevel}
+                  onChange={(e) =>
+                    onChange({
+                      ...value,
+                      facadeLevel: e.target.value,
+                    })
+                  }
+                  className="field-shell mt-2"
+                  placeholder="Type floor or level"
+                />
+              )}
             </div>
           )}
 
@@ -223,6 +264,7 @@ export default function AreaEditorModal({
             disabled={
               (selectedDefinition.requiresUnitType && !value.unitType) ||
               (selectedDefinition.requiresOrientation && !value.unitType) ||
+              (selectedDefinition.requiresOrientation && !value.facadeLevel.trim()) ||
               (selectedDefinition.requiresFacadeType && !value.areaNumber) ||
               (selectedDefinition.requiresCustomName && !value.customAreaName.trim())
             }

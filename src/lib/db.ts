@@ -265,6 +265,7 @@ export function createArea(
     unitType?: ApartmentUnitType | FacadeOrientation | '';
     customAreaName?: string;
     areaNumber?: string;
+    facadeLevel?: string;
   }
 ): Area {
   const now = new Date();
@@ -276,6 +277,7 @@ export function createArea(
     unitType: options?.unitType || undefined,
     customAreaName: options?.customAreaName?.trim() || undefined,
     areaNumber: options?.areaNumber?.trim() || undefined,
+    facadeLevel: options?.facadeLevel?.trim() || undefined,
     sortOrder,
     isComplete: false,
     notes: '',
