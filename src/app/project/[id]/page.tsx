@@ -12,10 +12,13 @@ import { applyTemplateToArea } from '@/lib/template';
 import { pushProjectsToOneDrive, syncProjectsWithOneDrive } from '@/lib/oneDriveSync';
 import {
   clearPendingProjectSync,
+  clearPendingSyncBackoff,
   clearPendingSyncState,
+  getPendingSyncWaitMs,
   hasPendingSyncState,
   loadPendingSyncState,
   queuePendingSync,
+  recordPendingSyncRetry,
 } from '@/lib/pendingSync';
 import { useMicrosoftAuth } from '@/contexts/MicrosoftAuthContext';
 import { useSyncStatus } from '@/contexts/SyncStatusContext';
@@ -415,15 +418,17 @@ export default function ProjectDetailPage() {
       console.error('Sync failed:', error);
       const retryDelayMs = getMicrosoftRetryDelayMs(error);
       if (retryDelayMs) {
-        setSyncError(`Saved locally. Microsoft sync will retry in about ${Math.ceil(retryDelayMs / 1000)} seconds.`);
-        scheduleSync(undefined, { fullSync: true, delayMs: retryDelayMs });
+        const backoffDelayMs = recordPendingSyncRetry(retryDelayMs);
+        setSyncError(`Saved locally. Microsoft sync will retry in about ${Math.ceil(backoffDelayMs / 1000)} seconds.`);
+        scheduleSync(undefined, { fullSync: true, delayMs: backoffDelayMs });
         setSyncStatus('pending');
         return;
       }
       const message = getMicrosoftErrorMessage(error, 'Sync failed.');
       if (message.startsWith('Saved locally.')) {
-        setSyncError('Saved locally. Microsoft sync will retry in about 60 seconds.');
-        scheduleSync(undefined, { fullSync: true, delayMs: 60_000 });
+        const backoffDelayMs = recordPendingSyncRetry(60_000);
+        setSyncError(`Saved locally. Microsoft sync will retry in about ${Math.ceil(backoffDelayMs / 1000)} seconds.`);
+        scheduleSync(undefined, { fullSync: true, delayMs: backoffDelayMs });
         setSyncStatus('pending');
         return;
       }
@@ -439,6 +444,11 @@ export default function ProjectDetailPage() {
     pendingSyncState.projectIds.forEach((projectId) => dirtyProjectIdsRef.current.add(projectId));
     if (pendingSyncState.fullSyncNeeded) {
       fullSyncNeededRef.current = true;
+    }
+    const waitMs = getPendingSyncWaitMs();
+    if (waitMs > 0) {
+      scheduleSync(undefined, { fullSync: pendingSyncState.fullSyncNeeded, delayMs: waitMs });
+      return;
     }
 
     if (backgroundSyncInFlightRef.current) {
@@ -475,6 +485,7 @@ export default function ProjectDetailPage() {
         clearPendingSyncState();
         await loadProject();
         setSyncError(null);
+        clearPendingSyncBackoff();
         setSyncStatus('idle');
         markSyncedNow();
         return;
@@ -492,9 +503,11 @@ export default function ProjectDetailPage() {
         clearPendingSyncState();
         await loadProject();
         setSyncError(null);
+        clearPendingSyncBackoff();
       } else {
         clearPendingProjectSync(dirtyProjectIds);
         setSyncError(null);
+        clearPendingSyncBackoff();
       }
       setSyncStatus('idle');
       markSyncedNow();
@@ -505,15 +518,17 @@ export default function ProjectDetailPage() {
       }
       const retryDelayMs = getMicrosoftRetryDelayMs(error);
       if (retryDelayMs) {
-        setSyncError(`Saved locally. Microsoft sync will retry in about ${Math.ceil(retryDelayMs / 1000)} seconds.`);
-        scheduleSync(undefined, { delayMs: retryDelayMs });
+        const backoffDelayMs = recordPendingSyncRetry(retryDelayMs);
+        setSyncError(`Saved locally. Microsoft sync will retry in about ${Math.ceil(backoffDelayMs / 1000)} seconds.`);
+        scheduleSync(undefined, { fullSync: shouldRunFullSync, delayMs: backoffDelayMs });
         backgroundSyncQueuedRef.current = false;
         return;
       }
       const message = getMicrosoftErrorMessage(error, 'Background sync failed.');
       if (message.startsWith('Saved locally.')) {
-        setSyncError('Saved locally. Microsoft sync will retry in about 60 seconds.');
-        scheduleSync(undefined, { fullSync: shouldRunFullSync, delayMs: 60_000 });
+        const backoffDelayMs = recordPendingSyncRetry(60_000);
+        setSyncError(`Saved locally. Microsoft sync will retry in about ${Math.ceil(backoffDelayMs / 1000)} seconds.`);
+        scheduleSync(undefined, { fullSync: shouldRunFullSync, delayMs: backoffDelayMs });
         backgroundSyncQueuedRef.current = false;
         setSyncStatus('pending');
         return;

@@ -21,6 +21,7 @@ import {
   moveDriveItemToFolder,
   downloadDeletionLog,
   uploadDeletionLog,
+  acquireSyncLease,
   cleanupLegacyPunchListFolders,
 } from '@/lib/oneDrive';
 
@@ -819,37 +820,40 @@ async function downloadRemoteProject(token: string, remoteId: string): Promise<P
 }
 
 export async function syncProjectsWithOneDrive(token: string): Promise<SyncResult> {
-  await ensurePunchListFolders(token);
+  const releaseSyncLease = await acquireSyncLease(token);
 
-  const conflictsById = new Map<string, SyncConflict>();
-  const addConflict = (id: string, name: string) => {
-    if (!conflictsById.has(id)) {
-      conflictsById.set(id, { id, name });
+  try {
+    await ensurePunchListFolders(token);
+
+    const conflictsById = new Map<string, SyncConflict>();
+    const addConflict = (id: string, name: string) => {
+      if (!conflictsById.has(id)) {
+        conflictsById.set(id, { id, name });
+      }
+    };
+    const [remoteFiles, localProjects, remoteDeletions] = await Promise.all([
+      listProjectFiles(token),
+      getAllProjects(),
+      downloadDeletionLog(token),
+    ]);
+    const localSyncStates = getLocalSyncStates();
+    const localProjectMap = new Map(localProjects.map((project) => [project.id, project]));
+    const remoteFilesById = buildRemoteProjectFileIndex(remoteFiles);
+    const remoteSyncStates = normalizeSyncStateMap(remoteDeletions);
+    const mergedSyncStates = mergeSyncStates(localSyncStates, remoteSyncStates);
+    const { syncStates: resolvedSyncStates, revivedRemoteProjectIds } = resolveProjectSyncStates(
+      mergedSyncStates,
+      localProjectMap,
+      remoteFilesById
+    );
+    setLocalSyncStates(resolvedSyncStates);
+    if (!syncStateMapsEqual(resolvedSyncStates, remoteSyncStates)) {
+      await uploadDeletionLog(token, resolvedSyncStates);
     }
-  };
-  const [remoteFiles, localProjects, remoteDeletions] = await Promise.all([
-    listProjectFiles(token),
-    getAllProjects(),
-    downloadDeletionLog(token),
-  ]);
-  const localSyncStates = getLocalSyncStates();
-  const localProjectMap = new Map(localProjects.map((project) => [project.id, project]));
-  const remoteFilesById = buildRemoteProjectFileIndex(remoteFiles);
-  const remoteSyncStates = normalizeSyncStateMap(remoteDeletions);
-  const mergedSyncStates = mergeSyncStates(localSyncStates, remoteSyncStates);
-  const { syncStates: resolvedSyncStates, revivedRemoteProjectIds } = resolveProjectSyncStates(
-    mergedSyncStates,
-    localProjectMap,
-    remoteFilesById
-  );
-  setLocalSyncStates(resolvedSyncStates);
-  if (!syncStateMapsEqual(resolvedSyncStates, remoteSyncStates)) {
-    await uploadDeletionLog(token, resolvedSyncStates);
-  }
-  const remoteDeleteQueue: string[] = [];
-  const remoteProjectFolderDeleteQueue = new Set<string>();
-  const remotePhotoDeleteQueue = new Set<string>();
-  const localDeleteCandidates: Array<{ projectId: string; deletedAt: string }> = [];
+    const remoteDeleteQueue: string[] = [];
+    const remoteProjectFolderDeleteQueue = new Set<string>();
+    const remotePhotoDeleteQueue = new Set<string>();
+    const localDeleteCandidates: Array<{ projectId: string; deletedAt: string }> = [];
 
   // Apply explicit hard-delete states.
   for (const [projectId, syncState] of Object.entries(resolvedSyncStates)) {
@@ -1033,19 +1037,25 @@ export async function syncProjectsWithOneDrive(token: string): Promise<SyncResul
   setLastSyncTime(syncedAt);
   await cleanupLegacyPunchListFolders(token);
 
-  return { conflicts: [...conflictsById.values()], syncedAt: syncedAt.toISOString() };
+    return { conflicts: [...conflictsById.values()], syncedAt: syncedAt.toISOString() };
+  } finally {
+    await releaseSyncLease();
+  }
 }
 
 export async function pushProjectsToOneDrive(token: string, projectIds: string[]): Promise<PushSyncResult> {
   if (projectIds.length === 0) return { conflicts: [] };
 
-  await ensurePunchListFolders(token);
-  const syncStates = getLocalSyncStates();
-  const uniqueProjectIds = [...new Set(projectIds)];
-  const conflictsById = new Map<string, SyncConflict>();
-  const remoteFilesById = buildRemoteProjectFileIndex(await listProjectFiles(token));
+  const releaseSyncLease = await acquireSyncLease(token);
 
-  await runWithConcurrency(uniqueProjectIds, 2, async (projectId) => {
+  try {
+    await ensurePunchListFolders(token);
+    const syncStates = getLocalSyncStates();
+    const uniqueProjectIds = [...new Set(projectIds)];
+    const conflictsById = new Map<string, SyncConflict>();
+    const remoteFilesById = buildRemoteProjectFileIndex(await listProjectFiles(token));
+
+    await runWithConcurrency(uniqueProjectIds, 2, async (projectId) => {
     const syncState = syncStates[projectId];
 
     const localProject = await getProject(projectId);
@@ -1112,7 +1122,10 @@ export async function pushProjectsToOneDrive(token: string, projectIds: string[]
     }
   });
 
-  return { conflicts: [...conflictsById.values()] };
+    return { conflicts: [...conflictsById.values()] };
+  } finally {
+    await releaseSyncLease();
+  }
 }
 
 export async function hydrateProjectMediaFromOneDrive(

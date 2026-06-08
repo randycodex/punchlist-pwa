@@ -4,8 +4,11 @@ const TRASH_BIN_ROOT = `${PUNCHLIST_ROOT}/Trash Bin`;
 const SHARED_EXPORTS_PATH = `${PUNCHLIST_ROOT}/exports`;
 const LEGACY_PROJECTS_PATH = `${PUNCHLIST_ROOT}/projects`;
 const LEGACY_PHOTOS_PATH = `${PUNCHLIST_ROOT}/photos`;
+const SYNC_LEASE_PATH = `${PUNCHLIST_ROOT}/sync-lock.json`;
 const RESERVED_PUNCHLIST_FOLDER_NAMES = new Set(['exports', 'projects', 'photos', 'Trash Bin']);
 const ENSURED_FOLDER_CACHE_MS = 5 * 60 * 1000;
+const SYNC_LEASE_TTL_MS = 2 * 60 * 1000;
+const SYNC_LEASE_CLIENT_KEY = 'punchlist-sync-client-id';
 const ensuredFolderCache = new Map<string, number>();
 
 export type DriveItem = {
@@ -21,6 +24,28 @@ type DriveChildrenResponse = {
   value: DriveItem[];
   '@odata.nextLink'?: string;
 };
+
+type SyncLease = {
+  ownerId: string;
+  acquiredAt: string;
+  expiresAt: string;
+};
+
+function getSyncClientId() {
+  if (typeof window === 'undefined') {
+    return 'server';
+  }
+
+  const existing = localStorage.getItem(SYNC_LEASE_CLIENT_KEY);
+  if (existing) return existing;
+
+  const generated =
+    typeof crypto !== 'undefined' && 'randomUUID' in crypto
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  localStorage.setItem(SYNC_LEASE_CLIENT_KEY, generated);
+  return generated;
+}
 
 function getTokenCacheKey(token: string) {
   try {
@@ -629,6 +654,79 @@ export async function uploadDeletionLog(
     },
     body: JSON.stringify(data),
   });
+}
+
+async function downloadSyncLease(token: string): Promise<SyncLease | null> {
+  try {
+    const response = await fetch(`${GRAPH_API}/me/drive/root:/${SYNC_LEASE_PATH}:/content`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+    if (!response.ok) {
+      if (response.status === 404) return null;
+      throw buildGraphError(response, await getGraphErrorMessage(response));
+    }
+    const raw = await response.text();
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<SyncLease>;
+    if (
+      typeof parsed.ownerId !== 'string' ||
+      typeof parsed.acquiredAt !== 'string' ||
+      typeof parsed.expiresAt !== 'string'
+    ) {
+      return null;
+    }
+    return parsed as SyncLease;
+  } catch (error) {
+    if (error instanceof Error && error.message.toLowerCase().includes('resource could not be found')) {
+      return null;
+    }
+    throw error;
+  }
+}
+
+async function uploadSyncLease(token: string, lease: SyncLease): Promise<void> {
+  await graphFetch<DriveItem>(token, `/me/drive/root:/${SYNC_LEASE_PATH}:/content`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(lease),
+  });
+}
+
+export async function acquireSyncLease(token: string): Promise<() => Promise<void>> {
+  await ensurePunchListFolders(token);
+  const ownerId = getSyncClientId();
+  const now = Date.now();
+  const currentLease = await downloadSyncLease(token);
+  const currentExpiresAt = currentLease ? new Date(currentLease.expiresAt).getTime() : 0;
+
+  if (
+    currentLease &&
+    currentLease.ownerId !== ownerId &&
+    Number.isFinite(currentExpiresAt) &&
+    currentExpiresAt > now
+  ) {
+    const error = new Error('Another device is syncing this PunchList account.') as Error & {
+      retryAfterMs?: number;
+    };
+    error.retryAfterMs = Math.max(currentExpiresAt - now, 15_000);
+    throw error;
+  }
+
+  const lease: SyncLease = {
+    ownerId,
+    acquiredAt: new Date(now).toISOString(),
+    expiresAt: new Date(now + SYNC_LEASE_TTL_MS).toISOString(),
+  };
+  await uploadSyncLease(token, lease);
+
+  return async () => {
+    // Avoid extra Graph writes on every sync. The same device can renew its lease,
+    // and other devices will wait for the short TTL before trying.
+  };
 }
 
 export async function cleanupLegacyPunchListFolders(token: string): Promise<void> {
