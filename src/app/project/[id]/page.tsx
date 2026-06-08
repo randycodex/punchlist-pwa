@@ -22,7 +22,6 @@ import {
   clearPendingSyncBackoff,
   clearPendingSyncState,
   getPendingSyncWaitMs,
-  hasPendingSyncState,
   loadPendingSyncState,
   queuePendingSync,
   recordPendingSyncRetry,
@@ -163,6 +162,7 @@ export default function ProjectDetailPage() {
   const backgroundSyncQueuedRef = useRef(false);
   const dirtyProjectIdsRef = useRef<Set<string>>(new Set());
   const fullSyncNeededRef = useRef(false);
+  const lastForegroundSyncRef = useRef(0);
   const pullStartYRef = useRef<number | null>(null);
   const pullDistanceRef = useRef(0);
   const pullArmedRef = useRef(false);
@@ -213,8 +213,27 @@ export default function ProjectDetailPage() {
   }, []);
 
   useEffect(() => {
-    if (!accessToken || !hasPendingSyncState()) return;
-    scheduleSync();
+    if (!accessToken) return;
+    scheduleSync(undefined, { fullSync: true, delayMs: 0 });
+  }, [accessToken]);
+
+  useEffect(() => {
+    if (!accessToken) return;
+
+    function handleForegroundSync() {
+      if (document.hidden) return;
+      const now = Date.now();
+      if (now - lastForegroundSyncRef.current < 5_000) return;
+      lastForegroundSyncRef.current = now;
+      scheduleSync(undefined, { fullSync: true, delayMs: 0 });
+    }
+
+    window.addEventListener('focus', handleForegroundSync);
+    document.addEventListener('visibilitychange', handleForegroundSync);
+    return () => {
+      window.removeEventListener('focus', handleForegroundSync);
+      document.removeEventListener('visibilitychange', handleForegroundSync);
+    };
   }, [accessToken]);
 
   function handleSortChange(option: SortOption) {

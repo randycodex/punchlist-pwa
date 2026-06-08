@@ -30,7 +30,6 @@ import {
   clearPendingSyncBackoff,
   clearPendingSyncState,
   getPendingSyncWaitMs,
-  hasPendingSyncState,
   loadPendingSyncState,
   queuePendingSync,
   recordPendingSyncRetry,
@@ -127,6 +126,7 @@ export default function AreaDetailPage() {
   const backgroundSyncQueuedRef = useRef(false);
   const dirtyProjectIdsRef = useRef<Set<string>>(new Set());
   const fullSyncNeededRef = useRef(false);
+  const lastForegroundSyncRef = useRef(0);
   const notesTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const notesDraftRef = useRef('');
   const pullStartYRef = useRef<number | null>(null);
@@ -197,8 +197,27 @@ export default function AreaDetailPage() {
   }, [showHeaderMenu]);
 
   useEffect(() => {
-    if (!accessToken || !hasPendingSyncState()) return;
-    scheduleSync();
+    if (!accessToken) return;
+    scheduleSync(undefined, { fullSync: true, delayMs: 0 });
+  }, [accessToken]);
+
+  useEffect(() => {
+    if (!accessToken) return;
+
+    function handleForegroundSync() {
+      if (document.hidden) return;
+      const now = Date.now();
+      if (now - lastForegroundSyncRef.current < 5_000) return;
+      lastForegroundSyncRef.current = now;
+      scheduleSync(undefined, { fullSync: true, delayMs: 0 });
+    }
+
+    window.addEventListener('focus', handleForegroundSync);
+    document.addEventListener('visibilitychange', handleForegroundSync);
+    return () => {
+      window.removeEventListener('focus', handleForegroundSync);
+      document.removeEventListener('visibilitychange', handleForegroundSync);
+    };
   }, [accessToken]);
 
   useEffect(() => {

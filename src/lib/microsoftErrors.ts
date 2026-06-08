@@ -73,14 +73,19 @@ export function getMicrosoftRetryDelayMs(error: unknown): number | null {
   if (
     message.includes('throttled') ||
     message.includes('too many requests') ||
-    message.includes('429') ||
+    message.includes('429')
+  ) {
+    return 60_000;
+  }
+
+  if (
     message.includes('timeout') ||
     message.includes('temporarily unavailable') ||
     message.includes('service unavailable') ||
     message.includes('network') ||
     message.includes('failed to fetch')
   ) {
-    return 60_000;
+    return 15_000;
   }
 
   return null;

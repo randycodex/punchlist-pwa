@@ -386,6 +386,7 @@ export default function ProjectsPage() {
   const backgroundSyncQueuedRef = useRef(false);
   const dirtyProjectIdsRef = useRef<Set<string>>(new Set());
   const fullSyncNeededRef = useRef(false);
+  const lastForegroundSyncRef = useRef(0);
   const pullStartYRef = useRef<number | null>(null);
   const pullArmedRef = useRef(false);
   const listRef = useRef<HTMLElement | null>(null);
@@ -430,6 +431,25 @@ export default function ProjectsPage() {
   useEffect(() => {
     if (!accessToken) return;
     void handleSync();
+  }, [accessToken]);
+
+  useEffect(() => {
+    if (!accessToken) return;
+
+    function handleForegroundSync() {
+      if (document.hidden) return;
+      const now = Date.now();
+      if (now - lastForegroundSyncRef.current < 5_000) return;
+      lastForegroundSyncRef.current = now;
+      scheduleSync(undefined, { fullSync: true, delayMs: 0 });
+    }
+
+    window.addEventListener('focus', handleForegroundSync);
+    document.addEventListener('visibilitychange', handleForegroundSync);
+    return () => {
+      window.removeEventListener('focus', handleForegroundSync);
+      document.removeEventListener('visibilitychange', handleForegroundSync);
+    };
   }, [accessToken]);
 
   function handleSortChange(option: SortOption) {
