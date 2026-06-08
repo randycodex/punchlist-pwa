@@ -44,6 +44,11 @@ export default function PhotoCapture({
   const maxImageSize = 1280;
   const thumbnailSize = 360;
 
+  function openPhotoPicker() {
+    setCameraError(null);
+    cameraInputRef.current?.click();
+  }
+
   async function configureAutoFocus(stream: MediaStream) {
     type FocusCapabilities = MediaTrackCapabilities & { focusMode?: string[] };
     type FocusConstraintSet = MediaTrackConstraintSet & { focusMode?: string };
@@ -263,7 +268,7 @@ export default function PhotoCapture({
 
   useEffect(() => {
     if (!openCameraSignal) return;
-    void openCamera();
+    openPhotoPicker();
   }, [openCameraSignal]);
 
   return (
@@ -338,12 +343,12 @@ export default function PhotoCapture({
       <div className="flex items-center gap-3">
         {!hideCameraButton && (
           <button
-            onClick={openCamera}
+            onClick={openPhotoPicker}
             disabled={savingPhotos}
             className={`flex items-center justify-center rounded-[1rem] bg-gray-100 text-gray-700 transition hover:bg-gray-200 dark:bg-zinc-800 dark:text-gray-100 dark:hover:bg-zinc-700 ${
               compactActions ? 'h-10 w-10' : 'h-11 w-11'
             }`}
-            aria-label="Take photo"
+            aria-label="Add photos"
           >
             <Camera className={compactActions ? 'h-4 w-4' : 'h-4.5 w-4.5'} />
           </button>
@@ -353,6 +358,7 @@ export default function PhotoCapture({
           ref={cameraInputRef}
           type="file"
           accept="image/*"
+          multiple
           onChange={handlePhotoSelect}
           disabled={savingPhotos}
           className="hidden"

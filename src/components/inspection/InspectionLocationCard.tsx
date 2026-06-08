@@ -942,7 +942,7 @@ function CheckpointRow({
                     ? 'accent-bg text-white'
                     : 'border border-black/5 bg-white/70 text-gray-400 hover:bg-white hover:text-gray-700 dark:border-white/10 dark:bg-white/[0.04] dark:text-gray-400 dark:hover:bg-white/[0.08] dark:hover:text-gray-100'
                 }`}
-                aria-label={`Open camera for ${checkpoint.name}`}
+                aria-label={`Add photos for ${checkpoint.name}`}
               >
                 <Camera className="h-4 w-4" />
               </button>
