@@ -35,19 +35,20 @@ const facadeBrickTemplate: TemplateLocation[] = [
 const facadeGFRCTemplate: TemplateLocation[] = [
   {
     name: 'Panels',
-    items: [{ name: 'Panels', checkpoints: ['Cracking', 'Crazing', 'Delamination', 'Spalling'] }],
+    items: [
+      {
+        name: 'Panels',
+        checkpoints: ['Cracking', 'Crazing', 'Delamination', 'Spalling', 'Loose', 'Screw/Rivet', 'Fading', 'Coating', 'Stain', 'Dirty'],
+      },
+    ],
   },
   {
-    name: 'Connections',
-    items: [{ name: 'Connections', checkpoints: ['Anchors', 'Corrosion', 'Bearings', 'Fasteners'] }],
+    name: 'Windows',
+    items: [{ name: 'Windows', checkpoints: ['Sill', 'Jamb', 'Head', 'Glass', 'Frame', 'Caulking', 'Stain', 'Dirty'] }],
   },
   {
     name: 'Joints',
     items: [{ name: 'Joints', checkpoints: ['Sealants', 'Compression', 'Adhesion', 'Backer Rod'] }],
-  },
-  {
-    name: 'Finish',
-    items: [{ name: 'Finish', checkpoints: ['Coating', 'Fading', 'Patching', 'Streaking'] }],
   },
 ];
 
