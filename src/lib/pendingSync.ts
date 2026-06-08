@@ -6,7 +6,7 @@ type PendingSyncState = {
 };
 
 const PENDING_SYNC_STORAGE_KEY = 'punchlist-pending-sync';
-const MAX_STORED_RETRY_WAIT_MS = 90_000;
+const MAX_STORED_RETRY_WAIT_MS = 30_000;
 
 function getDefaultPendingSyncState(): PendingSyncState {
   return {
@@ -134,7 +134,7 @@ export function recordPendingSyncRetry(
   const state = loadPendingSyncState();
   const retryCount = Math.min(state.retryCount + 1, 5);
   const minDelayMs = options?.minDelayMs ?? 15_000;
-  const maxDelayMs = Math.max(options?.maxDelayMs ?? 90_000, baseDelayMs);
+  const maxDelayMs = Math.max(options?.maxDelayMs ?? MAX_STORED_RETRY_WAIT_MS, baseDelayMs);
   const exponentialDelayMs = Math.min(
     Math.max(baseDelayMs, minDelayMs) * 2 ** Math.max(retryCount - 1, 0),
     maxDelayMs

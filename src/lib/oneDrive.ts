@@ -4,11 +4,8 @@ const TRASH_BIN_ROOT = `${PUNCHLIST_ROOT}/Trash Bin`;
 const SHARED_EXPORTS_PATH = `${PUNCHLIST_ROOT}/exports`;
 const LEGACY_PROJECTS_PATH = `${PUNCHLIST_ROOT}/projects`;
 const LEGACY_PHOTOS_PATH = `${PUNCHLIST_ROOT}/photos`;
-const SYNC_LEASE_PATH = `${PUNCHLIST_ROOT}/sync-lock.json`;
 const RESERVED_PUNCHLIST_FOLDER_NAMES = new Set(['exports', 'projects', 'photos', 'Trash Bin']);
 const ENSURED_FOLDER_CACHE_MS = 5 * 60 * 1000;
-const SYNC_LEASE_TTL_MS = 30 * 1000;
-const SYNC_LEASE_CLIENT_KEY = 'punchlist-sync-client-id';
 const ensuredFolderCache = new Map<string, number>();
 
 export type DriveItem = {
@@ -24,34 +21,6 @@ type DriveChildrenResponse = {
   value: DriveItem[];
   '@odata.nextLink'?: string;
 };
-
-type SyncLease = {
-  ownerId: string;
-  leaseId: string;
-  acquiredAt: string;
-  expiresAt: string;
-};
-
-type SyncLeaseRecord = {
-  lease: SyncLease;
-  eTag?: string;
-};
-
-function getSyncClientId() {
-  if (typeof window === 'undefined') {
-    return 'server';
-  }
-
-  const existing = localStorage.getItem(SYNC_LEASE_CLIENT_KEY);
-  if (existing) return existing;
-
-  const generated =
-    typeof crypto !== 'undefined' && 'randomUUID' in crypto
-      ? crypto.randomUUID()
-      : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-  localStorage.setItem(SYNC_LEASE_CLIENT_KEY, generated);
-  return generated;
-}
 
 function getTokenCacheKey(token: string) {
   try {
@@ -662,128 +631,9 @@ export async function uploadDeletionLog(
   });
 }
 
-async function downloadSyncLease(token: string): Promise<SyncLeaseRecord | null> {
-  try {
-    const metadata = await getItemByPath(token, SYNC_LEASE_PATH);
-    if (!metadata?.id) return null;
-    const response = await fetch(`${GRAPH_API}/me/drive/root:/${SYNC_LEASE_PATH}:/content`, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
-    });
-    if (!response.ok) {
-      if (response.status === 404) return null;
-      throw buildGraphError(response, await getGraphErrorMessage(response));
-    }
-    const raw = await response.text();
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as Partial<SyncLease>;
-    if (
-      typeof parsed.ownerId !== 'string' ||
-      typeof parsed.leaseId !== 'string' ||
-      typeof parsed.acquiredAt !== 'string' ||
-      typeof parsed.expiresAt !== 'string'
-    ) {
-      return null;
-    }
-    return {
-      lease: parsed as SyncLease,
-      eTag: metadata.eTag,
-    };
-  } catch (error) {
-    if (error instanceof Error && error.message.toLowerCase().includes('resource could not be found')) {
-      return null;
-    }
-    throw error;
-  }
-}
-
-async function uploadSyncLease(token: string, lease: SyncLease, etag?: string): Promise<void> {
-  await graphFetch<DriveItem>(token, `/me/drive/root:/${SYNC_LEASE_PATH}:/content`, {
-    method: 'PUT',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(etag ? { 'If-Match': etag } : {}),
-    },
-    body: JSON.stringify(lease),
-  });
-}
-
-function isDriveWriteConflict(error: unknown) {
-  if (!(error instanceof Error)) return false;
-  const message = error.message.toLowerCase();
-  return (
-    message.includes('precondition failed') ||
-    message.includes('etag mismatch') ||
-    message.includes('resource has changed') ||
-    message.includes('caller last read')
-  );
-}
-
 export async function acquireSyncLease(token: string): Promise<() => Promise<void>> {
   await ensurePunchListFolders(token);
-  const ownerId = getSyncClientId();
-  const now = Date.now();
-  const currentLeaseRecord = await downloadSyncLease(token);
-  const currentLease = currentLeaseRecord?.lease ?? null;
-  const currentExpiresAt = currentLease ? new Date(currentLease.expiresAt).getTime() : 0;
-
-  if (
-    currentLease &&
-    currentLease.ownerId !== ownerId &&
-    Number.isFinite(currentExpiresAt) &&
-    currentExpiresAt > now
-  ) {
-    const error = new Error('Another device is syncing this PunchList account.') as Error & {
-      retryAfterMs?: number;
-    };
-    error.retryAfterMs = Math.max(currentExpiresAt - now, 3_000);
-    throw error;
-  }
-
-  const lease: SyncLease = {
-    ownerId,
-    leaseId:
-      typeof crypto !== 'undefined' && 'randomUUID' in crypto
-        ? crypto.randomUUID()
-        : `${now}-${Math.random().toString(36).slice(2)}`,
-    acquiredAt: new Date(now).toISOString(),
-    expiresAt: new Date(now + SYNC_LEASE_TTL_MS).toISOString(),
-  };
-  try {
-    await uploadSyncLease(token, lease, currentLeaseRecord?.eTag);
-  } catch (error) {
-    if (isDriveWriteConflict(error)) {
-      const retryError = new Error('Another device updated the sync lock.') as Error & {
-        retryAfterMs?: number;
-      };
-      retryError.retryAfterMs = 3_000;
-      throw retryError;
-    }
-    throw error;
-  }
-
-  return async () => {
-    try {
-      const latestLeaseRecord = await downloadSyncLease(token);
-      if (
-        latestLeaseRecord?.lease.ownerId !== ownerId ||
-        latestLeaseRecord.lease.leaseId !== lease.leaseId
-      ) {
-        return;
-      }
-      await uploadSyncLease(
-        token,
-        {
-          ...latestLeaseRecord.lease,
-          expiresAt: new Date().toISOString(),
-        },
-        latestLeaseRecord.eTag
-      );
-    } catch {
-      // A stale lock expires quickly, so release failures should not block sync.
-    }
-  };
+  return async () => {};
 }
 
 export async function cleanupLegacyPunchListFolders(token: string): Promise<void> {
