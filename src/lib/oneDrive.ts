@@ -61,6 +61,19 @@ function getRetryAfterMs(response: Response): number | undefined {
   return undefined;
 }
 
+function isGraphItemNotFoundError(error: unknown) {
+  if (!(error instanceof Error)) return false;
+  const message = error.message.toLowerCase();
+  return (
+    message.includes('itemnotfound') ||
+    message.includes('item not found') ||
+    message.includes('404') ||
+    message.includes('the resource could not be found') ||
+    message.includes('resource could not be found') ||
+    message.includes('resource not found')
+  );
+}
+
 async function getGraphErrorMessage(response: Response) {
   try {
     const data = await response.clone().json();
@@ -138,15 +151,7 @@ async function getItemByPath(token: string, path: string): Promise<DriveItem | n
     );
     return { ...item, punchlistPath: path };
   } catch (error) {
-    if (
-      error instanceof Error &&
-      (
-        error.message.includes('itemNotFound') ||
-        error.message.includes('404') ||
-        error.message.includes('The resource could not be found') ||
-        error.message.includes('resource could not be found')
-      )
-    ) {
+    if (isGraphItemNotFoundError(error)) {
       return null;
     }
     throw error;
@@ -280,15 +285,7 @@ async function listFolderChildrenByPath(token: string, path: string): Promise<Dr
 
     return attachPunchlistPaths(items, path);
   } catch (error) {
-    if (
-      error instanceof Error &&
-      (
-        error.message.includes('itemNotFound') ||
-        error.message.includes('404') ||
-        error.message.includes('The resource could not be found') ||
-        error.message.includes('resource could not be found')
-      )
-    ) {
+    if (isGraphItemNotFoundError(error)) {
       return [];
     }
     throw error;

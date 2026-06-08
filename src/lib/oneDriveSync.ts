@@ -618,6 +618,24 @@ function isConflictError(error: unknown) {
   );
 }
 
+async function uploadProjectFileRecoveringMissingRemote(
+  token: string,
+  projectFolderName: string,
+  filename: string,
+  content: string,
+  trashed: boolean,
+  etag?: string
+) {
+  try {
+    return await uploadProjectFile(token, projectFolderName, filename, content, trashed, etag);
+  } catch (error) {
+    if (etag && isItemNotFoundError(error)) {
+      return uploadProjectFile(token, projectFolderName, filename, content, trashed);
+    }
+    throw error;
+  }
+}
+
 function isItemNotFoundError(error: unknown) {
   if (!(error instanceof Error)) return false;
   const message = error.message.toLowerCase();
@@ -1000,7 +1018,7 @@ export async function syncProjectsWithOneDrive(token: string): Promise<SyncResul
     }
 
     try {
-      const uploadedRemote = await uploadProjectFile(
+      const uploadedRemote = await uploadProjectFileRecoveringMissingRemote(
         token,
         targetFolderName,
         filename,
@@ -1088,7 +1106,7 @@ export async function pushProjectsToOneDrive(token: string, projectIds: string[]
     }
 
     try {
-      const uploadedRemote = await uploadProjectFile(
+      const uploadedRemote = await uploadProjectFileRecoveringMissingRemote(
         token,
         targetFolderName,
         filename,
