@@ -127,6 +127,8 @@ export interface Project {
   inspector: string;
   gcName: string;
   gcSignoff: string;
+  facadeLevelStart?: number;
+  facadeLevelEnd?: number;
   deletedAt?: Date;
   areas: Area[];
   createdAt: Date;

@@ -31,7 +31,7 @@ import ProjectEditModal from '@/components/ProjectEditModal';
 import AreaEditorModal from '@/components/AreaEditorModal';
 import MetadataLine from '@/components/MetadataLine';
 import { applyTemplateToArea } from '@/lib/template';
-import { buildAreaName, getDefaultAreaFormValue, type AreaTypeKey } from '@/lib/areas';
+import { buildAreaName, buildFacadeLevelOptions, getDefaultAreaFormValue, type AreaTypeKey } from '@/lib/areas';
 import Link from 'next/link';
 import {
   ChevronRight,
@@ -352,6 +352,8 @@ export default function ProjectsPage() {
   const [newProjectAddress, setNewProjectAddress] = useState('');
   const [newProjectInspector, setNewProjectInspector] = useState('');
   const [newProjectGcName, setNewProjectGcName] = useState('');
+  const [newProjectLevelStart, setNewProjectLevelStart] = useState('');
+  const [newProjectLevelEnd, setNewProjectLevelEnd] = useState('');
   const [sortOption, setSortOption] = useState<SortOption>('issues');
   const [syncing, setSyncing] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
@@ -713,6 +715,10 @@ export default function ProjectsPage() {
     [activeProjects]
   );
   const singleProjectMainView = !!singleProject && !showTrash;
+  const areaTargetProject =
+    projects.find((project) => project.id === areaTargetProjectId && !project.deletedAt) ??
+    singleProject;
+  const facadeLevelOptions = buildFacadeLevelOptions(areaTargetProject);
   const activeAreas = useMemo(
     () => (singleProject ? singleProject.areas.filter((area) => !area.deletedAt) : []),
     [singleProject]
@@ -775,6 +781,10 @@ export default function ProjectsPage() {
 
     const project = createProject(newProjectName.trim(), newProjectAddress.trim(), newProjectInspector.trim());
     project.gcName = newProjectGcName.trim();
+    const facadeLevelStart = Number.parseInt(newProjectLevelStart, 10);
+    const facadeLevelEnd = Number.parseInt(newProjectLevelEnd, 10);
+    project.facadeLevelStart = Number.isNaN(facadeLevelStart) ? undefined : facadeLevelStart;
+    project.facadeLevelEnd = Number.isNaN(facadeLevelEnd) ? undefined : facadeLevelEnd;
     await saveProject(project);
     scheduleSync(project.id);
     setProjects((prev) => [...prev, project]);
@@ -782,6 +792,8 @@ export default function ProjectsPage() {
     setNewProjectAddress('');
     setNewProjectInspector('');
     setNewProjectGcName('');
+    setNewProjectLevelStart('');
+    setNewProjectLevelEnd('');
     setShowNewProject(false);
   }
 
@@ -1531,6 +1543,7 @@ export default function ProjectsPage() {
         title="Add Area"
         value={newAreaForm}
         recentAreaTypeKeys={recentAreaTypeKeys}
+        facadeLevelOptions={facadeLevelOptions}
         onChange={setNewAreaForm}
         onClose={() => {
           setShowAddArea(false);
@@ -1645,6 +1658,27 @@ export default function ProjectsPage() {
                   placeholder="Enter GC name"
                 />
               </div>
+              <div>
+                <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                  Level Range
+                </label>
+                <div className="grid grid-cols-2 gap-3">
+                  <input
+                    type="number"
+                    value={newProjectLevelStart}
+                    onChange={(e) => setNewProjectLevelStart(e.target.value)}
+                    className="field-shell"
+                    placeholder="From"
+                  />
+                  <input
+                    type="number"
+                    value={newProjectLevelEnd}
+                    onChange={(e) => setNewProjectLevelEnd(e.target.value)}
+                    className="field-shell"
+                    placeholder="To"
+                  />
+                </div>
+              </div>
             </div>
             <div className="flex gap-3 mt-6">
               <button
@@ -1654,6 +1688,8 @@ export default function ProjectsPage() {
                   setNewProjectAddress('');
                   setNewProjectInspector('');
                   setNewProjectGcName('');
+                  setNewProjectLevelStart('');
+                  setNewProjectLevelEnd('');
                 }}
                 className="flex-1 rounded-2xl border border-gray-300/90 bg-white/70 px-4 py-3 font-medium text-gray-700 transition hover:bg-white dark:border-white/10 dark:bg-white/[0.04] dark:text-gray-300 dark:hover:bg-white/[0.08]"
               >

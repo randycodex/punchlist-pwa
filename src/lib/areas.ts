@@ -43,6 +43,28 @@ export type FacadeType = 'Bricks' | 'GFRC' | 'EIFS';
 export const FACADE_ORIENTATIONS: FacadeOrientation[] = ['South', 'North', 'East', 'West'];
 export const FACADE_TYPES: FacadeType[] = ['Bricks', 'GFRC', 'EIFS'];
 
+export function buildFacadeLevelOptions(range?: { facadeLevelStart?: number; facadeLevelEnd?: number } | null): string[] {
+  const start = range?.facadeLevelStart;
+  const end = range?.facadeLevelEnd;
+  if (
+    typeof start !== 'number' ||
+    typeof end !== 'number' ||
+    !Number.isInteger(start) ||
+    !Number.isInteger(end)
+  ) {
+    return [];
+  }
+
+  const min = Math.min(start, end);
+  const max = Math.max(start, end);
+  const levels: string[] = [];
+  for (let level = min; level <= max; level += 1) {
+    if (level === 0) continue;
+    levels.push(`Level ${level}`);
+  }
+  return levels;
+}
+
 export type AreaTypeDefinition = {
   key: AreaTypeKey;
   label: string;

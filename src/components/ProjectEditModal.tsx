@@ -22,10 +22,15 @@ export default function ProjectEditModal({ project, onSave, onDelete, onClose }:
   const [address, setAddress] = useState(project.address);
   const [inspector, setInspector] = useState(project.inspector);
   const [gcName, setGcName] = useState(project.gcName);
+  const [facadeLevelStart, setFacadeLevelStart] = useState(project.facadeLevelStart?.toString() ?? '');
+  const [facadeLevelEnd, setFacadeLevelEnd] = useState(project.facadeLevelEnd?.toString() ?? '');
   const [date, setDate] = useState(toDateInputValue(project.date));
 
   function handleSave() {
     if (!projectName.trim()) return;
+
+    const nextFacadeLevelStart = Number.parseInt(facadeLevelStart, 10);
+    const nextFacadeLevelEnd = Number.parseInt(facadeLevelEnd, 10);
 
     onSave({
       projectName: projectName.trim(),
@@ -33,6 +38,8 @@ export default function ProjectEditModal({ project, onSave, onDelete, onClose }:
       inspector: inspector.trim(),
       gcName: gcName.trim(),
       date: new Date(date),
+      facadeLevelStart: Number.isNaN(nextFacadeLevelStart) ? undefined : nextFacadeLevelStart,
+      facadeLevelEnd: Number.isNaN(nextFacadeLevelEnd) ? undefined : nextFacadeLevelEnd,
     });
   }
 
@@ -108,6 +115,28 @@ export default function ProjectEditModal({ project, onSave, onDelete, onClose }:
               onChange={(e) => setGcName(e.target.value)}
               className="field-shell"
             />
+          </div>
+
+          <div>
+            <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
+              Level Range
+            </label>
+            <div className="grid grid-cols-2 gap-3">
+              <input
+                type="number"
+                value={facadeLevelStart}
+                onChange={(e) => setFacadeLevelStart(e.target.value)}
+                className="field-shell"
+                placeholder="From"
+              />
+              <input
+                type="number"
+                value={facadeLevelEnd}
+                onChange={(e) => setFacadeLevelEnd(e.target.value)}
+                className="field-shell"
+                placeholder="To"
+              />
+            </div>
           </div>
         </div>
 

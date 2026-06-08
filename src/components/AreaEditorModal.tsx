@@ -14,13 +14,13 @@ import {
 } from '@/lib/areas';
 
 const FACADE_LEVEL_CUSTOM_VALUE = '__custom__';
-const FACADE_LEVELS = Array.from({ length: 100 }, (_, index) => `Level ${index + 1}`);
 
 type AreaEditorModalProps = {
   open: boolean;
   title: string;
   value: AreaFormValue;
   recentAreaTypeKeys: AreaTypeKey[];
+  facadeLevelOptions?: string[];
   onChange: (value: AreaFormValue) => void;
   onClose: () => void;
   onSubmit: () => void;
@@ -32,6 +32,7 @@ export default function AreaEditorModal({
   title,
   value,
   recentAreaTypeKeys,
+  facadeLevelOptions = [],
   onChange,
   onClose,
   onSubmit,
@@ -60,7 +61,7 @@ export default function AreaEditorModal({
 
   const selectedDefinition = getAreaTypeDefinition(value.areaTypeKey);
   const selectedLevelMode = value.facadeLevel.trim()
-    ? FACADE_LEVELS.includes(value.facadeLevel.trim())
+    ? facadeLevelOptions.includes(value.facadeLevel.trim())
       ? value.facadeLevel.trim()
       : FACADE_LEVEL_CUSTOM_VALUE
     : levelMode;
@@ -169,7 +170,7 @@ export default function AreaEditorModal({
                 className="field-shell"
               >
                 <option value="">Select level</option>
-                {FACADE_LEVELS.map((level) => (
+                {facadeLevelOptions.map((level) => (
                   <option key={level} value={level}>
                     {level}
                   </option>

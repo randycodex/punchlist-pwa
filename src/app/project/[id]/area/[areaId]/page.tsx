@@ -17,6 +17,7 @@ import AreaEditorModal from '@/components/AreaEditorModal';
 import {
   areaHasRecordedActivity,
   buildAreaName,
+  buildFacadeLevelOptions,
   getAreaFormValue,
   isApartmentArea,
   type AreaTypeKey,
@@ -1778,6 +1779,7 @@ export default function AreaDetailPage() {
         title="Edit Area"
         value={areaForm}
         recentAreaTypeKeys={recentAreaTypeKeys}
+        facadeLevelOptions={buildFacadeLevelOptions(project)}
         onChange={setAreaForm}
         onClose={() => {
           setAreaForm(getAreaFormValue(area));

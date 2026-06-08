@@ -7,7 +7,7 @@ import { getProject, saveProject, createArea } from '@/lib/db';
 import { getMicrosoftErrorMessage, getMicrosoftRetryDelayMs } from '@/lib/microsoftErrors';
 import AreaEditorModal from '@/components/AreaEditorModal';
 import ProjectEditModal from '@/components/ProjectEditModal';
-import { buildAreaName, getDefaultAreaFormValue, type AreaTypeKey } from '@/lib/areas';
+import { buildAreaName, buildFacadeLevelOptions, getDefaultAreaFormValue, type AreaTypeKey } from '@/lib/areas';
 import { applyTemplateToArea } from '@/lib/template';
 import { pushProjectsToOneDrive, syncProjectsWithOneDrive } from '@/lib/oneDriveSync';
 import {
@@ -845,6 +845,7 @@ export default function ProjectDetailPage() {
         title="Add Area"
         value={newAreaForm}
         recentAreaTypeKeys={recentAreaTypeKeys}
+        facadeLevelOptions={buildFacadeLevelOptions(project)}
         onChange={setNewAreaForm}
         onClose={() => {
           setShowAddArea(false);
