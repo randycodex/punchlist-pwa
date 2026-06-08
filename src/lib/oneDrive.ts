@@ -709,6 +709,17 @@ async function uploadSyncLease(token: string, lease: SyncLease, etag?: string): 
   });
 }
 
+function isDriveWriteConflict(error: unknown) {
+  if (!(error instanceof Error)) return false;
+  const message = error.message.toLowerCase();
+  return (
+    message.includes('precondition failed') ||
+    message.includes('etag mismatch') ||
+    message.includes('resource has changed') ||
+    message.includes('caller last read')
+  );
+}
+
 export async function acquireSyncLease(token: string): Promise<() => Promise<void>> {
   await ensurePunchListFolders(token);
   const ownerId = getSyncClientId();
@@ -739,7 +750,18 @@ export async function acquireSyncLease(token: string): Promise<() => Promise<voi
     acquiredAt: new Date(now).toISOString(),
     expiresAt: new Date(now + SYNC_LEASE_TTL_MS).toISOString(),
   };
-  await uploadSyncLease(token, lease, currentLeaseRecord?.eTag);
+  try {
+    await uploadSyncLease(token, lease, currentLeaseRecord?.eTag);
+  } catch (error) {
+    if (isDriveWriteConflict(error)) {
+      const retryError = new Error('Another device updated the sync lock.') as Error & {
+        retryAfterMs?: number;
+      };
+      retryError.retryAfterMs = 3_000;
+      throw retryError;
+    }
+    throw error;
+  }
 
   return async () => {
     try {
