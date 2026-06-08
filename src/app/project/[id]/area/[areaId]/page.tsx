@@ -1447,6 +1447,12 @@ export default function AreaDetailPage() {
           {sortedStandardLocations.map((location, index) => {
             const prevLabel = index > 0 ? sortedStandardLocations[index - 1].sectionLabel : undefined;
             const showSectionHeader = location.sectionLabel && location.sectionLabel !== prevLabel;
+            const standardItems = location.items.filter((item) => !item.isCustom);
+            const primaryStandardItem =
+              standardItems.length === 1 &&
+              standardItems[0].name.trim().toLowerCase() === location.name.trim().toLowerCase()
+                ? standardItems[0]
+                : null;
             return (
             <div
               key={location.id}
@@ -1589,23 +1595,44 @@ export default function AreaDetailPage() {
                 addItemControl={
                   supportsInlineLocationCustomItems && !editingCustomItem ? (
                     <CustomItemComposer
-                      open={showCustomItemComposer && customItemTargetLocationId === location.id}
-                      value={customItemName}
-                      submitLabel={editingCustomItem ? 'Save' : 'Add'}
+                      open={
+                        primaryStandardItem
+                          ? showCustomCheckpointComposer &&
+                            customCheckpointTarget?.locationId === location.id &&
+                            customCheckpointTarget?.itemId === primaryStandardItem.id
+                          : showCustomItemComposer && customItemTargetLocationId === location.id
+                      }
+                      value={primaryStandardItem ? customCheckpointName : customItemName}
+                      valuePlaceholder={primaryStandardItem ? 'Item name' : undefined}
+                      submitLabel={primaryStandardItem ? (editingCustomCheckpoint ? 'Save' : 'Add') : editingCustomItem ? 'Save' : 'Add'}
                       onOpen={() => {
-                        setCustomItemTargetLocationId(location.id);
-                        setEditingCustomItem(null);
-                        setCustomItemName('');
-                        setShowCustomItemComposer(true);
+                        if (primaryStandardItem) {
+                          setCustomCheckpointTarget({ locationId: location.id, itemId: primaryStandardItem.id });
+                          setCustomCheckpointName('');
+                          setEditingCustomCheckpoint(null);
+                          setShowCustomCheckpointComposer(true);
+                        } else {
+                          setCustomItemTargetLocationId(location.id);
+                          setEditingCustomItem(null);
+                          setCustomItemName('');
+                          setShowCustomItemComposer(true);
+                        }
                       }}
                       onClose={() => {
-                        setShowCustomItemComposer(false);
-                        setCustomItemTargetLocationId(null);
-                        setCustomItemName('');
-                        setEditingCustomItem(null);
+                        if (primaryStandardItem) {
+                          setShowCustomCheckpointComposer(false);
+                          setCustomCheckpointName('');
+                          setCustomCheckpointTarget(null);
+                          setEditingCustomCheckpoint(null);
+                        } else {
+                          setShowCustomItemComposer(false);
+                          setCustomItemTargetLocationId(null);
+                          setCustomItemName('');
+                          setEditingCustomItem(null);
+                        }
                       }}
-                      onChange={setCustomItemName}
-                      onSubmit={() => void handleSubmitCustomItem()}
+                      onChange={primaryStandardItem ? setCustomCheckpointName : setCustomItemName}
+                      onSubmit={() => void (primaryStandardItem ? handleSubmitCustomCheckpoint() : handleSubmitCustomItem())}
                     />
                   ) : null
                 }

@@ -466,6 +466,69 @@ export default function InspectionLocationCard({
                           onOpenCamera={() => {
                             openCheckpointCamera(location.id, item.id, checkpoint.id, checkpoint.comments);
                           }}
+                          extraActions={
+                            checkpoint.isCustom ? (
+                              <div
+                                ref={openCustomItemMenuId === checkpoint.id ? customMenuRef : null}
+                                className="relative"
+                                onClick={(event) => event.stopPropagation()}
+                              >
+                                <button
+                                  type="button"
+                                  onPointerDown={(event) => {
+                                    event.preventDefault();
+                                    event.stopPropagation();
+                                  }}
+                                  onClick={(event) => {
+                                    event.preventDefault();
+                                    event.stopPropagation();
+                                    setOpenCustomItemMenuId((current) => (current === checkpoint.id ? null : checkpoint.id));
+                                  }}
+                                  className="flex h-10 w-10 items-center justify-center rounded-[1rem] bg-black/[0.05] text-gray-500 transition hover:bg-black/[0.08] hover:text-gray-700 dark:bg-white/[0.08] dark:text-gray-300 dark:hover:bg-white/[0.12] dark:hover:text-white"
+                                  aria-label={`More actions for ${checkpoint.name}`}
+                                >
+                                  <MoreVertical className="h-4 w-4" />
+                                </button>
+                                {openCustomItemMenuId === checkpoint.id && (
+                                  <div
+                                    className="menu-surface absolute right-0 top-[calc(100%+0.35rem)] z-50 min-w-[10rem] rounded-2xl py-1"
+                                    onPointerDown={(event) => event.stopPropagation()}
+                                    onClick={(event) => event.stopPropagation()}
+                                  >
+                                    <button
+                                      type="button"
+                                      onClick={async (event) => {
+                                        event.stopPropagation();
+                                        setOpenCustomItemMenuId(null);
+                                        await onEditCustomCheckpoint?.(
+                                          location.id,
+                                          item.id,
+                                          checkpoint.id,
+                                          checkpoint.name
+                                        );
+                                      }}
+                                      className="flex w-full items-center gap-3 px-4 py-3 text-left text-sm text-gray-700 hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-gray-700"
+                                    >
+                                      <Pencil className="h-4 w-4" />
+                                      Edit item
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={async (event) => {
+                                        event.stopPropagation();
+                                        setOpenCustomItemMenuId(null);
+                                        await onDeleteCustomCheckpoint?.(location.id, item.id, checkpoint.id);
+                                      }}
+                                      className="flex w-full items-center gap-3 px-4 py-3 text-left text-sm text-[var(--accent)] hover:bg-gray-50 dark:hover:bg-gray-700"
+                                    >
+                                      <Trash2 className="h-4 w-4" />
+                                      Delete item
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+                            ) : null
+                          }
                         />
                         {isExpandedCheckpoint && (
                           <InlineCheckpointEditor
