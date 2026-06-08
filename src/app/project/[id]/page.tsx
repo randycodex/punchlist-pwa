@@ -397,13 +397,27 @@ export default function ProjectDetailPage() {
         setSyncStatus('needs-auth');
         return;
       }
-      await syncProjectsWithOneDrive(token);
+      const result = await syncProjectsWithOneDrive(token);
+      if (result.conflicts.length > 0) {
+        setSyncError('Saved locally. OneDrive changed on another device; sync will retry.');
+        scheduleSync(undefined, { fullSync: true, delayMs: 10_000 });
+        setSyncStatus('pending');
+        return;
+      }
       clearPendingSyncState();
+      setSyncError(null);
       setSyncStatus('idle');
       markSyncedNow();
       await loadProject();
     } catch (error) {
       console.error('Sync failed:', error);
+      const retryDelayMs = getMicrosoftRetryDelayMs(error);
+      if (retryDelayMs) {
+        setSyncError(`Saved locally. Microsoft sync will retry in about ${Math.ceil(retryDelayMs / 1000)} seconds.`);
+        scheduleSync(undefined, { fullSync: true, delayMs: retryDelayMs });
+        setSyncStatus('pending');
+        return;
+      }
       setSyncError(getMicrosoftErrorMessage(error, 'Sync failed.'));
       setSyncStatus('error');
     } finally {
@@ -441,20 +455,37 @@ export default function ProjectDetailPage() {
         return;
       }
       if (shouldRunFullSync) {
-        await syncProjectsWithOneDrive(token);
+        const result = await syncProjectsWithOneDrive(token);
+        if (result.conflicts.length > 0) {
+          setSyncError('Saved locally. OneDrive changed on another device; sync will retry.');
+          scheduleSync(undefined, { fullSync: true, delayMs: 10_000 });
+          backgroundSyncQueuedRef.current = false;
+          setSyncStatus('pending');
+          return;
+        }
         clearPendingSyncState();
         await loadProject();
+        setSyncError(null);
         setSyncStatus('idle');
         markSyncedNow();
         return;
       }
       const pushResult = await pushProjectsToOneDrive(token, dirtyProjectIds);
       if (pushResult.conflicts.length > 0) {
-        await syncProjectsWithOneDrive(token);
+        const result = await syncProjectsWithOneDrive(token);
+        if (result.conflicts.length > 0) {
+          setSyncError('Saved locally. OneDrive changed on another device; sync will retry.');
+          scheduleSync(undefined, { fullSync: true, delayMs: 10_000 });
+          backgroundSyncQueuedRef.current = false;
+          setSyncStatus('pending');
+          return;
+        }
         clearPendingSyncState();
         await loadProject();
+        setSyncError(null);
       } else {
         clearPendingProjectSync(dirtyProjectIds);
+        setSyncError(null);
       }
       setSyncStatus('idle');
       markSyncedNow();
@@ -482,11 +513,14 @@ export default function ProjectDetailPage() {
     }
   }
 
-  function scheduleSync(projectId?: string, options?: { delayMs?: number }) {
+  function scheduleSync(projectId?: string, options?: { fullSync?: boolean; delayMs?: number }) {
     if (projectId) {
       dirtyProjectIdsRef.current.add(projectId);
     }
-    queuePendingSync(projectId);
+    if (options?.fullSync) {
+      fullSyncNeededRef.current = true;
+    }
+    queuePendingSync(projectId, options);
     setSyncStatus('pending');
     if (syncTimerRef.current) {
       clearTimeout(syncTimerRef.current);
