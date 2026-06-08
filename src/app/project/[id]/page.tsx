@@ -162,6 +162,7 @@ export default function ProjectDetailPage() {
   const backgroundSyncQueuedRef = useRef(false);
   const dirtyProjectIdsRef = useRef<Set<string>>(new Set());
   const fullSyncNeededRef = useRef(false);
+  const forceSyncNowRef = useRef(false);
   const lastForegroundSyncRef = useRef(0);
   const pullStartYRef = useRef<number | null>(null);
   const pullDistanceRef = useRef(0);
@@ -214,7 +215,7 @@ export default function ProjectDetailPage() {
 
   useEffect(() => {
     if (!accessToken) return;
-    scheduleSync(undefined, { fullSync: true, delayMs: 0 });
+    scheduleSync(undefined, { fullSync: true, delayMs: 0, force: true });
   }, [accessToken]);
 
   useEffect(() => {
@@ -225,7 +226,7 @@ export default function ProjectDetailPage() {
       const now = Date.now();
       if (now - lastForegroundSyncRef.current < 5_000) return;
       lastForegroundSyncRef.current = now;
-      scheduleSync(undefined, { fullSync: true, delayMs: 0 });
+      scheduleSync(undefined, { fullSync: true, delayMs: 0, force: true });
     }
 
     window.addEventListener('focus', handleForegroundSync);
@@ -481,8 +482,10 @@ export default function ProjectDetailPage() {
     if (pendingSyncState.fullSyncNeeded) {
       fullSyncNeededRef.current = true;
     }
+    const forceSyncNow = forceSyncNowRef.current;
+    forceSyncNowRef.current = false;
     const waitMs = getPendingSyncWaitMs();
-    if (waitMs > 0) {
+    if (waitMs > 0 && !forceSyncNow) {
       scheduleSync(undefined, { fullSync: pendingSyncState.fullSyncNeeded, delayMs: waitMs });
       return;
     }
@@ -581,12 +584,15 @@ export default function ProjectDetailPage() {
     }
   }
 
-  function scheduleSync(projectId?: string, options?: { fullSync?: boolean; delayMs?: number }) {
+  function scheduleSync(projectId?: string, options?: { fullSync?: boolean; delayMs?: number; force?: boolean }) {
     if (projectId) {
       dirtyProjectIdsRef.current.add(projectId);
     }
     if (options?.fullSync) {
       fullSyncNeededRef.current = true;
+    }
+    if (options?.force) {
+      forceSyncNowRef.current = true;
     }
     queuePendingSync(projectId, options);
     setSyncStatus('pending');
