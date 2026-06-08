@@ -12,7 +12,7 @@ import {
   type IssueState,
 } from '@/types';
 import { getActiveProjectCount, getProject, saveProject, createPhotoAttachment, createFileAttachment, createLocation, createItem, createCheckpoint } from '@/lib/db';
-import { getMicrosoftErrorMessage, getMicrosoftRetryDelayMs } from '@/lib/microsoftErrors';
+import { getMicrosoftErrorMessage, getMicrosoftRetryDelayMs, formatMicrosoftRetryMessage } from '@/lib/microsoftErrors';
 import AreaEditorModal from '@/components/AreaEditorModal';
 import {
   areaHasRecordedActivity,
@@ -1048,7 +1048,7 @@ export default function AreaDetailPage() {
       const retryDelayMs = getMicrosoftRetryDelayMs(error);
       if (retryDelayMs) {
         const backoffDelayMs = recordPendingSyncRetry(retryDelayMs);
-        setSyncError(`Saved locally. Microsoft sync will retry in about ${Math.ceil(backoffDelayMs / 1000)} seconds.`);
+        setSyncError(formatMicrosoftRetryMessage(backoffDelayMs));
         scheduleSync(undefined, { fullSync: true, delayMs: backoffDelayMs });
         setSyncStatus('pending');
         return;
@@ -1056,7 +1056,7 @@ export default function AreaDetailPage() {
       const message = getMicrosoftErrorMessage(error, 'Sync failed.');
       if (message.startsWith('Saved locally.')) {
         const backoffDelayMs = recordPendingSyncRetry(60_000);
-        setSyncError(`Saved locally. Microsoft sync will retry in about ${Math.ceil(backoffDelayMs / 1000)} seconds.`);
+        setSyncError(formatMicrosoftRetryMessage(backoffDelayMs));
         scheduleSync(undefined, { fullSync: true, delayMs: backoffDelayMs });
         setSyncStatus('pending');
         return;
@@ -1210,7 +1210,7 @@ export default function AreaDetailPage() {
       const retryDelayMs = getMicrosoftRetryDelayMs(error);
       if (retryDelayMs) {
         const backoffDelayMs = recordPendingSyncRetry(retryDelayMs);
-        setSyncError(`Saved locally. Microsoft sync will retry in about ${Math.ceil(backoffDelayMs / 1000)} seconds.`);
+        setSyncError(formatMicrosoftRetryMessage(backoffDelayMs));
         scheduleSync(undefined, { fullSync: shouldRunFullSync, delayMs: backoffDelayMs });
         backgroundSyncQueuedRef.current = false;
         return;
@@ -1218,7 +1218,7 @@ export default function AreaDetailPage() {
       const message = getMicrosoftErrorMessage(error, 'Background sync failed.');
       if (message.startsWith('Saved locally.')) {
         const backoffDelayMs = recordPendingSyncRetry(60_000);
-        setSyncError(`Saved locally. Microsoft sync will retry in about ${Math.ceil(backoffDelayMs / 1000)} seconds.`);
+        setSyncError(formatMicrosoftRetryMessage(backoffDelayMs));
         scheduleSync(undefined, { fullSync: shouldRunFullSync, delayMs: backoffDelayMs });
         backgroundSyncQueuedRef.current = false;
         setSyncStatus('pending');

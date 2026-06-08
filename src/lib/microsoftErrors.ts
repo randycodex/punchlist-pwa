@@ -39,10 +39,12 @@ export function getMicrosoftErrorMessage(error: unknown, fallback: string): stri
     message.includes('service unavailable') ||
     message.includes('too many requests') ||
     message.includes('throttled') ||
+    message.includes('itemnotfound') ||
+    message.includes('item not found') ||
     message.includes('network') ||
     message.includes('failed to fetch')
   ) {
-    return 'Saved locally. Microsoft sync is temporarily unavailable.';
+    return 'Saved locally. Microsoft is catching up.';
   }
 
   if (
@@ -82,6 +84,8 @@ export function getMicrosoftRetryDelayMs(error: unknown): number | null {
     message.includes('timeout') ||
     message.includes('temporarily unavailable') ||
     message.includes('service unavailable') ||
+    message.includes('itemnotfound') ||
+    message.includes('item not found') ||
     message.includes('network') ||
     message.includes('failed to fetch')
   ) {
@@ -89,4 +93,8 @@ export function getMicrosoftRetryDelayMs(error: unknown): number | null {
   }
 
   return null;
+}
+
+export function formatMicrosoftRetryMessage(delayMs: number) {
+  return `Saved locally. Microsoft is catching up. Retrying in about ${Math.ceil(delayMs / 1000)} seconds.`;
 }

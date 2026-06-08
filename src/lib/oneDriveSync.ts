@@ -845,6 +845,24 @@ async function downloadRemoteProject(token: string, remoteId: string): Promise<P
   }
 }
 
+async function getRemoteProjectPayloadUpdatedAt(
+  token: string,
+  remote?: Pick<RemoteProjectFile, 'id' | 'lastModifiedDateTime'>,
+  cache?: Map<string, number>
+) {
+  if (!remote?.id) {
+    return 0;
+  }
+  const cached = cache?.get(remote.id);
+  if (cached !== undefined) {
+    return cached;
+  }
+  const remoteProject = await downloadRemoteProject(token, remote.id);
+  const updatedAt = getProjectUpdatedAt(remoteProject);
+  cache?.set(remote.id, updatedAt);
+  return updatedAt;
+}
+
 async function ignoreMissingRemoteItem(action: () => Promise<void>) {
   try {
     await action();
@@ -937,6 +955,7 @@ export async function syncProjectsWithOneDrive(token: string): Promise<SyncResul
   );
 
   // Pull newer or missing projects from OneDrive
+  const remoteProjectUpdatedAtByItemId = new Map<string, number>();
   const pullQueue = [...remoteFilesById.entries()];
   await runWithConcurrency(pullQueue, 4, async ([projectId, remoteEntries]) => {
     const remote = pickPrimaryRemoteProjectFile(remoteEntries);
@@ -953,14 +972,17 @@ export async function syncProjectsWithOneDrive(token: string): Promise<SyncResul
       return;
     }
     const remoteProjectWithFolder = withProjectFolderName(remoteProject, remoteFolderName);
-    const hydratedRemoteProject = await hydrateProjectPhotosFromOneDrive(
-      token,
-      remoteProjectWithFolder,
-      remoteFolderName ?? undefined
-    );
-    const remoteUpdatedAt = getProjectUpdatedAt(hydratedRemoteProject);
+    const remoteUpdatedAt = getProjectUpdatedAt(remoteProjectWithFolder);
+    remoteProjectUpdatedAtByItemId.set(remote.id, remoteUpdatedAt);
+    const hydrateRemoteProject = () =>
+      hydrateProjectPhotosFromOneDrive(
+        token,
+        remoteProjectWithFolder,
+        remoteFolderName ?? undefined
+      );
 
     if (!localProject) {
+      const hydratedRemoteProject = await hydrateRemoteProject();
       await saveProjectPreserveTimestamps(hydratedRemoteProject);
       localProjectMap.set(projectId, hydratedRemoteProject);
       return;
@@ -972,12 +994,14 @@ export async function syncProjectsWithOneDrive(token: string): Promise<SyncResul
       revivedRemoteProjectIds.has(projectId) &&
       localUpdatedAt <= staleDeleteUpdatedAt + CLOCK_SKEW_TOLERANCE_MS
     ) {
+      const hydratedRemoteProject = await hydrateRemoteProject();
       await saveProjectPreserveTimestamps(hydratedRemoteProject);
       localProjectMap.set(projectId, hydratedRemoteProject);
       return;
     }
 
     if (remoteUpdatedAt > localUpdatedAt + CLOCK_SKEW_TOLERANCE_MS) {
+      const hydratedRemoteProject = await hydrateRemoteProject();
       await saveProjectPreserveTimestamps(hydratedRemoteProject);
       localProjectMap.set(projectId, hydratedRemoteProject);
     }
@@ -1021,7 +1045,11 @@ export async function syncProjectsWithOneDrive(token: string): Promise<SyncResul
     await saveProjectPreserveTimestamps(fullProject);
 
     const localUpdatedAt = getProjectUpdatedAt(project);
-    const remoteUpdatedAt = timestampMs(remote?.lastModifiedDateTime);
+    const remoteUpdatedAt = await getRemoteProjectPayloadUpdatedAt(
+      token,
+      remote,
+      remoteProjectUpdatedAtByItemId
+    );
     const needsProjectFileMigration =
       remoteEntries.length > 0 && (!canonicalRemote || remoteEntries.some((entry) => entry.id !== canonicalRemote.id));
     const freshnessComparison = compareTimestampsWithTolerance(localUpdatedAt, remoteUpdatedAt);
@@ -1107,7 +1135,7 @@ export async function pushProjectsToOneDrive(token: string, projectIds: string[]
     const canonicalRemote = remoteEntries.find((entry) =>
       isCanonicalRemoteProjectFile(localProject, entry, targetFolderName)
     );
-    const remoteUpdatedAt = timestampMs(remote?.lastModifiedDateTime);
+    const remoteUpdatedAt = await getRemoteProjectPayloadUpdatedAt(token, remote);
     const localUpdatedAt = getProjectUpdatedAt(localProject);
 
     const freshnessComparison = compareTimestampsWithTolerance(localUpdatedAt, remoteUpdatedAt);

@@ -54,7 +54,7 @@ export default function RootLayout({
           {`
             (function () {
               if (!('serviceWorker' in navigator) || !('localStorage' in window)) return;
-              var cleanupKey = 'punchlist:pwa-cleanup-v1';
+              var cleanupKey = 'punchlist:pwa-cleanup-v2';
               try {
                 if (localStorage.getItem(cleanupKey) === 'done') return;
               } catch (e) {}
