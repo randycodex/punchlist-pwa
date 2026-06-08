@@ -14,6 +14,7 @@ import {
 } from '@/lib/areas';
 
 const FACADE_LEVEL_CUSTOM_VALUE = '__custom__';
+const FACADE_LEVELS = Array.from({ length: 100 }, (_, index) => `Level ${index + 1}`);
 
 type AreaEditorModalProps = {
   open: boolean;
@@ -58,7 +59,11 @@ export default function AreaEditorModal({
   if (!open) return null;
 
   const selectedDefinition = getAreaTypeDefinition(value.areaTypeKey);
-  const selectedLevelMode = value.facadeLevel.trim() ? FACADE_LEVEL_CUSTOM_VALUE : levelMode;
+  const selectedLevelMode = value.facadeLevel.trim()
+    ? FACADE_LEVELS.includes(value.facadeLevel.trim())
+      ? value.facadeLevel.trim()
+      : FACADE_LEVEL_CUSTOM_VALUE
+    : levelMode;
 
   return (
     <div className="modal-overlay fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -155,12 +160,20 @@ export default function AreaEditorModal({
                   setLevelMode(e.target.value);
                   onChange({
                     ...value,
-                    facadeLevel: e.target.value === FACADE_LEVEL_CUSTOM_VALUE ? value.facadeLevel : '',
+                    facadeLevel:
+                      e.target.value === FACADE_LEVEL_CUSTOM_VALUE
+                        ? value.facadeLevel
+                        : e.target.value,
                   });
                 }}
                 className="field-shell"
               >
                 <option value="">Select level</option>
+                {FACADE_LEVELS.map((level) => (
+                  <option key={level} value={level}>
+                    {level}
+                  </option>
+                ))}
                 <option value={FACADE_LEVEL_CUSTOM_VALUE}>Custom</option>
               </select>
               {selectedLevelMode === FACADE_LEVEL_CUSTOM_VALUE && (
