@@ -1,7 +1,7 @@
 'use client';
 
 import { memo, useState, useEffect, useMemo, useRef, useCallback, type TouchEvent } from 'react';
-import { Project, checkpointHasIssue, getReviewMetrics } from '@/types';
+import { Area, Project, checkpointHasIssue, getReviewMetrics } from '@/types';
 import { getAllProjects, getProject, saveProject, deleteProject, createProject, createArea } from '@/lib/db';
 import {
   syncProjectsWithOneDrive,
@@ -31,7 +31,13 @@ import ProjectEditModal from '@/components/ProjectEditModal';
 import AreaEditorModal from '@/components/AreaEditorModal';
 import MetadataLine from '@/components/MetadataLine';
 import { applyTemplateToArea } from '@/lib/template';
-import { buildAreaName, buildFacadeLevelOptions, getDefaultAreaFormValue, type AreaTypeKey } from '@/lib/areas';
+import {
+  buildAreaName,
+  buildFacadeLevelOptions,
+  getDefaultAreaFormValue,
+  getFacadeCreationLevels,
+  type AreaTypeKey,
+} from '@/lib/areas';
 import Link from 'next/link';
 import {
   ChevronRight,
@@ -803,23 +809,34 @@ export default function ProjectsPage() {
       singleProject;
     if (!targetProject) return;
 
-    const areaName = buildAreaName(newAreaForm);
-    if (!areaName) return;
+    const facadeLevels = getFacadeCreationLevels(newAreaForm, buildFacadeLevelOptions(targetProject));
+    if (newAreaForm.areaTypeKey === 'facade' && facadeLevels.length === 0) return;
 
-    const area = createArea(targetProject.id, areaName, targetProject.areas.length, {
-      areaTypeKey: newAreaForm.areaTypeKey,
-      unitType: newAreaForm.unitType,
-      customAreaName: newAreaForm.customAreaName,
-      areaNumber: newAreaForm.areaNumber,
-      facadeLevel: newAreaForm.facadeLevel,
-    });
-    area.areaTypeKey = newAreaForm.areaTypeKey;
-    area.unitType = newAreaForm.unitType || undefined;
-    area.customAreaName = newAreaForm.customAreaName.trim() || undefined;
-    area.areaNumber = newAreaForm.areaNumber.trim() || undefined;
-    area.facadeLevel = newAreaForm.facadeLevel.trim() || undefined;
-    applyTemplateToArea(area);
-    targetProject.areas.push(area);
+    const createdAreas = (newAreaForm.areaTypeKey === 'facade' ? facadeLevels : [newAreaForm.facadeLevel]).map(
+      (facadeLevel, index) => {
+        const areaForm = { ...newAreaForm, facadeLevel };
+        const areaName = buildAreaName(areaForm);
+        if (!areaName) return null;
+
+        const area = createArea(targetProject.id, areaName, targetProject.areas.length + index, {
+          areaTypeKey: areaForm.areaTypeKey,
+          unitType: areaForm.unitType,
+          customAreaName: areaForm.customAreaName,
+          areaNumber: areaForm.areaNumber,
+          facadeLevel: areaForm.facadeLevel,
+        });
+        area.areaTypeKey = areaForm.areaTypeKey;
+        area.unitType = areaForm.unitType || undefined;
+        area.customAreaName = areaForm.customAreaName.trim() || undefined;
+        area.areaNumber = areaForm.areaNumber.trim() || undefined;
+        area.facadeLevel = areaForm.facadeLevel.trim() || undefined;
+        applyTemplateToArea(area);
+        return area;
+      }
+    ).filter((area): area is Area => area !== null);
+    if (createdAreas.length === 0) return;
+
+    targetProject.areas.push(...createdAreas);
     await saveProject(targetProject);
     scheduleSync(targetProject.id);
     const nextRecentAreaTypeKeys = [
@@ -1544,6 +1561,7 @@ export default function ProjectsPage() {
         value={newAreaForm}
         recentAreaTypeKeys={recentAreaTypeKeys}
         facadeLevelOptions={facadeLevelOptions}
+        enableFacadeLevelBatch
         onChange={setNewAreaForm}
         onClose={() => {
           setShowAddArea(false);

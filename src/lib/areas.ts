@@ -81,6 +81,7 @@ export type AreaFormValue = {
   customAreaName: string;
   areaNumber: string;
   facadeLevel: string;
+  facadeLevelMode: '' | 'yes' | 'no';
 };
 
 export const APARTMENT_UNIT_TYPES: ApartmentUnitType[] = ['EFF', '1BR', '2BR', '3BR'];
@@ -188,6 +189,7 @@ export function getDefaultAreaFormValue(): AreaFormValue {
     customAreaName: '',
     areaNumber: '',
     facadeLevel: '',
+    facadeLevelMode: '',
   };
 }
 
@@ -206,7 +208,14 @@ export function getAreaFormValue(area?: Area | null): AreaFormValue {
     customAreaName: areaTypeKey === 'custom' ? area?.name ?? '' : '',
     areaNumber: area?.areaNumber ?? '',
     facadeLevel: areaTypeKey === 'facade' ? area?.facadeLevel ?? '' : '',
+    facadeLevelMode: areaTypeKey === 'facade' && area?.facadeLevel ? 'yes' : 'no',
   };
+}
+
+export function getFacadeCreationLevels(form: AreaFormValue, facadeLevelOptions: string[]): string[] {
+  if (form.areaTypeKey !== 'facade') return [form.facadeLevel.trim()].filter(Boolean);
+  if (form.facadeLevelMode === 'yes') return facadeLevelOptions;
+  return [''];
 }
 
 export function areaHasRecordedActivity(area: Area): boolean {

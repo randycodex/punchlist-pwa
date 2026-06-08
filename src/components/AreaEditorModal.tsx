@@ -21,6 +21,7 @@ type AreaEditorModalProps = {
   value: AreaFormValue;
   recentAreaTypeKeys: AreaTypeKey[];
   facadeLevelOptions?: string[];
+  enableFacadeLevelBatch?: boolean;
   onChange: (value: AreaFormValue) => void;
   onClose: () => void;
   onSubmit: () => void;
@@ -33,6 +34,7 @@ export default function AreaEditorModal({
   value,
   recentAreaTypeKeys,
   facadeLevelOptions = [],
+  enableFacadeLevelBatch = false,
   onChange,
   onClose,
   onSubmit,
@@ -88,6 +90,7 @@ export default function AreaEditorModal({
                   customAreaName: e.target.value === 'custom' ? value.customAreaName : '',
                   areaNumber: e.target.value === 'facade' ? value.areaNumber : '',
                   facadeLevel: e.target.value === 'facade' ? value.facadeLevel : '',
+                  facadeLevelMode: e.target.value === 'facade' ? value.facadeLevelMode : '',
                 });
               }}
               className="field-shell"
@@ -150,7 +153,37 @@ export default function AreaEditorModal({
             </div>
           )}
 
-          {selectedDefinition.requiresOrientation && (
+          {selectedDefinition.requiresOrientation && enableFacadeLevelBatch && (
+            <div>
+              <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                Levels
+              </label>
+              <select
+                value={value.facadeLevelMode}
+                onChange={(e) =>
+                  onChange({
+                    ...value,
+                    facadeLevelMode: e.target.value as AreaFormValue['facadeLevelMode'],
+                    facadeLevel: e.target.value === 'yes' ? value.facadeLevel : '',
+                  })
+                }
+                className="field-shell"
+              >
+                <option value="">Select levels</option>
+                <option value="yes" disabled={facadeLevelOptions.length === 0}>
+                  Yes
+                </option>
+                <option value="no">No</option>
+              </select>
+              {facadeLevelOptions.length === 0 && (
+                <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                  Set a project level range first to create facade levels.
+                </p>
+              )}
+            </div>
+          )}
+
+          {selectedDefinition.requiresOrientation && !enableFacadeLevelBatch && (
             <div>
               <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
                 Level
@@ -278,7 +311,12 @@ export default function AreaEditorModal({
             disabled={
               (selectedDefinition.requiresUnitType && !value.unitType) ||
               (selectedDefinition.requiresOrientation && !value.unitType) ||
-              (selectedDefinition.requiresOrientation && !value.facadeLevel.trim()) ||
+              (selectedDefinition.requiresOrientation &&
+                enableFacadeLevelBatch &&
+                (!value.facadeLevelMode || (value.facadeLevelMode === 'yes' && facadeLevelOptions.length === 0))) ||
+              (selectedDefinition.requiresOrientation &&
+                !enableFacadeLevelBatch &&
+                !value.facadeLevel.trim()) ||
               (selectedDefinition.requiresFacadeType && !value.areaNumber) ||
               (selectedDefinition.requiresCustomName && !value.customAreaName.trim())
             }
