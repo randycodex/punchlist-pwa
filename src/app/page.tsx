@@ -34,6 +34,7 @@ import { applyTemplateToArea } from '@/lib/template';
 import {
   buildAreaName,
   buildFacadeLevelOptions,
+  compareAreaNames,
   getDefaultAreaFormValue,
   getFacadeCreationLevels,
   type AreaTypeKey,
@@ -768,13 +769,13 @@ export default function ProjectsPage() {
   const sortedAreas = useMemo(() => {
     return [...activeAreas].sort((a, b) => {
       if (sortOption === 'alphabetical') {
-        return a.name.localeCompare(b.name);
+        return compareAreaNames(a, b);
       }
       if (sortOption === 'issues') {
         const issuesA = areaMetrics.get(a.id)?.stats.issues ?? 0;
         const issuesB = areaMetrics.get(b.id)?.stats.issues ?? 0;
         if (issuesB !== issuesA) return issuesB - issuesA;
-        return a.name.localeCompare(b.name);
+        return compareAreaNames(a, b);
       }
       const progressA = areaMetrics.get(a.id)?.progress ?? 0;
       const progressB = areaMetrics.get(b.id)?.progress ?? 0;
@@ -1005,7 +1006,7 @@ export default function ProjectsPage() {
 
     return hydratedProjects.map((project) => ({
       ...project,
-      areas: [...project.areas].sort((a, b) => a.name.localeCompare(b.name)),
+      areas: [...project.areas].sort(compareAreaNames),
     }));
   }
 

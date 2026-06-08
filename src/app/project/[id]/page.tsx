@@ -10,6 +10,7 @@ import ProjectEditModal from '@/components/ProjectEditModal';
 import {
   buildAreaName,
   buildFacadeLevelOptions,
+  compareAreaNames,
   getDefaultAreaFormValue,
   getFacadeCreationLevels,
   type AreaTypeKey,
@@ -310,13 +311,13 @@ export default function ProjectDetailPage() {
 
     return [...visibleAreas].sort((a, b) => {
       if (sortOption === 'alphabetical') {
-        return a.name.localeCompare(b.name);
+        return compareAreaNames(a, b);
       }
       if (sortOption === 'issues') {
         const issuesA = areaMetrics.get(a.id)?.stats.issues ?? 0;
         const issuesB = areaMetrics.get(b.id)?.stats.issues ?? 0;
         if (issuesB !== issuesA) return issuesB - issuesA;
-        return a.name.localeCompare(b.name);
+        return compareAreaNames(a, b);
       }
       const progressA = areaMetrics.get(a.id)?.progress ?? 0;
       const progressB = areaMetrics.get(b.id)?.progress ?? 0;

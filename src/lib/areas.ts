@@ -218,6 +218,29 @@ export function getFacadeCreationLevels(form: AreaFormValue, facadeLevelOptions:
   return [''];
 }
 
+function getAreaLevelSortValue(area: Pick<Area, 'facadeLevel' | 'name'>): number | null {
+  const source = area.facadeLevel || area.name;
+  const match = source.match(/\bLevel\s+(-?\d+)\b/i);
+  return match ? Number.parseInt(match[1], 10) : null;
+}
+
+function getAreaNameWithoutLevel(area: Pick<Area, 'facadeLevel' | 'name'>): string {
+  return area.name.replace(/\s+-\s+Level\s+-?\d+\b/i, '').trim();
+}
+
+export function compareAreaNames(a: Pick<Area, 'facadeLevel' | 'name'>, b: Pick<Area, 'facadeLevel' | 'name'>): number {
+  const baseCompare = getAreaNameWithoutLevel(a).localeCompare(getAreaNameWithoutLevel(b));
+  if (baseCompare !== 0) return baseCompare;
+
+  const levelA = getAreaLevelSortValue(a);
+  const levelB = getAreaLevelSortValue(b);
+  if (levelA !== null && levelB !== null && levelA !== levelB) {
+    return levelA - levelB;
+  }
+
+  return a.name.localeCompare(b.name);
+}
+
 export function areaHasRecordedActivity(area: Area): boolean {
   return area.locations.some((location) =>
     location.items.some((item) =>
