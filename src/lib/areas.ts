@@ -172,7 +172,10 @@ export function buildAreaName(form: AreaFormValue): string {
   const areaNumber = form.areaNumber.trim();
 
   if (form.areaTypeKey === 'facade') {
-    return [baseName, form.unitType, form.facadeLevel.trim()].filter(Boolean).join(' - ').trim();
+    const facadeTypes = areaNumber.split(',').filter(Boolean);
+    const facadeType = facadeTypes.length === 1 ? facadeTypes[0] : '';
+    const facadeLevel = form.facadeLevel.includes(',') ? '' : form.facadeLevel.trim();
+    return [baseName, form.unitType, facadeType, facadeLevel].filter(Boolean).join(' - ').trim();
   }
 
   if (form.areaTypeKey === 'apartment_unit') {
@@ -216,6 +219,22 @@ export function getFacadeCreationLevels(form: AreaFormValue, facadeLevelOptions:
   if (form.areaTypeKey !== 'facade') return [form.facadeLevel.trim()].filter(Boolean);
   if (form.facadeLevelMode === 'yes') return facadeLevelOptions;
   return [''];
+}
+
+export function getAreaCreationForms(form: AreaFormValue, facadeLevelOptions: string[]): AreaFormValue[] {
+  if (form.areaTypeKey !== 'facade') return [form];
+
+  const facadeTypes = form.areaNumber.split(',').filter(Boolean);
+  if (facadeTypes.length === 0) return [];
+
+  const facadeLevels = form.facadeLevelMode === 'yes' ? facadeLevelOptions : [];
+  if (form.facadeLevelMode === 'yes' && facadeLevels.length === 0) return [];
+
+  return facadeTypes.map((facadeType) => ({
+    ...form,
+    areaNumber: facadeType,
+    facadeLevel: facadeLevels.join(','),
+  }));
 }
 
 function getAreaLevelSortValue(area: Pick<Area, 'facadeLevel' | 'name'>): number | null {

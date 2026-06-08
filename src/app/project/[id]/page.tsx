@@ -11,8 +11,8 @@ import {
   buildAreaName,
   buildFacadeLevelOptions,
   compareAreaNames,
+  getAreaCreationForms,
   getDefaultAreaFormValue,
-  getFacadeCreationLevels,
   type AreaTypeKey,
 } from '@/lib/areas';
 import { applyTemplateToArea } from '@/lib/template';
@@ -328,12 +328,11 @@ export default function ProjectDetailPage() {
   async function handleAddArea() {
     if (!project) return;
 
-    const facadeLevels = getFacadeCreationLevels(newAreaForm, buildFacadeLevelOptions(project));
-    if (newAreaForm.areaTypeKey === 'facade' && facadeLevels.length === 0) return;
+    const areaForms = getAreaCreationForms(newAreaForm, buildFacadeLevelOptions(project));
+    if (areaForms.length === 0) return;
 
-    const createdAreas = (newAreaForm.areaTypeKey === 'facade' ? facadeLevels : [newAreaForm.facadeLevel]).map(
-      (facadeLevel, index) => {
-        const areaForm = { ...newAreaForm, facadeLevel };
+    const createdAreas = areaForms.map(
+      (areaForm, index) => {
         const areaName = buildAreaName(areaForm);
         if (!areaName) return null;
 

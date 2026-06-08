@@ -427,6 +427,47 @@ function populateArea(
 
 }
 
+function getFacadeTemplateLocations(area: Area): TemplateLocation[] {
+  const facadeTypes = (area.areaNumber ?? '').split(',').filter(Boolean);
+  if (facadeTypes.length === 0) return [];
+
+  const typeTemplateMap: Record<string, TemplateLocation[]> = {
+    Bricks: facadeBrickTemplate,
+    GFRC: facadeGFRCTemplate,
+    EIFS: facadeEIFSTemplate,
+  };
+
+  const merged: TemplateLocation[] = [];
+  for (const facadeType of facadeTypes) {
+    const locations = typeTemplateMap[facadeType] ?? [];
+    locations.forEach((location) => {
+      merged.push({ ...location, sectionLabel: facadeTypes.length > 1 ? facadeType : undefined });
+    });
+  }
+
+  return merged;
+}
+
+function populateFacadeArea(area: Area): boolean {
+  const facadeTemplateLocations = getFacadeTemplateLocations(area);
+  if (facadeTemplateLocations.length === 0) return false;
+
+  const facadeLevels = (area.facadeLevel ?? '').split(',').map((level) => level.trim()).filter(Boolean);
+  if (facadeLevels.length === 0) {
+    populateArea(area, facadeTemplateLocations);
+    return true;
+  }
+
+  populateArea(
+    area,
+    facadeLevels.map((level) => ({
+      name: level.replace(/^Level\s+/i, ''),
+      items: facadeTemplateLocations.flatMap((location) => location.items),
+    }))
+  );
+  return true;
+}
+
 export function applyTemplateToArea(area: Area): void {
   const definition = getAreaTypeDefinition(resolveAreaTypeKey(area));
 
@@ -462,22 +503,7 @@ export function applyTemplateToArea(area: Area): void {
 
   if (definition.templateKey === 'commonArea') {
     if (area.areaTypeKey === 'facade') {
-      const facadeTypes = (area.areaNumber ?? '').split(',').filter(Boolean);
-      if (facadeTypes.length > 0) {
-        const typeTemplateMap: Record<string, TemplateLocation[]> = {
-          Bricks: facadeBrickTemplate,
-          GFRC: facadeGFRCTemplate,
-          EIFS: facadeEIFSTemplate,
-        };
-        const merged: TemplateLocation[] = [];
-        for (const t of facadeTypes) {
-          const locs = typeTemplateMap[t] ?? [];
-          locs.forEach((loc) => {
-            merged.push({ ...loc, sectionLabel: facadeTypes.length > 1 ? t : undefined });
-          });
-        }
-        if (merged.length > 0) { populateArea(area, merged); return; }
-      }
+      if (populateFacadeArea(area)) return;
     }
     populateArea(area, [{ name: area.name, items: commonAreaItems }]);
     return;
