@@ -4,6 +4,24 @@ function extractErrorMessage(error: unknown): string {
   return '';
 }
 
+export function isMicrosoftTransientSyncError(error: unknown): boolean {
+  const message = extractErrorMessage(error).trim().toLowerCase();
+  if (!message) return false;
+
+  return (
+    message.includes('timeout') ||
+    message.includes('temporarily unavailable') ||
+    message.includes('service unavailable') ||
+    message.includes('too many requests') ||
+    message.includes('throttled') ||
+    message.includes('itemnotfound') ||
+    message.includes('item not found') ||
+    message.includes('network') ||
+    message.includes('failed to fetch') ||
+    message.includes('general exception while processing')
+  );
+}
+
 export function getMicrosoftErrorMessage(error: unknown, fallback: string): string {
   const rawMessage = extractErrorMessage(error).trim();
   const message = rawMessage.toLowerCase();
@@ -33,17 +51,7 @@ export function getMicrosoftErrorMessage(error: unknown, fallback: string): stri
     return 'Microsoft sign-in expired or lost permission. Please sign in again and retry sync.';
   }
 
-  if (
-    message.includes('timeout') ||
-    message.includes('temporarily unavailable') ||
-    message.includes('service unavailable') ||
-    message.includes('too many requests') ||
-    message.includes('throttled') ||
-    message.includes('itemnotfound') ||
-    message.includes('item not found') ||
-    message.includes('network') ||
-    message.includes('failed to fetch')
-  ) {
+  if (isMicrosoftTransientSyncError(error)) {
     return 'Saved locally. Microsoft is catching up.';
   }
 
@@ -80,15 +88,7 @@ export function getMicrosoftRetryDelayMs(error: unknown): number | null {
     return 60_000;
   }
 
-  if (
-    message.includes('timeout') ||
-    message.includes('temporarily unavailable') ||
-    message.includes('service unavailable') ||
-    message.includes('itemnotfound') ||
-    message.includes('item not found') ||
-    message.includes('network') ||
-    message.includes('failed to fetch')
-  ) {
+  if (isMicrosoftTransientSyncError(error)) {
     return 15_000;
   }
 
@@ -97,4 +97,8 @@ export function getMicrosoftRetryDelayMs(error: unknown): number | null {
 
 export function formatMicrosoftRetryMessage(delayMs: number) {
   return `Saved locally. Microsoft is catching up. Retrying in about ${Math.ceil(delayMs / 1000)} seconds.`;
+}
+
+export function formatMicrosoftManualRetryMessage() {
+  return 'Saved locally. Microsoft is catching up. Tap Sync to retry.';
 }

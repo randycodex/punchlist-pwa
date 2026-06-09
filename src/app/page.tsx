@@ -23,7 +23,13 @@ import {
 } from '@/lib/pendingSync';
 import { generateMultiProjectPDF, downloadPDF, type PdfExportMode } from '@/lib/pdfExport';
 import { uploadPdfToOneDrive, getNextOneDriveExportFilename } from '@/lib/oneDrive';
-import { getMicrosoftErrorMessage, getMicrosoftRetryDelayMs, formatMicrosoftRetryMessage } from '@/lib/microsoftErrors';
+import {
+  formatMicrosoftManualRetryMessage,
+  formatMicrosoftRetryMessage,
+  getMicrosoftErrorMessage,
+  getMicrosoftRetryDelayMs,
+  isMicrosoftTransientSyncError,
+} from '@/lib/microsoftErrors';
 import { useMicrosoftAuth } from '@/contexts/MicrosoftAuthContext';
 import { useSyncStatus } from '@/contexts/SyncStatusContext';
 import { useAppSettings } from '@/contexts/AppSettingsContext';
@@ -622,17 +628,16 @@ export default function ProjectsPage() {
       }
       const retryDelayMs = getMicrosoftRetryDelayMs(error);
       if (retryDelayMs) {
-        const backoffDelayMs = recordPendingSyncRetry(retryDelayMs);
-        setSyncError(formatMicrosoftRetryMessage(backoffDelayMs));
-        scheduleSync(undefined, { fullSync: shouldRunFullSync, delayMs: backoffDelayMs });
+        recordPendingSyncRetry(retryDelayMs);
+        setSyncError(formatMicrosoftManualRetryMessage());
         backgroundSyncQueuedRef.current = false;
+        setSyncStatus('pending');
         return;
       }
       const message = getMicrosoftErrorMessage(error, 'Background sync failed.');
-      if (message.startsWith('Saved locally.')) {
-        const backoffDelayMs = recordPendingSyncRetry(60_000);
-        setSyncError(formatMicrosoftRetryMessage(backoffDelayMs));
-        scheduleSync(undefined, { fullSync: shouldRunFullSync, delayMs: backoffDelayMs });
+      if (message.startsWith('Saved locally.') || isMicrosoftTransientSyncError(error)) {
+        recordPendingSyncRetry(60_000);
+        setSyncError(formatMicrosoftManualRetryMessage());
         backgroundSyncQueuedRef.current = false;
         setSyncStatus('pending');
         return;

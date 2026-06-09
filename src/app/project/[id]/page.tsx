@@ -4,7 +4,13 @@ import { memo, useState, useEffect, useMemo, useRef, useCallback, type TouchEven
 import { useRouter, useParams } from 'next/navigation';
 import { Area, Project, checkpointHasIssue, getReviewMetrics } from '@/types';
 import { getProject, saveProject, createArea } from '@/lib/db';
-import { getMicrosoftErrorMessage, getMicrosoftRetryDelayMs, formatMicrosoftRetryMessage } from '@/lib/microsoftErrors';
+import {
+  formatMicrosoftManualRetryMessage,
+  formatMicrosoftRetryMessage,
+  getMicrosoftErrorMessage,
+  getMicrosoftRetryDelayMs,
+  isMicrosoftTransientSyncError,
+} from '@/lib/microsoftErrors';
 import AreaEditorModal from '@/components/AreaEditorModal';
 import ProjectEditModal from '@/components/ProjectEditModal';
 import {
@@ -557,17 +563,16 @@ export default function ProjectDetailPage() {
       }
       const retryDelayMs = getMicrosoftRetryDelayMs(error);
       if (retryDelayMs) {
-        const backoffDelayMs = recordPendingSyncRetry(retryDelayMs);
-        setSyncError(formatMicrosoftRetryMessage(backoffDelayMs));
-        scheduleSync(undefined, { fullSync: shouldRunFullSync, delayMs: backoffDelayMs });
+        recordPendingSyncRetry(retryDelayMs);
+        setSyncError(formatMicrosoftManualRetryMessage());
         backgroundSyncQueuedRef.current = false;
+        setSyncStatus('pending');
         return;
       }
       const message = getMicrosoftErrorMessage(error, 'Background sync failed.');
-      if (message.startsWith('Saved locally.')) {
-        const backoffDelayMs = recordPendingSyncRetry(60_000);
-        setSyncError(formatMicrosoftRetryMessage(backoffDelayMs));
-        scheduleSync(undefined, { fullSync: shouldRunFullSync, delayMs: backoffDelayMs });
+      if (message.startsWith('Saved locally.') || isMicrosoftTransientSyncError(error)) {
+        recordPendingSyncRetry(60_000);
+        setSyncError(formatMicrosoftManualRetryMessage());
         backgroundSyncQueuedRef.current = false;
         setSyncStatus('pending');
         return;
