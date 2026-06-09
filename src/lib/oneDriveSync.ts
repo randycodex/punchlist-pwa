@@ -3,7 +3,6 @@ import {
   getAllProjects,
   getProject,
   saveProjectPreserveTimestamps,
-  deleteProject as deleteProjectFromDb,
 } from '@/lib/db';
 import {
   ensurePunchListFolders,
@@ -907,15 +906,11 @@ function resolveProjectSyncStates(
   const next: ProjectSyncStateMap = { ...syncStates };
   const revivedRemoteProjectIds = new Set<string>();
 
-  for (const [projectId, syncState] of Object.entries(syncStates)) {
-    const stateUpdatedAtMs = timestampMs(syncState.updatedAt);
+  for (const [projectId] of Object.entries(syncStates)) {
     const localProject = localProjectMap.get(projectId);
-    // Manual sync is preservation-first: a live local copy should republish, not obey a stale hard-delete tombstone.
-    if (localProject && !localProject.deletedAt) {
-      delete next[projectId];
-      continue;
-    }
-    if (localProject && getProjectUpdatedAt(localProject) > stateUpdatedAtMs + CLOCK_SKEW_TOLERANCE_MS) {
+    // Hard-delete tombstones apply only after the local project record is gone.
+    // App-trash projects still exist locally and should sync to OneDrive's Trash Bin.
+    if (localProject) {
       delete next[projectId];
       continue;
     }
@@ -1054,52 +1049,44 @@ export async function syncProjectsWithOneDrive(token: string, options: SyncOptio
     const remoteDeleteQueue: string[] = [];
     const remoteProjectFolderDeleteQueue = new Set<string>();
     const remotePhotoDeleteQueue = new Set<string>();
-    const localDeleteCandidates: Array<{ projectId: string; deletedAt: string }> = [];
 
-  // Apply explicit hard-delete states.
-  for (const [projectId, syncState] of Object.entries(resolvedSyncStates)) {
-    const remoteEntries = remoteFilesById.get(projectId) ?? [];
-    const remote = pickPrimaryRemoteProjectFile(remoteEntries);
-    const local = localProjectMap.get(projectId);
-    const remoteLegacyFolderName = remote?.name.endsWith('.json') ? remote.name.slice(0, -5) : null;
-    const folderName =
-      (remote ? getProjectFolderNameFromRemoteFile(remote) : null) ??
-      (local ? projectFolderName(local) : null);
-    let shouldDeleteRemoteStorage = false;
-
-    if (remote && isAfterOrEqual(syncState.updatedAt, remote.lastModifiedDateTime)) {
-      remoteDeleteQueue.push(...remoteEntries.map((entry) => entry.id));
-      remoteFilesById.delete(projectId);
-      shouldDeleteRemoteStorage = true;
-    }
-
-    if (local && timestampMs(syncState.updatedAt) >= local.updatedAt.getTime()) {
-      localDeleteCandidates.push({ projectId, deletedAt: syncState.updatedAt });
-      shouldDeleteRemoteStorage = true;
-    }
-
-    if (folderName && shouldDeleteRemoteStorage) {
-      remoteProjectFolderDeleteQueue.add(folderName);
-      remotePhotoDeleteQueue.add(projectId);
-      if (remoteLegacyFolderName) {
-        remotePhotoDeleteQueue.add(remoteLegacyFolderName);
+    // Apply explicit hard-delete states only when this device no longer has a
+    // project record. If it still exists locally, preserving work wins.
+    for (const [projectId, syncState] of Object.entries(resolvedSyncStates)) {
+      if (localProjectMap.has(projectId)) {
+        continue;
       }
-      if (local) {
-        getLegacyProjectFolderNames(local).forEach((name) => remoteProjectFolderDeleteQueue.add(name));
-        getLegacyProjectFolderNames(local).forEach((name) => remotePhotoDeleteQueue.add(name));
+
+      const remoteEntries = remoteFilesById.get(projectId) ?? [];
+      const remote = pickPrimaryRemoteProjectFile(remoteEntries);
+      const remoteLegacyFolderName = remote?.name.endsWith('.json') ? remote.name.slice(0, -5) : null;
+      const folderName = remote ? getProjectFolderNameFromRemoteFile(remote) : null;
+      let shouldDeleteRemoteStorage = false;
+
+      if (remote && isAfterOrEqual(syncState.updatedAt, remote.lastModifiedDateTime)) {
+        remoteDeleteQueue.push(...remoteEntries.map((entry) => entry.id));
+        remoteFilesById.delete(projectId);
+        shouldDeleteRemoteStorage = true;
+      }
+
+      if (folderName && shouldDeleteRemoteStorage) {
+        remoteProjectFolderDeleteQueue.add(folderName);
+        remotePhotoDeleteQueue.add(projectId);
+        if (remoteLegacyFolderName) {
+          remotePhotoDeleteQueue.add(remoteLegacyFolderName);
+        }
       }
     }
-  }
 
-  await runWithConcurrency(remoteDeleteQueue, 4, (remoteId) =>
-    ignoreMissingRemoteItem(() => deleteDriveItem(token, remoteId))
-  );
-  await runWithConcurrency([...remoteProjectFolderDeleteQueue], 2, (folderName) =>
-    ignoreMissingRemoteItem(() => deleteProjectFolder(token, folderName))
-  );
-  await runWithConcurrency([...remotePhotoDeleteQueue], 2, (folderName) =>
-    ignoreMissingRemoteItem(() => deleteProjectPhotoFolder(token, folderName))
-  );
+    await runWithConcurrency(remoteDeleteQueue, 4, (remoteId) =>
+      ignoreMissingRemoteItem(() => deleteDriveItem(token, remoteId))
+    );
+    await runWithConcurrency([...remoteProjectFolderDeleteQueue], 2, (folderName) =>
+      ignoreMissingRemoteItem(() => deleteProjectFolder(token, folderName))
+    );
+    await runWithConcurrency([...remotePhotoDeleteQueue], 2, (folderName) =>
+      ignoreMissingRemoteItem(() => deleteProjectPhotoFolder(token, folderName))
+    );
 
   // Pull newer or missing projects from OneDrive
   const remoteProjectUpdatedAtByItemId = new Map<string, number>();
@@ -1162,21 +1149,6 @@ export async function syncProjectsWithOneDrive(token: string, options: SyncOptio
     if (!projectsEqual(mergedProject, remoteProjectWithFolder)) {
       mergedProjectIdsToPush.add(projectId);
     }
-  });
-
-  await runWithConcurrency(localDeleteCandidates, 4, async ({ projectId, deletedAt }) => {
-    if (remoteFilesById.has(projectId) || revivedRemoteProjectIds.has(projectId)) {
-      return;
-    }
-    const localProject = localProjectMap.get(projectId);
-    if (!localProject) {
-      return;
-    }
-    if (timestampMs(deletedAt) < localProject.updatedAt.getTime()) {
-      return;
-    }
-    await deleteProjectFromDb(projectId);
-    localProjectMap.delete(projectId);
   });
 
   // Push local changes to OneDrive
