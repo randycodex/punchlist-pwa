@@ -783,6 +783,11 @@ function resolveProjectSyncStates(
   for (const [projectId, syncState] of Object.entries(syncStates)) {
     const stateUpdatedAtMs = timestampMs(syncState.updatedAt);
     const localProject = localProjectMap.get(projectId);
+    // Manual sync is preservation-first: a live local copy should republish, not obey a stale hard-delete tombstone.
+    if (localProject && !localProject.deletedAt) {
+      delete next[projectId];
+      continue;
+    }
     if (localProject && getProjectUpdatedAt(localProject) > stateUpdatedAtMs + CLOCK_SKEW_TOLERANCE_MS) {
       delete next[projectId];
       continue;
