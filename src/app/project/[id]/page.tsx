@@ -426,7 +426,7 @@ export default function ProjectDetailPage() {
         const retry = recordPendingSyncRetry(retryDelayMs);
         queuePendingSync(undefined, { fullSync: true });
         setRetryAt(retry.retryAt);
-        setSyncError(formatMicrosoftManualRetryMessage());
+        setSyncError(formatMicrosoftManualRetryMessage(Math.ceil(retry.delayMs / 1000)));
         setSyncStatus('pending');
         return;
       }
@@ -435,7 +435,7 @@ export default function ProjectDetailPage() {
         const retry = recordPendingSyncRetry(60_000);
         queuePendingSync(undefined, { fullSync: true });
         setRetryAt(retry.retryAt);
-        setSyncError(formatMicrosoftManualRetryMessage());
+        setSyncError(formatMicrosoftManualRetryMessage(Math.ceil(retry.delayMs / 1000)));
         setSyncStatus('pending');
         return;
       }
