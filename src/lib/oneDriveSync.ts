@@ -1,4 +1,4 @@
-import { PhotoAttachment, Project } from '@/types';
+import { Area, Checkpoint, FileAttachment, Item, Location, PhotoAttachment, Project } from '@/types';
 import {
   getAllProjects,
   getProject,
@@ -30,6 +30,10 @@ export type SyncConflict = { id: string; name: string };
 export type SyncResult = {
   conflicts: SyncConflict[];
   syncedAt: string;
+};
+
+export type SyncOptions = {
+  pushProjectIds?: string[];
 };
 
 export type PushSyncResult = {
@@ -723,6 +727,123 @@ function compareTimestampsWithTolerance(
   return 0;
 }
 
+function maxDate(left: Date | undefined, right: Date | undefined) {
+  if (!left) return right;
+  if (!right) return left;
+  return left.getTime() >= right.getTime() ? left : right;
+}
+
+function isRightNewer(
+  left: { updatedAt?: Date },
+  right: { updatedAt?: Date }
+) {
+  return timestampMs(right.updatedAt) > timestampMs(left.updatedAt) + CLOCK_SKEW_TOLERANCE_MS;
+}
+
+function sortBySortOrder<T extends { sortOrder: number }>(items: T[]) {
+  return [...items].sort((left, right) => left.sortOrder - right.sortOrder);
+}
+
+function mergeById<T extends { id: string }>(
+  localItems: T[] = [],
+  remoteItems: T[] = [],
+  mergeItem: (localItem: T, remoteItem: T) => T
+) {
+  const merged = new Map<string, T>();
+  for (const item of remoteItems) {
+    merged.set(item.id, item);
+  }
+  for (const localItem of localItems) {
+    const remoteItem = merged.get(localItem.id);
+    merged.set(localItem.id, remoteItem ? mergeItem(localItem, remoteItem) : localItem);
+  }
+  return [...merged.values()];
+}
+
+function mergePhotos(localPhotos: PhotoAttachment[] = [], remotePhotos: PhotoAttachment[] = []) {
+  return mergeById(localPhotos, remotePhotos, (localPhoto, remotePhoto) => {
+    const base = timestampMs(remotePhoto.createdAt) > timestampMs(localPhoto.createdAt)
+      ? remotePhoto
+      : localPhoto;
+    return {
+      ...base,
+      imageData: base.imageData || localPhoto.imageData || remotePhoto.imageData,
+      thumbnail: base.thumbnail || localPhoto.thumbnail || remotePhoto.thumbnail,
+    };
+  });
+}
+
+function mergeFiles(localFiles: FileAttachment[] = [], remoteFiles: FileAttachment[] = []) {
+  return mergeById(localFiles, remoteFiles, (localFile, remoteFile) => {
+    const base = timestampMs(remoteFile.createdAt) > timestampMs(localFile.createdAt)
+      ? remoteFile
+      : localFile;
+    return {
+      ...base,
+      data: base.data || localFile.data || remoteFile.data,
+    };
+  });
+}
+
+function mergeCheckpoints(localCheckpoint: Checkpoint, remoteCheckpoint: Checkpoint): Checkpoint {
+  const base = isRightNewer(localCheckpoint, remoteCheckpoint) ? remoteCheckpoint : localCheckpoint;
+  return {
+    ...base,
+    updatedAt: maxDate(localCheckpoint.updatedAt, remoteCheckpoint.updatedAt) ?? base.updatedAt,
+    photos: mergePhotos(localCheckpoint.photos, remoteCheckpoint.photos),
+    files: mergeFiles(localCheckpoint.files, remoteCheckpoint.files),
+  };
+}
+
+function mergeItems(localItem: Item, remoteItem: Item): Item {
+  const base = isRightNewer(localItem, remoteItem) ? remoteItem : localItem;
+  return {
+    ...base,
+    updatedAt: maxDate(localItem.updatedAt, remoteItem.updatedAt) ?? base.updatedAt,
+    checkpoints: sortBySortOrder(
+      mergeById(localItem.checkpoints, remoteItem.checkpoints, mergeCheckpoints)
+    ),
+  };
+}
+
+function mergeLocations(localLocation: Location, remoteLocation: Location): Location {
+  const base = isRightNewer(localLocation, remoteLocation) ? remoteLocation : localLocation;
+  return {
+    ...base,
+    updatedAt: maxDate(localLocation.updatedAt, remoteLocation.updatedAt) ?? base.updatedAt,
+    items: sortBySortOrder(
+      mergeById(localLocation.items, remoteLocation.items, mergeItems)
+    ),
+  };
+}
+
+function mergeAreas(localArea: Area, remoteArea: Area): Area {
+  const base = isRightNewer(localArea, remoteArea) ? remoteArea : localArea;
+  return {
+    ...base,
+    updatedAt: maxDate(localArea.updatedAt, remoteArea.updatedAt) ?? base.updatedAt,
+    locations: sortBySortOrder(
+      mergeById(localArea.locations, remoteArea.locations, mergeLocations)
+    ),
+  };
+}
+
+function mergeProjects(localProject: Project, remoteProject: Project): Project {
+  const base = isRightNewer(localProject, remoteProject) ? remoteProject : localProject;
+  return {
+    ...base,
+    oneDriveFolderName: remoteProject.oneDriveFolderName ?? localProject.oneDriveFolderName,
+    updatedAt: maxDate(localProject.updatedAt, remoteProject.updatedAt) ?? base.updatedAt,
+    areas: sortBySortOrder(
+      mergeById(localProject.areas, remoteProject.areas, mergeAreas)
+    ),
+  };
+}
+
+function projectsEqual(left: Project, right: Project) {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
 function mergeSyncStates(
   localSyncStates: ProjectSyncStateMap,
   remoteSyncStates: ProjectSyncStateMap
@@ -891,7 +1012,7 @@ async function ignoreMissingRemoteItem(action: () => Promise<void>) {
   }
 }
 
-export async function syncProjectsWithOneDrive(token: string): Promise<SyncResult> {
+export async function syncProjectsWithOneDrive(token: string, options: SyncOptions = {}): Promise<SyncResult> {
   const releaseSyncLease = await acquireSyncLease(token);
 
   try {
@@ -911,6 +1032,8 @@ export async function syncProjectsWithOneDrive(token: string): Promise<SyncResul
     const localSyncStates = getLocalSyncStates();
     const localProjectMap = new Map(localProjects.map((project) => [project.id, project]));
     const remoteFilesById = buildRemoteProjectFileIndex(remoteFiles);
+    const requestedPushProjectIds = new Set(options.pushProjectIds ?? []);
+    const mergedProjectIdsToPush = new Set<string>();
     const remoteSyncStates = normalizeSyncStateMap(remoteDeletions);
     const mergedSyncStates = mergeSyncStates(localSyncStates, remoteSyncStates);
     const { syncStates: resolvedSyncStates, revivedRemoteProjectIds } = resolveProjectSyncStates(
@@ -1018,10 +1141,20 @@ export async function syncProjectsWithOneDrive(token: string): Promise<SyncResul
       return;
     }
 
-    if (remoteUpdatedAt > localUpdatedAt + CLOCK_SKEW_TOLERANCE_MS) {
-      const hydratedRemoteProject = await hydrateRemoteProject();
-      await saveProjectPreserveTimestamps(hydratedRemoteProject);
-      localProjectMap.set(projectId, hydratedRemoteProject);
+    const fullLocalProject = await getProject(projectId);
+    const localProjectForMerge = fullLocalProject ?? localProject;
+    const mergedProject = mergeProjects(localProjectForMerge, remoteProjectWithFolder);
+    if (!projectsEqual(mergedProject, localProjectForMerge)) {
+      const hydratedMergedProject = await hydrateProjectPhotosFromOneDrive(
+        token,
+        mergedProject,
+        remoteFolderName ?? undefined
+      );
+      await saveProjectPreserveTimestamps(hydratedMergedProject);
+      localProjectMap.set(projectId, hydratedMergedProject);
+    }
+    if (!projectsEqual(mergedProject, remoteProjectWithFolder)) {
+      mergedProjectIdsToPush.add(projectId);
     }
   });
 
@@ -1041,7 +1174,9 @@ export async function syncProjectsWithOneDrive(token: string): Promise<SyncResul
   });
 
   // Push local changes to OneDrive
-  const pushQueue = [...localProjectMap.values()];
+  const pushProjectIds = new Set(requestedPushProjectIds);
+  mergedProjectIdsToPush.forEach((projectId) => pushProjectIds.add(projectId));
+  const pushQueue = [...localProjectMap.values()].filter((project) => pushProjectIds.has(project.id));
   await runWithConcurrency(pushQueue, 3, async (project) => {
     const filename = projectJsonFilename(project);
     const remoteEntries = remoteFilesById.get(project.id) ?? [];

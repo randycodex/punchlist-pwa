@@ -31,6 +31,7 @@ import { applyTemplateToArea } from '@/lib/template';
 import { syncProjectsWithOneDrive } from '@/lib/oneDriveSync';
 import {
   clearPendingSyncState,
+  loadPendingSyncState,
   queuePendingSync,
   recordPendingSyncRetry,
 } from '@/lib/pendingSync';
@@ -998,9 +999,11 @@ export default function AreaDetailPage() {
         setSyncStatus('needs-auth');
         return;
       }
-      const result = await syncProjectsWithOneDrive(token);
+      const pendingSyncState = loadPendingSyncState();
+      const result = await syncProjectsWithOneDrive(token, {
+        pushProjectIds: pendingSyncState.projectIds,
+      });
       if (result.conflicts.length > 0) {
-        queuePendingSync(undefined, { fullSync: true });
         setSyncError('Saved locally. OneDrive changed on another device. Tap Sync again to use the latest version.');
         setSyncStatus('pending');
         return;
@@ -1016,7 +1019,6 @@ export default function AreaDetailPage() {
       const retryDelayMs = getMicrosoftRetryDelayMs(error);
       if (retryDelayMs) {
         const retry = recordPendingSyncRetry(retryDelayMs);
-        queuePendingSync(undefined, { fullSync: true });
         setRetryAt(retry.retryAt);
         setSyncError(formatMicrosoftManualRetryMessage(Math.ceil(retry.delayMs / 1000)));
         setSyncStatus('pending');
@@ -1025,7 +1027,6 @@ export default function AreaDetailPage() {
       const message = getMicrosoftErrorMessage(error, 'Sync failed.');
       if (message.startsWith('Saved locally.')) {
         const retry = recordPendingSyncRetry(60_000);
-        queuePendingSync(undefined, { fullSync: true });
         setRetryAt(retry.retryAt);
         setSyncError(formatMicrosoftManualRetryMessage(Math.ceil(retry.delayMs / 1000)));
         setSyncStatus('pending');
