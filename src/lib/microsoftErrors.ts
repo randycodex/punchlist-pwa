@@ -18,6 +18,7 @@ export function isMicrosoftTransientSyncError(error: unknown): boolean {
     message.includes('item not found') ||
     message.includes('network') ||
     message.includes('failed to fetch') ||
+    message.includes('load failed') ||
     message.includes('general exception while processing')
   );
 }

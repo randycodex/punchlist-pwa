@@ -6,10 +6,8 @@ import { Area, Project, checkpointHasIssue, getReviewMetrics } from '@/types';
 import { getProject, saveProject, createArea } from '@/lib/db';
 import {
   formatMicrosoftManualRetryMessage,
-  formatMicrosoftRetryMessage,
   getMicrosoftErrorMessage,
   getMicrosoftRetryDelayMs,
-  isMicrosoftTransientSyncError,
 } from '@/lib/microsoftErrors';
 import AreaEditorModal from '@/components/AreaEditorModal';
 import ProjectEditModal from '@/components/ProjectEditModal';
@@ -22,13 +20,9 @@ import {
   type AreaTypeKey,
 } from '@/lib/areas';
 import { applyTemplateToArea } from '@/lib/template';
-import { pushProjectsToOneDrive, syncProjectsWithOneDrive } from '@/lib/oneDriveSync';
+import { syncProjectsWithOneDrive } from '@/lib/oneDriveSync';
 import {
-  clearPendingProjectSync,
-  clearPendingSyncBackoff,
   clearPendingSyncState,
-  getPendingSyncWaitMs,
-  loadPendingSyncState,
   queuePendingSync,
   recordPendingSyncRetry,
 } from '@/lib/pendingSync';
@@ -164,17 +158,11 @@ export default function ProjectDetailPage() {
   const [syncError, setSyncError] = useState<string | null>(null);
   const [editingProject, setEditingProject] = useState<Project | null>(null);
   const syncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const backgroundSyncInFlightRef = useRef(false);
-  const backgroundSyncQueuedRef = useRef(false);
-  const dirtyProjectIdsRef = useRef<Set<string>>(new Set());
-  const fullSyncNeededRef = useRef(false);
-  const forceSyncNowRef = useRef(false);
-  const lastForegroundSyncRef = useRef(0);
   const pullStartYRef = useRef<number | null>(null);
   const pullDistanceRef = useRef(0);
   const pullArmedRef = useRef(false);
   const listRef = useRef<HTMLElement | null>(null);
-  const { accessToken, ensureAccessToken } = useMicrosoftAuth();
+  const { ensureAccessToken } = useMicrosoftAuth();
   const { setStatus: setSyncStatus } = useSyncStatus();
   const { projectShowOnlyIssues, setProjectShowOnlyIssues, quickSort, markSyncedNow } = useAppSettings();
 
@@ -213,35 +201,8 @@ export default function ProjectDetailPage() {
       if (syncTimerRef.current) {
         clearTimeout(syncTimerRef.current);
       }
-      backgroundSyncInFlightRef.current = false;
-      backgroundSyncQueuedRef.current = false;
-      fullSyncNeededRef.current = false;
     };
   }, []);
-
-  useEffect(() => {
-    if (!accessToken) return;
-    scheduleSync(undefined, { fullSync: true, delayMs: 0, force: true });
-  }, [accessToken]);
-
-  useEffect(() => {
-    if (!accessToken) return;
-
-    function handleForegroundSync() {
-      if (document.hidden) return;
-      const now = Date.now();
-      if (now - lastForegroundSyncRef.current < 5_000) return;
-      lastForegroundSyncRef.current = now;
-      scheduleSync(undefined, { fullSync: true, delayMs: 0, force: true });
-    }
-
-    window.addEventListener('focus', handleForegroundSync);
-    document.addEventListener('visibilitychange', handleForegroundSync);
-    return () => {
-      window.removeEventListener('focus', handleForegroundSync);
-      document.removeEventListener('visibilitychange', handleForegroundSync);
-    };
-  }, [accessToken]);
 
   function handleSortChange(option: SortOption) {
     setSortOption(option);
@@ -447,8 +408,8 @@ export default function ProjectDetailPage() {
       }
       const result = await syncProjectsWithOneDrive(token);
       if (result.conflicts.length > 0) {
-        setSyncError('Saved locally. OneDrive changed on another device; sync will retry.');
-        scheduleSync(undefined, { fullSync: true, delayMs: 10_000 });
+        queuePendingSync(undefined, { fullSync: true });
+        setSyncError('Saved locally. OneDrive changed on another device. Tap Sync again to use the latest version.');
         setSyncStatus('pending');
         return;
       }
@@ -461,17 +422,17 @@ export default function ProjectDetailPage() {
       console.error('Sync failed:', error);
       const retryDelayMs = getMicrosoftRetryDelayMs(error);
       if (retryDelayMs) {
-        const backoffDelayMs = recordPendingSyncRetry(retryDelayMs);
-        setSyncError(formatMicrosoftRetryMessage(backoffDelayMs));
-        scheduleSync(undefined, { fullSync: true, delayMs: backoffDelayMs });
+        recordPendingSyncRetry(retryDelayMs);
+        queuePendingSync(undefined, { fullSync: true });
+        setSyncError(formatMicrosoftManualRetryMessage());
         setSyncStatus('pending');
         return;
       }
       const message = getMicrosoftErrorMessage(error, 'Sync failed.');
       if (message.startsWith('Saved locally.')) {
-        const backoffDelayMs = recordPendingSyncRetry(60_000);
-        setSyncError(formatMicrosoftRetryMessage(backoffDelayMs));
-        scheduleSync(undefined, { fullSync: true, delayMs: backoffDelayMs });
+        recordPendingSyncRetry(60_000);
+        queuePendingSync(undefined, { fullSync: true });
+        setSyncError(formatMicrosoftManualRetryMessage());
         setSyncStatus('pending');
         return;
       }
@@ -482,131 +443,13 @@ export default function ProjectDetailPage() {
     }
   }
 
-  async function runBackgroundSync() {
-    const pendingSyncState = loadPendingSyncState();
-    pendingSyncState.projectIds.forEach((projectId) => dirtyProjectIdsRef.current.add(projectId));
-    if (pendingSyncState.fullSyncNeeded) {
-      fullSyncNeededRef.current = true;
-    }
-    const forceSyncNow = forceSyncNowRef.current;
-    forceSyncNowRef.current = false;
-    const waitMs = getPendingSyncWaitMs();
-    if (waitMs > 0 && !forceSyncNow) {
-      scheduleSync(undefined, { fullSync: pendingSyncState.fullSyncNeeded, delayMs: waitMs });
-      return;
-    }
-
-    if (backgroundSyncInFlightRef.current) {
-      backgroundSyncQueuedRef.current = true;
-      return;
-    }
-    if (dirtyProjectIdsRef.current.size === 0 && !fullSyncNeededRef.current) return;
-
-    backgroundSyncInFlightRef.current = true;
-    setSyncStatus('syncing');
-    const dirtyProjectIds = [...dirtyProjectIdsRef.current];
-    const shouldRunFullSync = fullSyncNeededRef.current;
-    dirtyProjectIdsRef.current.clear();
-    fullSyncNeededRef.current = false;
-    try {
-      const token = await ensureAccessToken();
-      if (!token) {
-        dirtyProjectIds.forEach((projectId) => dirtyProjectIdsRef.current.add(projectId));
-        if (shouldRunFullSync) {
-          fullSyncNeededRef.current = true;
-        }
-        setSyncStatus('needs-auth');
-        return;
-      }
-      if (shouldRunFullSync) {
-        const result = await syncProjectsWithOneDrive(token);
-        if (result.conflicts.length > 0) {
-          setSyncError('Saved locally. OneDrive changed on another device; sync will retry.');
-          scheduleSync(undefined, { fullSync: true, delayMs: 10_000 });
-          backgroundSyncQueuedRef.current = false;
-          setSyncStatus('pending');
-          return;
-        }
-        clearPendingSyncState();
-        await loadProject();
-        setSyncError(null);
-        clearPendingSyncBackoff();
-        setSyncStatus('idle');
-        markSyncedNow();
-        return;
-      }
-      const pushResult = await pushProjectsToOneDrive(token, dirtyProjectIds);
-      if (pushResult.conflicts.length > 0) {
-        const result = await syncProjectsWithOneDrive(token);
-        if (result.conflicts.length > 0) {
-          setSyncError('Saved locally. OneDrive changed on another device; sync will retry.');
-          scheduleSync(undefined, { fullSync: true, delayMs: 10_000 });
-          backgroundSyncQueuedRef.current = false;
-          setSyncStatus('pending');
-          return;
-        }
-        clearPendingSyncState();
-        await loadProject();
-        setSyncError(null);
-        clearPendingSyncBackoff();
-      } else {
-        clearPendingProjectSync(dirtyProjectIds);
-        setSyncError(null);
-        clearPendingSyncBackoff();
-      }
-      setSyncStatus('idle');
-      markSyncedNow();
-    } catch (error) {
-      dirtyProjectIds.forEach((projectId) => dirtyProjectIdsRef.current.add(projectId));
-      if (shouldRunFullSync) {
-        fullSyncNeededRef.current = true;
-      }
-      const retryDelayMs = getMicrosoftRetryDelayMs(error);
-      if (retryDelayMs) {
-        recordPendingSyncRetry(retryDelayMs);
-        setSyncError(formatMicrosoftManualRetryMessage());
-        backgroundSyncQueuedRef.current = false;
-        setSyncStatus('pending');
-        return;
-      }
-      const message = getMicrosoftErrorMessage(error, 'Background sync failed.');
-      if (message.startsWith('Saved locally.') || isMicrosoftTransientSyncError(error)) {
-        recordPendingSyncRetry(60_000);
-        setSyncError(formatMicrosoftManualRetryMessage());
-        backgroundSyncQueuedRef.current = false;
-        setSyncStatus('pending');
-        return;
-      }
-      setSyncError(message);
-      setSyncStatus('error');
-      console.error('Background sync failed:', error);
-    } finally {
-      backgroundSyncInFlightRef.current = false;
-      if (backgroundSyncQueuedRef.current) {
-        backgroundSyncQueuedRef.current = false;
-        scheduleSync();
-      }
-    }
-  }
-
-  function scheduleSync(projectId?: string, options?: { fullSync?: boolean; delayMs?: number; force?: boolean }) {
-    if (projectId) {
-      dirtyProjectIdsRef.current.add(projectId);
-    }
-    if (options?.fullSync) {
-      fullSyncNeededRef.current = true;
-    }
-    if (options?.force) {
-      forceSyncNowRef.current = true;
-    }
+  function scheduleSync(projectId?: string, options?: { fullSync?: boolean }) {
     queuePendingSync(projectId, options);
     setSyncStatus('pending');
     if (syncTimerRef.current) {
       clearTimeout(syncTimerRef.current);
     }
-    syncTimerRef.current = setTimeout(() => {
-      void runBackgroundSync();
-    }, options?.delayMs ?? 800);
+    syncTimerRef.current = null;
   }
 
   function cancelSelectionMode() {
