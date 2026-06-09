@@ -69,8 +69,29 @@ function timestampMs(value: string | Date | undefined) {
   return Number.isFinite(ms) ? ms : 0;
 }
 
-function getProjectUpdatedAt(project: Pick<Project, 'updatedAt'> | null | undefined) {
-  return timestampMs(project?.updatedAt);
+function getProjectUpdatedAt(project: Pick<Project, 'updatedAt'> | Project | null | undefined) {
+  if (!project) return 0;
+
+  let newest = timestampMs(project.updatedAt);
+  const fullProject = project as Partial<Project>;
+  if (!Array.isArray(fullProject.areas)) {
+    return newest;
+  }
+
+  for (const area of fullProject.areas) {
+    newest = Math.max(newest, timestampMs(area.updatedAt), timestampMs(area.deletedAt));
+    for (const location of area.locations ?? []) {
+      newest = Math.max(newest, timestampMs(location.updatedAt));
+      for (const item of location.items ?? []) {
+        newest = Math.max(newest, timestampMs(item.updatedAt));
+        for (const checkpoint of item.checkpoints ?? []) {
+          newest = Math.max(newest, timestampMs(checkpoint.updatedAt));
+        }
+      }
+    }
+  }
+
+  return newest;
 }
 
 async function runWithConcurrency<T>(
