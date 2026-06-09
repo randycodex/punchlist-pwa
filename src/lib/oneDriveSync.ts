@@ -1176,6 +1176,11 @@ export async function syncProjectsWithOneDrive(token: string, options: SyncOptio
   // Push local changes to OneDrive
   const pushProjectIds = new Set(requestedPushProjectIds);
   mergedProjectIdsToPush.forEach((projectId) => pushProjectIds.add(projectId));
+  for (const project of localProjectMap.values()) {
+    if (!project.deletedAt && !(remoteFilesById.get(project.id)?.length)) {
+      pushProjectIds.add(project.id);
+    }
+  }
   const pushQueue = [...localProjectMap.values()].filter((project) => pushProjectIds.has(project.id));
   await runWithConcurrency(pushQueue, 3, async (project) => {
     const filename = projectJsonFilename(project);
