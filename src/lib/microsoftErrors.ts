@@ -101,5 +101,5 @@ export function formatMicrosoftRetryMessage(delayMs: number) {
 }
 
 export function formatMicrosoftManualRetryMessage() {
-  return 'Saved locally. Microsoft is catching up. Tap Sync to retry.';
+  return 'Saved locally. OneDrive is still catching up. Wait a moment, then tap Sync again.';
 }
