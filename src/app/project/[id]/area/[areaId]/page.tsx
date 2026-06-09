@@ -132,7 +132,7 @@ export default function AreaDetailPage() {
   const locationRefs = useRef(new Map<string, HTMLDivElement | null>());
   const headerMenuRef = useRef<HTMLDivElement | null>(null);
   const { ensureAccessToken } = useMicrosoftAuth();
-  const { setStatus: setSyncStatus } = useSyncStatus();
+  const { retryInSeconds, setRetryAt, setStatus: setSyncStatus } = useSyncStatus();
   const { inspectionShowOnlyIssues, setInspectionShowOnlyIssues, quickSort, markSyncedNow } = useAppSettings();
 
   useEffect(() => {
@@ -1007,6 +1007,7 @@ export default function AreaDetailPage() {
       }
       clearPendingSyncState();
       setSyncError(null);
+      setRetryAt(null);
       setSyncStatus('idle');
       markSyncedNow();
       await loadData();
@@ -1014,16 +1015,18 @@ export default function AreaDetailPage() {
       console.error('Sync failed:', error);
       const retryDelayMs = getMicrosoftRetryDelayMs(error);
       if (retryDelayMs) {
-        recordPendingSyncRetry(retryDelayMs);
+        const retry = recordPendingSyncRetry(retryDelayMs);
         queuePendingSync(undefined, { fullSync: true });
+        setRetryAt(retry.retryAt);
         setSyncError(formatMicrosoftManualRetryMessage());
         setSyncStatus('pending');
         return;
       }
       const message = getMicrosoftErrorMessage(error, 'Sync failed.');
       if (message.startsWith('Saved locally.')) {
-        recordPendingSyncRetry(60_000);
+        const retry = recordPendingSyncRetry(60_000);
         queuePendingSync(undefined, { fullSync: true });
+        setRetryAt(retry.retryAt);
         setSyncError(formatMicrosoftManualRetryMessage());
         setSyncStatus('pending');
         return;
@@ -1250,7 +1253,7 @@ export default function AreaDetailPage() {
                       className="flex w-full items-center gap-3 rounded-[1rem] px-3 py-2.5 text-left text-[0.98rem] text-gray-700 transition hover:bg-black/[0.04] dark:text-gray-200 dark:hover:bg-white/[0.06]"
                     >
                       <RefreshCw className="h-4 w-4" />
-                      Sync now
+                      {retryInSeconds > 0 ? `Sync in ${retryInSeconds}s` : 'Sync now'}
                     </button>
                     <button
                       onClick={() => {

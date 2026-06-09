@@ -384,7 +384,7 @@ export default function ProjectsPage() {
   const pullArmedRef = useRef(false);
   const listRef = useRef<HTMLElement | null>(null);
   const { signIn, signOut, isSignedIn, ensureAccessToken } = useMicrosoftAuth();
-  const { setStatus: setSyncStatus } = useSyncStatus();
+  const { setRetryAt, setStatus: setSyncStatus } = useSyncStatus();
   const { quickSort, setQuickSort, markSyncedNow } = useAppSettings();
   const selectionMode = deleteMode || exportMode;
 
@@ -475,6 +475,7 @@ export default function ProjectsPage() {
       }
       clearPendingSyncState();
       setSyncError(null);
+      setRetryAt(null);
       setSyncStatus('idle');
       markSyncedNow();
       await loadProjects();
@@ -482,16 +483,18 @@ export default function ProjectsPage() {
       console.error('Sync failed:', error);
       const retryDelayMs = getMicrosoftRetryDelayMs(error);
       if (retryDelayMs) {
-        recordPendingSyncRetry(retryDelayMs);
+        const retry = recordPendingSyncRetry(retryDelayMs);
         queuePendingSync(undefined, { fullSync: true });
+        setRetryAt(retry.retryAt);
         setSyncError(formatMicrosoftManualRetryMessage());
         setSyncStatus('pending');
         return;
       }
       const message = getMicrosoftErrorMessage(error, 'Sync failed.');
       if (message.startsWith('Saved locally.')) {
-        recordPendingSyncRetry(60_000);
+        const retry = recordPendingSyncRetry(60_000);
         queuePendingSync(undefined, { fullSync: true });
+        setRetryAt(retry.retryAt);
         setSyncError(formatMicrosoftManualRetryMessage());
         setSyncStatus('pending');
         return;

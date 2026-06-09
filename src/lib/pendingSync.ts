@@ -139,7 +139,8 @@ export function recordPendingSyncRetry(
     Math.max(baseDelayMs, minDelayMs) * 2 ** Math.max(retryCount - 1, 0),
     maxDelayMs
   );
-  const retryNotBefore = new Date(Date.now() + exponentialDelayMs).toISOString();
+  const retryAt = new Date(Date.now() + exponentialDelayMs);
+  const retryNotBefore = retryAt.toISOString();
 
   persistPendingSyncState({
     ...state,
@@ -147,7 +148,10 @@ export function recordPendingSyncRetry(
     retryNotBefore,
   });
 
-  return exponentialDelayMs;
+  return {
+    delayMs: exponentialDelayMs,
+    retryAt,
+  };
 }
 
 export function getPendingSyncWaitMs() {

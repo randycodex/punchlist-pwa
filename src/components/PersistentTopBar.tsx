@@ -27,7 +27,7 @@ type HomeMenuState = {
 export default function PersistentTopBar() {
   const pathname = usePathname();
   const { isReady, isSignedIn } = useMicrosoftAuth();
-  const { status } = useSyncStatus();
+  const { retryInSeconds, status } = useSyncStatus();
   const { homeShowOnlyIssues, projectShowOnlyIssues, quickSort } = useAppSettings();
   const showAuth = pathname === '/';
   const isProjectOverview = /^\/project\/[^/]+$/.test(pathname);
@@ -269,7 +269,7 @@ export default function PersistentTopBar() {
                   className="flex w-full items-center gap-3 rounded-[1.1rem] px-4 py-3 text-left text-sm text-gray-700 transition hover:bg-black/[0.04] dark:text-gray-300 dark:hover:bg-white/[0.05]"
                 >
                   <RefreshCw className={`h-4 w-4 ${status === 'syncing' ? 'animate-spin text-[var(--accent)]' : ''}`} />
-                  Sync now
+                  {retryInSeconds > 0 ? `Sync in ${retryInSeconds}s` : 'Sync now'}
                 </button>
                 {(homeMenuState.context === 'project' || homeMenuState.isSingleProject) && (
                   <button
