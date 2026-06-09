@@ -143,6 +143,10 @@ function isRemoteProjectFolderInTrash(folder: Pick<RemoteProjectFile, 'punchlist
   return folder.punchlistPath?.startsWith('PunchList/Trash Bin/') ?? false;
 }
 
+function isLegacyPhotoFolder(folder: Pick<RemoteProjectFile, 'punchlistPath'>) {
+  return folder.punchlistPath?.startsWith('PunchList/photos/') ?? false;
+}
+
 function buildRemoteProjectFileIndex(remoteFiles: RemoteProjectFile[]) {
   const remoteById = new Map<string, typeof remoteFiles>();
   for (const file of remoteFiles) {
@@ -560,7 +564,9 @@ async function syncProjectPhotosToOneDrive(
   const matchingFolder = remoteFolders.find(
     (folder) => folder.name === targetFolderName && isRemoteProjectFolderInTrash(folder) === trashed
   );
-  const legacyFolders = remoteFolders.filter((folder) => {
+  // listPhotoProjectFolders includes real project folders too; only delete old PunchList/photos/* folders here.
+  const legacyPhotoFolders = remoteFolders.filter((folder) => {
+    if (!isLegacyPhotoFolder(folder)) return false;
     if (folder.name === targetFolderName && isRemoteProjectFolderInTrash(folder) === trashed) return false;
     const folderProjectId = getProjectFolderIdFromName(folder.name);
     return (
@@ -608,7 +614,7 @@ async function syncProjectPhotosToOneDrive(
   );
 
   await runWithConcurrency(
-    legacyFolders.filter((folder) => folder.id),
+    legacyPhotoFolders.filter((folder) => folder.id),
     2,
     async (folder) => {
       try {
