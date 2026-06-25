@@ -496,6 +496,26 @@ export async function deleteProjectFolder(token: string, projectFolderName: stri
   }
 }
 
+export async function deleteProjectFolderFromState(
+  token: string,
+  projectFolderName: string,
+  trashed: boolean,
+  projectId?: string
+): Promise<void> {
+  await ensurePunchListFolders(token);
+  const folderPath = getProjectRootPath(projectFolderName, trashed);
+  if (projectId) {
+    const children = await listFolderChildrenByPath(token, folderPath);
+    const hasOtherProjectFile = children.some(
+      (item) => item.name.endsWith('.json') && !item.name.endsWith(`${projectId}.json`)
+    );
+    if (hasOtherProjectFile) return;
+  }
+  const folder = await getItemByPath(token, folderPath);
+  if (!folder?.id) return;
+  await deleteDriveItemIfExists(token, folder.id);
+}
+
 export async function uploadPdfToOneDrive(
   token: string,
   filename: string,

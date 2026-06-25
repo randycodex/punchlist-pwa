@@ -17,6 +17,7 @@ import {
   deleteDriveItem,
   deleteProjectPhotoFolder,
   deleteProjectFolder,
+  deleteProjectFolderFromState,
   moveDriveItemToFolder,
   downloadDeletionLog,
   uploadDeletionLog,
@@ -366,6 +367,43 @@ async function migrateLegacyProjectExports(
   });
 }
 
+async function migrateCrossStateProjectExports(
+  token: string,
+  targetFolderName: string,
+  trashed: boolean
+) {
+  const sourceExports = await listProjectExportFiles(token, targetFolderName, !trashed);
+  if (sourceExports.length === 0) {
+    return;
+  }
+
+  const destinationFolderPath = getProjectExportsFolderPath(targetFolderName, trashed);
+  const sourceLabel = trashed ? 'active' : 'trash';
+
+  await runWithConcurrency(
+    sourceExports.filter((file) => file.id),
+    2,
+    async (file) => {
+      try {
+        await moveDriveItemToFolder(token, file.id, destinationFolderPath);
+      } catch (error) {
+        if (isItemNotFoundError(error)) {
+          return;
+        }
+        if (!(error instanceof Error) || !error.message.toLowerCase().includes('already exists')) {
+          throw error;
+        }
+        await moveDriveItemToFolder(
+          token,
+          file.id,
+          destinationFolderPath,
+          buildMigratedExportName(file.name, sourceLabel)
+        );
+      }
+    }
+  );
+}
+
 async function migratePhotosToFolder(
   token: string,
   photoFiles: Awaited<ReturnType<typeof listProjectPhotoFiles>>,
@@ -646,6 +684,21 @@ async function syncProjectPhotosToOneDrive(
       }
     }
   );
+}
+
+async function syncProjectStorageToOneDriveState(
+  token: string,
+  project: Project,
+  remoteEntries: RemoteProjectFile[],
+  targetFolderName: string
+) {
+  const trashed = isProjectInTrash(project);
+
+  await migrateLegacyProjectPhotos(token, project, targetFolderName);
+  await migrateCrossStateProjectExports(token, targetFolderName, trashed);
+  await migrateLegacyProjectExports(token, remoteEntries, targetFolderName, trashed);
+  await syncProjectPhotosToOneDrive(token, project, targetFolderName);
+  await deleteProjectFolderFromState(token, targetFolderName, !trashed, project.id);
 }
 
 function isConflictError(error: unknown) {
@@ -1211,14 +1264,7 @@ export async function syncProjectsWithOneDrive(token: string, options: SyncOptio
       remoteEntries.length > 0 && (!canonicalRemote || remoteEntries.some((entry) => entry.id !== canonicalRemote.id));
     const freshnessComparison = compareTimestampsWithTolerance(localUpdatedAt, remoteUpdatedAt);
     if (freshnessComparison <= 0 && !needsProjectFileMigration) {
-      await migrateLegacyProjectPhotos(token, fullProject, targetFolderName);
-      await migrateLegacyProjectExports(
-        token,
-        remoteEntries,
-        targetFolderName,
-        isProjectInTrash(fullProject)
-      );
-      await syncProjectPhotosToOneDrive(token, fullProject, targetFolderName);
+      await syncProjectStorageToOneDriveState(token, fullProject, remoteEntries, targetFolderName);
       return;
     }
 
@@ -1239,14 +1285,7 @@ export async function syncProjectsWithOneDrive(token: string, options: SyncOptio
         targetFolderName,
         uploadedRemote.id
       );
-      await migrateLegacyProjectPhotos(token, fullProject, targetFolderName);
-      await migrateLegacyProjectExports(
-        token,
-        remoteEntries,
-        targetFolderName,
-        isProjectInTrash(fullProject)
-      );
-      await syncProjectPhotosToOneDrive(token, fullProject, targetFolderName);
+      await syncProjectStorageToOneDriveState(token, fullProject, remoteEntries, targetFolderName);
     } catch (error) {
       if (isConflictError(error)) {
         addConflict(project.id, project.projectName);
@@ -1305,8 +1344,7 @@ export async function pushProjectsToOneDrive(token: string, projectIds: string[]
     await saveProjectPreserveTimestamps(localProjectWithFolder);
 
     if (freshnessComparison === 0) {
-      await migrateLegacyProjectPhotos(token, localProjectWithFolder, targetFolderName);
-      await syncProjectPhotosToOneDrive(token, localProjectWithFolder, targetFolderName);
+      await syncProjectStorageToOneDriveState(token, localProjectWithFolder, remoteEntries, targetFolderName);
       return;
     }
 
@@ -1327,14 +1365,7 @@ export async function pushProjectsToOneDrive(token: string, projectIds: string[]
         targetFolderName,
         uploadedRemote.id
       );
-      await migrateLegacyProjectPhotos(token, localProjectWithFolder, targetFolderName);
-      await migrateLegacyProjectExports(
-        token,
-        remoteEntries,
-        targetFolderName,
-        isProjectInTrash(localProjectWithFolder)
-      );
-      await syncProjectPhotosToOneDrive(token, localProjectWithFolder, targetFolderName);
+      await syncProjectStorageToOneDriveState(token, localProjectWithFolder, remoteEntries, targetFolderName);
     } catch (error) {
       // Background push should not interrupt the editing flow; full sync can resolve conflicts.
       if (isConflictError(error)) {
