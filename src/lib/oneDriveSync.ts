@@ -17,7 +17,7 @@ import {
   deleteDriveItem,
   deleteProjectPhotoFolder,
   deleteProjectFolder,
-  deleteProjectFolderFromState,
+  deleteProjectFoldersFromState,
   moveDriveItemToFolder,
   downloadDeletionLog,
   uploadDeletionLog,
@@ -308,6 +308,20 @@ function uniqueFolderNames(names: Array<string | null | undefined>) {
   return [...new Set(names.filter((name): name is string => Boolean(name)))];
 }
 
+function getProjectFolderCleanupNames(
+  project: Pick<Project, 'id' | 'projectName' | 'oneDriveFolderName'>,
+  remoteEntries: RemoteProjectFile[],
+  targetFolderName: string
+) {
+  return uniqueFolderNames([
+    targetFolderName,
+    projectFolderName(project),
+    currentProjectFolderName(project),
+    ...getLegacyProjectFolderNames(project),
+    ...remoteEntries.map((entry) => getProjectFolderNameFromRemoteFile(entry)),
+  ]);
+}
+
 function getProjectExportsFolderPath(projectFolderName: string, trashed: boolean) {
   return `PunchList${trashed ? '/Trash Bin' : ''}/${projectFolderName}/exports`;
 }
@@ -369,39 +383,42 @@ async function migrateLegacyProjectExports(
 
 async function migrateCrossStateProjectExports(
   token: string,
+  sourceFolderNames: string[],
   targetFolderName: string,
   trashed: boolean
 ) {
-  const sourceExports = await listProjectExportFiles(token, targetFolderName, !trashed);
-  if (sourceExports.length === 0) {
+  if (sourceFolderNames.length === 0) {
     return;
   }
 
   const destinationFolderPath = getProjectExportsFolderPath(targetFolderName, trashed);
   const sourceLabel = trashed ? 'active' : 'trash';
 
-  await runWithConcurrency(
-    sourceExports.filter((file) => file.id),
-    2,
-    async (file) => {
-      try {
-        await moveDriveItemToFolder(token, file.id, destinationFolderPath);
-      } catch (error) {
-        if (isItemNotFoundError(error)) {
-          return;
+  await runWithConcurrency(sourceFolderNames, 2, async (sourceFolderName) => {
+    const sourceExports = await listProjectExportFiles(token, sourceFolderName, !trashed);
+    await runWithConcurrency(
+      sourceExports.filter((file) => file.id),
+      2,
+      async (file) => {
+        try {
+          await moveDriveItemToFolder(token, file.id, destinationFolderPath);
+        } catch (error) {
+          if (isItemNotFoundError(error)) {
+            return;
+          }
+          if (!(error instanceof Error) || !error.message.toLowerCase().includes('already exists')) {
+            throw error;
+          }
+          await moveDriveItemToFolder(
+            token,
+            file.id,
+            destinationFolderPath,
+            buildMigratedExportName(file.name, sourceLabel)
+          );
         }
-        if (!(error instanceof Error) || !error.message.toLowerCase().includes('already exists')) {
-          throw error;
-        }
-        await moveDriveItemToFolder(
-          token,
-          file.id,
-          destinationFolderPath,
-          buildMigratedExportName(file.name, sourceLabel)
-        );
       }
-    }
-  );
+    );
+  });
 }
 
 async function migratePhotosToFolder(
@@ -437,22 +454,26 @@ async function migratePhotosToFolder(
 async function migrateLegacyProjectPhotos(
   token: string,
   project: Pick<Project, 'id' | 'projectName' | 'oneDriveFolderName' | 'deletedAt'>,
-  targetFolderName: string
+  targetFolderName: string,
+  sourceFolderNames = uniqueFolderNames([
+    targetFolderName,
+    currentProjectFolderName(project),
+    ...getLegacyProjectFolderNames(project),
+  ])
 ) {
   const trashed = isProjectInTrash(project);
   const destinationFolderPath = getProjectPhotosFolderPath(targetFolderName, trashed);
 
   // When trash state changes (trash or restore), photos live in the opposite path.
   // Move them to the correct destination before the old folder is deleted.
-  const crossStatePhotos = await listProjectPhotoFiles(token, targetFolderName, !trashed, false);
-  if (crossStatePhotos.length > 0) {
-    await migratePhotosToFolder(token, crossStatePhotos, destinationFolderPath);
-  }
+  await runWithConcurrency(sourceFolderNames, 2, async (sourceFolderName) => {
+    const crossStatePhotos = await listProjectPhotoFiles(token, sourceFolderName, !trashed, false);
+    if (crossStatePhotos.length > 0) {
+      await migratePhotosToFolder(token, crossStatePhotos, destinationFolderPath);
+    }
+  });
 
-  const legacySourceNames = uniqueFolderNames([
-    currentProjectFolderName(project),
-    ...getLegacyProjectFolderNames(project),
-  ]).filter((folderName) => folderName !== targetFolderName);
+  const legacySourceNames = sourceFolderNames.filter((folderName) => folderName !== targetFolderName);
 
   if (legacySourceNames.length === 0) {
     return;
@@ -693,12 +714,13 @@ async function syncProjectStorageToOneDriveState(
   targetFolderName: string
 ) {
   const trashed = isProjectInTrash(project);
+  const sourceFolderNames = getProjectFolderCleanupNames(project, remoteEntries, targetFolderName);
 
-  await migrateLegacyProjectPhotos(token, project, targetFolderName);
-  await migrateCrossStateProjectExports(token, targetFolderName, trashed);
+  await migrateLegacyProjectPhotos(token, project, targetFolderName, sourceFolderNames);
+  await migrateCrossStateProjectExports(token, sourceFolderNames, targetFolderName, trashed);
   await migrateLegacyProjectExports(token, remoteEntries, targetFolderName, trashed);
   await syncProjectPhotosToOneDrive(token, project, targetFolderName);
-  await deleteProjectFolderFromState(token, targetFolderName, !trashed, project.id);
+  await deleteProjectFoldersFromState(token, sourceFolderNames, !trashed, project.id);
 }
 
 function isConflictError(error: unknown) {

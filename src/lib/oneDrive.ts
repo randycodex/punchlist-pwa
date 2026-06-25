@@ -516,6 +516,18 @@ export async function deleteProjectFolderFromState(
   await deleteDriveItemIfExists(token, folder.id);
 }
 
+export async function deleteProjectFoldersFromState(
+  token: string,
+  projectFolderNames: string[],
+  trashed: boolean,
+  projectId?: string
+): Promise<void> {
+  const uniqueFolderNames = [...new Set(projectFolderNames.filter(Boolean))];
+  for (const folderName of uniqueFolderNames) {
+    await deleteProjectFolderFromState(token, folderName, trashed, projectId);
+  }
+}
+
 export async function uploadPdfToOneDrive(
   token: string,
   filename: string,
