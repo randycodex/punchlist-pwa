@@ -5,6 +5,10 @@ import { useEffect, useRef, useState } from 'react';
 import { Camera, X } from 'lucide-react';
 import { PhotoAttachment, FileAttachment } from '@/types';
 
+const PHOTO_INPUT_ACCEPT = 'image/*,.heic,.heif,image/heic,image/heif';
+const HEIC_EXTENSIONS = new Set(['heic', 'heif']);
+const HEIC_MIME_TYPES = new Set(['image/heic', 'image/heif']);
+
 interface PhotoCaptureProps {
   photos: PhotoAttachment[];
   files: FileAttachment[];
@@ -43,6 +47,11 @@ export default function PhotoCapture({
   const streamRef = useRef<MediaStream | null>(null);
   const maxImageSize = 1280;
   const thumbnailSize = 360;
+
+  function isHeicFile(file: File) {
+    const extension = file.name.split('.').pop()?.toLowerCase() ?? '';
+    return HEIC_MIME_TYPES.has(file.type.toLowerCase()) || HEIC_EXTENSIONS.has(extension);
+  }
 
   function openPhotoPicker() {
     setCameraError(null);
@@ -233,9 +242,12 @@ export default function PhotoCapture({
     const selected = Array.from(e.target.files ?? []);
     if (selected.length === 0) return;
 
+    setCameraError(null);
     setSavingPhotos(true);
     const processed = await Promise.all(selected.map((file) => fileToPhotoPayload(file)));
     const readyPhotos = processed.filter((photo): photo is { imageData: string; thumbnail?: string } => photo !== null);
+    const failedHeicCount = selected.filter((file, index) => processed[index] === null && isHeicFile(file)).length;
+    const failedOtherCount = processed.length - readyPhotos.length - failedHeicCount;
     try {
       if (readyPhotos.length > 0) {
         if (onAddPhotos) {
@@ -245,6 +257,11 @@ export default function PhotoCapture({
             await onAddPhoto(photo.imageData, photo.thumbnail);
           }
         }
+      }
+      if (failedHeicCount > 0) {
+        setCameraError('Could not read one or more HEIC/HEIF photos. Try opening the photo and sharing it as a JPEG if it does not attach.');
+      } else if (failedOtherCount > 0) {
+        setCameraError('Could not read one or more selected photos.');
       }
     } finally {
       setSavingPhotos(false);
@@ -357,7 +374,7 @@ export default function PhotoCapture({
         <input
           ref={cameraInputRef}
           type="file"
-          accept="image/*"
+          accept={PHOTO_INPUT_ACCEPT}
           multiple
           onChange={handlePhotoSelect}
           disabled={savingPhotos}
