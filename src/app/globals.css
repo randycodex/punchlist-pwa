@@ -389,11 +389,6 @@ html:not(.dark) .sticky-surface {
   }
 }
 
-.sync-indicator {
-  opacity: 0;
-  transition: opacity 160ms ease, background-color 160ms ease, transform 160ms ease;
-}
-
 /* PWA styles */
 @media (display-mode: standalone) {
   body {

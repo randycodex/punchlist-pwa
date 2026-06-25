@@ -53,16 +53,16 @@ export default function PersistentTopBar() {
     return segments[1] ?? '';
   }, [pathname]);
 
-  const indicatorClasses = {
-    idle: 'opacity-0 bg-green-500 dark:bg-green-400',
-    syncing: 'opacity-100 bg-green-500 dark:bg-green-400 animate-pulse',
-    pending: 'opacity-100 bg-gray-500 dark:bg-gray-400',
-    'needs-auth': 'opacity-100 bg-gray-500 dark:bg-gray-400',
-    error: 'opacity-100 bg-gray-500 dark:bg-gray-400',
+  const syncButtonClasses = {
+    idle: 'border-green-200 bg-green-50 text-green-600 hover:bg-green-100 dark:border-green-400/25 dark:bg-green-400/10 dark:text-green-300 dark:hover:bg-green-400/15',
+    syncing: 'animate-pulse border-green-300 bg-green-100 text-green-700 hover:bg-green-100 dark:border-green-300/35 dark:bg-green-400/15 dark:text-green-200',
+    pending: 'border-red-200 bg-red-50 text-red-600 hover:bg-red-100 dark:border-red-400/25 dark:bg-red-400/10 dark:text-red-300 dark:hover:bg-red-400/15',
+    'needs-auth': 'border-red-200 bg-red-50 text-red-600 hover:bg-red-100 dark:border-red-400/25 dark:bg-red-400/10 dark:text-red-300 dark:hover:bg-red-400/15',
+    error: 'border-red-200 bg-red-50 text-red-600 hover:bg-red-100 dark:border-red-400/25 dark:bg-red-400/10 dark:text-red-300 dark:hover:bg-red-400/15',
   } as const;
 
-  const indicatorLabel = {
-    idle: 'No sync activity',
+  const syncButtonLabel = {
+    idle: 'Synced',
     syncing: 'Syncing now',
     pending: 'Sync pending',
     'needs-auth': 'Sign in required to finish syncing',
@@ -151,6 +151,22 @@ export default function PersistentTopBar() {
     setShowHomeMenu(false);
   }
 
+  function renderSyncButton() {
+    const label = retryInSeconds > 0 ? `Sync available in ${retryInSeconds} seconds` : syncButtonLabel[status];
+
+    return (
+      <button
+        type="button"
+        onClick={() => dispatchHomeAction('sync-now')}
+        className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-[1rem] border transition ${syncButtonClasses[status]}`}
+        aria-label={label}
+        title={label}
+      >
+        <RefreshCw className={`h-4 w-4 ${status === 'syncing' ? 'animate-spin' : ''}`} />
+      </button>
+    );
+  }
+
   const currentShowOnlyIssues =
     homeMenuState.context === 'project' ? (homeMenuState.showOnlyIssues ?? projectShowOnlyIssues) : (homeMenuState.showOnlyIssues ?? homeShowOnlyIssues);
 
@@ -180,10 +196,7 @@ export default function PersistentTopBar() {
         </div>
         {showTopMenu && isReady && !homeMenuState.showTrash && (
           <div ref={menuRef} className="relative flex items-center gap-2">
-            <span
-              aria-label={indicatorLabel[status]}
-              className={`sync-indicator h-2.5 w-2.5 rounded-full ${indicatorClasses[status]}`}
-            />
+            {renderSyncButton()}
             <button
               onClick={() => setShowHomeMenu((current) => !current)}
               className="flex h-10 w-10 items-center justify-center rounded-[1rem] border border-black/5 bg-white/70 text-gray-500 transition hover:bg-white hover:text-gray-900 dark:border-white/10 dark:bg-white/[0.04] dark:text-gray-300 dark:hover:bg-white/[0.08] dark:hover:text-white"
@@ -264,13 +277,6 @@ export default function PersistentTopBar() {
                   </div>
                   </>
                 )}
-                <button
-                  onClick={() => dispatchHomeAction('sync-now')}
-                  className="flex w-full items-center gap-3 rounded-[1.1rem] px-4 py-3 text-left text-sm text-gray-700 transition hover:bg-black/[0.04] dark:text-gray-300 dark:hover:bg-white/[0.05]"
-                >
-                  <RefreshCw className={`h-4 w-4 ${status === 'syncing' ? 'animate-spin text-[var(--accent)]' : ''}`} />
-                  {retryInSeconds > 0 ? `Sync in ${retryInSeconds}s` : 'Sync now'}
-                </button>
                 {(homeMenuState.context === 'project' || homeMenuState.isSingleProject) && (
                   <button
                     onClick={() => dispatchHomeAction('edit-project')}
@@ -350,10 +356,7 @@ export default function PersistentTopBar() {
         )}
         {!showAuth && !isProjectOverview && projectTitle && (
           <div className="max-w-[65vw] flex items-center justify-end gap-2">
-            <span
-              aria-label={indicatorLabel[status]}
-              className={`sync-indicator h-2.5 w-2.5 rounded-full shrink-0 ${indicatorClasses[status]}`}
-            />
+            {renderSyncButton()}
             <div className="truncate rounded-full border border-black/5 bg-white/60 px-3 py-1.5 text-right text-sm font-semibold tracking-[-0.01em] text-gray-700 dark:border-white/10 dark:bg-white/[0.04] dark:text-gray-200">
               {projectTitle}
             </div>
