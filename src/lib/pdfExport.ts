@@ -386,6 +386,10 @@ function getActiveAreas(project: Project) {
   return project.areas.filter((area) => !area.deletedAt);
 }
 
+function checkpointShouldRenderAsPdfIssue(checkpoint: Checkpoint) {
+  return checkpoint.status === 'needsReview' && checkpointHasIssue(checkpoint);
+}
+
 function filterProjectForMode(project: Project, mode: PdfExportMode): ExportProject {
   const activeAreas = getActiveAreas(project);
 
@@ -416,7 +420,7 @@ function filterProjectForMode(project: Project, mode: PdfExportMode): ExportProj
             items: location.items
               .map((item) => ({
                 ...item,
-                checkpoints: item.checkpoints.filter((checkpoint) => checkpointHasIssue(checkpoint)),
+                checkpoints: item.checkpoints.filter((checkpoint) => checkpointShouldRenderAsPdfIssue(checkpoint)),
               }))
               .filter((item) => item.checkpoints.length > 0),
           }))
@@ -444,7 +448,7 @@ function getPrintableLocationsForMode(area: ExportArea, mode: PdfExportMode): Ex
       items: location.items
         .map((item) => ({
           ...item,
-          checkpoints: item.checkpoints.filter((checkpoint) => checkpointHasIssue(checkpoint)),
+          checkpoints: item.checkpoints.filter((checkpoint) => checkpointShouldRenderAsPdfIssue(checkpoint)),
         }))
         .filter((item) => item.checkpoints.length > 0),
     }))
@@ -480,7 +484,7 @@ function getProjectIssueSummary(project: Project) {
 
       for (const item of location.items) {
         for (const checkpoint of item.checkpoints) {
-          if (!checkpointHasIssue(checkpoint)) continue;
+          if (!checkpointShouldRenderAsPdfIssue(checkpoint)) continue;
           totalIssues += 1;
           areaIssueCount += 1;
           sectionIssueCount += 1;
@@ -532,7 +536,7 @@ function buildAreaPhotoReferenceData(area: ExportArea) {
 
     for (const item of location.items) {
       for (const checkpoint of item.checkpoints) {
-        if (!checkpointHasIssue(checkpoint)) continue;
+        if (!checkpointShouldRenderAsPdfIssue(checkpoint)) continue;
         const photoCount = getCheckpointPhotoSources(checkpoint).length;
         if (photoCount === 0) continue;
 
