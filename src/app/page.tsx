@@ -16,7 +16,7 @@ import {
   queuePendingSync,
   recordPendingSyncRetry,
 } from '@/lib/pendingSync';
-import { generateMultiProjectPDF, downloadPDF, type PdfExportMode } from '@/lib/pdfExport';
+import { generateMultiProjectPDF, generateProjectPDF, downloadPDF, type PdfExportMode } from '@/lib/pdfExport';
 import { uploadPdfToOneDrive, getNextOneDriveExportFilename } from '@/lib/oneDrive';
 import {
   formatMicrosoftManualRetryMessage,
@@ -73,6 +73,23 @@ function getOneDriveProjectFolderName(project: Pick<Project, 'projectName' | 'on
     project.oneDriveFolderName,
     sanitizeOneDriveProjectFolderPart(project.projectName, 'project')
   );
+}
+
+function sanitizeExportNamePart(name: string): string {
+  const cleaned = name
+    .trim()
+    .replace(/\s+/g, '_')
+    .replace(/[^a-z0-9_-]/gi, '')
+    .replace(/_+/g, '_')
+    .replace(/^_+|_+$/g, '');
+  return cleaned || 'Project';
+}
+
+function formatDateForExport(now = new Date()): string {
+  const yyyy = now.getFullYear();
+  const mm = String(now.getMonth() + 1).padStart(2, '0');
+  const dd = String(now.getDate()).padStart(2, '0');
+  return `${yyyy}.${mm}.${dd}`;
 }
 
 type ProjectMetrics = {
@@ -370,6 +387,7 @@ export default function ProjectsPage() {
   const [selectedProjectIds, setSelectedProjectIds] = useState<Set<string>>(new Set());
   const [exportingSelected, setExportingSelected] = useState(false);
   const [exportingSelectedToDrive, setExportingSelectedToDrive] = useState(false);
+  const [exportingSelectedAreas, setExportingSelectedAreas] = useState(false);
   const [actionSheet, setActionSheet] = useState<'delete' | 'export' | null>(null);
   const [exportType] = useState<PdfExportMode>('issues');
   const [showProjectMenuId, setShowProjectMenuId] = useState<string | null>(null);
@@ -845,6 +863,29 @@ export default function ProjectsPage() {
     await loadProjects();
   }
 
+  async function handleExportSelectedAreas() {
+    if (!singleProject || exportingSelectedAreas || selectedAreaIds.size === 0) return;
+    setExportingSelectedAreas(true);
+    try {
+      const selectedIds = new Set(selectedAreaIds);
+      const selectedSortedAreaIds = sortedAreas
+        .filter((area) => selectedIds.has(area.id))
+        .map((area) => area.id);
+      const fullProject = await getProject(singleProject.id);
+      const projectForExport = fullProject ?? singleProject;
+      const blob = await generateProjectPDF(projectForExport, 'full', { areaIds: selectedSortedAreaIds });
+      const filename = `${sanitizeExportNamePart(singleProject.projectName)}_Selected_Areas_${formatDateForExport()}.pdf`;
+      downloadPDF(blob, filename);
+      setSelectedAreaIds(new Set());
+      setDeleteMode(false);
+    } catch (error) {
+      console.error('Failed to export selected areas:', error);
+      alert('Failed to export selected areas. Please try again.');
+    } finally {
+      setExportingSelectedAreas(false);
+    }
+  }
+
   async function handleRestoreProject(projectId: string) {
     const project = projects.find((entry) => entry.id === projectId);
     if (!project) return;
@@ -1161,6 +1202,18 @@ export default function ProjectsPage() {
                     className="rounded-full px-3 py-2 text-sm font-medium text-gray-600 transition hover:bg-black/[0.04] hover:text-gray-900 dark:text-gray-300 dark:hover:bg-white/[0.06] dark:hover:text-white"
                   >
                     Cancel
+                  </button>
+                  <button
+                    onClick={() => void handleExportSelectedAreas()}
+                    disabled={exportingSelectedAreas || selectedAreaIds.size === 0}
+                    className="flex h-10 w-10 items-center justify-center rounded-full border border-black/5 bg-white/70 text-gray-700 transition hover:bg-white dark:border-white/10 dark:bg-white/[0.04] dark:text-gray-200 dark:hover:bg-white/[0.08] disabled:opacity-40"
+                    aria-label="Export selected areas"
+                  >
+                    {exportingSelectedAreas ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <FileDown className="w-4 h-4" />
+                    )}
                   </button>
                   <button
                     onClick={() => {
