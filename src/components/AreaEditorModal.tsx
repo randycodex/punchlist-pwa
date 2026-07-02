@@ -71,8 +71,8 @@ export default function AreaEditorModal({
   const selectedFacadeLevelSet = new Set(selectedFacadeLevels);
 
   return (
-    <div className="modal-overlay fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="modal-panel w-full max-w-md rounded-[1.9rem] p-6">
+    <div className="modal-overlay fixed inset-0 z-50 flex items-start justify-center overflow-y-auto p-4">
+      <div className="modal-panel my-4 w-full max-w-md rounded-[1.9rem] p-6">
         <h2 className="mb-1 text-xl font-semibold tracking-[-0.02em] text-gray-900 dark:text-white">{title}</h2>
         <p className="mb-5 text-sm text-gray-500 dark:text-gray-400">Choose the area type and label details.</p>
 

@@ -1661,6 +1661,7 @@ export default function AreaDetailPage() {
         value={areaForm}
         recentAreaTypeKeys={recentAreaTypeKeys}
         facadeLevelOptions={buildFacadeLevelOptions(project)}
+        enableFacadeLevelBatch
         onChange={setAreaForm}
         onClose={() => {
           setAreaForm(getAreaFormValue(area));
