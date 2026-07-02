@@ -859,10 +859,12 @@ export default function ProjectsPage() {
 
   function handleExportSelectedConfirm() {
     if (exportingSelected || exportingSelectedToDrive || selectedProjectIds.size === 0) return;
+    if (singleProjectMainView && selectedAreaIds.size === 0) return;
     setActionSheet('export');
   }
 
   async function loadProjectsForExport(token?: string | null) {
+    const selectedAreas = new Set(selectedAreaIds);
     const selectedProjects = [...sortedProjects]
       .filter((project) => selectedProjectIds.has(project.id))
       .sort((a, b) => a.projectName.localeCompare(b.projectName));
@@ -878,7 +880,9 @@ export default function ProjectsPage() {
 
     return hydratedProjects.map((project) => ({
       ...project,
-      areas: [...project.areas].sort(compareAreaNames),
+      areas: [...project.areas]
+        .filter((area) => !singleProjectMainView || selectedAreas.has(area.id))
+        .sort(compareAreaNames),
     }));
   }
 
@@ -1048,7 +1052,7 @@ export default function ProjectsPage() {
         setExportMode(true);
         setSelectedAreaIds(new Set());
         setSelectedProjectIds(new Set([singleProject.id]));
-        setActionSheet('export');
+        setActionSheet(null);
         return;
       }
 
@@ -1162,17 +1166,32 @@ export default function ProjectsPage() {
                   >
                     Cancel
                   </button>
-                  <button
-                    onClick={() => {
-                      if (selectedAreaIds.size === 0) return;
-                      void handleDeleteSelectedAreas();
-                    }}
-                    className="accent-text accent-tint hover:accent-tint-strong flex h-10 w-10 items-center justify-center rounded-full transition disabled:opacity-40"
-                    aria-label="Delete selected areas"
-                    disabled={selectedAreaIds.size === 0}
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
+                  {exportMode ? (
+                    <button
+                      onClick={() => void handleExportSelectedConfirm()}
+                      disabled={exportingSelected || exportingSelectedToDrive || selectedAreaIds.size === 0}
+                      className="flex h-10 w-10 items-center justify-center rounded-full border border-black/5 bg-white/70 text-gray-700 transition hover:bg-white dark:border-white/10 dark:bg-white/[0.04] dark:text-gray-200 dark:hover:bg-white/[0.08] disabled:opacity-40"
+                      aria-label="Export selected areas"
+                    >
+                      {exportingSelected || exportingSelectedToDrive ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <FileDown className="w-4 h-4" />
+                      )}
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => {
+                        if (selectedAreaIds.size === 0) return;
+                        void handleDeleteSelectedAreas();
+                      }}
+                      className="accent-text accent-tint hover:accent-tint-strong flex h-10 w-10 items-center justify-center rounded-full transition disabled:opacity-40"
+                      aria-label="Delete selected areas"
+                      disabled={selectedAreaIds.size === 0}
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  )}
                 </div>
               )}
             </div>
