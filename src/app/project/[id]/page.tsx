@@ -31,11 +31,14 @@ import { useMicrosoftAuth } from '@/contexts/MicrosoftAuthContext';
 import { useSyncStatus } from '@/contexts/SyncStatusContext';
 import { useAppSettings } from '@/contexts/AppSettingsContext';
 import MetadataLine from '@/components/MetadataLine';
+import { downloadPDF, generateProjectPDF } from '@/lib/pdfExport';
 import Link from 'next/link';
 import {
   ArrowLeft,
   Building2,
   ChevronRight,
+  FileDown,
+  Loader2,
   Trash2,
   RotateCcw,
   Plus,
@@ -45,6 +48,24 @@ type SortOption = 'alphabetical' | 'issues' | 'progress';
 
 const SORT_STORAGE_KEY = 'punchlist-areas-sort';
 const RECENT_AREA_TYPES_STORAGE_KEY = 'punchlist-recent-area-types';
+
+function sanitizeExportNamePart(name: string): string {
+  const cleaned = name
+    .trim()
+    .replace(/\s+/g, '_')
+    .replace(/[^a-z0-9_-]/gi, '')
+    .replace(/_+/g, '_')
+    .replace(/^_+|_+$/g, '');
+  return cleaned || 'Project';
+}
+
+function formatDateForExport(now = new Date()): string {
+  const yyyy = now.getFullYear();
+  const mm = String(now.getMonth() + 1).padStart(2, '0');
+  const dd = String(now.getDate()).padStart(2, '0');
+  return `${yyyy}.${mm}.${dd}`;
+}
+
 type AreaMetrics = {
   stats: { total: number; ok: number; issues: number };
   pending: number;
@@ -150,6 +171,7 @@ export default function ProjectDetailPage() {
   const [showAddArea, setShowAddArea] = useState(false);
   const [deleteMode, setDeleteMode] = useState(false);
   const [selectedAreaIds, setSelectedAreaIds] = useState<Set<string>>(new Set());
+  const [exportingSelectedAreas, setExportingSelectedAreas] = useState(false);
   const [newAreaForm, setNewAreaForm] = useState(getDefaultAreaFormValue());
   const [recentAreaTypeKeys, setRecentAreaTypeKeys] = useState<AreaTypeKey[]>([]);
   const [sortOption, setSortOption] = useState<SortOption>('issues');
@@ -385,6 +407,27 @@ export default function ProjectDetailPage() {
     setProject({ ...project, areas: [...project.areas] });
   }
 
+  async function handleExportSelectedAreas() {
+    if (!project || exportingSelectedAreas || selectedAreaIds.size === 0) return;
+    setExportingSelectedAreas(true);
+    try {
+      const selectedIds = new Set(selectedAreaIds);
+      const sortedAreaIds = [...sortedAreas]
+        .filter((area) => selectedIds.has(area.id))
+        .map((area) => area.id);
+      const blob = await generateProjectPDF(project, 'full', { areaIds: sortedAreaIds });
+      const filename = `${sanitizeExportNamePart(project.projectName)}_Selected_Areas_${formatDateForExport()}.pdf`;
+      downloadPDF(blob, filename);
+    } catch (error) {
+      console.error('Failed to export selected areas:', error);
+      alert('Failed to export selected areas. Please try again.');
+    } finally {
+      setExportingSelectedAreas(false);
+      setDeleteMode(false);
+      setSelectedAreaIds(new Set());
+    }
+  }
+
   async function handleRestoreArea(areaId: string) {
     if (!project) return;
     const area = project.areas.find((entry) => entry.id === areaId);
@@ -618,6 +661,18 @@ export default function ProjectDetailPage() {
                 className="flex h-10 items-center justify-center rounded-full px-4 text-sm font-medium text-gray-600 transition hover:bg-black/[0.04] dark:text-gray-300 dark:hover:bg-white/[0.06]"
               >
                 Cancel
+              </button>
+              <button
+                onClick={() => void handleExportSelectedAreas()}
+                disabled={exportingSelectedAreas || selectedAreaIds.size === 0}
+                className="flex h-10 w-10 items-center justify-center rounded-full border border-black/5 bg-white/70 text-gray-700 transition hover:bg-white dark:border-white/10 dark:bg-white/[0.04] dark:text-gray-200 dark:hover:bg-white/[0.08] disabled:opacity-40"
+                aria-label="Export selected areas"
+              >
+                {exportingSelectedAreas ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <FileDown className="w-4 h-4" />
+                )}
               </button>
               <button
                 onClick={() => {

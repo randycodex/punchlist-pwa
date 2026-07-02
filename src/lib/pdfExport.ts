@@ -2,6 +2,9 @@ import { jsPDF } from 'jspdf';
 import { Area, Checkpoint, Item, Location, Project, checkpointHasIssue, getCheckpointIssueState } from '@/types';
 
 export type PdfExportMode = 'full' | 'issues';
+export type PdfExportOptions = {
+  areaIds?: Iterable<string>;
+};
 
 type ImageSize = { width: number; height: number };
 
@@ -382,12 +385,13 @@ function estimateLocationBlockHeight(pdf: jsPDF, location: ExportLocation, layou
   return height + 3;
 }
 
-function getActiveAreas(project: Project) {
-  return project.areas.filter((area) => !area.deletedAt);
+function getActiveAreas(project: Project, options?: PdfExportOptions) {
+  const areaIds = options?.areaIds ? new Set(options.areaIds) : null;
+  return project.areas.filter((area) => !area.deletedAt && (!areaIds || areaIds.has(area.id)));
 }
 
-function filterProjectForMode(project: Project, mode: PdfExportMode): ExportProject {
-  const activeAreas = getActiveAreas(project);
+function filterProjectForMode(project: Project, mode: PdfExportMode, options?: PdfExportOptions): ExportProject {
+  const activeAreas = getActiveAreas(project, options);
 
   if (mode === 'full') {
     return {
@@ -1058,11 +1062,11 @@ async function renderProjectDetailPages(
   return summaryPages;
 }
 
-export async function generateProjectPDF(project: Project, mode: PdfExportMode = 'full'): Promise<Blob> {
+export async function generateProjectPDF(project: Project, mode: PdfExportMode = 'full', options?: PdfExportOptions): Promise<Blob> {
   const pdf = new jsPDF('p', 'mm', 'a4');
   const logo = await loadLogoAssets();
   const layout = createLayout(pdf);
-  const exportProject = filterProjectForMode(project, mode);
+  const exportProject = filterProjectForMode(project, mode, options);
   const generatedAt = getGeneratedAt();
 
   const summaryPages = hasRenderableContent(exportProject, mode)
