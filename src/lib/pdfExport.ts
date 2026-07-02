@@ -1021,7 +1021,15 @@ async function renderProjectDetailPages(
       y = drawLocationHeader(location.name, y);
 
       for (const item of location.items) {
-        const itemHeight = estimateItemBlockHeight(pdf, item, layout);
+        const renderedCheckpoints = mode === 'issues'
+          ? item.checkpoints.filter((checkpoint) => checkpointShouldRenderAsPdfIssue(checkpoint))
+          : item.checkpoints;
+        if (renderedCheckpoints.length === 0) {
+          continue;
+        }
+
+        const printableItem = { ...item, checkpoints: renderedCheckpoints };
+        const itemHeight = estimateItemBlockHeight(pdf, printableItem, layout);
         const maxItemHeightOnFreshPage = layout.contentBottom - (continuedAreaStartY + locationHeaderHeight);
         if (itemHeight <= maxItemHeightOnFreshPage && y + itemHeight > layout.contentBottom) {
           y = startAreaPage(false);
@@ -1042,7 +1050,7 @@ async function renderProjectDetailPages(
           return nextY + GROUP_TO_ITEM_GAP;
         };
 
-        for (const checkpoint of item.checkpoints) {
+        for (const checkpoint of renderedCheckpoints) {
           const checkpointHeight = estimateCheckpointBlockHeight(pdf, checkpoint, layout, layout.contentWidth - BODY_INDENT - 2);
           const itemHeaderHeight = GROUP_TO_ITEM_GAP + 1;
           const maxCheckpointHeightOnFreshPage = layout.contentBottom - (continuedAreaStartY + locationHeaderHeight + itemHeaderHeight);
