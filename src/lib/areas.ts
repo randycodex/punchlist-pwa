@@ -217,7 +217,13 @@ export function getAreaFormValue(area?: Area | null): AreaFormValue {
 
 export function getFacadeCreationLevels(form: AreaFormValue, facadeLevelOptions: string[]): string[] {
   if (form.areaTypeKey !== 'facade') return [form.facadeLevel.trim()].filter(Boolean);
-  if (form.facadeLevelMode === 'yes') return facadeLevelOptions;
+  if (form.facadeLevelMode === 'yes') {
+    const validLevels = new Set(facadeLevelOptions);
+    return form.facadeLevel
+      .split(',')
+      .map((level) => level.trim())
+      .filter((level) => level && validLevels.has(level));
+  }
   return [''];
 }
 
@@ -227,7 +233,7 @@ export function getAreaCreationForms(form: AreaFormValue, facadeLevelOptions: st
   const facadeTypes = form.areaNumber.split(',').filter(Boolean);
   if (facadeTypes.length === 0) return [];
 
-  const facadeLevels = form.facadeLevelMode === 'yes' ? facadeLevelOptions : [];
+  const facadeLevels = form.facadeLevelMode === 'yes' ? getFacadeCreationLevels(form, facadeLevelOptions) : [];
   if (form.facadeLevelMode === 'yes' && facadeLevels.length === 0) return [];
 
   return facadeTypes.map((facadeType) => ({

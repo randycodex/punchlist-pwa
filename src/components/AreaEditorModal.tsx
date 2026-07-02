@@ -67,6 +67,8 @@ export default function AreaEditorModal({
       ? value.facadeLevel.trim()
       : FACADE_LEVEL_CUSTOM_VALUE
     : levelMode;
+  const selectedFacadeLevels = value.facadeLevel.split(',').map((level) => level.trim()).filter(Boolean);
+  const selectedFacadeLevelSet = new Set(selectedFacadeLevels);
 
   return (
     <div className="modal-overlay fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -171,13 +173,41 @@ export default function AreaEditorModal({
               >
                 <option value="">Select levels</option>
                 <option value="yes" disabled={facadeLevelOptions.length === 0}>
-                  Yes
+                  Pick floors
                 </option>
-                <option value="no">No</option>
+                <option value="no">No levels</option>
               </select>
+              {value.facadeLevelMode === 'yes' && facadeLevelOptions.length > 0 && (
+                <div className="mt-2 grid max-h-44 grid-cols-2 gap-2 overflow-y-auto rounded-[1rem] border border-[var(--surface-border)] bg-white/70 p-3 dark:bg-white/[0.05]">
+                  {facadeLevelOptions.map((level) => {
+                    const selected = selectedFacadeLevelSet.has(level);
+                    return (
+                      <label key={level} className="flex cursor-pointer items-center gap-2 rounded-[0.75rem] px-2 py-1.5 text-sm text-gray-800 transition hover:bg-black/[0.04] dark:text-gray-200 dark:hover:bg-white/[0.06]">
+                        <input
+                          type="checkbox"
+                          checked={selected}
+                          onChange={() => {
+                            const next = selected
+                              ? selectedFacadeLevels.filter((entry) => entry !== level)
+                              : [...selectedFacadeLevels, level];
+                            onChange({ ...value, facadeLevel: next.join(',') });
+                          }}
+                          className="h-4 w-4 accent-[var(--accent)]"
+                        />
+                        <span>{level}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+              )}
               {facadeLevelOptions.length === 0 && (
                 <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
                   Set a project level range first to create facade levels.
+                </p>
+              )}
+              {value.facadeLevelMode === 'yes' && facadeLevelOptions.length > 0 && selectedFacadeLevels.length === 0 && (
+                <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                  Pick at least one floor for this facade inspection.
                 </p>
               )}
             </div>
@@ -313,7 +343,9 @@ export default function AreaEditorModal({
               (selectedDefinition.requiresOrientation && !value.unitType) ||
               (selectedDefinition.requiresOrientation &&
                 enableFacadeLevelBatch &&
-                (!value.facadeLevelMode || (value.facadeLevelMode === 'yes' && facadeLevelOptions.length === 0))) ||
+                (!value.facadeLevelMode ||
+                  (value.facadeLevelMode === 'yes' &&
+                    (facadeLevelOptions.length === 0 || selectedFacadeLevels.length === 0)))) ||
               (selectedDefinition.requiresOrientation &&
                 !enableFacadeLevelBatch &&
                 !value.facadeLevel.trim()) ||
