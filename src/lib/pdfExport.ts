@@ -153,6 +153,46 @@ function formatDate(value: Date | string | number | undefined, withTime = false)
   return withTime ? date.toLocaleString() : date.toLocaleDateString();
 }
 
+function getPdfDateOnlyKey(value: Date | string | number | undefined) {
+  if (!value) return '';
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  return `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
+}
+
+function timestampFromDate(value: Date | string | number | undefined) {
+  if (!value) return 0;
+  const date = value instanceof Date ? value : new Date(value);
+  const timestamp = date.getTime();
+  return Number.isNaN(timestamp) ? 0 : timestamp;
+}
+
+function getAreaCreatedDateSummary(project: ExportProject) {
+  const datedAreas = project.areas
+    .map((area) => ({
+      key: getPdfDateOnlyKey(area.createdAt),
+      timestamp: timestampFromDate(area.createdAt),
+      label: formatDate(area.createdAt),
+    }))
+    .filter((entry) => entry.key && entry.label && entry.timestamp > 0);
+
+  if (datedAreas.length === 0) {
+    return { label: 'Date', value: formatDate(project.date) || 'N/A' };
+  }
+
+  const uniqueDates = [...new Map(datedAreas.map((entry) => [entry.key, entry])).values()]
+    .sort((left, right) => left.timestamp - right.timestamp);
+
+  if (uniqueDates.length === 1) {
+    return { label: 'Date', value: uniqueDates[0].label };
+  }
+
+  return {
+    label: 'Dates',
+    value: `${uniqueDates[0].label} - ${uniqueDates[uniqueDates.length - 1].label}`,
+  };
+}
+
 function getGeneratedAt() {
   return formatDate(new Date(), true);
 }
@@ -303,13 +343,28 @@ function addProjectPageHeader(
   pdf.setTextColor(0, 0, 0);
 }
 
-function drawAreaHeader(pdf: jsPDF, areaName: string, y: number, layout: LayoutMetrics) {
+function drawAreaHeader(pdf: jsPDF, area: Pick<ExportArea, 'name' | 'createdAt'>, y: number, layout: LayoutMetrics) {
   pdf.setFont('helvetica', 'bold');
   pdf.setFontSize(14);
   pdf.setTextColor(71, 85, 105);
-  pdf.text(areaName, layout.margin, y);
+  pdf.text(area.name, layout.margin, y);
+
+  const createdDate = formatDate(area.createdAt);
+  if (createdDate) {
+    pdf.setFont('helvetica', 'normal');
+    pdf.setFontSize(8.5);
+    pdf.setTextColor(107, 114, 128);
+    pdf.text(`Created: ${createdDate}`, layout.margin, y + 5);
+    pdf.setTextColor(0, 0, 0);
+    return y + 12;
+  }
+
   pdf.setTextColor(0, 0, 0);
   return y + 8;
+}
+
+function getAreaHeaderHeight(area: Pick<ExportArea, 'createdAt'>) {
+  return formatDate(area.createdAt) ? 12 : 8;
 }
 
 const SECTION_GAP = 6;
@@ -582,10 +637,11 @@ function renderCoverPage(
     }
   }
 
+  const areaDateSummary = getAreaCreatedDateSummary(project);
   const metadata = [
     sanitizeText(project.address) ? `Address: ${sanitizeText(project.address)}` : '',
     sanitizeText(project.inspector) ? `Inspector: ${sanitizeText(project.inspector)}` : '',
-    `Date: ${formatDate(project.date) || 'N/A'}`,
+    `${areaDateSummary.label}: ${areaDateSummary.value}`,
     sanitizeText(project.gcName) ? `GC: ${sanitizeText(project.gcName)}` : '',
   ].filter(Boolean);
 
@@ -950,7 +1006,7 @@ async function renderProjectDetailPages(
       }));
     }
     const drawAreaIntro = (baseY: number, includeSummary: boolean) => {
-      let y = drawAreaHeader(pdf, area.name, baseY, layout);
+      let y = drawAreaHeader(pdf, area, baseY, layout);
       if (hasAreaNotes) {
         const noteLines = pdf.splitTextToSize(sanitizeText(area.notes), layout.contentWidth - 2) as string[];
         pdf.setFont('helvetica', 'italic');
@@ -989,7 +1045,7 @@ async function renderProjectDetailPages(
     };
 
     const getFreshAreaStartY = (baseY: number, includeSummary: boolean) => {
-      let freshY = baseY + 8;
+      let freshY = baseY + getAreaHeaderHeight(area);
       if (hasAreaNotes) {
         const noteLines = pdf.splitTextToSize(sanitizeText(area.notes), layout.contentWidth - 2) as string[];
         freshY += noteLines.length * 3.8 + 3;
