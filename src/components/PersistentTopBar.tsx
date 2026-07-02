@@ -8,7 +8,7 @@ import { useMicrosoftAuth } from '@/contexts/MicrosoftAuthContext';
 import { useSyncStatus } from '@/contexts/SyncStatusContext';
 import { useAppSettings } from '@/contexts/AppSettingsContext';
 import { getProject } from '@/lib/db';
-import { MoreVertical, LogOut, LogIn, ArrowDownAZ, Clock3, BarChart3, PlusSquare, FolderPlus, Trash2, Pencil, FileDown, RefreshCw } from 'lucide-react';
+import { MoreVertical, LogOut, LogIn, ArrowDownAZ, Clock3, BarChart3, PlusSquare, FolderPlus, Trash2, Pencil, FileDown } from 'lucide-react';
 
 const projectTitleCache = new Map<string, string>();
 type SortOption = 'alphabetical' | 'issues' | 'progress';
@@ -162,7 +162,7 @@ export default function PersistentTopBar() {
         aria-label={label}
         title={label}
       >
-        <RefreshCw className={`h-4 w-4 ${status === 'syncing' ? 'animate-spin' : ''}`} />
+        <span className="text-[10px] font-bold leading-none tracking-[0.06em]">SYNC</span>
       </button>
     );
   }
