@@ -428,11 +428,27 @@ function filterProjectForMode(project: Project, mode: PdfExportMode): ExportProj
 
 function hasRenderableContent(project: ExportProject, mode: PdfExportMode) {
   return project.areas.some((area) => {
-    const printableLocations = mode === 'full'
-      ? area.locations.filter((location) => location.items.length > 0 || isGeneralNotesLocation(location))
-      : area.locations.filter((location) => location.items.length > 0);
+    const printableLocations = getPrintableLocationsForMode(area, mode);
     return printableLocations.length > 0 || (mode === 'full' && Boolean(sanitizeText(area.notes)));
   });
+}
+
+function getPrintableLocationsForMode(area: ExportArea, mode: PdfExportMode): ExportLocation[] {
+  if (mode === 'full') {
+    return area.locations.filter((location) => location.items.length > 0 || isGeneralNotesLocation(location));
+  }
+
+  return area.locations
+    .map((location) => ({
+      ...location,
+      items: location.items
+        .map((item) => ({
+          ...item,
+          checkpoints: item.checkpoints.filter((checkpoint) => checkpointHasIssue(checkpoint)),
+        }))
+        .filter((item) => item.checkpoints.length > 0),
+    }))
+    .filter((location) => location.items.length > 0);
 }
 
 function getEmptyProjectMessage(mode: PdfExportMode) {
@@ -910,16 +926,15 @@ async function renderProjectDetailPages(
       continue;
     }
 
-    const printableLocations = mode === 'full'
-      ? area.locations.filter((location) => location.items.length > 0 || isGeneralNotesLocation(location))
-      : area.locations.filter((location) => location.items.length > 0);
+    const printableLocations = getPrintableLocationsForMode(area, mode);
 
     if (printableLocations.length === 0 && !(mode === 'full' && hasAreaNotes)) {
       continue;
     }
 
+    const printableArea = { ...area, locations: printableLocations };
     const areaSummary = summaryByArea.get(area.id);
-    const areaPhotoRefs = buildAreaPhotoReferenceData(area);
+    const areaPhotoRefs = buildAreaPhotoReferenceData(printableArea);
     if (areaSummary) {
       areaSummary.sections = areaSummary.sections.map((section) => ({
         ...section,
