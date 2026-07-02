@@ -20,7 +20,7 @@ import {
   type AreaTypeKey,
 } from '@/lib/areas';
 import { applyTemplateToArea } from '@/lib/template';
-import { syncProjectsWithOneDrive } from '@/lib/oneDriveSync';
+import { hydrateProjectMediaFromOneDrive, syncProjectsWithOneDrive } from '@/lib/oneDriveSync';
 import {
   clearPendingSyncState,
   loadPendingSyncState,
@@ -32,6 +32,7 @@ import { useSyncStatus } from '@/contexts/SyncStatusContext';
 import { useAppSettings } from '@/contexts/AppSettingsContext';
 import MetadataLine from '@/components/MetadataLine';
 import { downloadPDF, generateProjectPDF } from '@/lib/pdfExport';
+import { getNextOneDriveExportFilename, uploadPdfToOneDrive } from '@/lib/oneDrive';
 import Link from 'next/link';
 import {
   ArrowLeft,
@@ -45,9 +46,29 @@ import {
 } from 'lucide-react';
 
 type SortOption = 'alphabetical' | 'issues' | 'progress';
+type ExportDestination = 'local' | 'onedrive' | 'both';
+type ExportScope = 'project' | 'selected-areas';
 
 const SORT_STORAGE_KEY = 'punchlist-areas-sort';
 const RECENT_AREA_TYPES_STORAGE_KEY = 'punchlist-recent-area-types';
+
+function sanitizeOneDriveProjectFolderPart(value: string | undefined, fallback: string) {
+  const cleaned = (value ?? '')
+    .trim()
+    .replace(/\s+/g, '-')
+    .replace(/[^a-z0-9-_]/gi, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 48);
+  return cleaned || fallback;
+}
+
+function getOneDriveProjectFolderName(project: Pick<Project, 'projectName' | 'oneDriveFolderName'>) {
+  return sanitizeOneDriveProjectFolderPart(
+    project.oneDriveFolderName,
+    sanitizeOneDriveProjectFolderPart(project.projectName, 'project')
+  );
+}
 
 function sanitizeExportNamePart(name: string): string {
   const cleaned = name
@@ -176,7 +197,8 @@ export default function ProjectDetailPage() {
   const [recentAreaTypeKeys, setRecentAreaTypeKeys] = useState<AreaTypeKey[]>([]);
   const [sortOption, setSortOption] = useState<SortOption>('issues');
   const [showTrash, setShowTrash] = useState(false);
-  const [actionSheet, setActionSheet] = useState<'delete' | null>(null);
+  const [actionSheet, setActionSheet] = useState<'delete' | 'export' | null>(null);
+  const [exportScope, setExportScope] = useState<ExportScope>('project');
   const [syncing, setSyncing] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
   const [editingProject, setEditingProject] = useState<Project | null>(null);
@@ -185,7 +207,7 @@ export default function ProjectDetailPage() {
   const pullDistanceRef = useRef(0);
   const pullArmedRef = useRef(false);
   const listRef = useRef<HTMLElement | null>(null);
-  const { ensureAccessToken } = useMicrosoftAuth();
+  const { ensureAccessToken, signIn } = useMicrosoftAuth();
   const { setRetryAt, setStatus: setSyncStatus } = useSyncStatus();
   const { projectShowOnlyIssues, setProjectShowOnlyIssues, quickSort, markSyncedNow } = useAppSettings();
 
@@ -407,17 +429,39 @@ export default function ProjectDetailPage() {
     setProject({ ...project, areas: [...project.areas] });
   }
 
-  async function handleExportSelectedAreas() {
+  async function handleExportSelectedAreas(destination: ExportDestination) {
     if (!project || exportingSelectedAreas || selectedAreaIds.size === 0) return;
     setExportingSelectedAreas(true);
+    setActionSheet(null);
     try {
       const selectedIds = new Set(selectedAreaIds);
       const sortedAreaIds = [...sortedAreas]
         .filter((area) => selectedIds.has(area.id))
         .map((area) => area.id);
-      const blob = await generateProjectPDF(project, 'full', { areaIds: sortedAreaIds });
-      const filename = `${sanitizeExportNamePart(project.projectName)}_Selected_Areas_${formatDateForExport()}.pdf`;
-      downloadPDF(blob, filename);
+      const shouldSaveToDrive = destination === 'onedrive' || destination === 'both';
+      const token = shouldSaveToDrive ? await ensureAccessToken() : null;
+      if (shouldSaveToDrive && !token) {
+        signIn();
+        return;
+      }
+      const projectForExport = token
+        ? await hydrateProjectMediaFromOneDrive(token, project.id)
+        : project;
+      const blob = await generateProjectPDF(projectForExport ?? project, 'issues', { areaIds: sortedAreaIds });
+      if (destination === 'local' || destination === 'both') {
+        const filename = `${sanitizeExportNamePart(project.projectName)}_Selected_Areas_${formatDateForExport()}.pdf`;
+        downloadPDF(blob, filename);
+      }
+      if (token && shouldSaveToDrive) {
+        const projectFolderName = getOneDriveProjectFolderName(project);
+        const filename = await getNextOneDriveExportFilename(
+          token,
+          [`${project.projectName}_Selected_Areas_Issues`],
+          new Date(),
+          projectFolderName
+        );
+        await uploadPdfToOneDrive(token, filename, blob, projectFolderName);
+      }
     } catch (error) {
       console.error('Failed to export selected areas:', error);
       alert('Failed to export selected areas. Please try again.');
@@ -425,6 +469,43 @@ export default function ProjectDetailPage() {
       setExportingSelectedAreas(false);
       setDeleteMode(false);
       setSelectedAreaIds(new Set());
+    }
+  }
+
+  async function handleExportProject(destination: ExportDestination) {
+    if (!project || exportingSelectedAreas) return;
+    setExportingSelectedAreas(true);
+    setActionSheet(null);
+    try {
+      const shouldSaveToDrive = destination === 'onedrive' || destination === 'both';
+      const token = shouldSaveToDrive ? await ensureAccessToken() : null;
+      if (shouldSaveToDrive && !token) {
+        signIn();
+        return;
+      }
+      const projectForExport = token
+        ? await hydrateProjectMediaFromOneDrive(token, project.id)
+        : project;
+      const blob = await generateProjectPDF(projectForExport ?? project, 'issues');
+      if (destination === 'local' || destination === 'both') {
+        const filename = `${sanitizeExportNamePart(project.projectName)}_Issues_${formatDateForExport()}.pdf`;
+        downloadPDF(blob, filename);
+      }
+      if (token && shouldSaveToDrive) {
+        const projectFolderName = getOneDriveProjectFolderName(project);
+        const filename = await getNextOneDriveExportFilename(
+          token,
+          [`${project.projectName}_Issues`],
+          new Date(),
+          projectFolderName
+        );
+        await uploadPdfToOneDrive(token, filename, blob, projectFolderName);
+      }
+    } catch (error) {
+      console.error('Failed to export project:', error);
+      alert('Failed to export project. Please try again.');
+    } finally {
+      setExportingSelectedAreas(false);
     }
   }
 
@@ -502,6 +583,7 @@ export default function ProjectDetailPage() {
   function cancelSelectionMode() {
     setDeleteMode(false);
     setActionSheet(null);
+    setExportScope('project');
     setSelectedAreaIds(new Set());
   }
 
@@ -543,6 +625,15 @@ export default function ProjectDetailPage() {
           setDeleteMode(true);
           setSelectedAreaIds(new Set());
         }
+        return;
+      }
+
+      if (detail.action === 'export-project') {
+        setShowTrash(false);
+        setDeleteMode(false);
+        setSelectedAreaIds(new Set());
+        setExportScope('project');
+        setActionSheet('export');
         return;
       }
 
@@ -663,7 +754,10 @@ export default function ProjectDetailPage() {
                 Cancel
               </button>
               <button
-                onClick={() => void handleExportSelectedAreas()}
+                onClick={() => {
+                  setExportScope('selected-areas');
+                  setActionSheet('export');
+                }}
                 disabled={exportingSelectedAreas || selectedAreaIds.size === 0}
                 className="flex h-10 w-10 items-center justify-center rounded-full border border-black/5 bg-white/70 text-gray-700 transition hover:bg-white dark:border-white/10 dark:bg-white/[0.04] dark:text-gray-200 dark:hover:bg-white/[0.08] disabled:opacity-40"
                 aria-label="Export selected areas"
@@ -817,18 +911,75 @@ export default function ProjectDetailPage() {
         <div className="modal-overlay fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="w-full max-w-md">
             <div className="modal-panel overflow-hidden rounded-[1.8rem] p-2">
-              <button
-                onClick={() => void handleDeleteSelectedAreas()}
-                className="accent-text w-full rounded-[1.1rem] px-4 py-3 text-center text-[17px] transition hover:bg-black/[0.04] dark:hover:bg-white/[0.05]"
-              >
-                Delete
-              </button>
-              <button
-                onClick={() => setActionSheet(null)}
-                className="mt-1 w-full rounded-[1.1rem] px-4 py-3 text-center text-[17px] text-gray-900 transition hover:bg-black/[0.04] dark:text-white dark:hover:bg-white/[0.05]"
-              >
-                Cancel
-              </button>
+              {actionSheet === 'export' ? (
+                <>
+                  <div className="px-4 pb-2 pt-3 text-center">
+                    <div className="text-sm font-semibold text-gray-900 dark:text-white">Export PDF</div>
+                    <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                      {exportScope === 'selected-areas'
+                        ? 'Save selected issue areas locally, to OneDrive, or both.'
+                        : 'Save all project issue areas locally, to OneDrive, or both.'}
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => {
+                      if (exportScope === 'selected-areas') {
+                        void handleExportSelectedAreas('both');
+                        return;
+                      }
+                      void handleExportProject('both');
+                    }}
+                    className="w-full rounded-[1.1rem] px-4 py-3 text-center text-[17px] font-medium text-gray-900 transition hover:bg-black/[0.04] dark:text-white dark:hover:bg-white/[0.05]"
+                  >
+                    Local + OneDrive
+                  </button>
+                  <button
+                    onClick={() => {
+                      if (exportScope === 'selected-areas') {
+                        void handleExportSelectedAreas('onedrive');
+                        return;
+                      }
+                      void handleExportProject('onedrive');
+                    }}
+                    className="w-full rounded-[1.1rem] px-4 py-3 text-center text-[17px] text-gray-900 transition hover:bg-black/[0.04] dark:text-white dark:hover:bg-white/[0.05]"
+                  >
+                    OneDrive
+                  </button>
+                  <button
+                    onClick={() => {
+                      if (exportScope === 'selected-areas') {
+                        void handleExportSelectedAreas('local');
+                        return;
+                      }
+                      void handleExportProject('local');
+                    }}
+                    className="w-full rounded-[1.1rem] px-4 py-3 text-center text-[17px] text-gray-900 transition hover:bg-black/[0.04] dark:text-white dark:hover:bg-white/[0.05]"
+                  >
+                    Local
+                  </button>
+                  <button
+                    onClick={() => setActionSheet(null)}
+                    className="mt-1 w-full rounded-[1.1rem] px-4 py-3 text-center text-[17px] text-gray-900 transition hover:bg-black/[0.04] dark:text-white dark:hover:bg-white/[0.05]"
+                  >
+                    Cancel
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button
+                    onClick={() => void handleDeleteSelectedAreas()}
+                    className="accent-text w-full rounded-[1.1rem] px-4 py-3 text-center text-[17px] transition hover:bg-black/[0.04] dark:hover:bg-white/[0.05]"
+                  >
+                    Delete
+                  </button>
+                  <button
+                    onClick={() => setActionSheet(null)}
+                    className="mt-1 w-full rounded-[1.1rem] px-4 py-3 text-center text-[17px] text-gray-900 transition hover:bg-black/[0.04] dark:text-white dark:hover:bg-white/[0.05]"
+                  >
+                    Cancel
+                  </button>
+                </>
+              )}
             </div>
           </div>
         </div>

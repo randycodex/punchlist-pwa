@@ -51,6 +51,8 @@ import {
 } from 'lucide-react';
 
 type SortOption = 'alphabetical' | 'issues' | 'progress';
+type ExportDestination = 'local' | 'onedrive' | 'both';
+type ExportScope = 'selected-projects' | 'selected-areas';
 
 const SORT_STORAGE_KEY = 'punchlist-projects-sort';
 const RECENT_AREA_TYPES_STORAGE_KEY = 'punchlist-recent-area-types';
@@ -389,6 +391,7 @@ export default function ProjectsPage() {
   const [exportingSelectedToDrive, setExportingSelectedToDrive] = useState(false);
   const [exportingSelectedAreas, setExportingSelectedAreas] = useState(false);
   const [actionSheet, setActionSheet] = useState<'delete' | 'export' | null>(null);
+  const [exportScope, setExportScope] = useState<ExportScope>('selected-projects');
   const [exportType] = useState<PdfExportMode>('issues');
   const [showProjectMenuId, setShowProjectMenuId] = useState<string | null>(null);
   const [editingProject, setEditingProject] = useState<Project | null>(null);
@@ -863,21 +866,43 @@ export default function ProjectsPage() {
     await loadProjects();
   }
 
-  async function handleExportSelectedAreas() {
+  async function handleExportSelectedAreas(destination: ExportDestination) {
     if (!singleProject || exportingSelectedAreas || selectedAreaIds.size === 0) return;
     setExportingSelectedAreas(true);
+    setActionSheet(null);
     try {
       const selectedIds = new Set(selectedAreaIds);
       const selectedSortedAreaIds = sortedAreas
         .filter((area) => selectedIds.has(area.id))
         .map((area) => area.id);
-      const fullProject = await getProject(singleProject.id);
+      const shouldSaveToDrive = destination === 'onedrive' || destination === 'both';
+      const token = shouldSaveToDrive ? await ensureAccessToken() : null;
+      if (shouldSaveToDrive && !token) {
+        signIn();
+        return;
+      }
+      const fullProject = token
+        ? await hydrateProjectMediaFromOneDrive(token, singleProject.id)
+        : await getProject(singleProject.id);
       const projectForExport = fullProject ?? singleProject;
       const blob = await generateProjectPDF(projectForExport, 'issues', { areaIds: selectedSortedAreaIds });
-      const filename = `${sanitizeExportNamePart(singleProject.projectName)}_Selected_Areas_${formatDateForExport()}.pdf`;
-      downloadPDF(blob, filename);
+      if (destination === 'local' || destination === 'both') {
+        const filename = `${sanitizeExportNamePart(singleProject.projectName)}_Selected_Areas_${formatDateForExport()}.pdf`;
+        downloadPDF(blob, filename);
+      }
+      if (token && shouldSaveToDrive) {
+        const projectFolderName = getOneDriveProjectFolderName(singleProject);
+        const filename = await getNextOneDriveExportFilename(
+          token,
+          [`${singleProject.projectName}_Selected_Areas_Issues`],
+          new Date(),
+          projectFolderName
+        );
+        await uploadPdfToOneDrive(token, filename, blob, projectFolderName);
+      }
       setSelectedAreaIds(new Set());
       setDeleteMode(false);
+      setExportMode(false);
     } catch (error) {
       console.error('Failed to export selected areas:', error);
       alert('Failed to export selected areas. Please try again.');
@@ -901,6 +926,7 @@ export default function ProjectsPage() {
   function handleExportSelectedConfirm() {
     if (exportingSelected || exportingSelectedToDrive || selectedProjectIds.size === 0) return;
     if (singleProjectMainView && selectedAreaIds.size === 0) return;
+    setExportScope('selected-projects');
     setActionSheet('export');
   }
 
@@ -927,33 +953,20 @@ export default function ProjectsPage() {
     }));
   }
 
-  async function handleExportSelectedLocal() {
-    if (exportingSelected || selectedProjectIds.size === 0) return;
+  async function handleExportSelected(destination: ExportDestination) {
+    if (exportingSelected || exportingSelectedToDrive || selectedProjectIds.size === 0) return;
     setActionSheet(null);
-    setExportingSelected(true);
+    const shouldSaveLocal = destination === 'local' || destination === 'both';
+    const shouldSaveToDrive = destination === 'onedrive' || destination === 'both';
+    setExportingSelected(shouldSaveLocal);
+    setExportingSelectedToDrive(shouldSaveToDrive);
     try {
-      const token = isSignedIn ? await ensureAccessToken().catch(() => null) : null;
-      const projectsForExport = await loadProjectsForExport(token);
-      const blob = await generateMultiProjectPDF(projectsForExport, exportType);
-      const filename = exportType === 'issues' ? 'UAI_PUNCHLIST_APP_Issues_Report.pdf' : 'UAI_PUNCHLIST_APP_Full_Report.pdf';
-      downloadPDF(blob, filename);
-    } catch (error) {
-      console.error('Failed to export selected projects:', error);
-      alert('Failed to export selected projects. Please try again.');
-    } finally {
-      setExportingSelected(false);
-      setExportMode(false);
-      setSelectedProjectIds(new Set());
-    }
-  }
-
-  async function handleExportSelectedToDrive() {
-    if (exportingSelectedToDrive || selectedProjectIds.size === 0) return;
-    setActionSheet(null);
-    setExportingSelectedToDrive(true);
-    try {
-      const token = await ensureAccessToken();
-      if (!token) {
+      const token = shouldSaveToDrive
+        ? await ensureAccessToken()
+        : isSignedIn
+          ? await ensureAccessToken().catch(() => null)
+          : null;
+      if (shouldSaveToDrive && !token) {
         signIn();
         return;
       }
@@ -962,22 +975,29 @@ export default function ProjectsPage() {
         .sort((a, b) => a.projectName.localeCompare(b.projectName));
       const projectsForExport = await loadProjectsForExport(token);
       const blob = await generateMultiProjectPDF(projectsForExport, exportType);
-      const exportProject =
-        projectsToExport.length === 1 ? projectsToExport[0] : null;
-      const exportProjectFolderName = exportProject
-        ? getOneDriveProjectFolderName(exportProject)
-        : undefined;
-      const filename = await getNextOneDriveExportFilename(
-        token,
-        projectsToExport.map((project) => `${project.projectName}_${exportType === 'issues' ? 'Issues' : 'Full'}`),
-        new Date(),
-        exportProjectFolderName
-      );
-      await uploadPdfToOneDrive(token, filename, blob, exportProjectFolderName);
+      if (shouldSaveLocal) {
+        const filename = exportType === 'issues' ? 'UAI_PUNCHLIST_APP_Issues_Report.pdf' : 'UAI_PUNCHLIST_APP_Full_Report.pdf';
+        downloadPDF(blob, filename);
+      }
+      if (token && shouldSaveToDrive) {
+        const exportProject =
+          projectsToExport.length === 1 ? projectsToExport[0] : null;
+        const exportProjectFolderName = exportProject
+          ? getOneDriveProjectFolderName(exportProject)
+          : undefined;
+        const filename = await getNextOneDriveExportFilename(
+          token,
+          projectsToExport.map((project) => `${project.projectName}_${exportType === 'issues' ? 'Issues' : 'Full'}`),
+          new Date(),
+          exportProjectFolderName
+        );
+        await uploadPdfToOneDrive(token, filename, blob, exportProjectFolderName);
+      }
     } catch (error) {
-      console.error('Failed to export selected projects to OneDrive:', error);
-      alert('Failed to export selected projects to OneDrive. Please try again.');
+      console.error('Failed to export selected projects:', error);
+      alert('Failed to export selected projects. Please try again.');
     } finally {
+      setExportingSelected(false);
       setExportingSelectedToDrive(false);
       setExportMode(false);
       setSelectedProjectIds(new Set());
@@ -1011,6 +1031,7 @@ export default function ProjectsPage() {
     setDeleteMode(false);
     setExportMode(false);
     setActionSheet(null);
+    setExportScope('selected-projects');
     setSelectedProjectIds(new Set());
     setSelectedAreaIds(new Set());
   }
@@ -1090,10 +1111,11 @@ export default function ProjectsPage() {
       if (detail.action === 'export-project' && singleProject) {
         setShowTrash(false);
         setDeleteMode(false);
-        setExportMode(true);
+        setExportMode(false);
         setSelectedAreaIds(new Set());
         setSelectedProjectIds(new Set([singleProject.id]));
-        setActionSheet(null);
+        setExportScope('selected-projects');
+        setActionSheet('export');
         return;
       }
 
@@ -1208,7 +1230,10 @@ export default function ProjectsPage() {
                     Cancel
                   </button>
                   <button
-                    onClick={() => void handleExportSelectedAreas()}
+                    onClick={() => {
+                      setExportScope('selected-areas');
+                      setActionSheet('export');
+                    }}
                     disabled={exportingSelectedAreas || selectedAreaIds.size === 0}
                     className="flex h-10 w-10 items-center justify-center rounded-full border border-black/5 bg-white/70 text-gray-700 transition hover:bg-white dark:border-white/10 dark:bg-white/[0.04] dark:text-gray-200 dark:hover:bg-white/[0.08] disabled:opacity-40"
                     aria-label="Export selected areas"
@@ -1670,14 +1695,46 @@ export default function ProjectsPage() {
             <div className="modal-panel overflow-hidden rounded-[1.8rem] p-2">
               {actionSheet === 'export' ? (
                 <>
+                  <div className="px-4 pb-2 pt-3 text-center">
+                    <div className="text-sm font-semibold text-gray-900 dark:text-white">Export PDF</div>
+                    <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                      {exportScope === 'selected-areas'
+                        ? 'Save selected issue areas locally, to OneDrive, or both.'
+                        : 'Save this report locally, to OneDrive, or both.'}
+                    </div>
+                  </div>
                   <button
-                    onClick={() => void handleExportSelectedToDrive()}
+                    onClick={() => {
+                      if (exportScope === 'selected-areas') {
+                        void handleExportSelectedAreas('both');
+                        return;
+                      }
+                      void handleExportSelected('both');
+                    }}
+                    className="w-full rounded-[1.1rem] px-4 py-3 text-center text-[17px] font-medium text-gray-900 transition hover:bg-black/[0.04] dark:text-white dark:hover:bg-white/[0.05]"
+                  >
+                    Local + OneDrive
+                  </button>
+                  <button
+                    onClick={() => {
+                      if (exportScope === 'selected-areas') {
+                        void handleExportSelectedAreas('onedrive');
+                        return;
+                      }
+                      void handleExportSelected('onedrive');
+                    }}
                     className="w-full rounded-[1.1rem] px-4 py-3 text-center text-[17px] text-gray-900 transition hover:bg-black/[0.04] dark:text-white dark:hover:bg-white/[0.05]"
                   >
                     OneDrive
                   </button>
                   <button
-                    onClick={() => void handleExportSelectedLocal()}
+                    onClick={() => {
+                      if (exportScope === 'selected-areas') {
+                        void handleExportSelectedAreas('local');
+                        return;
+                      }
+                      void handleExportSelected('local');
+                    }}
                     className="w-full rounded-[1.1rem] px-4 py-3 text-center text-[17px] text-gray-900 transition hover:bg-black/[0.04] dark:text-white dark:hover:bg-white/[0.05]"
                   >
                     Local
