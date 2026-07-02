@@ -40,6 +40,7 @@ export default function PhotoCapture({
   const [capturedBatch, setCapturedBatch] = useState<Array<{ imageData: string; thumbnail?: string }>>([]);
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [savingPhotos, setSavingPhotos] = useState(false);
+  const [showPhotoSourceSheet, setShowPhotoSourceSheet] = useState(false);
   const pinchDistanceRef = useRef<number | null>(null);
   const pinchScaleRef = useRef(1);
   const cameraInputRef = useRef<HTMLInputElement>(null);
@@ -55,7 +56,17 @@ export default function PhotoCapture({
 
   function openPhotoPicker() {
     setCameraError(null);
+    setShowPhotoSourceSheet(false);
     cameraInputRef.current?.click();
+  }
+
+  function openPhotoOptions() {
+    setCameraError(null);
+    if (!navigator.mediaDevices?.getUserMedia) {
+      openPhotoPicker();
+      return;
+    }
+    setShowPhotoSourceSheet(true);
   }
 
   async function configureAutoFocus(stream: MediaStream) {
@@ -122,6 +133,7 @@ export default function PhotoCapture({
 
   async function openCamera() {
     setCameraError(null);
+    setShowPhotoSourceSheet(false);
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
@@ -285,7 +297,7 @@ export default function PhotoCapture({
 
   useEffect(() => {
     if (!openCameraSignal) return;
-    openPhotoPicker();
+    openPhotoOptions();
   }, [openCameraSignal]);
 
   return (
@@ -360,7 +372,7 @@ export default function PhotoCapture({
       <div className="flex items-center gap-3">
         {!hideCameraButton && (
           <button
-            onClick={openPhotoPicker}
+            onClick={openPhotoOptions}
             disabled={savingPhotos}
             className={`flex items-center justify-center rounded-[1rem] bg-gray-100 text-gray-700 transition hover:bg-gray-200 dark:bg-zinc-800 dark:text-gray-100 dark:hover:bg-zinc-700 ${
               compactActions ? 'h-10 w-10' : 'h-11 w-11'
@@ -381,6 +393,39 @@ export default function PhotoCapture({
           className="hidden"
         />
       </div>
+
+      {showPhotoSourceSheet && (
+        <div className="modal-overlay fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="w-full max-w-md">
+            <div className="modal-panel overflow-hidden rounded-[1.8rem] p-2">
+              <div className="px-4 pb-2 pt-3 text-center">
+                <div className="text-sm font-semibold text-gray-900 dark:text-white">Add Photos</div>
+                <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                  Use multi-photo mode for a batch, or device camera/library if focus is better there.
+                </div>
+              </div>
+              <button
+                onClick={() => void openCamera()}
+                className="w-full rounded-[1.1rem] px-4 py-3 text-center text-[17px] font-medium text-gray-900 transition hover:bg-black/[0.04] dark:text-white dark:hover:bg-white/[0.05]"
+              >
+                Take Multiple Photos
+              </button>
+              <button
+                onClick={openPhotoPicker}
+                className="w-full rounded-[1.1rem] px-4 py-3 text-center text-[17px] text-gray-900 transition hover:bg-black/[0.04] dark:text-white dark:hover:bg-white/[0.05]"
+              >
+                Device Camera or Library
+              </button>
+              <button
+                onClick={() => setShowPhotoSourceSheet(false)}
+                className="mt-1 w-full rounded-[1.1rem] px-4 py-3 text-center text-[17px] text-gray-900 transition hover:bg-black/[0.04] dark:text-white dark:hover:bg-white/[0.05]"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {cameraOpen && (
         <div className="fixed inset-0 z-50 overflow-hidden bg-black">
@@ -444,6 +489,11 @@ export default function PhotoCapture({
                 ) : null}
               </div>
             </div>
+            <p className="mt-3 text-center text-xs text-white/65">
+              {capturedBatch.length > 0
+                ? `${capturedBatch.length} photo${capturedBatch.length === 1 ? '' : 's'} ready`
+                : 'Take as many photos as needed, then tap Done.'}
+            </p>
           </div>
         </div>
       )}
