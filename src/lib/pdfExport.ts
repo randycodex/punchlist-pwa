@@ -42,6 +42,7 @@ type ExportCheckpoint = Checkpoint;
 type SummaryArea = {
   areaId: string;
   areaName: string;
+  createdAt?: Date | string | number;
   issueCount: number;
   sections: Array<{
     sectionId: string;
@@ -151,6 +152,11 @@ function formatDate(value: Date | string | number | undefined, withTime = false)
   const date = value instanceof Date ? value : new Date(value);
   if (Number.isNaN(date.getTime())) return '';
   return withTime ? date.toLocaleString() : date.toLocaleDateString();
+}
+
+function formatAreaCreatedLabel(value: Date | string | number | undefined) {
+  const createdDate = formatDate(value);
+  return createdDate ? `Area created: ${createdDate}` : '';
 }
 
 function getCoverDateMetadata(project: ExportProject, forceReportDate: boolean) {
@@ -323,12 +329,12 @@ function drawAreaHeader(pdf: jsPDF, area: Pick<ExportArea, 'name' | 'createdAt'>
   pdf.setTextColor(71, 85, 105);
   pdf.text(area.name, layout.margin, y);
 
-  const createdDate = formatDate(area.createdAt);
-  if (createdDate) {
+  const createdLabel = formatAreaCreatedLabel(area.createdAt);
+  if (createdLabel) {
     pdf.setFont('helvetica', 'normal');
     pdf.setFontSize(8.5);
     pdf.setTextColor(107, 114, 128);
-    pdf.text(`Created: ${createdDate}`, layout.margin, y + 5);
+    pdf.text(createdLabel, layout.margin, y + 5);
     pdf.setTextColor(0, 0, 0);
     return y + 12;
   }
@@ -545,6 +551,7 @@ function getProjectIssueSummary(project: Project) {
       areas.push({
         areaId: area.id,
         areaName: area.name,
+        createdAt: area.createdAt,
         issueCount: areaIssueCount,
         sections,
       });
@@ -687,6 +694,29 @@ function getAreaSummaryColumns(layout: LayoutMetrics) {
   return { tableWidth, sectionColumnWidth, subItemColumnWidth, commentsColumnWidth, photoColumnWidth };
 }
 
+function getSelectedAreasSummaryColumns(layout: LayoutMetrics) {
+  const tableWidth = layout.contentWidth;
+  const areaColumnWidth = 34;
+  const createdColumnWidth = 22;
+  const sectionColumnWidth = 22;
+  const photoColumnWidth = 17;
+  const countColumnWidth = 12;
+  const detailsWidth = tableWidth - areaColumnWidth - createdColumnWidth - sectionColumnWidth - photoColumnWidth - countColumnWidth - 6;
+  const subItemColumnWidth = Math.max(32, detailsWidth * 0.46);
+  const commentsColumnWidth = Math.max(30, detailsWidth - subItemColumnWidth);
+
+  return {
+    tableWidth,
+    areaColumnWidth,
+    createdColumnWidth,
+    sectionColumnWidth,
+    subItemColumnWidth,
+    commentsColumnWidth,
+    photoColumnWidth,
+    countColumnWidth,
+  };
+}
+
 function estimateAreaSummaryHeight(pdf: jsPDF, areaSummary: SummaryArea | undefined, layout: LayoutMetrics) {
   if (!areaSummary || areaSummary.sections.length === 0) return 0;
 
@@ -720,6 +750,37 @@ function getAreaSummaryRowHeight(
   return Math.max(6.5, entryLines * 4.1 + 1.5);
 }
 
+function getSelectedAreasSummaryRowHeight(
+  pdf: jsPDF,
+  areaSummary: SummaryArea,
+  section: SummaryArea['sections'][number],
+  columns: ReturnType<typeof getSelectedAreasSummaryColumns>,
+  showAreaLabel: boolean
+) {
+  const areaLabelLines = showAreaLabel
+    ? (pdf.splitTextToSize(areaSummary.areaName, columns.areaColumnWidth - 2) as string[])
+    : [];
+  const createdLabelLines = showAreaLabel && formatDate(areaSummary.createdAt)
+    ? (pdf.splitTextToSize(formatDate(areaSummary.createdAt), columns.createdColumnWidth - 2) as string[])
+    : [];
+  const sectionLines = pdf.splitTextToSize(section.sectionName, columns.sectionColumnWidth - 2) as string[];
+  const entryLines = section.entries.reduce((linesTotal, entry) => {
+    const subItemLines = pdf.splitTextToSize(entry.subItem, columns.subItemColumnWidth - 2) as string[];
+    const commentLines = entry.comment
+      ? (pdf.splitTextToSize(entry.comment, columns.commentsColumnWidth - 2) as string[])
+      : [];
+    return linesTotal + Math.max(1, subItemLines.length, commentLines.length);
+  }, 0);
+
+  return Math.max(
+    7,
+    areaLabelLines.length * 3.8,
+    createdLabelLines.length * 3.8,
+    sectionLines.length * 3.8,
+    entryLines * 4.1 + 1.5
+  );
+}
+
 function renderAreaSummaryTableHeader(
   pdf: jsPDF,
   layout: LayoutMetrics,
@@ -736,6 +797,139 @@ function renderAreaSummaryTableHeader(
   pdf.text('ISSUES QTY', layout.margin + tableWidth - 1, y, { align: 'right' });
 
   return y + 5;
+}
+
+function renderSelectedAreasSummaryTableHeader(
+  pdf: jsPDF,
+  layout: LayoutMetrics,
+  y: number
+) {
+  const {
+    tableWidth,
+    areaColumnWidth,
+    createdColumnWidth,
+    sectionColumnWidth,
+    subItemColumnWidth,
+    commentsColumnWidth,
+  } = getSelectedAreasSummaryColumns(layout);
+
+  const areaX = layout.margin + 0.5;
+  const createdX = areaX + areaColumnWidth;
+  const sectionX = createdX + createdColumnWidth;
+  const itemX = sectionX + sectionColumnWidth;
+  const commentsX = itemX + subItemColumnWidth;
+  const photosX = commentsX + commentsColumnWidth;
+
+  pdf.setFont('helvetica', 'bold');
+  pdf.setFontSize(7.2);
+  pdf.text('AREA', areaX, y);
+  pdf.text('CREATED', createdX, y);
+  pdf.text('LEVEL', sectionX, y);
+  pdf.text('INSPECTED ITEM', itemX, y);
+  pdf.text('COMMENTS', commentsX, y);
+  pdf.text('PHOTOS', photosX, y);
+  pdf.text('QTY', layout.margin + tableWidth - 1, y, { align: 'right' });
+
+  return y + 5;
+}
+
+function renderSelectedAreasSummaryBlock(
+  pdf: jsPDF,
+  projectSummary: ReturnType<typeof getProjectIssueSummary>,
+  layout: LayoutMetrics,
+  startY: number,
+  startSummaryPage: () => number
+) {
+  if (projectSummary.areas.length <= 1) {
+    return startY;
+  }
+
+  const columns = getSelectedAreasSummaryColumns(layout);
+  const {
+    tableWidth,
+    areaColumnWidth,
+    createdColumnWidth,
+    sectionColumnWidth,
+    subItemColumnWidth,
+    commentsColumnWidth,
+  } = columns;
+  let y = startY;
+
+  const renderTitle = (continued = false) => {
+    pdf.setFont('helvetica', 'bold');
+    pdf.setFontSize(10);
+    pdf.setTextColor(71, 85, 105);
+    pdf.text(
+      continued ? 'Selected Areas Summary (continued)' : `Selected Areas Summary (${projectSummary.areas.length} areas)`,
+      layout.margin,
+      y
+    );
+    y += 5;
+    y = renderSelectedAreasSummaryTableHeader(pdf, layout, y);
+    pdf.setFont('helvetica', 'normal');
+    pdf.setFontSize(7.4);
+    pdf.setTextColor(55, 65, 81);
+  };
+
+  renderTitle(false);
+
+  for (const areaSummary of projectSummary.areas) {
+    let areaLabelPending = true;
+    for (const section of areaSummary.sections) {
+      const rowHeight = getSelectedAreasSummaryRowHeight(pdf, areaSummary, section, columns, areaLabelPending);
+      if (y + rowHeight > layout.contentBottom) {
+        y = startSummaryPage();
+        renderTitle(true);
+      }
+
+      const areaX = layout.margin + 0.5;
+      const createdX = areaX + areaColumnWidth;
+      const sectionX = createdX + createdColumnWidth;
+      const itemX = sectionX + sectionColumnWidth;
+      const commentsX = itemX + subItemColumnWidth;
+      const photosX = commentsX + commentsColumnWidth;
+      const countX = layout.margin + tableWidth - 1;
+      const rowTextY = y;
+
+      if (areaLabelPending) {
+        const areaLines = pdf.splitTextToSize(areaSummary.areaName, areaColumnWidth - 2) as string[];
+        pdf.text(areaLines, areaX, rowTextY);
+        const createdDate = formatDate(areaSummary.createdAt);
+        if (createdDate) {
+          const createdLines = pdf.splitTextToSize(createdDate, createdColumnWidth - 2) as string[];
+          pdf.text(createdLines, createdX, rowTextY);
+        }
+      }
+
+      const sectionLines = pdf.splitTextToSize(section.sectionName, sectionColumnWidth - 2) as string[];
+      pdf.text(sectionLines, sectionX, rowTextY);
+
+      let entryY = rowTextY;
+      for (const entry of section.entries) {
+        const subItemLines = pdf.splitTextToSize(entry.subItem, subItemColumnWidth - 2) as string[];
+        const commentLines = entry.comment
+          ? (pdf.splitTextToSize(entry.comment, commentsColumnWidth - 2) as string[])
+          : [''];
+        pdf.text(subItemLines, itemX, entryY);
+        if (entry.comment) {
+          pdf.text(commentLines, commentsX, entryY);
+        }
+        entryY += Math.max(subItemLines.length, commentLines.length, 1) * 4.1;
+      }
+
+      if (section.photoRef) {
+        const photoLines = pdf.splitTextToSize(section.photoRef, columns.photoColumnWidth - 2) as string[];
+        pdf.text(photoLines, photosX, rowTextY);
+      }
+      pdf.text(String(section.issueCount), countX, rowTextY, { align: 'right' });
+
+      y += rowHeight + 3;
+      areaLabelPending = false;
+    }
+  }
+
+  pdf.setTextColor(0, 0, 0);
+  return y + 3;
 }
 
 function renderAreaSummaryBlock(
@@ -755,7 +949,8 @@ function renderAreaSummaryBlock(
   pdf.setFont('helvetica', 'bold');
   pdf.setFontSize(10);
   pdf.setTextColor(71, 85, 105);
-  pdf.text('Summary', layout.margin, y);
+  const createdLabel = formatAreaCreatedLabel(areaSummary.createdAt);
+  pdf.text(createdLabel ? `Area Summary - ${createdLabel}` : 'Area Summary', layout.margin, y);
   y += 5;
   y = renderAreaSummaryTableHeader(pdf, layout, y);
 
@@ -770,7 +965,7 @@ function renderAreaSummaryBlock(
       pdf.setFont('helvetica', 'bold');
       pdf.setFontSize(10);
       pdf.setTextColor(71, 85, 105);
-      pdf.text('Summary (continued)', layout.margin, y);
+      pdf.text('Area Summary (continued)', layout.margin, y);
       y += 5;
       y = renderAreaSummaryTableHeader(pdf, layout, y);
       pdf.setFont('helvetica', 'normal');
@@ -958,8 +1153,36 @@ async function renderProjectDetailPages(
   const summaryByArea = new Map(projectSummary.areas.map((area) => [area.areaId, area] as const));
   const summaryPages = new Set<number>();
 
-  const introEndY = renderIntroPages(pdf, project, mode, logo, layout, forceReportDate);
+  for (const area of project.areas) {
+    const printableLocations = getPrintableLocationsForMode(area, mode);
+    const areaSummary = summaryByArea.get(area.id);
+    if (!areaSummary) continue;
+    const areaPhotoRefs = buildAreaPhotoReferenceData({ ...area, locations: printableLocations });
+    areaSummary.sections = areaSummary.sections.map((section) => ({
+      ...section,
+      photoRef: areaPhotoRefs.sectionPhotoRefs.get(section.sectionId) ?? '',
+    }));
+  }
+
+  let introEndY = renderIntroPages(pdf, project, mode, logo, layout, forceReportDate);
   let firstAreaStartsOnCurrentPage = true;
+
+  if (project.areas.length > 1 && projectSummary.areas.length > 1) {
+    summaryPages.add(pdf.getCurrentPageInfo().pageNumber);
+    renderSelectedAreasSummaryBlock(
+      pdf,
+      projectSummary,
+      layout,
+      introEndY,
+      () => {
+        pdf.addPage();
+        summaryPages.add(pdf.getCurrentPageInfo().pageNumber);
+        return layout.contentTop;
+      }
+    );
+    pdf.addPage();
+    introEndY = layout.contentTop;
+  }
 
   for (const area of project.areas) {
     const hasAreaNotes = Boolean(sanitizeText(area.notes));
@@ -976,12 +1199,6 @@ async function renderProjectDetailPages(
     const printableArea = { ...area, locations: printableLocations };
     const areaSummary = summaryByArea.get(area.id);
     const areaPhotoRefs = buildAreaPhotoReferenceData(printableArea);
-    if (areaSummary) {
-      areaSummary.sections = areaSummary.sections.map((section) => ({
-        ...section,
-        photoRef: areaPhotoRefs.sectionPhotoRefs.get(section.sectionId) ?? '',
-      }));
-    }
     const drawAreaIntro = (baseY: number, includeSummary: boolean) => {
       let y = drawAreaHeader(pdf, area, baseY, layout);
       if (hasAreaNotes) {
