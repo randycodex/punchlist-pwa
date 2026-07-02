@@ -390,7 +390,7 @@ export default function ProjectsPage() {
   const [exportingSelected, setExportingSelected] = useState(false);
   const [exportingSelectedToDrive, setExportingSelectedToDrive] = useState(false);
   const [exportingSelectedAreas, setExportingSelectedAreas] = useState(false);
-  const [actionSheet, setActionSheet] = useState<'delete' | 'export' | null>(null);
+  const [actionSheet, setActionSheet] = useState<'delete' | 'export' | 'export-scope' | null>(null);
   const [exportScope, setExportScope] = useState<ExportScope>('selected-projects');
   const [exportType] = useState<PdfExportMode>('issues');
   const [showProjectMenuId, setShowProjectMenuId] = useState<string | null>(null);
@@ -1115,7 +1115,7 @@ export default function ProjectsPage() {
         setSelectedAreaIds(new Set());
         setSelectedProjectIds(new Set([singleProject.id]));
         setExportScope('selected-projects');
-        setActionSheet('export');
+        setActionSheet('export-scope');
         return;
       }
 
@@ -1244,17 +1244,19 @@ export default function ProjectsPage() {
                       <FileDown className="w-4 h-4" />
                     )}
                   </button>
-                  <button
-                    onClick={() => {
-                      if (selectedAreaIds.size === 0) return;
-                      void handleDeleteSelectedAreas();
-                    }}
-                    className="accent-text accent-tint hover:accent-tint-strong flex h-10 w-10 items-center justify-center rounded-full transition disabled:opacity-40"
-                    aria-label="Delete selected areas"
-                    disabled={selectedAreaIds.size === 0}
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
+                  {exportScope !== 'selected-areas' && (
+                    <button
+                      onClick={() => {
+                        if (selectedAreaIds.size === 0) return;
+                        void handleDeleteSelectedAreas();
+                      }}
+                      className="accent-text accent-tint hover:accent-tint-strong flex h-10 w-10 items-center justify-center rounded-full transition disabled:opacity-40"
+                      aria-label="Delete selected areas"
+                      disabled={selectedAreaIds.size === 0}
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  )}
                 </div>
               )}
             </div>
@@ -1693,7 +1695,47 @@ export default function ProjectsPage() {
         <div className="modal-overlay fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="w-full max-w-md">
             <div className="modal-panel overflow-hidden rounded-[1.8rem] p-2">
-              {actionSheet === 'export' ? (
+              {actionSheet === 'export-scope' ? (
+                <>
+                  <div className="px-4 pb-2 pt-3 text-center">
+                    <div className="text-sm font-semibold text-gray-900 dark:text-white">Export Project</div>
+                    <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                      Choose specific areas or export every issue area in this project.
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => {
+                      setActionSheet(null);
+                      setExportScope('selected-areas');
+                      setSelectedAreaIds(new Set());
+                      setSelectedProjectIds(new Set());
+                      setExportMode(false);
+                      setDeleteMode(true);
+                    }}
+                    className="w-full rounded-[1.1rem] px-4 py-3 text-center text-[17px] font-medium text-gray-900 transition hover:bg-black/[0.04] dark:text-white dark:hover:bg-white/[0.05]"
+                  >
+                    Select Areas
+                  </button>
+                  <button
+                    onClick={() => {
+                      if (!singleProject) return;
+                      setExportScope('selected-projects');
+                      setSelectedAreaIds(new Set());
+                      setSelectedProjectIds(new Set([singleProject.id]));
+                      setActionSheet('export');
+                    }}
+                    className="w-full rounded-[1.1rem] px-4 py-3 text-center text-[17px] text-gray-900 transition hover:bg-black/[0.04] dark:text-white dark:hover:bg-white/[0.05]"
+                  >
+                    Export All
+                  </button>
+                  <button
+                    onClick={() => setActionSheet(null)}
+                    className="mt-1 w-full rounded-[1.1rem] px-4 py-3 text-center text-[17px] text-gray-900 transition hover:bg-black/[0.04] dark:text-white dark:hover:bg-white/[0.05]"
+                  >
+                    Cancel
+                  </button>
+                </>
+              ) : actionSheet === 'export' ? (
                 <>
                   <div className="px-4 pb-2 pt-3 text-center">
                     <div className="text-sm font-semibold text-gray-900 dark:text-white">Export PDF</div>

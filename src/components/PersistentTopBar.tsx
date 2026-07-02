@@ -286,15 +286,6 @@ export default function PersistentTopBar() {
                     Edit project
                   </button>
                 )}
-                {(homeMenuState.context === 'project' || homeMenuState.isSingleProject) && (
-                  <button
-                    onClick={() => dispatchHomeAction('toggle-selection')}
-                    className="flex w-full items-center gap-3 rounded-[1.1rem] px-4 py-3 text-left text-sm text-gray-700 transition hover:bg-black/[0.04] dark:text-gray-300 dark:hover:bg-white/[0.05]"
-                  >
-                    <MoreVertical className="h-4 w-4" />
-                    {homeMenuState.selectionMode ? 'Cancel selection' : 'Select'}
-                  </button>
-                )}
                 {homeMenuState.isSingleProject && (
                   <button
                     onClick={() => dispatchHomeAction('export-project')}
