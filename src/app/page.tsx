@@ -873,7 +873,7 @@ export default function ProjectsPage() {
         .map((area) => area.id);
       const fullProject = await getProject(singleProject.id);
       const projectForExport = fullProject ?? singleProject;
-      const blob = await generateProjectPDF(projectForExport, 'full', { areaIds: selectedSortedAreaIds });
+      const blob = await generateProjectPDF(projectForExport, 'issues', { areaIds: selectedSortedAreaIds });
       const filename = `${sanitizeExportNamePart(singleProject.projectName)}_Selected_Areas_${formatDateForExport()}.pdf`;
       downloadPDF(blob, filename);
       setSelectedAreaIds(new Set());
@@ -900,10 +900,12 @@ export default function ProjectsPage() {
 
   function handleExportSelectedConfirm() {
     if (exportingSelected || exportingSelectedToDrive || selectedProjectIds.size === 0) return;
+    if (singleProjectMainView && selectedAreaIds.size === 0) return;
     setActionSheet('export');
   }
 
   async function loadProjectsForExport(token?: string | null) {
+    const selectedAreas = new Set(selectedAreaIds);
     const selectedProjects = [...sortedProjects]
       .filter((project) => selectedProjectIds.has(project.id))
       .sort((a, b) => a.projectName.localeCompare(b.projectName));
@@ -919,7 +921,9 @@ export default function ProjectsPage() {
 
     return hydratedProjects.map((project) => ({
       ...project,
-      areas: [...project.areas].sort(compareAreaNames),
+      areas: [...project.areas]
+        .filter((area) => !singleProjectMainView || selectedAreas.has(area.id))
+        .sort(compareAreaNames),
     }));
   }
 
@@ -1089,7 +1093,7 @@ export default function ProjectsPage() {
         setExportMode(true);
         setSelectedAreaIds(new Set());
         setSelectedProjectIds(new Set([singleProject.id]));
-        setActionSheet('export');
+        setActionSheet(null);
         return;
       }
 

@@ -390,6 +390,10 @@ function getActiveAreas(project: Project, options?: PdfExportOptions) {
   return project.areas.filter((area) => !area.deletedAt && (!areaIds || areaIds.has(area.id)));
 }
 
+function checkpointShouldRenderAsPdfIssue(checkpoint: Checkpoint) {
+  return checkpoint.status === 'needsReview' && checkpointHasIssue(checkpoint);
+}
+
 function filterProjectForMode(project: Project, mode: PdfExportMode, options?: PdfExportOptions): ExportProject {
   const activeAreas = getActiveAreas(project, options);
 
@@ -420,7 +424,7 @@ function filterProjectForMode(project: Project, mode: PdfExportMode, options?: P
             items: location.items
               .map((item) => ({
                 ...item,
-                checkpoints: item.checkpoints.filter((checkpoint) => checkpointHasIssue(checkpoint)),
+                checkpoints: item.checkpoints.filter((checkpoint) => checkpointShouldRenderAsPdfIssue(checkpoint)),
               }))
               .filter((item) => item.checkpoints.length > 0),
           }))
@@ -432,11 +436,27 @@ function filterProjectForMode(project: Project, mode: PdfExportMode, options?: P
 
 function hasRenderableContent(project: ExportProject, mode: PdfExportMode) {
   return project.areas.some((area) => {
-    const printableLocations = mode === 'full'
-      ? area.locations.filter((location) => location.items.length > 0 || isGeneralNotesLocation(location))
-      : area.locations.filter((location) => location.items.length > 0);
+    const printableLocations = getPrintableLocationsForMode(area, mode);
     return printableLocations.length > 0 || (mode === 'full' && Boolean(sanitizeText(area.notes)));
   });
+}
+
+function getPrintableLocationsForMode(area: ExportArea, mode: PdfExportMode): ExportLocation[] {
+  if (mode === 'full') {
+    return area.locations.filter((location) => location.items.length > 0 || isGeneralNotesLocation(location));
+  }
+
+  return area.locations
+    .map((location) => ({
+      ...location,
+      items: location.items
+        .map((item) => ({
+          ...item,
+          checkpoints: item.checkpoints.filter((checkpoint) => checkpointShouldRenderAsPdfIssue(checkpoint)),
+        }))
+        .filter((item) => item.checkpoints.length > 0),
+    }))
+    .filter((location) => location.items.length > 0);
 }
 
 function getEmptyProjectMessage(mode: PdfExportMode) {
@@ -468,7 +488,7 @@ function getProjectIssueSummary(project: Project) {
 
       for (const item of location.items) {
         for (const checkpoint of item.checkpoints) {
-          if (!checkpointHasIssue(checkpoint)) continue;
+          if (!checkpointShouldRenderAsPdfIssue(checkpoint)) continue;
           totalIssues += 1;
           areaIssueCount += 1;
           sectionIssueCount += 1;
@@ -520,7 +540,7 @@ function buildAreaPhotoReferenceData(area: ExportArea) {
 
     for (const item of location.items) {
       for (const checkpoint of item.checkpoints) {
-        if (!checkpointHasIssue(checkpoint)) continue;
+        if (!checkpointShouldRenderAsPdfIssue(checkpoint)) continue;
         const photoCount = getCheckpointPhotoSources(checkpoint).length;
         if (photoCount === 0) continue;
 
@@ -914,16 +934,15 @@ async function renderProjectDetailPages(
       continue;
     }
 
-    const printableLocations = mode === 'full'
-      ? area.locations.filter((location) => location.items.length > 0 || isGeneralNotesLocation(location))
-      : area.locations.filter((location) => location.items.length > 0);
+    const printableLocations = getPrintableLocationsForMode(area, mode);
 
     if (printableLocations.length === 0 && !(mode === 'full' && hasAreaNotes)) {
       continue;
     }
 
+    const printableArea = { ...area, locations: printableLocations };
     const areaSummary = summaryByArea.get(area.id);
-    const areaPhotoRefs = buildAreaPhotoReferenceData(area);
+    const areaPhotoRefs = buildAreaPhotoReferenceData(printableArea);
     if (areaSummary) {
       areaSummary.sections = areaSummary.sections.map((section) => ({
         ...section,
@@ -1006,7 +1025,15 @@ async function renderProjectDetailPages(
       y = drawLocationHeader(location.name, y);
 
       for (const item of location.items) {
-        const itemHeight = estimateItemBlockHeight(pdf, item, layout);
+        const renderedCheckpoints = mode === 'issues'
+          ? item.checkpoints.filter((checkpoint) => checkpointShouldRenderAsPdfIssue(checkpoint))
+          : item.checkpoints;
+        if (renderedCheckpoints.length === 0) {
+          continue;
+        }
+
+        const printableItem = { ...item, checkpoints: renderedCheckpoints };
+        const itemHeight = estimateItemBlockHeight(pdf, printableItem, layout);
         const maxItemHeightOnFreshPage = layout.contentBottom - (continuedAreaStartY + locationHeaderHeight);
         if (itemHeight <= maxItemHeightOnFreshPage && y + itemHeight > layout.contentBottom) {
           y = startAreaPage(false);
@@ -1027,7 +1054,7 @@ async function renderProjectDetailPages(
           return nextY + GROUP_TO_ITEM_GAP;
         };
 
-        for (const checkpoint of item.checkpoints) {
+        for (const checkpoint of renderedCheckpoints) {
           const checkpointHeight = estimateCheckpointBlockHeight(pdf, checkpoint, layout, layout.contentWidth - BODY_INDENT - 2);
           const itemHeaderHeight = GROUP_TO_ITEM_GAP + 1;
           const maxCheckpointHeightOnFreshPage = layout.contentBottom - (continuedAreaStartY + locationHeaderHeight + itemHeaderHeight);
