@@ -23,8 +23,10 @@ import {
   buildAreaName,
   buildFacadeLevelOptions,
   compareLevelNames,
+  getFacadeInspectionLevels,
   getAreaFormValue,
   isApartmentArea,
+  splitFacadeLevels,
   type AreaTypeKey,
 } from '@/lib/areas';
 import { applyTemplateToArea } from '@/lib/template';
@@ -54,10 +56,6 @@ const RECENT_AREA_TYPES_STORAGE_KEY = 'punchlist-recent-area-types';
 const CUSTOM_ITEMS_LOCATION_NAME = 'Custom Items';
 const OTHER_LOCATION_NAME = 'Other';
 const MAX_RECENT_COMMENTS = 5;
-
-function splitFacadeLevels(value?: string) {
-  return (value ?? '').split(',').map((level) => level.trim()).filter(Boolean);
-}
 
 function locationHasRecordedActivity(location: Area['locations'][number]) {
   return location.items.some((item) =>
@@ -487,7 +485,8 @@ export default function AreaDetailPage() {
     const originalTypeKey = targetArea.areaTypeKey;
     const originalUnitType = targetArea.unitType;
     const originalAreaNumber = targetArea.areaNumber;
-    const originalFacadeLevel = targetArea.facadeLevel;
+    const originalFacadeLevels = getFacadeInspectionLevels(targetArea);
+    const originalFacadeLevel = originalFacadeLevels.join(',');
     const nextName = buildAreaName(areaForm);
     targetArea.name = nextName;
     targetArea.areaTypeKey = areaForm.areaTypeKey;
@@ -503,7 +502,7 @@ export default function AreaDetailPage() {
     const facadeLevelsChanged =
       areaForm.areaTypeKey === 'facade' &&
       originalTypeKey === 'facade' &&
-      originalFacadeLevel !== (areaForm.facadeLevel.trim() || undefined);
+      originalFacadeLevel !== areaForm.facadeLevel.trim();
     if (templateChanged) {
       if (
         areaHasRecordedActivity(targetArea) &&
@@ -522,7 +521,7 @@ export default function AreaDetailPage() {
       applyTemplateToArea(targetArea);
     } else if (facadeLevelsChanged) {
       const nextLevels = new Set(splitFacadeLevels(areaForm.facadeLevel));
-      const removedActiveLevels = splitFacadeLevels(originalFacadeLevel).filter((level) => !nextLevels.has(level));
+      const removedActiveLevels = originalFacadeLevels.filter((level) => !nextLevels.has(level));
       const removedLocationsWithActivity = targetArea.locations.filter(
         (location) => removedActiveLevels.includes(location.name) && locationHasRecordedActivity(location)
       );

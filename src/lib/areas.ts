@@ -196,8 +196,22 @@ export function getDefaultAreaFormValue(): AreaFormValue {
   };
 }
 
+export function splitFacadeLevels(value?: string) {
+  return (value ?? '').split(',').map((level) => level.trim()).filter(Boolean);
+}
+
+export function getFacadeInspectionLevels(area?: Pick<Area, 'facadeLevel' | 'locations'> | null): string[] {
+  const locationLevels =
+    area?.locations
+      .map((location) => location.name.trim())
+      .filter((name) => /^Level\s*-?\d+\b/i.test(name)) ?? [];
+
+  return locationLevels.length > 0 ? locationLevels : splitFacadeLevels(area?.facadeLevel);
+}
+
 export function getAreaFormValue(area?: Area | null): AreaFormValue {
   const areaTypeKey = resolveAreaTypeKey(area);
+  const facadeLevels = areaTypeKey === 'facade' ? getFacadeInspectionLevels(area) : [];
   const unitType =
     areaTypeKey === 'facade'
       ? (FACADE_ORIENTATIONS.includes(area?.unitType as FacadeOrientation) ? (area?.unitType as FacadeOrientation) : '')
@@ -210,8 +224,8 @@ export function getAreaFormValue(area?: Area | null): AreaFormValue {
     unitType,
     customAreaName: areaTypeKey === 'custom' ? area?.name ?? '' : '',
     areaNumber: area?.areaNumber ?? '',
-    facadeLevel: areaTypeKey === 'facade' ? area?.facadeLevel ?? '' : '',
-    facadeLevelMode: areaTypeKey === 'facade' && area?.facadeLevel ? 'yes' : 'no',
+    facadeLevel: areaTypeKey === 'facade' ? facadeLevels.join(',') : '',
+    facadeLevelMode: areaTypeKey === 'facade' && facadeLevels.length > 0 ? 'yes' : 'no',
   };
 }
 
@@ -219,9 +233,7 @@ export function getFacadeCreationLevels(form: AreaFormValue, facadeLevelOptions:
   if (form.areaTypeKey !== 'facade') return [form.facadeLevel.trim()].filter(Boolean);
   if (form.facadeLevelMode === 'yes') {
     const validLevels = new Set(facadeLevelOptions);
-    return form.facadeLevel
-      .split(',')
-      .map((level) => level.trim())
+    return splitFacadeLevels(form.facadeLevel)
       .filter((level) => level && validLevels.has(level));
   }
   return [''];
