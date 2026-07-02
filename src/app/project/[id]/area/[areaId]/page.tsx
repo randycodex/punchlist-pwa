@@ -55,6 +55,22 @@ const CUSTOM_ITEMS_LOCATION_NAME = 'Custom Items';
 const OTHER_LOCATION_NAME = 'Other';
 const MAX_RECENT_COMMENTS = 5;
 
+function splitFacadeLevels(value?: string) {
+  return (value ?? '').split(',').map((level) => level.trim()).filter(Boolean);
+}
+
+function locationHasRecordedActivity(location: Area['locations'][number]) {
+  return location.items.some((item) =>
+    item.checkpoints.some(
+      (checkpoint) =>
+        checkpoint.status !== 'pending' ||
+        checkpoint.comments.trim().length > 0 ||
+        checkpoint.photos.length > 0 ||
+        (checkpoint.files?.length ?? 0) > 0
+    )
+  );
+}
+
 type StatusMetrics = {
   total: number;
   ok: number;
@@ -484,6 +500,10 @@ export default function AreaDetailPage() {
       originalTypeKey !== areaForm.areaTypeKey ||
       originalUnitType !== (areaForm.unitType || undefined) ||
       originalAreaNumber !== (areaForm.areaNumber.trim() || undefined);
+    const facadeLevelsChanged =
+      areaForm.areaTypeKey === 'facade' &&
+      originalTypeKey === 'facade' &&
+      originalFacadeLevel !== (areaForm.facadeLevel.trim() || undefined);
     if (templateChanged) {
       if (
         areaHasRecordedActivity(targetArea) &&
@@ -500,6 +520,29 @@ export default function AreaDetailPage() {
         return;
       }
       applyTemplateToArea(targetArea);
+    } else if (facadeLevelsChanged) {
+      const nextLevels = new Set(splitFacadeLevels(areaForm.facadeLevel));
+      const removedActiveLevels = splitFacadeLevels(originalFacadeLevel).filter((level) => !nextLevels.has(level));
+      const removedLocationsWithActivity = targetArea.locations.filter(
+        (location) => removedActiveLevels.includes(location.name) && locationHasRecordedActivity(location)
+      );
+
+      if (
+        removedLocationsWithActivity.length > 0 &&
+        !window.confirm(
+          `Removing ${removedLocationsWithActivity.map((location) => location.name).join(', ')} will delete recorded checklist information for those floors. Continue?`
+        )
+      ) {
+        targetArea.name = area.name;
+        targetArea.areaTypeKey = originalTypeKey;
+        targetArea.unitType = originalUnitType;
+        targetArea.customAreaName = area.customAreaName;
+        targetArea.areaNumber = area.areaNumber;
+        targetArea.facadeLevel = originalFacadeLevel;
+        return;
+      }
+
+      applyTemplateToArea(targetArea, { preserveExisting: true });
     }
 
     syncAreaCompletion(targetArea);

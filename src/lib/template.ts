@@ -448,13 +448,13 @@ function getFacadeTemplateLocations(area: Area): TemplateLocation[] {
   return merged;
 }
 
-function populateFacadeArea(area: Area): boolean {
+function populateFacadeArea(area: Area, options?: { preserveExisting?: boolean }): boolean {
   const facadeTemplateLocations = getFacadeTemplateLocations(area);
   if (facadeTemplateLocations.length === 0) return false;
 
   const facadeLevels = (area.facadeLevel ?? '').split(',').map((level) => level.trim()).filter(Boolean);
   if (facadeLevels.length === 0) {
-    populateArea(area, facadeTemplateLocations);
+    populateArea(area, facadeTemplateLocations, options);
     return true;
   }
 
@@ -463,12 +463,13 @@ function populateFacadeArea(area: Area): boolean {
     facadeLevels.map((level) => ({
       name: level,
       items: facadeTemplateLocations.flatMap((location) => location.items),
-    }))
+    })),
+    options
   );
   return true;
 }
 
-export function applyTemplateToArea(area: Area): void {
+export function applyTemplateToArea(area: Area, options?: { preserveExisting?: boolean }): void {
   const definition = getAreaTypeDefinition(resolveAreaTypeKey(area));
 
   if (definition.templateKey === 'apartment') {
@@ -503,9 +504,9 @@ export function applyTemplateToArea(area: Area): void {
 
   if (definition.templateKey === 'commonArea') {
     if (area.areaTypeKey === 'facade') {
-      if (populateFacadeArea(area)) return;
+      if (populateFacadeArea(area, options)) return;
     }
-    populateArea(area, [{ name: area.name, items: commonAreaItems }]);
+    populateArea(area, [{ name: area.name, items: commonAreaItems }], options);
     return;
   }
 
