@@ -153,43 +153,17 @@ function formatDate(value: Date | string | number | undefined, withTime = false)
   return withTime ? date.toLocaleString() : date.toLocaleDateString();
 }
 
-function getPdfDateOnlyKey(value: Date | string | number | undefined) {
-  if (!value) return '';
-  const date = value instanceof Date ? value : new Date(value);
-  if (Number.isNaN(date.getTime())) return '';
-  return `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
-}
-
-function timestampFromDate(value: Date | string | number | undefined) {
-  if (!value) return 0;
-  const date = value instanceof Date ? value : new Date(value);
-  const timestamp = date.getTime();
-  return Number.isNaN(timestamp) ? 0 : timestamp;
-}
-
-function getAreaCreatedDateSummary(project: ExportProject) {
-  const datedAreas = project.areas
-    .map((area) => ({
-      key: getPdfDateOnlyKey(area.createdAt),
-      timestamp: timestampFromDate(area.createdAt),
-      label: formatDate(area.createdAt),
-    }))
-    .filter((entry) => entry.key && entry.label && entry.timestamp > 0);
-
-  if (datedAreas.length === 0) {
-    return { label: 'Date', value: formatDate(project.date) || 'N/A' };
-  }
-
-  const uniqueDates = [...new Map(datedAreas.map((entry) => [entry.key, entry])).values()]
-    .sort((left, right) => left.timestamp - right.timestamp);
-
-  if (uniqueDates.length === 1) {
-    return { label: 'Date', value: uniqueDates[0].label };
+function getCoverDateMetadata(project: ExportProject, forceReportDate: boolean) {
+  if (!forceReportDate && project.areas.length === 1) {
+    return {
+      label: 'Date',
+      value: formatDate(project.areas[0].createdAt) || formatDate(project.date) || 'N/A',
+    };
   }
 
   return {
-    label: 'Dates',
-    value: `${uniqueDates[0].label} - ${uniqueDates[uniqueDates.length - 1].label}`,
+    label: 'Report Date',
+    value: formatDate(new Date()) || 'N/A',
   };
 }
 
@@ -618,7 +592,8 @@ function renderCoverPage(
   project: ExportProject,
   mode: PdfExportMode,
   logo: LogoAssets,
-  layout: LayoutMetrics
+  layout: LayoutMetrics,
+  forceReportDate = false
 ) {
   let y = 20;
   const logoX = layout.margin;
@@ -637,11 +612,11 @@ function renderCoverPage(
     }
   }
 
-  const areaDateSummary = getAreaCreatedDateSummary(project);
+  const coverDate = getCoverDateMetadata(project, forceReportDate);
   const metadata = [
     sanitizeText(project.address) ? `Address: ${sanitizeText(project.address)}` : '',
     sanitizeText(project.inspector) ? `Inspector: ${sanitizeText(project.inspector)}` : '',
-    `${areaDateSummary.label}: ${areaDateSummary.value}`,
+    `${coverDate.label}: ${coverDate.value}`,
     sanitizeText(project.gcName) ? `GC: ${sanitizeText(project.gcName)}` : '',
   ].filter(Boolean);
 
@@ -687,9 +662,10 @@ function renderIntroPages(
   project: ExportProject,
   mode: PdfExportMode,
   logo: LogoAssets,
-  layout: LayoutMetrics
+  layout: LayoutMetrics,
+  forceReportDate = false
 ) {
-  return renderCoverPage(pdf, project, mode, logo, layout);
+  return renderCoverPage(pdf, project, mode, logo, layout, forceReportDate);
 }
 
 function renderEmptyIssuesMessage(pdf: jsPDF, layout: LayoutMetrics, startY: number, message: string) {
@@ -973,7 +949,8 @@ async function renderProjectDetailPages(
   project: ExportProject,
   mode: PdfExportMode,
   logo: LogoAssets,
-  layout: LayoutMetrics
+  layout: LayoutMetrics,
+  forceReportDate = false
 ) {
   const coverPage = pdf.getNumberOfPages();
   const startPage = coverPage;
@@ -981,7 +958,7 @@ async function renderProjectDetailPages(
   const summaryByArea = new Map(projectSummary.areas.map((area) => [area.areaId, area] as const));
   const summaryPages = new Set<number>();
 
-  const introEndY = renderIntroPages(pdf, project, mode, logo, layout);
+  const introEndY = renderIntroPages(pdf, project, mode, logo, layout, forceReportDate);
   let firstAreaStartsOnCurrentPage = true;
 
   for (const area of project.areas) {
@@ -1151,11 +1128,12 @@ export async function generateProjectPDF(project: Project, mode: PdfExportMode =
   const layout = createLayout(pdf);
   const exportProject = filterProjectForMode(project, mode, options);
   const generatedAt = getGeneratedAt();
+  const forceReportDate = exportProject.areas.length !== 1;
 
   const summaryPages = hasRenderableContent(exportProject, mode)
-    ? await renderProjectDetailPages(pdf, exportProject, mode, logo, layout)
+    ? await renderProjectDetailPages(pdf, exportProject, mode, logo, layout, forceReportDate)
     : (() => {
-        const messageY = renderCoverPage(pdf, exportProject, mode, logo, layout);
+        const messageY = renderCoverPage(pdf, exportProject, mode, logo, layout, forceReportDate);
         renderEmptyIssuesMessage(pdf, layout, messageY, getEmptyProjectMessage(mode));
         return new Set<number>();
       })();
@@ -1179,12 +1157,12 @@ export async function generateMultiProjectPDF(projects: Project[], mode: PdfExpo
     }
 
     if (hasRenderableContent(exportProject, mode)) {
-      const projectSummaryPages = await renderProjectDetailPages(pdf, exportProject, mode, logo, layout);
+      const projectSummaryPages = await renderProjectDetailPages(pdf, exportProject, mode, logo, layout, true);
       for (const page of projectSummaryPages) {
         summaryPages.add(page);
       }
     } else {
-      const messageY = renderCoverPage(pdf, exportProject, mode, logo, layout);
+      const messageY = renderCoverPage(pdf, exportProject, mode, logo, layout, true);
       renderEmptyIssuesMessage(pdf, layout, messageY, getEmptyProjectMessage(mode));
     }
 
