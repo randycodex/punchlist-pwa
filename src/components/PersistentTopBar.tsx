@@ -25,6 +25,7 @@ type HomeMenuState = {
   selectionMode?: boolean;
   isSharedProject?: boolean;
   isCreatingJoinCode?: boolean;
+  isLoadingSharedMembers?: boolean;
   isPublishingSharedProject?: boolean;
   isPullingSharedProject?: boolean;
   isTransferringSharedProject?: boolean;
@@ -324,6 +325,16 @@ export default function PersistentTopBar() {
                   >
                     <KeyRound className="h-4 w-4" />
                     {homeMenuState.isCreatingJoinCode ? 'Creating code...' : 'Invite by code'}
+                  </button>
+                )}
+                {homeMenuState.isSingleProject && homeMenuState.isSharedProject && collaborationAuth.isSignedIn && (
+                  <button
+                    onClick={() => dispatchHomeAction('shared-members')}
+                    disabled={!!homeMenuState.isLoadingSharedMembers}
+                    className="flex w-full items-center gap-3 rounded-[1.1rem] px-4 py-3 text-left text-sm text-gray-700 transition hover:bg-black/[0.04] disabled:cursor-default disabled:opacity-60 dark:text-gray-300 dark:hover:bg-white/[0.05]"
+                  >
+                    <Users className="h-4 w-4" />
+                    {homeMenuState.isLoadingSharedMembers ? 'Loading members...' : 'Shared members'}
                   </button>
                 )}
                 {homeMenuState.isSingleProject && homeMenuState.isSharedProject && collaborationAuth.isSignedIn && (

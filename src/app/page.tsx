@@ -31,6 +31,7 @@ import {
   createSharedProjectFromLocalProject,
   generateSharedProjectJoinCode,
   getActiveSharedProjectAreaClaims,
+  getSharedProjectMembers,
   getSharedProjectSnapshot,
   getCollaborationErrorMessage,
   isSharedSnapshotNewer,
@@ -418,6 +419,7 @@ export default function ProjectsPage() {
     expiresAt: string;
   } | null>(null);
   const [creatingJoinCode, setCreatingJoinCode] = useState(false);
+  const [loadingSharedMembers, setLoadingSharedMembers] = useState(false);
   const [publishingSharedProject, setPublishingSharedProject] = useState(false);
   const [pullingSharedProject, setPullingSharedProject] = useState(false);
   const [transferringSharedProject, setTransferringSharedProject] = useState(false);
@@ -1227,6 +1229,38 @@ export default function ProjectsPage() {
     }
   }, [collaborationAuth.isSignedIn]);
 
+  const handleShowSharedMembers = useCallback(async (project: Project) => {
+    if (!project.sharedProjectId) {
+      alert('Share this project before viewing shared members.');
+      return;
+    }
+
+    if (!collaborationAuth.isSignedIn) {
+      alert('Enable shared projects before viewing shared members.');
+      return;
+    }
+
+    setLoadingSharedMembers(true);
+    try {
+      const members = await getSharedProjectMembers(project.sharedProjectId);
+      if (members.length === 0) {
+        alert('No shared project members found.');
+        return;
+      }
+
+      const lines = members.map((member) => {
+        const name = member.displayName ? ` (${member.displayName})` : '';
+        return `${member.email}${name} - ${member.accessState}`;
+      });
+      alert(lines.join('\n'));
+    } catch (error) {
+      console.error('Failed to load shared project members:', error);
+      alert(getCollaborationErrorMessage(error, 'Failed to load shared project members. Please try again.'));
+    } finally {
+      setLoadingSharedMembers(false);
+    }
+  }, [collaborationAuth.isSignedIn]);
+
   async function handleJoinSharedProject() {
     const code = joinProjectCode.trim();
     if (!code || joiningProject) return;
@@ -1467,6 +1501,11 @@ export default function ProjectsPage() {
         return;
       }
 
+      if (detail.action === 'shared-members' && singleProject) {
+        void handleShowSharedMembers(singleProject);
+        return;
+      }
+
       if (detail.action === 'join-shared-project') {
         setShowJoinProject(true);
         return;
@@ -1503,6 +1542,7 @@ export default function ProjectsPage() {
     handlePublishSharedProject,
     handlePullSharedProject,
     handleShareProject,
+    handleShowSharedMembers,
     handleTransferSharedProjectOwnership,
     isSignedIn,
     signIn,
@@ -1526,13 +1566,14 @@ export default function ProjectsPage() {
           selectionMode: deleteMode,
           isSharedProject: !!singleProject?.sharedProjectId,
           isCreatingJoinCode: creatingJoinCode,
+          isLoadingSharedMembers: loadingSharedMembers,
           isPublishingSharedProject: publishingSharedProject,
           isPullingSharedProject: pullingSharedProject,
           isTransferringSharedProject: transferringSharedProject,
         },
       })
     );
-  }, [creatingJoinCode, deleteMode, publishingSharedProject, pullingSharedProject, sortOption, showTrash, singleProject, transferringSharedProject]);
+  }, [creatingJoinCode, deleteMode, loadingSharedMembers, publishingSharedProject, pullingSharedProject, sortOption, showTrash, singleProject, transferringSharedProject]);
 
   function toggleTrashView() {
     setShowTrash((current) => {

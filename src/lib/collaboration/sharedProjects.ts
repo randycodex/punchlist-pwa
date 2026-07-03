@@ -1,5 +1,6 @@
 import type { Project } from '@/types';
 import type { Json } from './database';
+import type { CollaborationProjectMember } from './types';
 import { getCollaborationSupabaseClient } from './supabaseClient';
 
 type JoinCodeResult = {
@@ -43,6 +44,34 @@ function getStringFromJsonObject(value: Json, key: string) {
 
   const entry = value[key];
   return typeof entry === 'string' ? entry : null;
+}
+
+function reviveProjectMember(
+  row: {
+    project_id: string;
+    user_id: string | null;
+    email: string;
+    display_name: string | null;
+    access_state: CollaborationProjectMember['accessState'];
+    joined_by: CollaborationProjectMember['joinedBy'];
+    invited_by_user_id: string | null;
+    invited_at: string;
+    joined_at: string | null;
+    removed_at: string | null;
+  }
+): CollaborationProjectMember {
+  return {
+    projectId: row.project_id,
+    userId: row.user_id ?? '',
+    email: row.email,
+    displayName: row.display_name ?? undefined,
+    accessState: row.access_state,
+    joinedBy: row.joined_by,
+    invitedByUserId: row.invited_by_user_id ?? undefined,
+    invitedAt: new Date(row.invited_at),
+    joinedAt: row.joined_at ? new Date(row.joined_at) : undefined,
+    removedAt: row.removed_at ? new Date(row.removed_at) : undefined,
+  };
 }
 
 export async function createSharedProjectFromLocalProject(
@@ -122,6 +151,25 @@ export async function generateSharedProjectJoinCode(sharedProjectId: string): Pr
   }
 
   return { joinCode, expiresAt };
+}
+
+export async function getSharedProjectMembers(sharedProjectId: string): Promise<CollaborationProjectMember[]> {
+  const supabase = getCollaborationSupabaseClient();
+  if (!supabase) {
+    throw new Error('Collaboration is not configured.');
+  }
+
+  const { data, error } = await supabase
+    .from('project_members')
+    .select('project_id, user_id, email, display_name, access_state, joined_by, invited_by_user_id, invited_at, joined_at, removed_at')
+    .eq('project_id', sharedProjectId)
+    .order('email', { ascending: true });
+
+  if (error) {
+    throw error;
+  }
+
+  return (data ?? []).map(reviveProjectMember);
 }
 
 export async function joinSharedProjectByCode(
