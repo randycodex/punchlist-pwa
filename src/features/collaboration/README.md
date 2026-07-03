@@ -159,3 +159,13 @@ NEXT_PUBLIC_COLLABORATION_AREA_CLAIM_TIMEOUT_MS=14400000
 ```
 
 The join-code and area-claim values are optional. Defaults are 7 days for join codes and 4 hours for area claims.
+
+## Client package
+
+Runtime integration will use Supabase Auth and database clients. Install the client package before wiring live UI:
+
+```bash
+npm install @supabase/supabase-js
+```
+
+This repository currently has an npm lockfile. Do not add a pnpm lockfile for this dependency.
