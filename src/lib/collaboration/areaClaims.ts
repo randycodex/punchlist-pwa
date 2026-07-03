@@ -26,6 +26,32 @@ export function getAreaClaimExpiry(claimTimeoutMs: number, now = new Date()) {
   return new Date(now.getTime() + claimTimeoutMs);
 }
 
+function reviveAreaClaim(
+  row: {
+    id: string;
+    project_id: string;
+    area_id: string;
+    claimed_by_user_id: string;
+    status: CollaborationAreaClaim['status'];
+    claimed_at: string;
+    expires_at: string | null;
+    released_at: string | null;
+    transferred_to_user_id: string | null;
+  }
+): CollaborationAreaClaim {
+  return {
+    id: row.id,
+    projectId: row.project_id,
+    areaId: row.area_id,
+    claimedByUserId: row.claimed_by_user_id,
+    status: row.status,
+    claimedAt: new Date(row.claimed_at),
+    expiresAt: row.expires_at ? new Date(row.expires_at) : undefined,
+    releasedAt: row.released_at ? new Date(row.released_at) : undefined,
+    transferredToUserId: row.transferred_to_user_id ?? undefined,
+  };
+}
+
 function getStringFromJsonObject(value: Json, key: string) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     return null;
@@ -67,6 +93,27 @@ export async function claimSharedProjectArea(sharedProjectId: string, areaId: st
     status: 'active' as const,
     expiresAt,
   };
+}
+
+export async function getActiveSharedProjectAreaClaims(sharedProjectId: string) {
+  const supabase = getCollaborationSupabaseClient();
+  if (!supabase) {
+    throw new Error('Collaboration is not configured.');
+  }
+
+  const { data, error } = await supabase
+    .from('area_claims')
+    .select('id, project_id, area_id, claimed_by_user_id, status, claimed_at, expires_at, released_at, transferred_to_user_id')
+    .eq('project_id', sharedProjectId)
+    .eq('status', 'active');
+
+  if (error) {
+    throw error;
+  }
+
+  return (data ?? [])
+    .map(reviveAreaClaim)
+    .filter((claim) => isAreaClaimActive(claim));
 }
 
 export async function releaseSharedProjectArea(sharedProjectId: string, areaId: string) {

@@ -30,6 +30,7 @@ import { useAppSettings } from '@/contexts/AppSettingsContext';
 import {
   createSharedProjectFromLocalProject,
   generateSharedProjectJoinCode,
+  getActiveSharedProjectAreaClaims,
   getSharedProjectSnapshot,
   getCollaborationErrorMessage,
   isSharedSnapshotNewer,
@@ -292,6 +293,7 @@ type HomeAreaCardProps = {
   projectId: string;
   area: Project['areas'][number];
   metric?: AreaMetrics;
+  claimStatus?: 'mine' | 'other';
   deleteMode: boolean;
   isSelected: boolean;
   onToggleSelection: (areaId: string) => void;
@@ -301,6 +303,7 @@ const HomeAreaCard = memo(function HomeAreaCard({
   projectId,
   area,
   metric,
+  claimStatus,
   deleteMode,
   isSelected,
   onToggleSelection,
@@ -309,6 +312,7 @@ const HomeAreaCard = memo(function HomeAreaCard({
   const progress = metric?.progress ?? 0;
   const commentCount = metric?.commentCount ?? 0;
   const photoCount = metric?.photoCount ?? 0;
+  const blockedByClaim = claimStatus === 'other';
 
   return (
     <div
@@ -331,9 +335,14 @@ const HomeAreaCard = memo(function HomeAreaCard({
     >
       <div className="flex items-start gap-3">
         <Link
-          href={deleteMode ? '#' : `/project/${projectId}/area/${area.id}`}
+          href={deleteMode || blockedByClaim ? '#' : `/project/${projectId}/area/${area.id}`}
           onClick={(event) => {
-            if (deleteMode) event.preventDefault();
+            if (deleteMode || blockedByClaim) {
+              event.preventDefault();
+              if (blockedByClaim) {
+                alert('This shared area is currently being edited by another user.');
+              }
+            }
           }}
           onContextMenu={(event) => {
             if (!deleteMode) {
@@ -347,6 +356,11 @@ const HomeAreaCard = memo(function HomeAreaCard({
             <div className="flex items-center gap-2 min-w-0">
               <h3 className="truncate text-[1.03rem] font-semibold tracking-[-0.02em] text-gray-900 dark:text-white">{area.name}</h3>
               <span className="segmented-chip shrink-0 px-2.5 py-1 text-[11px]">{areaStats.total} items</span>
+              {claimStatus && (
+                <span className="segmented-chip shrink-0 px-2.5 py-1 text-[11px]">
+                  {claimStatus === 'mine' ? 'You are editing' : 'In use'}
+                </span>
+              )}
             </div>
             <MetadataLine className="mt-2" issues={areaStats.issues} notes={commentCount} photos={photoCount} />
             <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-gray-200 dark:bg-white/[0.12]">
@@ -358,9 +372,14 @@ const HomeAreaCard = memo(function HomeAreaCard({
           </div>
         </Link>
         <Link
-          href={deleteMode ? '#' : `/project/${projectId}/area/${area.id}`}
+          href={deleteMode || blockedByClaim ? '#' : `/project/${projectId}/area/${area.id}`}
           onClick={(event) => {
-            if (deleteMode) event.preventDefault();
+            if (deleteMode || blockedByClaim) {
+              event.preventDefault();
+              if (blockedByClaim) {
+                alert('This shared area is currently being edited by another user.');
+              }
+            }
           }}
           onContextMenu={(event) => {
             if (!deleteMode) {
@@ -422,6 +441,7 @@ export default function ProjectsPage() {
   const [selectedAreaIds, setSelectedAreaIds] = useState<Set<string>>(new Set());
   const [newAreaForm, setNewAreaForm] = useState(getDefaultAreaFormValue());
   const [recentAreaTypeKeys, setRecentAreaTypeKeys] = useState<AreaTypeKey[]>([]);
+  const [sharedAreaClaims, setSharedAreaClaims] = useState<Map<string, 'mine' | 'other'>>(new Map());
   const syncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const sharedPublishTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   const pullStartYRef = useRef<number | null>(null);
@@ -717,6 +737,38 @@ export default function ProjectsPage() {
     () => (singleProject ? singleProject.areas.filter((area) => !area.deletedAt) : []),
     [singleProject]
   );
+
+  useEffect(() => {
+    const sharedProjectId = singleProject?.sharedProjectId;
+    const userId = collaborationAuth.user?.id;
+    if (!sharedProjectId || !collaborationAuth.isSignedIn || !userId) {
+      setSharedAreaClaims(new Map());
+      return;
+    }
+
+    let cancelled = false;
+    void getActiveSharedProjectAreaClaims(sharedProjectId)
+      .then((claims) => {
+        if (cancelled) return;
+        setSharedAreaClaims(
+          new Map(
+            claims.map((claim) => [
+              claim.areaId,
+              claim.claimedByUserId === userId ? 'mine' : 'other',
+            ])
+          )
+        );
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        console.info('Shared area claims unavailable:', error);
+        setSharedAreaClaims(new Map());
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [collaborationAuth.isSignedIn, collaborationAuth.user?.id, singleProject?.sharedProjectId]);
 
   const areaMetrics = useMemo(() => {
     const metrics = new Map<string, AreaMetrics>();
@@ -1742,6 +1794,7 @@ export default function ProjectsPage() {
                     projectId={singleProject.id}
                     area={area}
                     metric={metric}
+                    claimStatus={sharedAreaClaims.get(area.id)}
                     deleteMode={deleteMode}
                     isSelected={isSelected}
                     onToggleSelection={toggleAreaSelection}
