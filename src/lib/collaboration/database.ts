@@ -256,6 +256,13 @@ export interface CollaborationDatabase {
         };
         Returns: undefined;
       };
+      transfer_shared_project_ownership: {
+        Args: {
+          p_project_id: string;
+          p_new_owner_email: string;
+        };
+        Returns: Json;
+      };
     };
     Enums: Record<string, never>;
     CompositeTypes: Record<string, never>;

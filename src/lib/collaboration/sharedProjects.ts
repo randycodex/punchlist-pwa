@@ -12,6 +12,12 @@ type JoinedSharedProjectResult = {
   projectName: string;
 };
 
+type OwnershipTransferResult = {
+  projectId: string;
+  ownerUserId: string;
+  ownerEmail: string;
+};
+
 export function getCollaborationErrorMessage(error: unknown, fallback = 'Failed to share project. Please try again.') {
   if (error instanceof Error) {
     return error.message;
@@ -145,4 +151,37 @@ export async function joinSharedProjectByCode(
   }
 
   return { sharedProjectId, projectName };
+}
+
+export async function transferSharedProjectOwnership(
+  sharedProjectId: string,
+  newOwnerEmail: string
+): Promise<OwnershipTransferResult> {
+  const supabase = getCollaborationSupabaseClient();
+  if (!supabase) {
+    throw new Error('Collaboration is not configured.');
+  }
+
+  const email = newOwnerEmail.trim().toLowerCase();
+  if (!email) {
+    throw new Error('Enter the UAI email for the new owner.');
+  }
+
+  const { data, error } = await supabase.rpc('transfer_shared_project_ownership', {
+    p_project_id: sharedProjectId,
+    p_new_owner_email: email,
+  });
+
+  if (error) {
+    throw error;
+  }
+
+  const projectId = getStringFromJsonObject(data, 'project_id');
+  const ownerUserId = getStringFromJsonObject(data, 'owner_user_id');
+  const ownerEmail = getStringFromJsonObject(data, 'owner_email');
+  if (!projectId || !ownerUserId || !ownerEmail) {
+    throw new Error('Ownership transfer did not return the new owner.');
+  }
+
+  return { projectId, ownerUserId, ownerEmail };
 }

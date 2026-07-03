@@ -27,6 +27,7 @@ type HomeMenuState = {
   isCreatingJoinCode?: boolean;
   isPublishingSharedProject?: boolean;
   isPullingSharedProject?: boolean;
+  isTransferringSharedProject?: boolean;
 };
 
 export default function PersistentTopBar() {
@@ -343,6 +344,16 @@ export default function PersistentTopBar() {
                   >
                     <CloudDownload className="h-4 w-4" />
                     {homeMenuState.isPullingSharedProject ? 'Pulling...' : 'Pull shared data'}
+                  </button>
+                )}
+                {homeMenuState.isSingleProject && homeMenuState.isSharedProject && collaborationAuth.isSignedIn && (
+                  <button
+                    onClick={() => dispatchHomeAction('transfer-shared-project')}
+                    disabled={!!homeMenuState.isTransferringSharedProject}
+                    className="flex w-full items-center gap-3 rounded-[1.1rem] px-4 py-3 text-left text-sm text-gray-700 transition hover:bg-black/[0.04] disabled:cursor-default disabled:opacity-60 dark:text-gray-300 dark:hover:bg-white/[0.05]"
+                  >
+                    <Users className="h-4 w-4" />
+                    {homeMenuState.isTransferringSharedProject ? 'Transferring...' : 'Transfer ownership'}
                   </button>
                 )}
                 {showAuth && collaborationAuth.isSignedIn && (

@@ -36,6 +36,7 @@ import {
   isSharedSnapshotNewer,
   joinSharedProjectByCode,
   publishSharedProjectSnapshot,
+  transferSharedProjectOwnership,
 } from '@/lib/collaboration';
 import ProjectEditModal from '@/components/ProjectEditModal';
 import AreaEditorModal from '@/components/AreaEditorModal';
@@ -419,6 +420,7 @@ export default function ProjectsPage() {
   const [creatingJoinCode, setCreatingJoinCode] = useState(false);
   const [publishingSharedProject, setPublishingSharedProject] = useState(false);
   const [pullingSharedProject, setPullingSharedProject] = useState(false);
+  const [transferringSharedProject, setTransferringSharedProject] = useState(false);
   const [sortOption, setSortOption] = useState<SortOption>('issues');
   const [syncing, setSyncing] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
@@ -1327,6 +1329,32 @@ export default function ProjectsPage() {
     }
   }, [collaborationAuth.isSignedIn]);
 
+  const handleTransferSharedProjectOwnership = useCallback(async (project: Project) => {
+    if (!project.sharedProjectId) {
+      alert('Share this project before transferring ownership.');
+      return;
+    }
+
+    if (!collaborationAuth.isSignedIn) {
+      alert('Enable shared projects before transferring ownership.');
+      return;
+    }
+
+    const newOwnerEmail = window.prompt('New owner UAI email')?.trim().toLowerCase();
+    if (!newOwnerEmail) return;
+
+    setTransferringSharedProject(true);
+    try {
+      const result = await transferSharedProjectOwnership(project.sharedProjectId, newOwnerEmail);
+      alert(`Ownership transferred to ${result.ownerEmail}.`);
+    } catch (error) {
+      console.error('Failed to transfer shared project ownership:', error);
+      alert(getCollaborationErrorMessage(error, 'Failed to transfer ownership. Please try again.'));
+    } finally {
+      setTransferringSharedProject(false);
+    }
+  }, [collaborationAuth.isSignedIn]);
+
   async function handleDeleteEditingProject() {
     if (!editingProject) return;
     const projectToDelete = editingProject;
@@ -1454,6 +1482,11 @@ export default function ProjectsPage() {
         return;
       }
 
+      if (detail.action === 'transfer-shared-project' && singleProject) {
+        void handleTransferSharedProjectOwnership(singleProject);
+        return;
+      }
+
       if (detail.action === 'auth') {
         if (isSignedIn) signOut();
         else signIn();
@@ -1470,6 +1503,7 @@ export default function ProjectsPage() {
     handlePublishSharedProject,
     handlePullSharedProject,
     handleShareProject,
+    handleTransferSharedProjectOwnership,
     isSignedIn,
     signIn,
     signOut,
@@ -1494,10 +1528,11 @@ export default function ProjectsPage() {
           isCreatingJoinCode: creatingJoinCode,
           isPublishingSharedProject: publishingSharedProject,
           isPullingSharedProject: pullingSharedProject,
+          isTransferringSharedProject: transferringSharedProject,
         },
       })
     );
-  }, [creatingJoinCode, deleteMode, publishingSharedProject, pullingSharedProject, sortOption, showTrash, singleProject]);
+  }, [creatingJoinCode, deleteMode, publishingSharedProject, pullingSharedProject, sortOption, showTrash, singleProject, transferringSharedProject]);
 
   function toggleTrashView() {
     setShowTrash((current) => {
