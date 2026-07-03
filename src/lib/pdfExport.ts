@@ -260,9 +260,8 @@ function addFooter(pdf: jsPDF, layout: LayoutMetrics, generatedAt: string, summa
     pdf.setFontSize(8);
     pdf.setTextColor(90, 90, 90);
     if (summaryPages.has(page)) {
-      pdf.text('GC to complete below', layout.margin, footerFieldsY - 4);
-      pdf.text('Date Completed', layout.margin, footerFieldsY);
-      pdf.line(layout.margin + 28, footerFieldsY + 0.3, layout.margin + 64, footerFieldsY + 0.3);
+      pdf.text('Date Completed by GC', layout.margin, footerFieldsY);
+      pdf.line(layout.margin + 40, footerFieldsY + 0.3, layout.margin + 64, footerFieldsY + 0.3);
       pdf.text('Name', layout.margin + 68, footerFieldsY);
       pdf.line(layout.margin + 81, footerFieldsY + 0.3, layout.margin + 145, footerFieldsY + 0.3);
       pdf.text('Signature', layout.margin + 149, footerFieldsY);
