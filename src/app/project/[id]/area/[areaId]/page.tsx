@@ -38,8 +38,10 @@ import {
   recordPendingSyncRetry,
 } from '@/lib/pendingSync';
 import { useMicrosoftAuth } from '@/contexts/MicrosoftAuthContext';
+import { useCollaborationAuth } from '@/contexts/CollaborationAuthContext';
 import { useSyncStatus } from '@/contexts/SyncStatusContext';
 import { useAppSettings } from '@/contexts/AppSettingsContext';
+import { claimSharedProjectArea, getCollaborationErrorMessage, releaseSharedProjectArea } from '@/lib/collaboration';
 import AreaNotesCard from '@/components/inspection/AreaNotesCard';
 import CustomItemComposer from '@/components/inspection/CustomItemComposer';
 import InspectionLocationCard from '@/components/inspection/InspectionLocationCard';
@@ -134,6 +136,8 @@ export default function AreaDetailPage() {
   } | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
+  const [areaClaimError, setAreaClaimError] = useState<string | null>(null);
+  const [claimingArea, setClaimingArea] = useState(false);
   const [generalNotes, setGeneralNotes] = useState('');
   const [returnToHome, setReturnToHome] = useState(false);
   const syncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -147,6 +151,7 @@ export default function AreaDetailPage() {
   const locationRefs = useRef(new Map<string, HTMLDivElement | null>());
   const headerMenuRef = useRef<HTMLDivElement | null>(null);
   const { ensureAccessToken } = useMicrosoftAuth();
+  const collaborationAuth = useCollaborationAuth();
   const { retryInSeconds, setRetryAt, setStatus: setSyncStatus } = useSyncStatus();
   const { inspectionShowOnlyIssues, setInspectionShowOnlyIssues, quickSort, markSyncedNow } = useAppSettings();
 
@@ -212,6 +217,52 @@ export default function AreaDetailPage() {
   useEffect(() => {
     setAreaForm(getAreaFormValue(area));
   }, [area]);
+
+  useEffect(() => {
+    const sharedProjectId = project?.sharedProjectId;
+    const currentAreaId = area?.id;
+    if (!sharedProjectId || !currentAreaId) {
+      setAreaClaimError(null);
+      return;
+    }
+
+    if (!collaborationAuth.isSignedIn) {
+      setAreaClaimError('Enable shared projects before working in this shared area.');
+      return;
+    }
+
+    let cancelled = false;
+    setClaimingArea(true);
+    setAreaClaimError(null);
+
+    void claimSharedProjectArea(sharedProjectId, currentAreaId)
+      .then(() => {
+        if (!cancelled) {
+          setAreaClaimError(null);
+        }
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        const message = getCollaborationErrorMessage(error, 'Could not claim this shared area.');
+        setAreaClaimError(message);
+        if (message.toLowerCase().includes('claimed by another user')) {
+          alert(message);
+          router.push(`/project/${id}`);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setClaimingArea(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+      void releaseSharedProjectArea(sharedProjectId, currentAreaId).catch((error) => {
+        console.error('Failed to release shared area claim:', error);
+      });
+    };
+  }, [area?.id, collaborationAuth.isSignedIn, id, project?.sharedProjectId, router]);
 
   const visibleLocations = useMemo(
     () =>
@@ -1265,6 +1316,11 @@ export default function AreaDetailPage() {
               <h1 className="truncate text-[1.12rem] font-semibold tracking-[-0.02em] text-gray-900 dark:text-white">
                 {areaTitle}
               </h1>
+              {project.sharedProjectId && (
+                <div className="mt-1 text-xs font-medium text-gray-500 dark:text-gray-400">
+                  {areaClaimError ? 'Shared claim blocked' : claimingArea ? 'Claiming shared area...' : 'Shared area claimed'}
+                </div>
+              )}
             </div>
             <button
               onClick={() => setInspectionShowOnlyIssues(!inspectionShowOnlyIssues)}
@@ -1337,6 +1393,12 @@ export default function AreaDetailPage() {
           </div>
         )}
       </header>
+
+      {areaClaimError && (
+        <div className="shrink-0 border-b border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900 dark:border-amber-400/20 dark:bg-amber-400/10 dark:text-amber-100">
+          {areaClaimError}
+        </div>
+      )}
 
       {syncError && (
         <div className="shrink-0 border-b border-gray-200/80 bg-white/70 px-4 py-2 text-sm text-gray-700 dark:border-zinc-700 dark:bg-white/[0.03] dark:text-gray-200">

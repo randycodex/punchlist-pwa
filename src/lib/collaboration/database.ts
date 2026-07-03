@@ -241,6 +241,21 @@ export interface CollaborationDatabase {
         };
         Returns: Json;
       };
+      claim_shared_project_area: {
+        Args: {
+          p_project_id: string;
+          p_area_id: string;
+          p_expires_at: string;
+        };
+        Returns: Json;
+      };
+      release_shared_project_area: {
+        Args: {
+          p_project_id: string;
+          p_area_id: string;
+        };
+        Returns: undefined;
+      };
     };
     Enums: Record<string, never>;
     CompositeTypes: Record<string, never>;
