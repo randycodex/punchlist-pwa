@@ -1,4 +1,5 @@
 import { Area, Checkpoint, FileAttachment, Item, Location, PhotoAttachment, Project } from '@/types';
+import { splitFacadeLevels } from '@/lib/areas';
 import {
   getAllProjects,
   getProject,
@@ -920,12 +921,18 @@ function mergeLocations(localLocation: Location, remoteLocation: Location): Loca
 
 function mergeAreas(localArea: Area, remoteArea: Area): Area {
   const base = isRightNewer(localArea, remoteArea) ? remoteArea : localArea;
+  const locations = sortBySortOrder(
+    mergeById(localArea.locations, remoteArea.locations, mergeLocations)
+  );
+  const selectedFacadeLevels =
+    base.areaTypeKey === 'facade' ? new Set(splitFacadeLevels(base.facadeLevel)) : null;
+
   return {
     ...base,
     updatedAt: maxDate(localArea.updatedAt, remoteArea.updatedAt) ?? base.updatedAt,
-    locations: sortBySortOrder(
-      mergeById(localArea.locations, remoteArea.locations, mergeLocations)
-    ),
+    locations: selectedFacadeLevels?.size
+      ? locations.filter((location) => selectedFacadeLevels.has(location.name.trim()))
+      : locations,
   };
 }
 

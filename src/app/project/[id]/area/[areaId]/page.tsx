@@ -545,6 +545,7 @@ export default function AreaDetailPage() {
     }
 
     syncAreaCompletion(targetArea);
+    targetArea.updatedAt = new Date();
     await saveProject(project);
     scheduleSync(project.id);
 
