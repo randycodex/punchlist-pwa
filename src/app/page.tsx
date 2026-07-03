@@ -27,7 +27,7 @@ import { useMicrosoftAuth } from '@/contexts/MicrosoftAuthContext';
 import { useCollaborationAuth } from '@/contexts/CollaborationAuthContext';
 import { useSyncStatus } from '@/contexts/SyncStatusContext';
 import { useAppSettings } from '@/contexts/AppSettingsContext';
-import { createSharedProjectFromLocalProject } from '@/lib/collaboration';
+import { createSharedProjectFromLocalProject, getCollaborationErrorMessage } from '@/lib/collaboration';
 import ProjectEditModal from '@/components/ProjectEditModal';
 import AreaEditorModal from '@/components/AreaEditorModal';
 import MetadataLine from '@/components/MetadataLine';
@@ -407,7 +407,7 @@ export default function ProjectsPage() {
   const pullStartYRef = useRef<number | null>(null);
   const pullArmedRef = useRef(false);
   const listRef = useRef<HTMLElement | null>(null);
-  const { signIn, signOut, isSignedIn, ensureAccessToken } = useMicrosoftAuth();
+  const { signIn, signOut, isSignedIn, ensureAccessToken, accountEmail, accountName } = useMicrosoftAuth();
   const collaborationAuth = useCollaborationAuth();
   const { setRetryAt, setStatus: setSyncStatus } = useSyncStatus();
   const { quickSort, setQuickSort, markSyncedNow } = useAppSettings();
@@ -1027,8 +1027,18 @@ export default function ProjectsPage() {
       return;
     }
 
+    if (!accountEmail) {
+      alert('Sign in with your UAI Microsoft account before sharing this project.');
+      return;
+    }
+
     try {
-      const sharedProjectId = await createSharedProjectFromLocalProject(project, collaborationAuth.user);
+      const sharedProjectId = await createSharedProjectFromLocalProject(
+        project,
+        collaborationAuth.user,
+        accountEmail,
+        accountName
+      );
       const linkedAt = new Date();
       project.sharedProjectId = sharedProjectId;
       project.sharedProjectLinkedAt = linkedAt;
@@ -1043,9 +1053,9 @@ export default function ProjectsPage() {
       alert('Project sharing is enabled. You are the owner of this shared project.');
     } catch (error) {
       console.error('Failed to share project:', error);
-      alert(error instanceof Error ? error.message : 'Failed to share project. Please try again.');
+      alert(getCollaborationErrorMessage(error));
     }
-  }, [collaborationAuth.isSignedIn, collaborationAuth.user]);
+  }, [accountEmail, accountName, collaborationAuth.isSignedIn, collaborationAuth.user]);
 
   async function handleDeleteEditingProject() {
     if (!editingProject) return;

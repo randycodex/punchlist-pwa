@@ -2,7 +2,30 @@ import type { User } from '@supabase/supabase-js';
 import type { Project } from '@/types';
 import { getCollaborationSupabaseClient } from './supabaseClient';
 
-export async function createSharedProjectFromLocalProject(project: Project, user: User) {
+export function getCollaborationErrorMessage(error: unknown, fallback = 'Failed to share project. Please try again.') {
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  if (error && typeof error === 'object') {
+    const maybeError = error as { message?: unknown; details?: unknown; hint?: unknown; code?: unknown };
+    const parts = [maybeError.message, maybeError.details, maybeError.hint, maybeError.code]
+      .filter((part): part is string => typeof part === 'string' && part.trim().length > 0);
+
+    if (parts.length > 0) {
+      return parts.join(' ');
+    }
+  }
+
+  return fallback;
+}
+
+export async function createSharedProjectFromLocalProject(
+  project: Project,
+  user: User,
+  memberEmail: string,
+  memberDisplayName?: string | null
+) {
   if (project.sharedProjectId) {
     return project.sharedProjectId;
   }
@@ -12,17 +35,18 @@ export async function createSharedProjectFromLocalProject(project: Project, user
     throw new Error('Collaboration is not configured.');
   }
 
-  const email = user.email?.trim().toLowerCase();
+  const email = memberEmail.trim().toLowerCase();
   if (!email) {
-    throw new Error('Your shared-project account does not include an email address.');
+    throw new Error('Your Microsoft account does not include an email address.');
   }
 
   const displayName =
-    typeof user.user_metadata?.name === 'string'
+    memberDisplayName?.trim() ||
+    (typeof user.user_metadata?.name === 'string'
       ? user.user_metadata.name
       : typeof user.user_metadata?.full_name === 'string'
         ? user.user_metadata.full_name
-        : undefined;
+        : undefined);
 
   const { data: existingProject, error: existingProjectError } = await supabase
     .from('shared_projects')
