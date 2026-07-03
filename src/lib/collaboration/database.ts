@@ -205,6 +205,20 @@ export interface CollaborationDatabase {
         };
         Returns: string;
       };
+      generate_shared_project_join_code: {
+        Args: {
+          p_project_id: string;
+        };
+        Returns: Json;
+      };
+      join_shared_project_by_code: {
+        Args: {
+          p_join_code: string;
+          p_member_email: string;
+          p_member_display_name?: string | null;
+        };
+        Returns: Json;
+      };
     };
     Enums: Record<string, never>;
     CompositeTypes: Record<string, never>;

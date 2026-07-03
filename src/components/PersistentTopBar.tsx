@@ -9,7 +9,7 @@ import { useCollaborationAuth } from '@/contexts/CollaborationAuthContext';
 import { useSyncStatus } from '@/contexts/SyncStatusContext';
 import { useAppSettings } from '@/contexts/AppSettingsContext';
 import { getProject } from '@/lib/db';
-import { MoreVertical, LogOut, LogIn, ArrowDownAZ, Clock3, BarChart3, PlusSquare, FolderPlus, Trash2, Pencil, FileDown, Users, Share2, CheckCircle2 } from 'lucide-react';
+import { MoreVertical, LogOut, LogIn, ArrowDownAZ, Clock3, BarChart3, PlusSquare, FolderPlus, Trash2, Pencil, FileDown, Users, Share2, CheckCircle2, KeyRound, UserPlus } from 'lucide-react';
 
 const projectTitleCache = new Map<string, string>();
 type SortOption = 'alphabetical' | 'issues' | 'progress';
@@ -24,6 +24,7 @@ type HomeMenuState = {
   showOnlyIssues?: boolean;
   selectionMode?: boolean;
   isSharedProject?: boolean;
+  isCreatingJoinCode?: boolean;
 };
 
 export default function PersistentTopBar() {
@@ -310,6 +311,25 @@ export default function PersistentTopBar() {
                       <Share2 className="h-4 w-4" />
                     )}
                     {homeMenuState.isSharedProject ? 'Project shared' : 'Share project'}
+                  </button>
+                )}
+                {homeMenuState.isSingleProject && homeMenuState.isSharedProject && collaborationAuth.isSignedIn && (
+                  <button
+                    onClick={() => dispatchHomeAction('invite-code')}
+                    disabled={!!homeMenuState.isCreatingJoinCode}
+                    className="flex w-full items-center gap-3 rounded-[1.1rem] px-4 py-3 text-left text-sm text-gray-700 transition hover:bg-black/[0.04] disabled:cursor-default disabled:opacity-60 dark:text-gray-300 dark:hover:bg-white/[0.05]"
+                  >
+                    <KeyRound className="h-4 w-4" />
+                    {homeMenuState.isCreatingJoinCode ? 'Creating code...' : 'Invite by code'}
+                  </button>
+                )}
+                {showAuth && collaborationAuth.isSignedIn && (
+                  <button
+                    onClick={() => dispatchHomeAction('join-shared-project')}
+                    className="flex w-full items-center gap-3 rounded-[1.1rem] px-4 py-3 text-left text-sm text-gray-700 transition hover:bg-black/[0.04] dark:text-gray-300 dark:hover:bg-white/[0.05]"
+                  >
+                    <UserPlus className="h-4 w-4" />
+                    Join shared project
                   </button>
                 )}
                 {homeMenuState.context !== 'project' && (

@@ -1,6 +1,16 @@
-import type { User } from '@supabase/supabase-js';
 import type { Project } from '@/types';
+import type { Json } from './database';
 import { getCollaborationSupabaseClient } from './supabaseClient';
+
+type JoinCodeResult = {
+  joinCode: string;
+  expiresAt: string;
+};
+
+type JoinedSharedProjectResult = {
+  sharedProjectId: string;
+  projectName: string;
+};
 
 export function getCollaborationErrorMessage(error: unknown, fallback = 'Failed to share project. Please try again.') {
   if (error instanceof Error) {
@@ -20,9 +30,17 @@ export function getCollaborationErrorMessage(error: unknown, fallback = 'Failed 
   return fallback;
 }
 
+function getStringFromJsonObject(value: Json, key: string) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return null;
+  }
+
+  const entry = value[key];
+  return typeof entry === 'string' ? entry : null;
+}
+
 export async function createSharedProjectFromLocalProject(
   project: Project,
-  user: User,
   memberEmail: string,
   memberDisplayName?: string | null
 ) {
@@ -40,13 +58,7 @@ export async function createSharedProjectFromLocalProject(
     throw new Error('Your Microsoft account does not include an email address.');
   }
 
-  const displayName =
-    memberDisplayName?.trim() ||
-    (typeof user.user_metadata?.name === 'string'
-      ? user.user_metadata.name
-      : typeof user.user_metadata?.full_name === 'string'
-        ? user.user_metadata.full_name
-        : undefined);
+  const displayName = memberDisplayName?.trim() || undefined;
 
   const { data: existingProject, error: existingProjectError } = await supabase
     .from('shared_projects')
@@ -81,4 +93,56 @@ export async function createSharedProjectFromLocalProject(
   }
 
   return sharedProjectId;
+}
+
+export async function generateSharedProjectJoinCode(sharedProjectId: string): Promise<JoinCodeResult> {
+  const supabase = getCollaborationSupabaseClient();
+  if (!supabase) {
+    throw new Error('Collaboration is not configured.');
+  }
+
+  const { data, error } = await supabase.rpc('generate_shared_project_join_code', {
+    p_project_id: sharedProjectId,
+  });
+
+  if (error) {
+    throw error;
+  }
+
+  const joinCode = getStringFromJsonObject(data, 'join_code');
+  const expiresAt = getStringFromJsonObject(data, 'expires_at');
+  if (!joinCode || !expiresAt) {
+    throw new Error('Unable to create a shared project code.');
+  }
+
+  return { joinCode, expiresAt };
+}
+
+export async function joinSharedProjectByCode(
+  joinCode: string,
+  memberEmail: string,
+  memberDisplayName?: string | null
+): Promise<JoinedSharedProjectResult> {
+  const supabase = getCollaborationSupabaseClient();
+  if (!supabase) {
+    throw new Error('Collaboration is not configured.');
+  }
+
+  const { data, error } = await supabase.rpc('join_shared_project_by_code', {
+    p_join_code: joinCode,
+    p_member_email: memberEmail,
+    p_member_display_name: memberDisplayName ?? null,
+  });
+
+  if (error) {
+    throw error;
+  }
+
+  const sharedProjectId = getStringFromJsonObject(data, 'shared_project_id');
+  const projectName = getStringFromJsonObject(data, 'project_name');
+  if (!sharedProjectId || !projectName) {
+    throw new Error('Unable to join shared project.');
+  }
+
+  return { sharedProjectId, projectName };
 }

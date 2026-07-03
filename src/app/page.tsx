@@ -27,7 +27,12 @@ import { useMicrosoftAuth } from '@/contexts/MicrosoftAuthContext';
 import { useCollaborationAuth } from '@/contexts/CollaborationAuthContext';
 import { useSyncStatus } from '@/contexts/SyncStatusContext';
 import { useAppSettings } from '@/contexts/AppSettingsContext';
-import { createSharedProjectFromLocalProject, getCollaborationErrorMessage } from '@/lib/collaboration';
+import {
+  createSharedProjectFromLocalProject,
+  generateSharedProjectJoinCode,
+  getCollaborationErrorMessage,
+  joinSharedProjectByCode,
+} from '@/lib/collaboration';
 import ProjectEditModal from '@/components/ProjectEditModal';
 import AreaEditorModal from '@/components/AreaEditorModal';
 import MetadataLine from '@/components/MetadataLine';
@@ -381,6 +386,15 @@ export default function ProjectsPage() {
   const [newProjectGcName, setNewProjectGcName] = useState('');
   const [newProjectLevelStart, setNewProjectLevelStart] = useState('');
   const [newProjectLevelEnd, setNewProjectLevelEnd] = useState('');
+  const [joinProjectCode, setJoinProjectCode] = useState('');
+  const [showJoinProject, setShowJoinProject] = useState(false);
+  const [joiningProject, setJoiningProject] = useState(false);
+  const [sharedProjectCode, setSharedProjectCode] = useState<{
+    projectName: string;
+    code: string;
+    expiresAt: string;
+  } | null>(null);
+  const [creatingJoinCode, setCreatingJoinCode] = useState(false);
   const [sortOption, setSortOption] = useState<SortOption>('issues');
   const [syncing, setSyncing] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
@@ -1035,7 +1049,6 @@ export default function ProjectsPage() {
     try {
       const sharedProjectId = await createSharedProjectFromLocalProject(
         project,
-        collaborationAuth.user,
         accountEmail,
         accountName
       );
@@ -1056,6 +1069,74 @@ export default function ProjectsPage() {
       alert(getCollaborationErrorMessage(error));
     }
   }, [accountEmail, accountName, collaborationAuth.isSignedIn, collaborationAuth.user]);
+
+  const handleCreateJoinCode = useCallback(async (project: Project) => {
+    if (!project.sharedProjectId) {
+      alert('Share this project before creating an invite code.');
+      return;
+    }
+
+    if (!collaborationAuth.isSignedIn) {
+      alert('Enable shared projects before creating an invite code.');
+      return;
+    }
+
+    setCreatingJoinCode(true);
+    try {
+      const result = await generateSharedProjectJoinCode(project.sharedProjectId);
+      setSharedProjectCode({
+        projectName: project.projectName,
+        code: result.joinCode,
+        expiresAt: result.expiresAt,
+      });
+    } catch (error) {
+      console.error('Failed to create shared project code:', error);
+      alert(getCollaborationErrorMessage(error, 'Failed to create invite code. Please try again.'));
+    } finally {
+      setCreatingJoinCode(false);
+    }
+  }, [collaborationAuth.isSignedIn]);
+
+  async function handleJoinSharedProject() {
+    const code = joinProjectCode.trim();
+    if (!code || joiningProject) return;
+
+    if (!collaborationAuth.isSignedIn) {
+      alert('Enable shared projects before joining a project.');
+      return;
+    }
+
+    if (!accountEmail) {
+      alert('Sign in with your UAI Microsoft account before joining a shared project.');
+      return;
+    }
+
+    setJoiningProject(true);
+    try {
+      const result = await joinSharedProjectByCode(code, accountEmail, accountName);
+      const existingProject = projects.find((project) => project.sharedProjectId === result.sharedProjectId);
+      if (existingProject) {
+        alert(`You already joined "${existingProject.projectName}".`);
+        setShowJoinProject(false);
+        setJoinProjectCode('');
+        return;
+      }
+
+      const project = createProject(result.projectName);
+      project.sharedProjectId = result.sharedProjectId;
+      project.sharedProjectLinkedAt = new Date();
+      await saveProject(project);
+      setProjects((prev) => [...prev, project]);
+      setShowJoinProject(false);
+      setJoinProjectCode('');
+      alert(`Joined "${result.projectName}".`);
+    } catch (error) {
+      console.error('Failed to join shared project:', error);
+      alert(getCollaborationErrorMessage(error, 'Failed to join shared project. Please try again.'));
+    } finally {
+      setJoiningProject(false);
+    }
+  }
 
   async function handleDeleteEditingProject() {
     if (!editingProject) return;
@@ -1164,6 +1245,16 @@ export default function ProjectsPage() {
         return;
       }
 
+      if (detail.action === 'invite-code' && singleProject) {
+        void handleCreateJoinCode(singleProject);
+        return;
+      }
+
+      if (detail.action === 'join-shared-project') {
+        setShowJoinProject(true);
+        return;
+      }
+
       if (detail.action === 'auth') {
         if (isSignedIn) signOut();
         else signIn();
@@ -1174,7 +1265,7 @@ export default function ProjectsPage() {
     return () => {
       window.removeEventListener('punchlist-home-menu-action', handleHomeMenuAction as EventListener);
     };
-  }, [deleteMode, handleShareProject, isSignedIn, signIn, signOut, singleProject, sortOption, showTrash, setQuickSort]);
+  }, [deleteMode, handleCreateJoinCode, handleShareProject, isSignedIn, signIn, signOut, singleProject, sortOption, showTrash, setQuickSort]);
 
   useEffect(() => {
     window.dispatchEvent(
@@ -1188,10 +1279,11 @@ export default function ProjectsPage() {
           singleProjectName: singleProject?.projectName ?? '',
           selectionMode: deleteMode,
           isSharedProject: !!singleProject?.sharedProjectId,
+          isCreatingJoinCode: creatingJoinCode,
         },
       })
     );
-  }, [deleteMode, sortOption, showTrash, singleProject]);
+  }, [creatingJoinCode, deleteMode, sortOption, showTrash, singleProject]);
 
   function toggleTrashView() {
     setShowTrash((current) => {
@@ -1722,6 +1814,79 @@ export default function ProjectsPage() {
                 className="flex-1 rounded-2xl bg-zinc-900 px-4 py-3 font-medium text-white transition hover:bg-black dark:bg-white dark:text-gray-900 dark:hover:bg-gray-200 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 Create
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {sharedProjectCode && (
+        <div className="modal-overlay fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="modal-panel w-full max-w-md rounded-[1.9rem] p-6">
+            <h2 className="mb-1 text-xl font-semibold tracking-[-0.02em] text-gray-900 dark:text-white">Invite Code</h2>
+            <p className="mb-5 text-sm text-gray-500 dark:text-gray-400">
+              {sharedProjectCode.projectName}
+            </p>
+            <div className="rounded-[1.25rem] border border-[var(--surface-border)] bg-white/70 px-4 py-5 text-center dark:bg-white/[0.04]">
+              <div className="select-all font-mono text-3xl font-semibold tracking-[0.18em] text-gray-900 dark:text-white">
+                {sharedProjectCode.code}
+              </div>
+              <div className="mt-3 text-xs text-gray-500 dark:text-gray-400">
+                Expires {new Date(sharedProjectCode.expiresAt).toLocaleString()}
+              </div>
+            </div>
+            <div className="mt-6 flex gap-3">
+              <button
+                onClick={() => setSharedProjectCode(null)}
+                className="flex-1 rounded-2xl border border-gray-300/90 bg-white/70 px-4 py-3 font-medium text-gray-700 transition hover:bg-white dark:border-white/10 dark:bg-white/[0.04] dark:text-gray-300 dark:hover:bg-white/[0.08]"
+              >
+                Done
+              </button>
+              <button
+                onClick={() => {
+                  void navigator.clipboard?.writeText(sharedProjectCode.code);
+                }}
+                className="flex-1 rounded-2xl bg-zinc-900 px-4 py-3 font-medium text-white transition hover:bg-black dark:bg-white dark:text-gray-900 dark:hover:bg-gray-200"
+              >
+                Copy
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showJoinProject && (
+        <div className="modal-overlay fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="modal-panel w-full max-w-md rounded-[1.9rem] p-6">
+            <h2 className="mb-1 text-xl font-semibold tracking-[-0.02em] text-gray-900 dark:text-white">Join Shared Project</h2>
+            <p className="mb-5 text-sm text-gray-500 dark:text-gray-400">Enter the code from the project owner.</p>
+            <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
+              Code
+            </label>
+            <input
+              type="text"
+              value={joinProjectCode}
+              onChange={(event) => setJoinProjectCode(event.target.value.toUpperCase())}
+              className="field-shell font-mono tracking-[0.12em]"
+              placeholder="ABC123"
+              autoFocus
+            />
+            <div className="mt-6 flex gap-3">
+              <button
+                onClick={() => {
+                  setShowJoinProject(false);
+                  setJoinProjectCode('');
+                }}
+                className="flex-1 rounded-2xl border border-gray-300/90 bg-white/70 px-4 py-3 font-medium text-gray-700 transition hover:bg-white dark:border-white/10 dark:bg-white/[0.04] dark:text-gray-300 dark:hover:bg-white/[0.08]"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => void handleJoinSharedProject()}
+                disabled={!joinProjectCode.trim() || joiningProject}
+                className="flex-1 rounded-2xl bg-zinc-900 px-4 py-3 font-medium text-white transition hover:bg-black dark:bg-white dark:text-gray-900 dark:hover:bg-gray-200 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {joiningProject ? 'Joining...' : 'Join'}
               </button>
             </div>
           </div>
