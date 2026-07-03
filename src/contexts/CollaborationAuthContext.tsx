@@ -76,6 +76,7 @@ export function CollaborationAuthProvider({ children }: { children: ReactNode })
       provider: 'azure',
       options: {
         redirectTo,
+        scopes: 'openid email profile',
       },
     });
 
