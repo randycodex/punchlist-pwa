@@ -110,3 +110,5 @@ end;
 $$;
 
 grant execute on function public.join_shared_project_by_code(text, text, text) to authenticated;
+
+notify pgrst, 'reload schema';
