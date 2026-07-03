@@ -61,42 +61,23 @@ export async function createSharedProjectFromLocalProject(
   let sharedProjectId = existingProject?.id;
 
   if (!sharedProjectId) {
-    const { data: createdProject, error: projectError } = await supabase
-      .from('shared_projects')
-      .insert({
-        local_project_id: project.id,
-        project_name: project.projectName,
-        owner_user_id: user.id,
-        created_by_user_id: user.id,
-      })
-      .select('id')
-      .single();
+    const { data: createdProjectId, error: projectError } = await supabase
+      .rpc('create_shared_project', {
+        p_local_project_id: project.id,
+        p_project_name: project.projectName,
+        p_owner_email: email,
+        p_owner_display_name: displayName ?? null,
+      });
 
     if (projectError) {
       throw projectError;
     }
 
-    sharedProjectId = createdProject?.id;
+    sharedProjectId = createdProjectId;
   }
 
   if (!sharedProjectId) {
     throw new Error('Unable to create shared project.');
-  }
-
-  const { error: memberError } = await supabase
-    .from('project_members')
-    .insert({
-      project_id: sharedProjectId,
-      user_id: user.id,
-      email,
-      display_name: displayName,
-      access_state: 'active',
-      joined_by: 'emailInvite',
-      joined_at: new Date().toISOString(),
-    });
-
-  if (memberError && memberError.code !== '23505') {
-    throw memberError;
   }
 
   return sharedProjectId;

@@ -195,7 +195,17 @@ export interface CollaborationDatabase {
       };
     };
     Views: Record<string, never>;
-    Functions: Record<string, never>;
+    Functions: {
+      create_shared_project: {
+        Args: {
+          p_local_project_id: string;
+          p_project_name: string;
+          p_owner_email: string;
+          p_owner_display_name?: string | null;
+        };
+        Returns: string;
+      };
+    };
     Enums: Record<string, never>;
     CompositeTypes: Record<string, never>;
   };
