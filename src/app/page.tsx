@@ -2,7 +2,7 @@
 
 import { memo, useState, useEffect, useMemo, useRef, useCallback, type TouchEvent } from 'react';
 import { Area, Project, checkpointHasIssue, getReviewMetrics } from '@/types';
-import { getAllProjects, getProject, saveProject, deleteProject, createProject, createArea } from '@/lib/db';
+import { getAllProjects, getProject, saveProject, saveProjectPreserveTimestamps, deleteProject, createProject, createArea } from '@/lib/db';
 import {
   syncProjectsWithOneDrive,
   SyncConflict,
@@ -30,8 +30,10 @@ import { useAppSettings } from '@/contexts/AppSettingsContext';
 import {
   createSharedProjectFromLocalProject,
   generateSharedProjectJoinCode,
+  getSharedProjectSnapshot,
   getCollaborationErrorMessage,
   joinSharedProjectByCode,
+  publishSharedProjectSnapshot,
 } from '@/lib/collaboration';
 import ProjectEditModal from '@/components/ProjectEditModal';
 import AreaEditorModal from '@/components/AreaEditorModal';
@@ -395,6 +397,8 @@ export default function ProjectsPage() {
     expiresAt: string;
   } | null>(null);
   const [creatingJoinCode, setCreatingJoinCode] = useState(false);
+  const [publishingSharedProject, setPublishingSharedProject] = useState(false);
+  const [pullingSharedProject, setPullingSharedProject] = useState(false);
   const [sortOption, setSortOption] = useState<SortOption>('issues');
   const [syncing, setSyncing] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
@@ -1138,6 +1142,67 @@ export default function ProjectsPage() {
     }
   }
 
+  const handlePublishSharedProject = useCallback(async (project: Project) => {
+    if (!project.sharedProjectId) {
+      alert('Share this project before publishing shared data.');
+      return;
+    }
+
+    if (!collaborationAuth.isSignedIn || !collaborationAuth.user) {
+      alert('Enable shared projects before publishing shared data.');
+      return;
+    }
+
+    setPublishingSharedProject(true);
+    try {
+      const fullProject = await getProject(project.id);
+      if (!fullProject) {
+        throw new Error('Could not load this project.');
+      }
+
+      fullProject.sharedProjectId = project.sharedProjectId;
+      fullProject.sharedProjectLinkedAt = project.sharedProjectLinkedAt;
+      const result = await publishSharedProjectSnapshot(fullProject, collaborationAuth.user.id);
+      alert(`Shared data published at ${new Date(result.publishedAt).toLocaleTimeString()}.`);
+    } catch (error) {
+      console.error('Failed to publish shared project:', error);
+      alert(getCollaborationErrorMessage(error, 'Failed to publish shared data. Please try again.'));
+    } finally {
+      setPublishingSharedProject(false);
+    }
+  }, [collaborationAuth.isSignedIn, collaborationAuth.user]);
+
+  const handlePullSharedProject = useCallback(async (project: Project) => {
+    if (!project.sharedProjectId) {
+      alert('Share or join this project before pulling shared data.');
+      return;
+    }
+
+    if (!collaborationAuth.isSignedIn) {
+      alert('Enable shared projects before pulling shared data.');
+      return;
+    }
+
+    setPullingSharedProject(true);
+    try {
+      const result = await getSharedProjectSnapshot(project);
+      await saveProjectPreserveTimestamps(result.project);
+      setProjects((prev) =>
+        prev.map((entry) =>
+          entry.id === project.id
+            ? { ...result.project, areas: [...result.project.areas] }
+            : entry
+        )
+      );
+      alert(`Shared data pulled from ${new Date(result.publishedAt).toLocaleString()}.`);
+    } catch (error) {
+      console.error('Failed to pull shared project:', error);
+      alert(getCollaborationErrorMessage(error, 'Failed to pull shared data. Please try again.'));
+    } finally {
+      setPullingSharedProject(false);
+    }
+  }, [collaborationAuth.isSignedIn]);
+
   async function handleDeleteEditingProject() {
     if (!editingProject) return;
     const projectToDelete = editingProject;
@@ -1255,6 +1320,16 @@ export default function ProjectsPage() {
         return;
       }
 
+      if (detail.action === 'publish-shared-project' && singleProject) {
+        void handlePublishSharedProject(singleProject);
+        return;
+      }
+
+      if (detail.action === 'pull-shared-project' && singleProject) {
+        void handlePullSharedProject(singleProject);
+        return;
+      }
+
       if (detail.action === 'auth') {
         if (isSignedIn) signOut();
         else signIn();
@@ -1265,7 +1340,20 @@ export default function ProjectsPage() {
     return () => {
       window.removeEventListener('punchlist-home-menu-action', handleHomeMenuAction as EventListener);
     };
-  }, [deleteMode, handleCreateJoinCode, handleShareProject, isSignedIn, signIn, signOut, singleProject, sortOption, showTrash, setQuickSort]);
+  }, [
+    deleteMode,
+    handleCreateJoinCode,
+    handlePublishSharedProject,
+    handlePullSharedProject,
+    handleShareProject,
+    isSignedIn,
+    signIn,
+    signOut,
+    singleProject,
+    sortOption,
+    showTrash,
+    setQuickSort,
+  ]);
 
   useEffect(() => {
     window.dispatchEvent(
@@ -1280,10 +1368,12 @@ export default function ProjectsPage() {
           selectionMode: deleteMode,
           isSharedProject: !!singleProject?.sharedProjectId,
           isCreatingJoinCode: creatingJoinCode,
+          isPublishingSharedProject: publishingSharedProject,
+          isPullingSharedProject: pullingSharedProject,
         },
       })
     );
-  }, [creatingJoinCode, deleteMode, sortOption, showTrash, singleProject]);
+  }, [creatingJoinCode, deleteMode, publishingSharedProject, pullingSharedProject, sortOption, showTrash, singleProject]);
 
   function toggleTrashView() {
     setShowTrash((current) => {

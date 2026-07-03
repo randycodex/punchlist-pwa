@@ -193,6 +193,28 @@ export interface CollaborationDatabase {
         Update: Partial<CollaborationDatabase['public']['Tables']['shared_attachments']['Insert']>;
         Relationships: [];
       };
+      shared_project_snapshots: {
+        Row: {
+          project_id: string;
+          project_payload: Json;
+          payload_version: number;
+          published_by_user_id: string;
+          published_at: string;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          project_id: string;
+          project_payload: Json;
+          payload_version?: number;
+          published_by_user_id: string;
+          published_at?: string;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: Partial<CollaborationDatabase['public']['Tables']['shared_project_snapshots']['Insert']>;
+        Relationships: [];
+      };
     };
     Views: Record<string, never>;
     Functions: {

@@ -9,7 +9,7 @@ import { useCollaborationAuth } from '@/contexts/CollaborationAuthContext';
 import { useSyncStatus } from '@/contexts/SyncStatusContext';
 import { useAppSettings } from '@/contexts/AppSettingsContext';
 import { getProject } from '@/lib/db';
-import { MoreVertical, LogOut, LogIn, ArrowDownAZ, Clock3, BarChart3, PlusSquare, FolderPlus, Trash2, Pencil, FileDown, Users, Share2, CheckCircle2, KeyRound, UserPlus } from 'lucide-react';
+import { MoreVertical, LogOut, LogIn, ArrowDownAZ, Clock3, BarChart3, PlusSquare, FolderPlus, Trash2, Pencil, FileDown, Users, Share2, CheckCircle2, KeyRound, UserPlus, CloudUpload, CloudDownload } from 'lucide-react';
 
 const projectTitleCache = new Map<string, string>();
 type SortOption = 'alphabetical' | 'issues' | 'progress';
@@ -25,6 +25,8 @@ type HomeMenuState = {
   selectionMode?: boolean;
   isSharedProject?: boolean;
   isCreatingJoinCode?: boolean;
+  isPublishingSharedProject?: boolean;
+  isPullingSharedProject?: boolean;
 };
 
 export default function PersistentTopBar() {
@@ -321,6 +323,26 @@ export default function PersistentTopBar() {
                   >
                     <KeyRound className="h-4 w-4" />
                     {homeMenuState.isCreatingJoinCode ? 'Creating code...' : 'Invite by code'}
+                  </button>
+                )}
+                {homeMenuState.isSingleProject && homeMenuState.isSharedProject && collaborationAuth.isSignedIn && (
+                  <button
+                    onClick={() => dispatchHomeAction('publish-shared-project')}
+                    disabled={!!homeMenuState.isPublishingSharedProject}
+                    className="flex w-full items-center gap-3 rounded-[1.1rem] px-4 py-3 text-left text-sm text-gray-700 transition hover:bg-black/[0.04] disabled:cursor-default disabled:opacity-60 dark:text-gray-300 dark:hover:bg-white/[0.05]"
+                  >
+                    <CloudUpload className="h-4 w-4" />
+                    {homeMenuState.isPublishingSharedProject ? 'Publishing...' : 'Publish shared data'}
+                  </button>
+                )}
+                {homeMenuState.isSingleProject && homeMenuState.isSharedProject && collaborationAuth.isSignedIn && (
+                  <button
+                    onClick={() => dispatchHomeAction('pull-shared-project')}
+                    disabled={!!homeMenuState.isPullingSharedProject}
+                    className="flex w-full items-center gap-3 rounded-[1.1rem] px-4 py-3 text-left text-sm text-gray-700 transition hover:bg-black/[0.04] disabled:cursor-default disabled:opacity-60 dark:text-gray-300 dark:hover:bg-white/[0.05]"
+                  >
+                    <CloudDownload className="h-4 w-4" />
+                    {homeMenuState.isPullingSharedProject ? 'Pulling...' : 'Pull shared data'}
                   </button>
                 )}
                 {showAuth && collaborationAuth.isSignedIn && (
