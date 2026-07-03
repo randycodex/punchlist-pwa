@@ -398,11 +398,35 @@ function estimatePhotoBlockHeight(photoCount: number, layout: LayoutMetrics, ava
   return 4 + rows * grid.photoHeight + Math.max(rows - 1, 0) * grid.rowGap + 6;
 }
 
-function estimateCheckpointBlockHeight(pdf: jsPDF, checkpoint: Checkpoint, layout: LayoutMetrics, textWidth: number) {
+function estimateFirstPhotoRowHeight(photoCount: number, layout: LayoutMetrics, availableWidth: number) {
+  if (photoCount === 0) return 0;
+  const grid = getPhotoGridMetrics(layout, availableWidth);
+  return 4 + grid.photoHeight + 1.5;
+}
+
+function estimateCheckpointIntroHeight(pdf: jsPDF, checkpoint: Checkpoint, textWidth: number) {
   const notesLines = getCheckpointNotesLines(pdf, checkpoint, textWidth);
   const fileLines = getCheckpointFileLines(pdf, checkpoint, textWidth);
+  return 4.8 + notesLines.length * 3.5 + fileLines.length * 3.4;
+}
+
+function estimateCheckpointBlockHeight(pdf: jsPDF, checkpoint: Checkpoint, layout: LayoutMetrics, textWidth: number) {
   const photoCount = getCheckpointPhotoSources(checkpoint).length;
-  return 4.8 + notesLines.length * 3.5 + fileLines.length * 3.4 + estimatePhotoBlockHeight(photoCount, layout, textWidth) + ITEM_GAP;
+  return estimateCheckpointIntroHeight(pdf, checkpoint, textWidth) + estimatePhotoBlockHeight(photoCount, layout, textWidth) + ITEM_GAP;
+}
+
+function estimateCheckpointMinimumStartHeight(pdf: jsPDF, checkpoint: Checkpoint, layout: LayoutMetrics, textWidth: number) {
+  const photoCount = getCheckpointPhotoSources(checkpoint).length;
+  return estimateCheckpointIntroHeight(pdf, checkpoint, textWidth) + estimateFirstPhotoRowHeight(photoCount, layout, textWidth) + ITEM_GAP;
+}
+
+function getUniqueCheckpoints(checkpoints: ExportCheckpoint[]) {
+  const seenCheckpointIds = new Set<string>();
+  return checkpoints.filter((checkpoint) => {
+    if (seenCheckpointIds.has(checkpoint.id)) return false;
+    seenCheckpointIds.add(checkpoint.id);
+    return true;
+  });
 }
 
 function estimateItemBlockHeight(pdf: jsPDF, item: ExportItem, layout: LayoutMetrics) {
@@ -442,7 +466,7 @@ function filterProjectForMode(project: Project, mode: PdfExportMode, options?: P
           ...location,
           items: location.items.map((item) => ({
             ...item,
-            checkpoints: [...item.checkpoints],
+            checkpoints: getUniqueCheckpoints(item.checkpoints),
           })),
         })),
       })),
@@ -460,7 +484,7 @@ function filterProjectForMode(project: Project, mode: PdfExportMode, options?: P
             items: location.items
               .map((item) => ({
                 ...item,
-                checkpoints: item.checkpoints.filter((checkpoint) => checkpointShouldRenderAsPdfIssue(checkpoint)),
+                checkpoints: getUniqueCheckpoints(item.checkpoints).filter((checkpoint) => checkpointShouldRenderAsPdfIssue(checkpoint)),
               }))
               .filter((item) => item.checkpoints.length > 0),
           }))
@@ -488,7 +512,7 @@ function getPrintableLocationsForMode(area: ExportArea, mode: PdfExportMode): Ex
       items: location.items
         .map((item) => ({
           ...item,
-          checkpoints: item.checkpoints.filter((checkpoint) => checkpointShouldRenderAsPdfIssue(checkpoint)),
+          checkpoints: getUniqueCheckpoints(item.checkpoints).filter((checkpoint) => checkpointShouldRenderAsPdfIssue(checkpoint)),
         }))
         .filter((item) => item.checkpoints.length > 0),
     }))
@@ -524,7 +548,7 @@ function getProjectIssueSummary(project: Project) {
       const entries: Array<{ checkpointId: string; subItem: string; comment: string; photoRef: string }> = [];
 
       for (const item of location.items) {
-        for (const checkpoint of item.checkpoints) {
+        for (const checkpoint of getUniqueCheckpoints(item.checkpoints)) {
           if (!checkpointShouldRenderAsPdfIssue(checkpoint)) continue;
           totalIssues += 1;
           areaIssueCount += 1;
@@ -575,7 +599,7 @@ function buildAreaPhotoReferenceData(area: ExportArea) {
 
   for (const location of area.locations) {
     for (const item of location.items) {
-      for (const checkpoint of item.checkpoints) {
+      for (const checkpoint of getUniqueCheckpoints(item.checkpoints)) {
         if (!checkpointShouldRenderAsPdfIssue(checkpoint)) continue;
         const photoCount = getCheckpointPhotoSources(checkpoint).length;
         if (photoCount === 0) continue;
@@ -1283,13 +1307,26 @@ async function renderProjectDetailPages(
       ) {
         y = startAreaPage(false);
       }
+      if (firstItem) {
+        const firstRenderedCheckpoints = mode === 'issues'
+          ? getUniqueCheckpoints(firstItem.checkpoints).filter((checkpoint) => checkpointShouldRenderAsPdfIssue(checkpoint))
+          : getUniqueCheckpoints(firstItem.checkpoints);
+        const firstCheckpoint = firstRenderedCheckpoints[0];
+        const itemHeaderHeight = GROUP_TO_ITEM_GAP + 1;
+        const firstCheckpointMinimumStartHeight = firstCheckpoint
+          ? estimateCheckpointMinimumStartHeight(pdf, firstCheckpoint, layout, layout.contentWidth - BODY_INDENT - 2)
+          : 0;
+        if (firstCheckpoint && y + locationHeaderHeight + itemHeaderHeight + firstCheckpointMinimumStartHeight > layout.contentBottom) {
+          y = startAreaPage(false);
+        }
+      }
 
       y = drawLocationHeader(location.name, y);
 
       for (const item of location.items) {
         const renderedCheckpoints = mode === 'issues'
-          ? item.checkpoints.filter((checkpoint) => checkpointShouldRenderAsPdfIssue(checkpoint))
-          : item.checkpoints;
+          ? getUniqueCheckpoints(item.checkpoints).filter((checkpoint) => checkpointShouldRenderAsPdfIssue(checkpoint))
+          : getUniqueCheckpoints(item.checkpoints);
         if (renderedCheckpoints.length === 0) {
           continue;
         }
@@ -1297,7 +1334,16 @@ async function renderProjectDetailPages(
         const printableItem = { ...item, checkpoints: renderedCheckpoints };
         const itemHeight = estimateItemBlockHeight(pdf, printableItem, layout);
         const maxItemHeightOnFreshPage = layout.contentBottom - (continuedAreaStartY + locationHeaderHeight);
+        const firstCheckpoint = renderedCheckpoints[0];
+        const firstCheckpointMinimumStartHeight = firstCheckpoint
+          ? estimateCheckpointMinimumStartHeight(pdf, firstCheckpoint, layout, layout.contentWidth - BODY_INDENT - 2)
+          : 0;
+        const itemHeaderHeight = GROUP_TO_ITEM_GAP + 1;
         if (itemHeight <= maxItemHeightOnFreshPage && y + itemHeight > layout.contentBottom) {
+          y = startAreaPage(false);
+          y = drawLocationHeader(location.name, y);
+        }
+        if (firstCheckpoint && y + itemHeaderHeight + firstCheckpointMinimumStartHeight > layout.contentBottom) {
           y = startAreaPage(false);
           y = drawLocationHeader(location.name, y);
         }
@@ -1317,10 +1363,14 @@ async function renderProjectDetailPages(
         };
 
         for (const checkpoint of renderedCheckpoints) {
-          const checkpointHeight = estimateCheckpointBlockHeight(pdf, checkpoint, layout, layout.contentWidth - BODY_INDENT - 2);
-          const itemHeaderHeight = GROUP_TO_ITEM_GAP + 1;
+          const textWidth = layout.contentWidth - BODY_INDENT - 2;
+          const checkpointHeight = estimateCheckpointBlockHeight(pdf, checkpoint, layout, textWidth);
+          const checkpointMinimumStartHeight = estimateCheckpointMinimumStartHeight(pdf, checkpoint, layout, textWidth);
           const maxCheckpointHeightOnFreshPage = layout.contentBottom - (continuedAreaStartY + locationHeaderHeight + itemHeaderHeight);
-          if (checkpointHeight <= maxCheckpointHeightOnFreshPage && y + checkpointHeight > layout.contentBottom) {
+          if (
+            y + checkpointMinimumStartHeight > layout.contentBottom ||
+            (checkpointHeight <= maxCheckpointHeightOnFreshPage && y + checkpointHeight > layout.contentBottom)
+          ) {
             y = startAreaPage(false);
             y = drawLocationHeader(location.name, y);
             pdf.setFont('helvetica', 'bold');
