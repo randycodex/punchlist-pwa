@@ -145,3 +145,17 @@ Start simple: no visible roles for the first release.
 - Join-code lifetime and whether join requests require approval.
 - Area claim timeout duration.
 - Whether first release can use latest-wins comments or needs append-only comments immediately.
+
+## Environment
+
+Local and deployed environments need these public settings:
+
+```bash
+NEXT_PUBLIC_SUPABASE_URL=https://your-project-ref.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_publishable_key
+NEXT_PUBLIC_UAI_EMAIL_DOMAIN=uai.com
+NEXT_PUBLIC_COLLABORATION_JOIN_CODE_TTL_MS=604800000
+NEXT_PUBLIC_COLLABORATION_AREA_CLAIM_TIMEOUT_MS=14400000
+```
+
+The join-code and area-claim values are optional. Defaults are 7 days for join codes and 4 hours for area claims.
