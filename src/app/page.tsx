@@ -24,8 +24,10 @@ import {
   getMicrosoftRetryDelayMs,
 } from '@/lib/microsoftErrors';
 import { useMicrosoftAuth } from '@/contexts/MicrosoftAuthContext';
+import { useCollaborationAuth } from '@/contexts/CollaborationAuthContext';
 import { useSyncStatus } from '@/contexts/SyncStatusContext';
 import { useAppSettings } from '@/contexts/AppSettingsContext';
+import { createSharedProjectFromLocalProject } from '@/lib/collaboration';
 import ProjectEditModal from '@/components/ProjectEditModal';
 import AreaEditorModal from '@/components/AreaEditorModal';
 import MetadataLine from '@/components/MetadataLine';
@@ -406,6 +408,7 @@ export default function ProjectsPage() {
   const pullArmedRef = useRef(false);
   const listRef = useRef<HTMLElement | null>(null);
   const { signIn, signOut, isSignedIn, ensureAccessToken } = useMicrosoftAuth();
+  const collaborationAuth = useCollaborationAuth();
   const { setRetryAt, setStatus: setSyncStatus } = useSyncStatus();
   const { quickSort, setQuickSort, markSyncedNow } = useAppSettings();
   const selectionMode = deleteMode || exportMode;
@@ -1018,6 +1021,32 @@ export default function ProjectsPage() {
     setEditingProject(null);
   }
 
+  async function handleShareProject(project: Project) {
+    if (!collaborationAuth.isSignedIn || !collaborationAuth.user) {
+      alert('Enable shared projects before sharing this project.');
+      return;
+    }
+
+    try {
+      const sharedProjectId = await createSharedProjectFromLocalProject(project, collaborationAuth.user);
+      const linkedAt = new Date();
+      project.sharedProjectId = sharedProjectId;
+      project.sharedProjectLinkedAt = linkedAt;
+      await saveProject(project);
+      setProjects((prev) =>
+        prev.map((entry) =>
+          entry.id === project.id
+            ? { ...project, sharedProjectId, sharedProjectLinkedAt: linkedAt, areas: [...project.areas] }
+            : entry
+        )
+      );
+      alert('Project sharing is enabled. You are the owner of this shared project.');
+    } catch (error) {
+      console.error('Failed to share project:', error);
+      alert(error instanceof Error ? error.message : 'Failed to share project. Please try again.');
+    }
+  }
+
   async function handleDeleteEditingProject() {
     if (!editingProject) return;
     const projectToDelete = editingProject;
@@ -1120,6 +1149,11 @@ export default function ProjectsPage() {
         return;
       }
 
+      if (detail.action === 'share-project' && singleProject) {
+        void handleShareProject(singleProject);
+        return;
+      }
+
       if (detail.action === 'auth') {
         if (isSignedIn) signOut();
         else signIn();
@@ -1143,6 +1177,7 @@ export default function ProjectsPage() {
           isSingleProject: !!singleProject,
           singleProjectName: singleProject?.projectName ?? '',
           selectionMode: deleteMode,
+          isSharedProject: !!singleProject?.sharedProjectId,
         },
       })
     );

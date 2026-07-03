@@ -35,6 +35,7 @@ export interface CollaborationDatabase {
           updated_at?: string;
         };
         Update: Partial<CollaborationDatabase['public']['Tables']['shared_projects']['Insert']>;
+        Relationships: [];
       };
       project_members: {
         Row: {
@@ -68,6 +69,7 @@ export interface CollaborationDatabase {
           updated_at?: string;
         };
         Update: Partial<CollaborationDatabase['public']['Tables']['project_members']['Insert']>;
+        Relationships: [];
       };
       ownership_transfers: {
         Row: {
@@ -85,6 +87,7 @@ export interface CollaborationDatabase {
           transferred_at?: string;
         };
         Update: Partial<CollaborationDatabase['public']['Tables']['ownership_transfers']['Insert']>;
+        Relationships: [];
       };
       area_claims: {
         Row: {
@@ -114,6 +117,7 @@ export interface CollaborationDatabase {
           updated_at?: string;
         };
         Update: Partial<CollaborationDatabase['public']['Tables']['area_claims']['Insert']>;
+        Relationships: [];
       };
       collaboration_mutations: {
         Row: {
@@ -153,6 +157,7 @@ export interface CollaborationDatabase {
           error_message?: string | null;
         };
         Update: Partial<CollaborationDatabase['public']['Tables']['collaboration_mutations']['Insert']>;
+        Relationships: [];
       };
       shared_attachments: {
         Row: {
@@ -186,7 +191,12 @@ export interface CollaborationDatabase {
           updated_at?: string;
         };
         Update: Partial<CollaborationDatabase['public']['Tables']['shared_attachments']['Insert']>;
+        Relationships: [];
       };
     };
+    Views: Record<string, never>;
+    Functions: Record<string, never>;
+    Enums: Record<string, never>;
+    CompositeTypes: Record<string, never>;
   };
 }

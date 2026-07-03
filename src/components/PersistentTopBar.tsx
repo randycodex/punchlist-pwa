@@ -9,7 +9,7 @@ import { useCollaborationAuth } from '@/contexts/CollaborationAuthContext';
 import { useSyncStatus } from '@/contexts/SyncStatusContext';
 import { useAppSettings } from '@/contexts/AppSettingsContext';
 import { getProject } from '@/lib/db';
-import { MoreVertical, LogOut, LogIn, ArrowDownAZ, Clock3, BarChart3, PlusSquare, FolderPlus, Trash2, Pencil, FileDown, Users } from 'lucide-react';
+import { MoreVertical, LogOut, LogIn, ArrowDownAZ, Clock3, BarChart3, PlusSquare, FolderPlus, Trash2, Pencil, FileDown, Users, Share2, CheckCircle2 } from 'lucide-react';
 
 const projectTitleCache = new Map<string, string>();
 type SortOption = 'alphabetical' | 'issues' | 'progress';
@@ -23,6 +23,7 @@ type HomeMenuState = {
   singleProjectName: string;
   showOnlyIssues?: boolean;
   selectionMode?: boolean;
+  isSharedProject?: boolean;
 };
 
 export default function PersistentTopBar() {
@@ -295,6 +296,20 @@ export default function PersistentTopBar() {
                   >
                     <FileDown className="h-4 w-4" />
                     Export project
+                  </button>
+                )}
+                {homeMenuState.isSingleProject && collaborationAuth.isSignedIn && (
+                  <button
+                    onClick={() => dispatchHomeAction('share-project')}
+                    disabled={!!homeMenuState.isSharedProject}
+                    className="flex w-full items-center gap-3 rounded-[1.1rem] px-4 py-3 text-left text-sm text-gray-700 transition hover:bg-black/[0.04] disabled:cursor-default disabled:opacity-60 dark:text-gray-300 dark:hover:bg-white/[0.05]"
+                  >
+                    {homeMenuState.isSharedProject ? (
+                      <CheckCircle2 className="h-4 w-4" />
+                    ) : (
+                      <Share2 className="h-4 w-4" />
+                    )}
+                    {homeMenuState.isSharedProject ? 'Project shared' : 'Share project'}
                   </button>
                 )}
                 {homeMenuState.context !== 'project' && (

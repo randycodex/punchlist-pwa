@@ -120,6 +120,8 @@ export interface Area {
 
 export interface Project {
   id: string;
+  sharedProjectId?: string;
+  sharedProjectLinkedAt?: Date;
   projectName: string;
   oneDriveFolderName?: string;
   address: string;
