@@ -243,13 +243,27 @@ export default function AreaDetailPage() {
     }
 
     let cancelled = false;
+    let claimRenewTimer: ReturnType<typeof setInterval> | null = null;
     setClaimingArea(true);
     setAreaClaimError(null);
+
+    const releaseClaim = () => {
+      void releaseSharedProjectArea(sharedProjectId, currentAreaId).catch((error) => {
+        console.error('Failed to release shared area claim:', error);
+      });
+    };
 
     void claimSharedProjectArea(sharedProjectId, currentAreaId)
       .then(() => {
         if (!cancelled) {
           setAreaClaimError(null);
+          claimRenewTimer = setInterval(() => {
+            void claimSharedProjectArea(sharedProjectId, currentAreaId).catch((error) => {
+              if (cancelled) return;
+              const message = getCollaborationErrorMessage(error, 'Could not renew this shared area claim.');
+              setAreaClaimError(message);
+            });
+          }, 2 * 60 * 1000);
         }
       })
       .catch((error) => {
@@ -267,11 +281,15 @@ export default function AreaDetailPage() {
         }
       });
 
+    window.addEventListener('pagehide', releaseClaim);
+
     return () => {
       cancelled = true;
-      void releaseSharedProjectArea(sharedProjectId, currentAreaId).catch((error) => {
-        console.error('Failed to release shared area claim:', error);
-      });
+      if (claimRenewTimer) {
+        clearInterval(claimRenewTimer);
+      }
+      window.removeEventListener('pagehide', releaseClaim);
+      releaseClaim();
     };
   }, [area?.id, collaborationAuth.isSignedIn, id, project?.sharedProjectId, router]);
 

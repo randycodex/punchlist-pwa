@@ -356,27 +356,36 @@ export default function ProjectDetailPage() {
       return;
     }
 
+    const activeSharedProjectId = sharedProjectId;
+    const activeUserId = userId;
     let cancelled = false;
-    void getActiveSharedProjectAreaClaims(sharedProjectId)
-      .then((claims) => {
+    async function refreshSharedAreaClaims() {
+      try {
+        const claims = await getActiveSharedProjectAreaClaims(activeSharedProjectId);
         if (cancelled) return;
         setSharedAreaClaims(
           new Map(
             claims.map((claim) => [
               claim.areaId,
-              claim.claimedByUserId === userId ? 'mine' : 'other',
+              claim.claimedByUserId === activeUserId ? 'mine' : 'other',
             ])
           )
         );
-      })
-      .catch((error) => {
+      } catch (error) {
         if (cancelled) return;
         console.info('Shared area claims unavailable:', error);
         setSharedAreaClaims(new Map());
-      });
+      }
+    }
+
+    void refreshSharedAreaClaims();
+    const refreshTimer = setInterval(() => {
+      void refreshSharedAreaClaims();
+    }, 30_000);
 
     return () => {
       cancelled = true;
+      clearInterval(refreshTimer);
     };
   }, [collaborationAuth.isSignedIn, collaborationAuth.user?.id, project?.sharedProjectId]);
 
