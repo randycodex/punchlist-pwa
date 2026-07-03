@@ -11,7 +11,7 @@ import {
   isAreaInspectionComplete,
   type IssueState,
 } from '@/types';
-import { getActiveProjectCount, getProject, saveProject, createPhotoAttachment, createFileAttachment, createLocation, createItem, createCheckpoint } from '@/lib/db';
+import { getActiveProjectCount, getProject, saveProject, saveProjectPreserveTimestamps, createPhotoAttachment, createFileAttachment, createLocation, createItem, createCheckpoint } from '@/lib/db';
 import {
   formatMicrosoftManualRetryMessage,
   getMicrosoftErrorMessage,
@@ -41,7 +41,14 @@ import { useMicrosoftAuth } from '@/contexts/MicrosoftAuthContext';
 import { useCollaborationAuth } from '@/contexts/CollaborationAuthContext';
 import { useSyncStatus } from '@/contexts/SyncStatusContext';
 import { useAppSettings } from '@/contexts/AppSettingsContext';
-import { claimSharedProjectArea, getCollaborationErrorMessage, releaseSharedProjectArea } from '@/lib/collaboration';
+import {
+  claimSharedProjectArea,
+  getCollaborationErrorMessage,
+  getSharedProjectSnapshot,
+  isSharedSnapshotNewer,
+  publishSharedProjectSnapshot,
+  releaseSharedProjectArea,
+} from '@/lib/collaboration';
 import AreaNotesCard from '@/components/inspection/AreaNotesCard';
 import CustomItemComposer from '@/components/inspection/CustomItemComposer';
 import InspectionLocationCard from '@/components/inspection/InspectionLocationCard';
@@ -141,6 +148,7 @@ export default function AreaDetailPage() {
   const [generalNotes, setGeneralNotes] = useState('');
   const [returnToHome, setReturnToHome] = useState(false);
   const syncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const sharedPublishTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const notesTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const notesDraftRef = useRef('');
   const pullStartYRef = useRef<number | null>(null);
@@ -185,6 +193,9 @@ export default function AreaDetailPage() {
     return () => {
       if (syncTimerRef.current) {
         clearTimeout(syncTimerRef.current);
+      }
+      if (sharedPublishTimerRef.current) {
+        clearTimeout(sharedPublishTimerRef.current);
       }
       if (notesTimerRef.current) {
         clearTimeout(notesTimerRef.current);
@@ -303,8 +314,20 @@ export default function AreaDetailPage() {
           router.push('/');
           return;
         }
-        setProject(projectData);
-        const areaData = projectData.areas.find((a) => a.id === areaId);
+        let nextProject = projectData;
+        if (collaborationAuth.isSignedIn && projectData.sharedProjectId) {
+          try {
+            const snapshot = await getSharedProjectSnapshot(projectData);
+            if (isSharedSnapshotNewer(projectData, snapshot.publishedAt)) {
+              await saveProjectPreserveTimestamps(snapshot.project);
+              nextProject = snapshot.project;
+            }
+          } catch (error) {
+            console.info('Shared snapshot pull skipped:', error);
+          }
+        }
+        setProject(nextProject);
+        const areaData = nextProject.areas.find((a) => a.id === areaId);
         if (areaData && !areaData.deletedAt) {
           const normalizedLocations = areaData.locations.filter(
             (location) => location.name.trim().toLowerCase() !== OTHER_LOCATION_NAME.toLowerCase()
@@ -314,7 +337,8 @@ export default function AreaDetailPage() {
               ...location,
               sortOrder: index,
             }));
-            await saveProject(projectData);
+            await saveProject(nextProject);
+            scheduleSync(nextProject.id);
           }
           setArea(areaData);
         } else {
@@ -1196,10 +1220,38 @@ export default function AreaDetailPage() {
   function scheduleSync(projectId?: string, options?: { fullSync?: boolean }) {
     queuePendingSync(projectId, options);
     setSyncStatus('pending');
+    if (projectId) {
+      scheduleSharedPublish(projectId);
+    }
     if (syncTimerRef.current) {
       clearTimeout(syncTimerRef.current);
     }
     syncTimerRef.current = null;
+  }
+
+  function scheduleSharedPublish(projectId: string) {
+    if (!collaborationAuth.isSignedIn || !collaborationAuth.user) return;
+    if (sharedPublishTimerRef.current) {
+      clearTimeout(sharedPublishTimerRef.current);
+    }
+    sharedPublishTimerRef.current = setTimeout(() => {
+      sharedPublishTimerRef.current = null;
+      void publishSharedProjectSilently(projectId);
+    }, 1_200);
+  }
+
+  async function publishSharedProjectSilently(projectId: string) {
+    const userId = collaborationAuth.user?.id;
+    if (!userId) return;
+
+    try {
+      const fullProject = await getProject(projectId);
+      if (!fullProject?.sharedProjectId) return;
+      await publishSharedProjectSnapshot(fullProject, userId);
+    } catch (error) {
+      console.error('Automatic shared publish failed:', error);
+      setSyncError(getCollaborationErrorMessage(error, 'Shared data was saved locally but could not be published.'));
+    }
   }
 
   async function closeExpandedCheckpoint() {

@@ -7,6 +7,8 @@ type SnapshotResult = {
   publishedAt: string;
 };
 
+const SHARED_SNAPSHOT_CLOCK_SKEW_MS = 2_000;
+
 function toJson(value: unknown): Json {
   return JSON.parse(JSON.stringify(value)) as Json;
 }
@@ -123,4 +125,12 @@ export async function getSharedProjectSnapshot(localProject: Project): Promise<S
     project: retargetProject(revivedProject, localProject),
     publishedAt: data.published_at,
   };
+}
+
+export function isSharedSnapshotNewer(localProject: Project, publishedAt: string) {
+  const publishedMs = new Date(publishedAt).getTime();
+  const localUpdatedMs = new Date(localProject.updatedAt).getTime();
+  if (!Number.isFinite(publishedMs)) return false;
+  if (!Number.isFinite(localUpdatedMs)) return true;
+  return publishedMs > localUpdatedMs + SHARED_SNAPSHOT_CLOCK_SKEW_MS;
 }

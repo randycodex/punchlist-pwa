@@ -32,6 +32,7 @@ import {
   generateSharedProjectJoinCode,
   getSharedProjectSnapshot,
   getCollaborationErrorMessage,
+  isSharedSnapshotNewer,
   joinSharedProjectByCode,
   publishSharedProjectSnapshot,
 } from '@/lib/collaboration';
@@ -422,6 +423,7 @@ export default function ProjectsPage() {
   const [newAreaForm, setNewAreaForm] = useState(getDefaultAreaFormValue());
   const [recentAreaTypeKeys, setRecentAreaTypeKeys] = useState<AreaTypeKey[]>([]);
   const syncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const sharedPublishTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   const pullStartYRef = useRef<number | null>(null);
   const pullArmedRef = useRef(false);
   const listRef = useRef<HTMLElement | null>(null);
@@ -461,8 +463,17 @@ export default function ProjectsPage() {
       if (syncTimerRef.current) {
         clearTimeout(syncTimerRef.current);
       }
+      for (const timer of sharedPublishTimersRef.current.values()) {
+        clearTimeout(timer);
+      }
+      sharedPublishTimersRef.current.clear();
     };
   }, []);
+
+  useEffect(() => {
+    if (!collaborationAuth.isSignedIn || loading) return;
+    void loadProjects();
+  }, [collaborationAuth.isSignedIn]);
 
   function handleSortChange(option: SortOption) {
     setSortOption(option);
@@ -488,7 +499,11 @@ export default function ProjectsPage() {
       }
 
       const expiredIds = new Set(expiredProjects.map((project) => project.id));
-      setProjects(data.filter((project) => !expiredIds.has(project.id)));
+      const activeData = data.filter((project) => !expiredIds.has(project.id));
+      const nextProjects = collaborationAuth.isSignedIn
+        ? await pullNewerSharedSnapshots(activeData)
+        : activeData;
+      setProjects(nextProjects);
     } catch (error) {
       console.error('Failed to load projects:', error);
     } finally {
@@ -552,10 +567,67 @@ export default function ProjectsPage() {
   function scheduleSync(projectId?: string, options?: { fullSync?: boolean }) {
     queuePendingSync(projectId, options);
     setSyncStatus('pending');
+    if (projectId) {
+      scheduleSharedPublish(projectId);
+    }
     if (syncTimerRef.current) {
       clearTimeout(syncTimerRef.current);
     }
     syncTimerRef.current = null;
+  }
+
+  async function pullNewerSharedSnapshots(projectsToCheck: Project[]) {
+    const pulledProjects: Project[] = [];
+    for (const project of projectsToCheck) {
+      if (!project.sharedProjectId) {
+        pulledProjects.push(project);
+        continue;
+      }
+
+      try {
+        const snapshot = await getSharedProjectSnapshot(project);
+        if (isSharedSnapshotNewer(project, snapshot.publishedAt)) {
+          await saveProjectPreserveTimestamps(snapshot.project);
+          pulledProjects.push(snapshot.project);
+        } else {
+          pulledProjects.push(project);
+        }
+      } catch (error) {
+        console.info('Shared snapshot pull skipped:', error);
+        pulledProjects.push(project);
+      }
+    }
+
+    return pulledProjects;
+  }
+
+  function scheduleSharedPublish(projectId: string) {
+    if (!collaborationAuth.isSignedIn || !collaborationAuth.user) return;
+
+    const existingTimer = sharedPublishTimersRef.current.get(projectId);
+    if (existingTimer) {
+      clearTimeout(existingTimer);
+    }
+
+    const timer = setTimeout(() => {
+      sharedPublishTimersRef.current.delete(projectId);
+      void publishSharedProjectSilently(projectId);
+    }, 1_200);
+    sharedPublishTimersRef.current.set(projectId, timer);
+  }
+
+  async function publishSharedProjectSilently(projectId: string) {
+    const userId = collaborationAuth.user?.id;
+    if (!userId) return;
+
+    try {
+      const fullProject = await getProject(projectId);
+      if (!fullProject?.sharedProjectId) return;
+      await publishSharedProjectSnapshot(fullProject, userId);
+    } catch (error) {
+      console.error('Automatic shared publish failed:', error);
+      setSyncError(getCollaborationErrorMessage(error, 'Shared data was saved locally but could not be published.'));
+    }
   }
 
   const projectMetrics = useMemo(() => {

@@ -3,7 +3,7 @@
 import { memo, useState, useEffect, useMemo, useRef, useCallback, type TouchEvent } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { Area, Project, checkpointHasIssue, getReviewMetrics } from '@/types';
-import { getProject, saveProject, createArea } from '@/lib/db';
+import { getProject, saveProject, saveProjectPreserveTimestamps, createArea } from '@/lib/db';
 import {
   formatMicrosoftManualRetryMessage,
   getMicrosoftErrorMessage,
@@ -28,8 +28,15 @@ import {
   recordPendingSyncRetry,
 } from '@/lib/pendingSync';
 import { useMicrosoftAuth } from '@/contexts/MicrosoftAuthContext';
+import { useCollaborationAuth } from '@/contexts/CollaborationAuthContext';
 import { useSyncStatus } from '@/contexts/SyncStatusContext';
 import { useAppSettings } from '@/contexts/AppSettingsContext';
+import {
+  getCollaborationErrorMessage,
+  getSharedProjectSnapshot,
+  isSharedSnapshotNewer,
+  publishSharedProjectSnapshot,
+} from '@/lib/collaboration';
 import MetadataLine from '@/components/MetadataLine';
 import { downloadPDF, generateProjectPDF } from '@/lib/pdfExport';
 import { getNextOneDriveExportFilename, uploadPdfToOneDrive } from '@/lib/oneDrive';
@@ -203,11 +210,13 @@ export default function ProjectDetailPage() {
   const [syncError, setSyncError] = useState<string | null>(null);
   const [editingProject, setEditingProject] = useState<Project | null>(null);
   const syncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const sharedPublishTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pullStartYRef = useRef<number | null>(null);
   const pullDistanceRef = useRef(0);
   const pullArmedRef = useRef(false);
   const listRef = useRef<HTMLElement | null>(null);
   const { ensureAccessToken, signIn } = useMicrosoftAuth();
+  const collaborationAuth = useCollaborationAuth();
   const { setRetryAt, setStatus: setSyncStatus } = useSyncStatus();
   const { projectShowOnlyIssues, setProjectShowOnlyIssues, quickSort, markSyncedNow } = useAppSettings();
 
@@ -246,8 +255,16 @@ export default function ProjectDetailPage() {
       if (syncTimerRef.current) {
         clearTimeout(syncTimerRef.current);
       }
+      if (sharedPublishTimerRef.current) {
+        clearTimeout(sharedPublishTimerRef.current);
+      }
     };
   }, []);
+
+  useEffect(() => {
+    if (!collaborationAuth.isSignedIn || loading) return;
+    void loadProject();
+  }, [collaborationAuth.isSignedIn]);
 
   function handleSortChange(option: SortOption) {
     setSortOption(option);
@@ -272,7 +289,19 @@ export default function ProjectDetailPage() {
           router.push('/');
           return;
         }
-        setProject(data);
+        let nextProject = data;
+        if (collaborationAuth.isSignedIn && data.sharedProjectId) {
+          try {
+            const snapshot = await getSharedProjectSnapshot(data);
+            if (isSharedSnapshotNewer(data, snapshot.publishedAt)) {
+              await saveProjectPreserveTimestamps(snapshot.project);
+              nextProject = snapshot.project;
+            }
+          } catch (error) {
+            console.info('Shared snapshot pull skipped:', error);
+          }
+        }
+        setProject(nextProject);
       } else {
         router.push('/');
       }
@@ -574,10 +603,38 @@ export default function ProjectDetailPage() {
   function scheduleSync(projectId?: string, options?: { fullSync?: boolean }) {
     queuePendingSync(projectId, options);
     setSyncStatus('pending');
+    if (projectId) {
+      scheduleSharedPublish(projectId);
+    }
     if (syncTimerRef.current) {
       clearTimeout(syncTimerRef.current);
     }
     syncTimerRef.current = null;
+  }
+
+  function scheduleSharedPublish(projectId: string) {
+    if (!collaborationAuth.isSignedIn || !collaborationAuth.user) return;
+    if (sharedPublishTimerRef.current) {
+      clearTimeout(sharedPublishTimerRef.current);
+    }
+    sharedPublishTimerRef.current = setTimeout(() => {
+      sharedPublishTimerRef.current = null;
+      void publishSharedProjectSilently(projectId);
+    }, 1_200);
+  }
+
+  async function publishSharedProjectSilently(projectId: string) {
+    const userId = collaborationAuth.user?.id;
+    if (!userId) return;
+
+    try {
+      const fullProject = await getProject(projectId);
+      if (!fullProject?.sharedProjectId) return;
+      await publishSharedProjectSnapshot(fullProject, userId);
+    } catch (error) {
+      console.error('Automatic shared publish failed:', error);
+      setSyncError(getCollaborationErrorMessage(error, 'Shared data was saved locally but could not be published.'));
+    }
   }
 
   function cancelSelectionMode() {
