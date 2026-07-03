@@ -5,10 +5,11 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useMicrosoftAuth } from '@/contexts/MicrosoftAuthContext';
+import { useCollaborationAuth } from '@/contexts/CollaborationAuthContext';
 import { useSyncStatus } from '@/contexts/SyncStatusContext';
 import { useAppSettings } from '@/contexts/AppSettingsContext';
 import { getProject } from '@/lib/db';
-import { MoreVertical, LogOut, LogIn, ArrowDownAZ, Clock3, BarChart3, PlusSquare, FolderPlus, Trash2, Pencil, FileDown } from 'lucide-react';
+import { MoreVertical, LogOut, LogIn, ArrowDownAZ, Clock3, BarChart3, PlusSquare, FolderPlus, Trash2, Pencil, FileDown, Users } from 'lucide-react';
 
 const projectTitleCache = new Map<string, string>();
 type SortOption = 'alphabetical' | 'issues' | 'progress';
@@ -27,6 +28,7 @@ type HomeMenuState = {
 export default function PersistentTopBar() {
   const pathname = usePathname();
   const { isReady, isSignedIn } = useMicrosoftAuth();
+  const collaborationAuth = useCollaborationAuth();
   const { retryInSeconds, status } = useSyncStatus();
   const { homeShowOnlyIssues, projectShowOnlyIssues, quickSort } = useAppSettings();
   const showAuth = pathname === '/';
@@ -320,6 +322,22 @@ export default function PersistentTopBar() {
                   <Trash2 className="h-4 w-4" />
                   {homeMenuState.showTrash ? 'Hide trash' : 'Trash'}
                 </button>
+                {isSignedIn && collaborationAuth.canUseCollaboration && (
+                  <button
+                    onClick={() => {
+                      if (collaborationAuth.isSignedIn) {
+                        void collaborationAuth.signOut();
+                      } else {
+                        void collaborationAuth.signIn();
+                      }
+                      setShowHomeMenu(false);
+                    }}
+                    className="flex w-full items-center gap-3 rounded-[1.1rem] px-4 py-3 text-left text-sm text-gray-700 transition hover:bg-black/[0.04] dark:text-gray-300 dark:hover:bg-white/[0.05]"
+                  >
+                    <Users className="h-4 w-4" />
+                    {collaborationAuth.isSignedIn ? 'Leave shared projects' : 'Enable shared projects'}
+                  </button>
+                )}
                 {!isSignedIn ? (
                   <button
                     onClick={() => {
