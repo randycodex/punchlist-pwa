@@ -8,9 +8,14 @@ import {
   type AuthenticationResult,
 } from '@azure/msal-browser';
 import { getMicrosoftErrorMessage } from '@/lib/microsoftErrors';
+import { getCollaborationEmailAccess, type CollaborationEmailAccess } from '@/lib/collaboration';
 
 type MicrosoftAuthContextValue = {
   accessToken: string | null;
+  accountEmail: string | null;
+  accountName: string | null;
+  collaborationAccess: CollaborationEmailAccess;
+  canUseCollaboration: boolean;
   isSignedIn: boolean;
   isReady: boolean;
   signIn: () => Promise<void>;
@@ -37,6 +42,10 @@ function getResolvedAccount(pca: PublicClientApplication): AccountInfo | null {
   return null;
 }
 
+function getAccountEmail(account: AccountInfo | null) {
+  return account?.username?.trim() || null;
+}
+
 export function MicrosoftAuthProvider({ children }: { children: ReactNode }) {
   const clientId = process.env.NEXT_PUBLIC_MS_CLIENT_ID ?? DEFAULT_MS_CLIENT_ID;
   const tenantId = process.env.NEXT_PUBLIC_MS_TENANT_ID?.trim() || DEFAULT_MS_TENANT_ID;
@@ -45,6 +54,8 @@ export function MicrosoftAuthProvider({ children }: { children: ReactNode }) {
     (typeof window !== 'undefined' ? `${window.location.origin}/` : '');
 
   const [accessToken, setAccessToken] = useState<string | null>(null);
+  const [accountEmail, setAccountEmail] = useState<string | null>(null);
+  const [accountName, setAccountName] = useState<string | null>(null);
   const [isSignedIn, setIsSignedIn] = useState(false);
   const [isReady, setIsReady] = useState(() => !clientId || !tenantId || !redirectUri);
 
@@ -62,6 +73,16 @@ export function MicrosoftAuthProvider({ children }: { children: ReactNode }) {
     });
   }, [clientId, tenantId, redirectUri]);
 
+  const collaborationAccess = useMemo(
+    () => getCollaborationEmailAccess(accountEmail),
+    [accountEmail]
+  );
+
+  function setCurrentAccount(account: AccountInfo | null) {
+    setAccountEmail(getAccountEmail(account));
+    setAccountName(account?.name?.trim() || null);
+  }
+
   useEffect(() => {
     let active = true;
     if (!pca) return;
@@ -76,9 +97,12 @@ export function MicrosoftAuthProvider({ children }: { children: ReactNode }) {
         }
         const account = getResolvedAccount(pca);
         if (!account) {
+          setCurrentAccount(null);
+          setIsSignedIn(false);
           setIsReady(true);
           return;
         }
+        setCurrentAccount(account);
         const tokenResult = await pca.acquireTokenSilent({ scopes: SCOPES, account });
         if (!active) return;
         setAccessToken(tokenResult.accessToken);
@@ -123,6 +147,7 @@ export function MicrosoftAuthProvider({ children }: { children: ReactNode }) {
     await pca.initialize();
     await pca.logoutRedirect({ postLogoutRedirectUri: redirectUri || '/' });
     setAccessToken(null);
+    setCurrentAccount(null);
     setIsSignedIn(false);
   }
 
@@ -130,7 +155,12 @@ export function MicrosoftAuthProvider({ children }: { children: ReactNode }) {
     if (!pca) return null;
     await pca.initialize();
     const account = getResolvedAccount(pca);
-    if (!account) return null;
+    if (!account) {
+      setCurrentAccount(null);
+      setIsSignedIn(false);
+      return null;
+    }
+    setCurrentAccount(account);
     try {
       const tokenResult = await pca.acquireTokenSilent({ scopes: SCOPES, account });
       setAccessToken(tokenResult.accessToken);
@@ -145,6 +175,7 @@ export function MicrosoftAuthProvider({ children }: { children: ReactNode }) {
           const tokenResult = await pca.acquireTokenPopup({ scopes: SCOPES, account });
           if (tokenResult.account) {
             pca.setActiveAccount(tokenResult.account);
+            setCurrentAccount(tokenResult.account);
           }
           setAccessToken(tokenResult.accessToken);
           setIsSignedIn(true);
@@ -161,6 +192,10 @@ export function MicrosoftAuthProvider({ children }: { children: ReactNode }) {
     <MicrosoftAuthContext.Provider
       value={{
         accessToken,
+        accountEmail,
+        accountName,
+        collaborationAccess,
+        canUseCollaboration: collaborationAccess.isAllowed,
         isSignedIn,
         isReady,
         signIn,
