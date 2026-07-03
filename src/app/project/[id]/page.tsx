@@ -39,7 +39,6 @@ import {
   publishSharedProjectSnapshot,
 } from '@/lib/collaboration';
 import MetadataLine from '@/components/MetadataLine';
-import { downloadPDF, generateProjectPDF } from '@/lib/pdfExport';
 import { getNextOneDriveExportFilename, uploadPdfToOneDrive } from '@/lib/oneDrive';
 import Link from 'next/link';
 import {
@@ -537,6 +536,7 @@ export default function ProjectDetailPage() {
       const projectForExport = token
         ? await hydrateProjectMediaFromOneDrive(token, project.id)
         : project;
+      const { generateProjectPDF, downloadPDF } = await import('@/lib/pdfExport');
       const blob = await generateProjectPDF(projectForExport ?? project, 'issues', { areaIds: sortedAreaIds });
       if (destination === 'local' || destination === 'both') {
         const filename = `${sanitizeExportNamePart(project.projectName)}_Selected_Areas_${formatDateForExport()}.pdf`;
@@ -576,6 +576,7 @@ export default function ProjectDetailPage() {
       const projectForExport = token
         ? await hydrateProjectMediaFromOneDrive(token, project.id)
         : project;
+      const { generateProjectPDF, downloadPDF } = await import('@/lib/pdfExport');
       const blob = await generateProjectPDF(projectForExport ?? project, 'issues');
       if (destination === 'local' || destination === 'both') {
         const filename = `${sanitizeExportNamePart(project.projectName)}_Issues_${formatDateForExport()}.pdf`;

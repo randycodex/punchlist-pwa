@@ -16,7 +16,7 @@ import {
   queuePendingSync,
   recordPendingSyncRetry,
 } from '@/lib/pendingSync';
-import { generateMultiProjectPDF, generateProjectPDF, downloadPDF, type PdfExportMode } from '@/lib/pdfExport';
+import type { PdfExportMode } from '@/lib/pdfExport';
 import { uploadPdfToOneDrive, getNextOneDriveExportFilename } from '@/lib/oneDrive';
 import {
   formatMicrosoftManualRetryMessage,
@@ -1043,6 +1043,7 @@ export default function ProjectsPage() {
         ? await hydrateProjectMediaFromOneDrive(token, singleProject.id)
         : await getProject(singleProject.id);
       const projectForExport = fullProject ?? singleProject;
+      const { generateProjectPDF, downloadPDF } = await import('@/lib/pdfExport');
       const blob = await generateProjectPDF(projectForExport, 'issues', { areaIds: selectedSortedAreaIds });
       if (destination === 'local' || destination === 'both') {
         const filename = `${sanitizeExportNamePart(singleProject.projectName)}_Selected_Areas_${formatDateForExport()}.pdf`;
@@ -1133,6 +1134,7 @@ export default function ProjectsPage() {
         .filter((project) => selectedProjectIds.has(project.id))
         .sort((a, b) => a.projectName.localeCompare(b.projectName));
       const projectsForExport = await loadProjectsForExport(token);
+      const { generateMultiProjectPDF, downloadPDF } = await import('@/lib/pdfExport');
       const blob = await generateMultiProjectPDF(projectsForExport, exportType);
       if (shouldSaveLocal) {
         const filename = exportType === 'issues' ? 'UAI_PUNCHLIST_APP_Issues_Report.pdf' : 'UAI_PUNCHLIST_APP_Full_Report.pdf';
