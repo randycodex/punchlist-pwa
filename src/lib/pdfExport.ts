@@ -957,8 +957,7 @@ function renderAreaSummaryBlock(
   pdf.setFont('helvetica', 'bold');
   pdf.setFontSize(10);
   pdf.setTextColor(71, 85, 105);
-  const createdLabel = formatAreaCreatedLabel(areaSummary.createdAt);
-  pdf.text(createdLabel ? `Area Summary - ${createdLabel}` : 'Area Summary', layout.margin, y);
+  pdf.text('Area Summary', layout.margin, y);
   y += 5;
   y = renderAreaSummaryTableHeader(pdf, layout, y);
 
