@@ -932,6 +932,7 @@ export default function ProjectsPage() {
 
   async function loadProjectsForExport(token?: string | null) {
     const selectedAreas = new Set(selectedAreaIds);
+    const shouldFilterAreas = singleProjectMainView && exportScope === 'selected-areas';
     const selectedProjects = [...sortedProjects]
       .filter((project) => selectedProjectIds.has(project.id))
       .sort((a, b) => a.projectName.localeCompare(b.projectName));
@@ -948,7 +949,7 @@ export default function ProjectsPage() {
     return hydratedProjects.map((project) => ({
       ...project,
       areas: [...project.areas]
-        .filter((area) => !singleProjectMainView || selectedAreas.has(area.id))
+        .filter((area) => !shouldFilterAreas || selectedAreas.has(area.id))
         .sort(compareAreaNames),
     }));
   }
