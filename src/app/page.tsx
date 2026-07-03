@@ -1021,7 +1021,7 @@ export default function ProjectsPage() {
     setEditingProject(null);
   }
 
-  async function handleShareProject(project: Project) {
+  const handleShareProject = useCallback(async (project: Project) => {
     if (!collaborationAuth.isSignedIn || !collaborationAuth.user) {
       alert('Enable shared projects before sharing this project.');
       return;
@@ -1045,7 +1045,7 @@ export default function ProjectsPage() {
       console.error('Failed to share project:', error);
       alert(error instanceof Error ? error.message : 'Failed to share project. Please try again.');
     }
-  }
+  }, [collaborationAuth.isSignedIn, collaborationAuth.user]);
 
   async function handleDeleteEditingProject() {
     if (!editingProject) return;
@@ -1164,7 +1164,7 @@ export default function ProjectsPage() {
     return () => {
       window.removeEventListener('punchlist-home-menu-action', handleHomeMenuAction as EventListener);
     };
-  }, [deleteMode, isSignedIn, signIn, signOut, singleProject, sortOption, showTrash, setQuickSort]);
+  }, [deleteMode, handleShareProject, isSignedIn, signIn, signOut, singleProject, sortOption, showTrash, setQuickSort]);
 
   useEffect(() => {
     window.dispatchEvent(
