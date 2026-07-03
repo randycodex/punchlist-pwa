@@ -48,10 +48,11 @@ type SummaryArea = {
     sectionId: string;
     sectionName: string;
     issueCount: number;
-    photoRef: string;
     entries: Array<{
+      checkpointId: string;
       subItem: string;
       comment: string;
+      photoRef: string;
     }>;
   }>;
 };
@@ -510,16 +511,17 @@ function getProjectIssueSummary(project: Project) {
       sectionId: string;
       sectionName: string;
       issueCount: number;
-      photoRef: string;
       entries: Array<{
+        checkpointId: string;
         subItem: string;
         comment: string;
+        photoRef: string;
       }>;
     }> = [];
 
     for (const location of area.locations) {
       let sectionIssueCount = 0;
-      const entries: Array<{ subItem: string; comment: string }> = [];
+      const entries: Array<{ checkpointId: string; subItem: string; comment: string; photoRef: string }> = [];
 
       for (const item of location.items) {
         for (const checkpoint of item.checkpoints) {
@@ -530,8 +532,10 @@ function getProjectIssueSummary(project: Project) {
           areasWithIssues.add(area.id);
 
           entries.push({
+            checkpointId: checkpoint.id,
             subItem: `${item.name} - ${checkpoint.name}`,
             comment: sanitizeText(checkpoint.comments),
+            photoRef: '',
           });
         }
       }
@@ -541,7 +545,6 @@ function getProjectIssueSummary(project: Project) {
           sectionId: location.id,
           sectionName: location.name,
           issueCount: sectionIssueCount,
-          photoRef: '',
           entries,
         });
       }
@@ -568,12 +571,9 @@ function getProjectIssueSummary(project: Project) {
 
 function buildAreaPhotoReferenceData(area: ExportArea) {
   const checkpointPhotoRefs = new Map<string, string[]>();
-  const sectionPhotoRefs = new Map<string, string>();
   let nextPhotoNumber = 1;
 
   for (const location of area.locations) {
-    const sectionRefs: string[] = [];
-
     for (const item of location.items) {
       for (const checkpoint of item.checkpoints) {
         if (!checkpointShouldRenderAsPdfIssue(checkpoint)) continue;
@@ -582,16 +582,11 @@ function buildAreaPhotoReferenceData(area: ExportArea) {
 
         const refs = Array.from({ length: photoCount }, () => `P${nextPhotoNumber++}`);
         checkpointPhotoRefs.set(checkpoint.id, refs);
-        sectionRefs.push(...refs);
       }
-    }
-
-    if (sectionRefs.length > 0) {
-      sectionPhotoRefs.set(location.id, formatPhotoRefRange(sectionRefs));
     }
   }
 
-  return { checkpointPhotoRefs, sectionPhotoRefs };
+  return { checkpointPhotoRefs };
 }
 
 function renderCoverPage(
@@ -720,14 +715,17 @@ function getSelectedAreasSummaryColumns(layout: LayoutMetrics) {
 function estimateAreaSummaryHeight(pdf: jsPDF, areaSummary: SummaryArea | undefined, layout: LayoutMetrics) {
   if (!areaSummary || areaSummary.sections.length === 0) return 0;
 
-  const { subItemColumnWidth, commentsColumnWidth } = getAreaSummaryColumns(layout);
+  const { subItemColumnWidth, commentsColumnWidth, photoColumnWidth } = getAreaSummaryColumns(layout);
   return 6 + 5 + areaSummary.sections.reduce((total, section) => {
     const entryLines = section.entries.reduce((linesTotal, entry) => {
       const subItemLines = pdf.splitTextToSize(entry.subItem, subItemColumnWidth - 2) as string[];
       const commentLines = entry.comment
         ? (pdf.splitTextToSize(entry.comment, commentsColumnWidth - 2) as string[])
         : [];
-      return linesTotal + Math.max(1, subItemLines.length, commentLines.length);
+      const photoRefLines = entry.photoRef
+        ? (pdf.splitTextToSize(entry.photoRef, photoColumnWidth - 1) as string[])
+        : [];
+      return linesTotal + Math.max(1, subItemLines.length, commentLines.length, photoRefLines.length);
     }, 0);
     return total + Math.max(6.5, entryLines * 4.1 + 1.5) + 3;
   }, 0) + 3;
@@ -737,14 +735,18 @@ function getAreaSummaryRowHeight(
   pdf: jsPDF,
   section: SummaryArea['sections'][number],
   subItemColumnWidth: number,
-  commentsColumnWidth: number
+  commentsColumnWidth: number,
+  photoColumnWidth: number
 ) {
   const entryLines = section.entries.reduce((linesTotal, entry) => {
     const subItemLines = pdf.splitTextToSize(entry.subItem, subItemColumnWidth - 2) as string[];
     const commentLines = entry.comment
       ? (pdf.splitTextToSize(entry.comment, commentsColumnWidth - 2) as string[])
       : [];
-    return linesTotal + Math.max(1, subItemLines.length, commentLines.length);
+    const photoRefLines = entry.photoRef
+      ? (pdf.splitTextToSize(entry.photoRef, photoColumnWidth - 1) as string[])
+      : [];
+    return linesTotal + Math.max(1, subItemLines.length, commentLines.length, photoRefLines.length);
   }, 0);
 
   return Math.max(6.5, entryLines * 4.1 + 1.5);
@@ -769,7 +771,10 @@ function getSelectedAreasSummaryRowHeight(
     const commentLines = entry.comment
       ? (pdf.splitTextToSize(entry.comment, columns.commentsColumnWidth - 2) as string[])
       : [];
-    return linesTotal + Math.max(1, subItemLines.length, commentLines.length);
+    const photoRefLines = entry.photoRef
+      ? (pdf.splitTextToSize(entry.photoRef, columns.photoColumnWidth - 2) as string[])
+      : [];
+    return linesTotal + Math.max(1, subItemLines.length, commentLines.length, photoRefLines.length);
   }, 0);
 
   return Math.max(
@@ -910,17 +915,20 @@ function renderSelectedAreasSummaryBlock(
         const commentLines = entry.comment
           ? (pdf.splitTextToSize(entry.comment, commentsColumnWidth - 2) as string[])
           : [''];
+        const photoLines = entry.photoRef
+          ? (pdf.splitTextToSize(entry.photoRef, columns.photoColumnWidth - 2) as string[])
+          : [];
+        const usedLines = Math.max(subItemLines.length, commentLines.length, photoLines.length, 1);
         pdf.text(subItemLines, itemX, entryY);
         if (entry.comment) {
           pdf.text(commentLines, commentsX, entryY);
         }
-        entryY += Math.max(subItemLines.length, commentLines.length, 1) * 4.1;
+        if (photoLines.length > 0) {
+          pdf.text(photoLines, photosX, entryY);
+        }
+        entryY += usedLines * 4.1;
       }
 
-      if (section.photoRef) {
-        const photoLines = pdf.splitTextToSize(section.photoRef, columns.photoColumnWidth - 2) as string[];
-        pdf.text(photoLines, photosX, rowTextY);
-      }
       pdf.text(String(section.issueCount), countX, rowTextY, { align: 'right' });
 
       y += rowHeight + 3;
@@ -959,7 +967,7 @@ function renderAreaSummaryBlock(
   pdf.setTextColor(55, 65, 81);
 
   for (const section of areaSummary.sections) {
-    const rowHeight = getAreaSummaryRowHeight(pdf, section, subItemColumnWidth, commentsColumnWidth);
+    const rowHeight = getAreaSummaryRowHeight(pdf, section, subItemColumnWidth, commentsColumnWidth, photoColumnWidth);
     if (y + rowHeight > layout.contentBottom) {
       y = startSummaryPage();
       pdf.setFont('helvetica', 'bold');
@@ -988,19 +996,21 @@ function renderAreaSummaryBlock(
       const commentLines = entry.comment
         ? (pdf.splitTextToSize(entry.comment, commentsColumnWidth - 2) as string[])
         : [];
-      const usedLines = Math.max(1, subItemLines.length, commentLines.length);
+      const photoRefLines = entry.photoRef
+        ? (pdf.splitTextToSize(entry.photoRef, photoColumnWidth - 1) as string[])
+        : [];
+      const usedLines = Math.max(1, subItemLines.length, commentLines.length, photoRefLines.length);
 
       pdf.text(subItemLines, subItemX, entryY);
       if (commentLines.length > 0) {
         pdf.text(commentLines, commentsX, entryY);
       }
+      if (photoRefLines.length > 0) {
+        pdf.text(photoRefLines, photosX, entryY);
+      }
       entryY += usedLines * 4.1;
     }
 
-    if (section.photoRef) {
-      const photoRefLines = pdf.splitTextToSize(section.photoRef, photoColumnWidth - 1) as string[];
-      pdf.text(photoRefLines, photosX, rowTextY);
-    }
     pdf.text(String(section.issueCount), countX, rowTextY, { align: 'right' });
     y += rowHeight + 3;
   }
@@ -1160,7 +1170,10 @@ async function renderProjectDetailPages(
     const areaPhotoRefs = buildAreaPhotoReferenceData({ ...area, locations: printableLocations });
     areaSummary.sections = areaSummary.sections.map((section) => ({
       ...section,
-      photoRef: areaPhotoRefs.sectionPhotoRefs.get(section.sectionId) ?? '',
+      entries: section.entries.map((entry) => ({
+        ...entry,
+        photoRef: formatPhotoRefRange(areaPhotoRefs.checkpointPhotoRefs.get(entry.checkpointId) ?? []),
+      })),
     }));
   }
 
