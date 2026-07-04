@@ -233,6 +233,15 @@ export interface CollaborationDatabase {
         };
         Returns: Json;
       };
+      publish_shared_project_snapshot: {
+        Args: {
+          p_project_id: string;
+          p_project_payload: Json;
+          p_payload_version?: number;
+          p_base_published_at?: string | null;
+        };
+        Returns: string;
+      };
       join_shared_project_by_code: {
         Args: {
           p_join_code: string;

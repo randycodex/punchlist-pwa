@@ -20,6 +20,9 @@ function reviveProjectDates(project: Project): Project {
     createdAt: new Date(project.createdAt),
     updatedAt: new Date(project.updatedAt),
     sharedProjectLinkedAt: project.sharedProjectLinkedAt ? new Date(project.sharedProjectLinkedAt) : undefined,
+    sharedSnapshotPublishedAt: project.sharedSnapshotPublishedAt
+      ? new Date(project.sharedSnapshotPublishedAt)
+      : undefined,
     deletedAt: project.deletedAt ? new Date(project.deletedAt) : undefined,
     areas: project.areas.map((area) => ({
       ...area,
@@ -60,6 +63,7 @@ function retargetProject(project: Project, localProject: Project): Project {
     id: nextProjectId,
     sharedProjectId: localProject.sharedProjectId,
     sharedProjectLinkedAt: localProject.sharedProjectLinkedAt ?? project.sharedProjectLinkedAt,
+    sharedSnapshotPublishedAt: localProject.sharedSnapshotPublishedAt ?? project.sharedSnapshotPublishedAt,
     oneDriveFolderName: localProject.oneDriveFolderName || project.oneDriveFolderName,
     areas: project.areas.map((area): Area => ({
       ...area,
@@ -68,7 +72,15 @@ function retargetProject(project: Project, localProject: Project): Project {
   };
 }
 
-export async function publishSharedProjectSnapshot(project: Project, publishedByUserId: string) {
+function isMissingPublishRpcError(error: { code?: string; message?: string }) {
+  const message = error.message?.toLowerCase() ?? '';
+  return error.code === 'PGRST202' || message.includes('publish_shared_project_snapshot');
+}
+
+async function publishSnapshotWithUpsert(
+  project: Project,
+  publishedByUserId: string
+): Promise<{ publishedAt: string }> {
   if (!project.sharedProjectId) {
     throw new Error('Share this project before publishing shared data.');
   }
@@ -93,6 +105,39 @@ export async function publishSharedProjectSnapshot(project: Project, publishedBy
     throw error;
   }
 
+  return { publishedAt };
+}
+
+export async function publishSharedProjectSnapshot(project: Project, publishedByUserId: string) {
+  if (!project.sharedProjectId) {
+    throw new Error('Share this project before publishing shared data.');
+  }
+
+  const supabase = getCollaborationSupabaseClient();
+  if (!supabase) {
+    throw new Error('Collaboration is not configured.');
+  }
+
+  const basePublishedAt = project.sharedSnapshotPublishedAt?.toISOString() ?? null;
+  const { data, error } = await supabase.rpc('publish_shared_project_snapshot', {
+    p_project_id: project.sharedProjectId,
+    p_project_payload: toJson(project),
+    p_payload_version: 1,
+    p_base_published_at: basePublishedAt,
+  });
+
+  let publishedAt: string;
+  if (error) {
+    if (!isMissingPublishRpcError(error)) {
+      throw error;
+    }
+    const fallbackResult = await publishSnapshotWithUpsert(project, publishedByUserId);
+    publishedAt = fallbackResult.publishedAt;
+  } else {
+    publishedAt = typeof data === 'string' ? data : new Date().toISOString();
+  }
+
+  project.sharedSnapshotPublishedAt = new Date(publishedAt);
   return { publishedAt };
 }
 
@@ -121,8 +166,12 @@ export async function getSharedProjectSnapshot(localProject: Project): Promise<S
   }
 
   const revivedProject = reviveProjectDates(data.project_payload as unknown as Project);
+  const retargetedProject = retargetProject(revivedProject, localProject);
   return {
-    project: retargetProject(revivedProject, localProject),
+    project: {
+      ...retargetedProject,
+      sharedSnapshotPublishedAt: new Date(data.published_at),
+    },
     publishedAt: data.published_at,
   };
 }

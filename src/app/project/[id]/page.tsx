@@ -3,7 +3,7 @@
 import { memo, useState, useEffect, useMemo, useRef, useCallback, type TouchEvent } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { Area, Project, checkpointHasIssue, getReviewMetrics } from '@/types';
-import { getProject, saveProject, saveProjectPreserveTimestamps, createArea } from '@/lib/db';
+import { getProject, saveProject, saveProjectMetadataOnly, saveProjectPreserveTimestamps, createArea } from '@/lib/db';
 import {
   formatMicrosoftManualRetryMessage,
   getMicrosoftErrorMessage,
@@ -693,6 +693,12 @@ export default function ProjectDetailPage() {
       const fullProject = await getProject(projectId);
       if (!fullProject?.sharedProjectId) return;
       await publishSharedProjectSnapshot(fullProject, userId);
+      await saveProjectMetadataOnly(fullProject, { touch: false });
+      setProject((currentProject) =>
+        currentProject?.id === fullProject.id
+          ? { ...currentProject, sharedSnapshotPublishedAt: fullProject.sharedSnapshotPublishedAt }
+          : currentProject
+      );
     } catch (error) {
       console.error('Automatic shared publish failed:', error);
       setSyncError(getCollaborationErrorMessage(error, 'Shared data was saved locally but could not be published.'));

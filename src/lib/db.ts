@@ -200,9 +200,14 @@ export async function saveProject(project: Project): Promise<void> {
   await saveProjectInternal(project, { touch: true });
 }
 
-export async function saveProjectMetadataOnly(project: Project): Promise<void> {
+export async function saveProjectMetadataOnly(
+  project: Project,
+  options: { touch?: boolean } = {}
+): Promise<void> {
   const db = await getDB();
-  project.updatedAt = new Date();
+  if (options.touch ?? true) {
+    project.updatedAt = new Date();
+  }
   const { storedProject } = serializeProjectForStorage(project);
   await db.put('projects', storedProject);
 }

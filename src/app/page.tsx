@@ -2,7 +2,16 @@
 
 import { memo, useState, useEffect, useMemo, useRef, useCallback, type TouchEvent } from 'react';
 import { Area, Project, checkpointHasIssue, getReviewMetrics } from '@/types';
-import { getAllProjects, getProject, saveProject, saveProjectPreserveTimestamps, deleteProject, createProject, createArea } from '@/lib/db';
+import {
+  getAllProjects,
+  getProject,
+  saveProject,
+  saveProjectMetadataOnly,
+  saveProjectPreserveTimestamps,
+  deleteProject,
+  createProject,
+  createArea,
+} from '@/lib/db';
 import {
   syncProjectsWithOneDrive,
   SyncConflict,
@@ -649,6 +658,14 @@ export default function ProjectsPage() {
       const fullProject = await getProject(projectId);
       if (!fullProject?.sharedProjectId) return;
       await publishSharedProjectSnapshot(fullProject, userId);
+      await saveProjectMetadataOnly(fullProject, { touch: false });
+      setProjects((prev) =>
+        prev.map((project) =>
+          project.id === fullProject.id
+            ? { ...project, sharedSnapshotPublishedAt: fullProject.sharedSnapshotPublishedAt }
+            : project
+        )
+      );
     } catch (error) {
       console.error('Automatic shared publish failed:', error);
       setSyncError(getCollaborationErrorMessage(error, 'Shared data was saved locally but could not be published.'));
@@ -1335,6 +1352,14 @@ export default function ProjectsPage() {
       fullProject.sharedProjectId = project.sharedProjectId;
       fullProject.sharedProjectLinkedAt = project.sharedProjectLinkedAt;
       const result = await publishSharedProjectSnapshot(fullProject, collaborationAuth.user.id);
+      await saveProjectMetadataOnly(fullProject, { touch: false });
+      setProjects((prev) =>
+        prev.map((entry) =>
+          entry.id === fullProject.id
+            ? { ...entry, sharedSnapshotPublishedAt: fullProject.sharedSnapshotPublishedAt }
+            : entry
+        )
+      );
       alert(`Shared data published at ${new Date(result.publishedAt).toLocaleTimeString()}.`);
     } catch (error) {
       console.error('Failed to publish shared project:', error);
