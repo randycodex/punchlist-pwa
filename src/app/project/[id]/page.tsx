@@ -234,6 +234,7 @@ export default function ProjectDetailPage() {
   const pullDistanceRef = useRef(0);
   const pullArmedRef = useRef(false);
   const listRef = useRef<HTMLElement | null>(null);
+  const topMenuActionHandlerRef = useRef<((event: Event) => void) | null>(null);
   const { ensureAccessToken, signIn } = useMicrosoftAuth();
   const collaborationAuth = useCollaborationAuth();
   const { setRetryAt, setStatus: setSyncStatus } = useSyncStatus();
@@ -712,77 +713,81 @@ export default function ProjectDetailPage() {
     setSelectedAreaIds(new Set());
   }
 
+  topMenuActionHandlerRef.current = (event: Event) => {
+    const customEvent = event as CustomEvent<{ action: string; sort?: SortOption }>;
+    const detail = customEvent.detail;
+    if (!detail || !project) return;
+
+    if (detail.action === 'sort' && detail.sort) {
+      handleSortChange(detail.sort);
+      return;
+    }
+
+    if (detail.action === 'sync-now') {
+      void handleSync();
+      return;
+    }
+
+    if (detail.action === 'new-area') {
+      setShowAddArea(true);
+      return;
+    }
+
+    if (detail.action === 'edit-project') {
+      setEditingProject(project);
+      return;
+    }
+
+    if (detail.action === 'toggle-issues-only') {
+      setProjectShowOnlyIssues(!projectShowOnlyIssues);
+      return;
+    }
+
+    if (detail.action === 'toggle-selection') {
+      if (deleteMode) {
+        cancelSelectionMode();
+      } else {
+        setDeleteMode(true);
+        setSelectedAreaIds(new Set());
+      }
+      return;
+    }
+
+    if (detail.action === 'export-project') {
+      setShowTrash(false);
+      setDeleteMode(false);
+      setSelectedAreaIds(new Set());
+      setExportScope('project');
+      setActionSheet('export-scope');
+      return;
+    }
+
+    if (detail.action === 'toggle-trash') {
+      setShowTrash((current) => !current);
+      setDeleteMode(false);
+      setSelectedAreaIds(new Set());
+      setActionSheet(null);
+      return;
+    }
+
+    if (detail.action === 'clear-trash') {
+      setShowTrash(false);
+      setDeleteMode(false);
+      setSelectedAreaIds(new Set());
+      setActionSheet(null);
+    }
+  };
+
   useEffect(() => {
     function handleTopMenuAction(event: Event) {
-      const customEvent = event as CustomEvent<{ action: string; sort?: SortOption }>;
-      const detail = customEvent.detail;
-      if (!detail || !project) return;
-
-      if (detail.action === 'sort' && detail.sort) {
-        handleSortChange(detail.sort);
-        return;
-      }
-
-      if (detail.action === 'sync-now') {
-        void handleSync();
-        return;
-      }
-
-      if (detail.action === 'new-area') {
-        setShowAddArea(true);
-        return;
-      }
-
-      if (detail.action === 'edit-project') {
-        setEditingProject(project);
-        return;
-      }
-
-      if (detail.action === 'toggle-issues-only') {
-        setProjectShowOnlyIssues(!projectShowOnlyIssues);
-        return;
-      }
-
-      if (detail.action === 'toggle-selection') {
-        if (deleteMode) {
-          cancelSelectionMode();
-        } else {
-          setDeleteMode(true);
-          setSelectedAreaIds(new Set());
-        }
-        return;
-      }
-
-      if (detail.action === 'export-project') {
-        setShowTrash(false);
-        setDeleteMode(false);
-        setSelectedAreaIds(new Set());
-        setExportScope('project');
-        setActionSheet('export-scope');
-        return;
-      }
-
-      if (detail.action === 'toggle-trash') {
-        setShowTrash((current) => !current);
-        setDeleteMode(false);
-        setSelectedAreaIds(new Set());
-        setActionSheet(null);
-        return;
-      }
-
-      if (detail.action === 'clear-trash') {
-        setShowTrash(false);
-        setDeleteMode(false);
-        setSelectedAreaIds(new Set());
-        setActionSheet(null);
-      }
+      topMenuActionHandlerRef.current?.(event);
     }
 
     window.addEventListener('punchlist-home-menu-action', handleTopMenuAction as EventListener);
     return () => {
       window.removeEventListener('punchlist-home-menu-action', handleTopMenuAction as EventListener);
     };
-  }, [project, deleteMode, projectShowOnlyIssues, setProjectShowOnlyIssues]);
+  }, []);
 
   useEffect(() => {
     if (!project) return;

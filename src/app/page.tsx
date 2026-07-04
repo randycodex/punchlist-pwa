@@ -460,6 +460,7 @@ export default function ProjectsPage() {
   const pullStartYRef = useRef<number | null>(null);
   const pullArmedRef = useRef(false);
   const listRef = useRef<HTMLElement | null>(null);
+  const homeMenuActionHandlerRef = useRef<((event: Event) => void) | null>(null);
   const { signIn, signOut, isSignedIn, ensureAccessToken, accountEmail, accountName } = useMicrosoftAuth();
   const collaborationAuth = useCollaborationAuth();
   const { setRetryAt, setStatus: setSyncStatus } = useSyncStatus();
@@ -1445,150 +1446,139 @@ export default function ProjectsPage() {
     setSelectedAreaIds(new Set());
   }
 
+  homeMenuActionHandlerRef.current = (event: Event) => {
+    const customEvent = event as CustomEvent<{ action: string; sort?: SortOption }>;
+    const detail = customEvent.detail;
+    if (!detail) return;
+
+    if (detail.action === 'sort' && detail.sort) {
+      handleSortChange(detail.sort);
+      return;
+    }
+
+    if (detail.action === 'sync-now') {
+      void handleSync();
+      return;
+    }
+
+    if (detail.action.startsWith('quick-sort:')) {
+      const nextQuickSort = detail.action.replace('quick-sort:', '');
+      if (nextQuickSort === 'issues' || nextQuickSort === 'alphabetical' || nextQuickSort === 'progress') {
+        setQuickSort(nextQuickSort);
+        handleSortChange(nextQuickSort);
+      }
+      return;
+    }
+
+    if (detail.action === 'new-project') {
+      setShowNewProject(true);
+      return;
+    }
+
+    if (detail.action === 'new-area') {
+      if (singleProject) {
+        setAreaTargetProjectId(singleProject.id);
+        setShowAddArea(true);
+      }
+      return;
+    }
+
+    if (detail.action === 'toggle-trash') {
+      toggleTrashView();
+      return;
+    }
+
+    if (detail.action === 'clear-trash') {
+      setShowTrash(false);
+      setDeleteMode(false);
+      setExportMode(false);
+      setSelectedProjectIds(new Set());
+      setSelectedAreaIds(new Set());
+      return;
+    }
+
+    if (detail.action === 'edit-project' && singleProject) {
+      handleOpenProjectEditor(singleProject);
+      return;
+    }
+
+    if (detail.action === 'toggle-selection' && singleProject) {
+      setShowTrash(false);
+      setExportMode(false);
+      setSelectedProjectIds(new Set());
+      setActionSheet(null);
+      if (deleteMode) {
+        setDeleteMode(false);
+        setSelectedAreaIds(new Set());
+      } else {
+        setDeleteMode(true);
+        setSelectedAreaIds(new Set());
+      }
+      return;
+    }
+
+    if (detail.action === 'export-project' && singleProject) {
+      setShowTrash(false);
+      setDeleteMode(false);
+      setExportMode(false);
+      setSelectedAreaIds(new Set());
+      setSelectedProjectIds(new Set([singleProject.id]));
+      setExportScope('selected-projects');
+      setActionSheet('export-scope');
+      return;
+    }
+
+    if (detail.action === 'share-project' && singleProject) {
+      void handleShareProject(singleProject);
+      return;
+    }
+
+    if (detail.action === 'invite-code' && singleProject) {
+      void handleCreateJoinCode(singleProject);
+      return;
+    }
+
+    if (detail.action === 'shared-members' && singleProject) {
+      void handleShowSharedMembers(singleProject);
+      return;
+    }
+
+    if (detail.action === 'join-shared-project') {
+      setShowJoinProject(true);
+      return;
+    }
+
+    if (detail.action === 'publish-shared-project' && singleProject) {
+      void handlePublishSharedProject(singleProject);
+      return;
+    }
+
+    if (detail.action === 'pull-shared-project' && singleProject) {
+      void handlePullSharedProject(singleProject);
+      return;
+    }
+
+    if (detail.action === 'transfer-shared-project' && singleProject) {
+      void handleTransferSharedProjectOwnership(singleProject);
+      return;
+    }
+
+    if (detail.action === 'auth') {
+      if (isSignedIn) signOut();
+      else signIn();
+    }
+  };
+
   useEffect(() => {
     function handleHomeMenuAction(event: Event) {
-      const customEvent = event as CustomEvent<{ action: string; sort?: SortOption }>;
-      const detail = customEvent.detail;
-      if (!detail) return;
-
-      if (detail.action === 'sort' && detail.sort) {
-        handleSortChange(detail.sort);
-        return;
-      }
-
-      if (detail.action === 'sync-now') {
-        void handleSync();
-        return;
-      }
-
-      if (detail.action.startsWith('quick-sort:')) {
-        const nextQuickSort = detail.action.replace('quick-sort:', '');
-        if (nextQuickSort === 'issues' || nextQuickSort === 'alphabetical' || nextQuickSort === 'progress') {
-          setQuickSort(nextQuickSort);
-          handleSortChange(nextQuickSort);
-        }
-        return;
-      }
-
-      if (detail.action === 'new-project') {
-        setShowNewProject(true);
-        return;
-      }
-
-      if (detail.action === 'new-area') {
-        if (singleProject) {
-          setAreaTargetProjectId(singleProject.id);
-          setShowAddArea(true);
-        }
-        return;
-      }
-
-      if (detail.action === 'toggle-trash') {
-        toggleTrashView();
-        return;
-      }
-
-      if (detail.action === 'clear-trash') {
-        setShowTrash(false);
-        setDeleteMode(false);
-        setExportMode(false);
-        setSelectedProjectIds(new Set());
-        setSelectedAreaIds(new Set());
-        return;
-      }
-
-      if (detail.action === 'edit-project' && singleProject) {
-        handleOpenProjectEditor(singleProject);
-        return;
-      }
-
-      if (detail.action === 'toggle-selection' && singleProject) {
-        setShowTrash(false);
-        setExportMode(false);
-        setSelectedProjectIds(new Set());
-        setActionSheet(null);
-        if (deleteMode) {
-          setDeleteMode(false);
-          setSelectedAreaIds(new Set());
-        } else {
-          setDeleteMode(true);
-          setSelectedAreaIds(new Set());
-        }
-        return;
-      }
-
-      if (detail.action === 'export-project' && singleProject) {
-        setShowTrash(false);
-        setDeleteMode(false);
-        setExportMode(false);
-        setSelectedAreaIds(new Set());
-        setSelectedProjectIds(new Set([singleProject.id]));
-        setExportScope('selected-projects');
-        setActionSheet('export-scope');
-        return;
-      }
-
-      if (detail.action === 'share-project' && singleProject) {
-        void handleShareProject(singleProject);
-        return;
-      }
-
-      if (detail.action === 'invite-code' && singleProject) {
-        void handleCreateJoinCode(singleProject);
-        return;
-      }
-
-      if (detail.action === 'shared-members' && singleProject) {
-        void handleShowSharedMembers(singleProject);
-        return;
-      }
-
-      if (detail.action === 'join-shared-project') {
-        setShowJoinProject(true);
-        return;
-      }
-
-      if (detail.action === 'publish-shared-project' && singleProject) {
-        void handlePublishSharedProject(singleProject);
-        return;
-      }
-
-      if (detail.action === 'pull-shared-project' && singleProject) {
-        void handlePullSharedProject(singleProject);
-        return;
-      }
-
-      if (detail.action === 'transfer-shared-project' && singleProject) {
-        void handleTransferSharedProjectOwnership(singleProject);
-        return;
-      }
-
-      if (detail.action === 'auth') {
-        if (isSignedIn) signOut();
-        else signIn();
-      }
+      homeMenuActionHandlerRef.current?.(event);
     }
 
     window.addEventListener('punchlist-home-menu-action', handleHomeMenuAction as EventListener);
     return () => {
       window.removeEventListener('punchlist-home-menu-action', handleHomeMenuAction as EventListener);
     };
-  }, [
-    deleteMode,
-    handleCreateJoinCode,
-    handlePublishSharedProject,
-    handlePullSharedProject,
-    handleShareProject,
-    handleShowSharedMembers,
-    handleTransferSharedProjectOwnership,
-    isSignedIn,
-    signIn,
-    signOut,
-    singleProject,
-    sortOption,
-    showTrash,
-    setQuickSort,
-  ]);
+  }, []);
 
   useEffect(() => {
     window.dispatchEvent(
