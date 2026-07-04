@@ -100,6 +100,7 @@ type LocationMetrics = {
 };
 
 type CheckpointReviewState = 'pending' | 'ok' | 'open' | 'resolved' | 'verified';
+type ScheduleSyncOptions = { fullSync?: boolean };
 
 export default function AreaDetailPage() {
   const params = useParams<{ id: string; areaId: string }>();
@@ -151,6 +152,9 @@ export default function AreaDetailPage() {
   const sharedPublishTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const notesTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const notesDraftRef = useRef('');
+  const projectRef = useRef<Project | null>(null);
+  const areaRef = useRef<Area | null>(null);
+  const scheduleSyncRef = useRef<(projectId?: string, options?: ScheduleSyncOptions) => void>(() => {});
   const pullStartYRef = useRef<number | null>(null);
   const pullDistanceRef = useRef(0);
   const pullArmedRef = useRef(false);
@@ -162,6 +166,27 @@ export default function AreaDetailPage() {
   const collaborationAuth = useCollaborationAuth();
   const { retryInSeconds, setRetryAt, setStatus: setSyncStatus } = useSyncStatus();
   const { inspectionShowOnlyIssues, setInspectionShowOnlyIssues, quickSort, markSyncedNow } = useAppSettings();
+
+  useEffect(() => {
+    projectRef.current = project;
+    areaRef.current = area;
+    scheduleSyncRef.current = scheduleSync;
+  });
+
+  const persistGeneralNotes = useCallback(async (value: string) => {
+    const currentProject = projectRef.current;
+    const currentArea = areaRef.current;
+    if (!currentProject || !currentArea) return;
+    const targetArea = currentProject.areas.find((entry) => entry.id === currentArea.id);
+    if (!targetArea) return;
+    if ((targetArea.notes ?? '') === value) return;
+    targetArea.notes = value;
+    targetArea.updatedAt = new Date();
+    await saveProject(currentProject);
+    scheduleSyncRef.current(currentProject.id);
+    setProject({ ...currentProject, areas: [...currentProject.areas] });
+    setArea({ ...targetArea });
+  }, []);
 
   useEffect(() => {
     if (!id || !areaId) {
@@ -202,7 +227,7 @@ export default function AreaDetailPage() {
         void persistGeneralNotes(notesDraftRef.current);
       }
     };
-  }, []);
+  }, [persistGeneralNotes]);
 
   useEffect(() => {
     if (!showHeaderMenu) return;
@@ -1175,19 +1200,6 @@ export default function AreaDetailPage() {
     }
   }
 
-  async function persistGeneralNotes(value: string) {
-    if (!project || !area) return;
-    const targetArea = project.areas.find((entry) => entry.id === area.id);
-    if (!targetArea) return;
-    if ((targetArea.notes ?? '') === value) return;
-    targetArea.notes = value;
-    targetArea.updatedAt = new Date();
-    await saveProject(project);
-    scheduleSync(project.id);
-    setProject({ ...project, areas: [...project.areas] });
-    setArea({ ...targetArea });
-  }
-
   function handleGeneralNotesChange(value: string) {
     setGeneralNotes(value);
     notesDraftRef.current = value;
@@ -1235,7 +1247,7 @@ export default function AreaDetailPage() {
     pullArmedRef.current = false;
   }
 
-  function scheduleSync(projectId?: string, options?: { fullSync?: boolean }) {
+  function scheduleSync(projectId?: string, options?: ScheduleSyncOptions) {
     queuePendingSync(projectId, options);
     setSyncStatus('pending');
     if (projectId) {
