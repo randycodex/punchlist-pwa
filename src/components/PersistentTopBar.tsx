@@ -217,7 +217,7 @@ export default function PersistentTopBar() {
               <MoreVertical className="h-5 w-5" />
             </button>
             {showHomeMenu && (
-              <div className="menu-surface absolute right-0 top-[calc(100%+0.65rem)] z-40 max-h-[calc(100dvh-7rem)] min-w-[15rem] overflow-x-hidden overflow-y-auto overscroll-contain rounded-[1.6rem] p-2">
+              <div className="menu-surface scrollbar-hidden absolute right-0 top-[calc(100%+0.65rem)] z-40 max-h-[calc(100dvh-7rem)] min-w-[15rem] overflow-x-hidden overflow-y-auto overscroll-contain rounded-[1.6rem] p-2">
                 {showAuth && (
                   <div className="px-1 py-1">
                     <div className="space-y-2 rounded-[1.25rem] bg-black/[0.03] p-2.5 dark:bg-white/[0.03]">

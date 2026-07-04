@@ -215,6 +215,14 @@ html:not(.dark) {
   -webkit-backdrop-filter: blur(24px);
 }
 
+.scrollbar-hidden {
+  scrollbar-width: none;
+}
+
+.scrollbar-hidden::-webkit-scrollbar {
+  display: none;
+}
+
 .metric-line {
   display: flex;
   flex-wrap: wrap;
