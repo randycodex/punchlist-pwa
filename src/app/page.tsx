@@ -461,11 +461,15 @@ export default function ProjectsPage() {
   const pullArmedRef = useRef(false);
   const listRef = useRef<HTMLElement | null>(null);
   const homeMenuActionHandlerRef = useRef<((event: Event) => void) | null>(null);
+  const loadProjectsRef = useRef<() => Promise<void>>(() => Promise.resolve());
+  const scheduleSyncRef = useRef<(projectId?: string, options?: { fullSync?: boolean }) => void>(() => {});
   const { signIn, signOut, isSignedIn, ensureAccessToken, accountEmail, accountName } = useMicrosoftAuth();
   const collaborationAuth = useCollaborationAuth();
   const { setRetryAt, setStatus: setSyncStatus } = useSyncStatus();
   const { quickSort, setQuickSort, markSyncedNow } = useAppSettings();
   const selectionMode = deleteMode || exportMode;
+  loadProjectsRef.current = loadProjects;
+  scheduleSyncRef.current = scheduleSync;
 
   useEffect(() => {
     const savedSort = localStorage.getItem(SORT_STORAGE_KEY);
@@ -489,7 +493,7 @@ export default function ProjectsPage() {
         console.error('Failed to parse recent area types:', error);
       }
     }
-    loadProjects();
+    void loadProjectsRef.current();
   }, []);
 
   useEffect(() => {
@@ -507,8 +511,8 @@ export default function ProjectsPage() {
 
   useEffect(() => {
     if (!collaborationAuth.isSignedIn || loading) return;
-    void loadProjects();
-  }, [collaborationAuth.isSignedIn]);
+    void loadProjectsRef.current();
+  }, [collaborationAuth.isSignedIn, loading]);
 
   function handleSortChange(option: SortOption) {
     setSortOption(option);
@@ -1016,7 +1020,7 @@ export default function ProjectsPage() {
   const handleTrashProject = useCallback(async (project: Project) => {
     project.deletedAt = new Date();
     await saveProject(project);
-    scheduleSync(project.id);
+    scheduleSyncRef.current(project.id);
     setShowProjectMenuId(null);
     setProjects((prev) =>
       prev.map((entry) => (entry.id === project.id ? { ...project, areas: [...project.areas] } : entry))

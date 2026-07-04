@@ -235,10 +235,12 @@ export default function ProjectDetailPage() {
   const pullArmedRef = useRef(false);
   const listRef = useRef<HTMLElement | null>(null);
   const topMenuActionHandlerRef = useRef<((event: Event) => void) | null>(null);
+  const loadProjectRef = useRef<() => Promise<void>>(() => Promise.resolve());
   const { ensureAccessToken, signIn } = useMicrosoftAuth();
   const collaborationAuth = useCollaborationAuth();
   const { setRetryAt, setStatus: setSyncStatus } = useSyncStatus();
   const { projectShowOnlyIssues, setProjectShowOnlyIssues, quickSort, markSyncedNow } = useAppSettings();
+  loadProjectRef.current = loadProject;
 
   useEffect(() => {
     // Load saved sort preference
@@ -267,8 +269,8 @@ export default function ProjectDetailPage() {
         console.error('Failed to parse recent area types:', error);
       }
     }
-    loadProject();
-  }, [id]);
+    void loadProjectRef.current();
+  }, [id, router]);
 
   useEffect(() => {
     return () => {
@@ -283,8 +285,8 @@ export default function ProjectDetailPage() {
 
   useEffect(() => {
     if (!collaborationAuth.isSignedIn || loading) return;
-    void loadProject();
-  }, [collaborationAuth.isSignedIn]);
+    void loadProjectRef.current();
+  }, [collaborationAuth.isSignedIn, loading]);
 
   function handleSortChange(option: SortOption) {
     setSortOption(option);

@@ -166,6 +166,7 @@ export default function AreaDetailPage() {
   const projectRef = useRef<Project | null>(null);
   const areaRef = useRef<Area | null>(null);
   const scheduleSyncRef = useRef<(projectId?: string, options?: ScheduleSyncOptions) => void>(() => {});
+  const loadDataRef = useRef<() => Promise<void>>(() => Promise.resolve());
   const pullStartYRef = useRef<number | null>(null);
   const pullDistanceRef = useRef(0);
   const pullArmedRef = useRef(false);
@@ -182,6 +183,7 @@ export default function AreaDetailPage() {
     projectRef.current = project;
     areaRef.current = area;
     scheduleSyncRef.current = scheduleSync;
+    loadDataRef.current = loadData;
   });
 
   const persistGeneralNotes = useCallback(async (value: string) => {
@@ -222,8 +224,8 @@ export default function AreaDetailPage() {
         console.error('Failed to parse recent area types:', error);
       }
     }
-    loadData();
-  }, [id, areaId]);
+    void loadDataRef.current();
+  }, [id, areaId, router]);
 
   useEffect(() => {
     return () => {
