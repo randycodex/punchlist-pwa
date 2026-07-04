@@ -366,7 +366,6 @@ const HomeAreaCard = memo(function HomeAreaCard({
           <div className="min-w-0">
             <div className="flex items-center gap-2 min-w-0">
               <h3 className="truncate text-[1.03rem] font-semibold tracking-[-0.02em] text-gray-900 dark:text-white">{area.name}</h3>
-              <span className="segmented-chip shrink-0 px-2.5 py-1 text-[11px]">{areaStats.total} items</span>
               {claimStatus && (
                 <span className="segmented-chip shrink-0 px-2.5 py-1 text-[11px]">
                   {claimStatus === 'mine' ? 'You are editing' : 'In use'}
