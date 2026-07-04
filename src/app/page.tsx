@@ -483,14 +483,15 @@ export default function ProjectsPage() {
   }, []);
 
   useEffect(() => {
+    const sharedPublishTimers = sharedPublishTimersRef.current;
     return () => {
       if (syncTimerRef.current) {
         clearTimeout(syncTimerRef.current);
       }
-      for (const timer of sharedPublishTimersRef.current.values()) {
+      for (const timer of sharedPublishTimers.values()) {
         clearTimeout(timer);
       }
-      sharedPublishTimersRef.current.clear();
+      sharedPublishTimers.clear();
     };
   }, []);
 

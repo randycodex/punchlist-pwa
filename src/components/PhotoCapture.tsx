@@ -1,8 +1,8 @@
 'use client';
 /* eslint-disable @next/next/no-img-element */
 
-import { useEffect, useRef, useState } from 'react';
-import { Camera, X } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { Camera, Paperclip, X } from 'lucide-react';
 import { PhotoAttachment, FileAttachment } from '@/types';
 
 const PHOTO_INPUT_ACCEPT = 'image/*,.heic,.heif,image/heic,image/heif';
@@ -40,10 +40,12 @@ export default function PhotoCapture({
   const [capturedBatch, setCapturedBatch] = useState<Array<{ imageData: string; thumbnail?: string }>>([]);
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [savingPhotos, setSavingPhotos] = useState(false);
+  const [savingFiles, setSavingFiles] = useState(false);
   const [showPhotoSourceSheet, setShowPhotoSourceSheet] = useState(false);
   const pinchDistanceRef = useRef<number | null>(null);
   const pinchScaleRef = useRef(1);
   const cameraInputRef = useRef<HTMLInputElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const maxImageSize = 1280;
@@ -54,20 +56,20 @@ export default function PhotoCapture({
     return HEIC_MIME_TYPES.has(file.type.toLowerCase()) || HEIC_EXTENSIONS.has(extension);
   }
 
-  function openPhotoPicker() {
+  const openPhotoPicker = useCallback(() => {
     setCameraError(null);
     setShowPhotoSourceSheet(false);
     cameraInputRef.current?.click();
-  }
+  }, []);
 
-  function openPhotoOptions() {
+  const openPhotoOptions = useCallback(() => {
     setCameraError(null);
     if (!navigator.mediaDevices?.getUserMedia) {
       openPhotoPicker();
       return;
     }
     setShowPhotoSourceSheet(true);
-  }
+  }, [openPhotoPicker]);
 
   async function configureAutoFocus(stream: MediaStream) {
     type FocusCapabilities = MediaTrackCapabilities & { focusMode?: string[] };
@@ -250,6 +252,27 @@ export default function PhotoCapture({
     });
   }
 
+  function fileToAttachmentPayload(file: File): Promise<{ data: string; name: string; mimeType: string; size: number } | null> {
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const data = event.target?.result;
+        if (typeof data !== 'string') {
+          resolve(null);
+          return;
+        }
+        resolve({
+          data,
+          name: file.name,
+          mimeType: file.type || 'application/octet-stream',
+          size: file.size,
+        });
+      };
+      reader.onerror = () => resolve(null);
+      reader.readAsDataURL(file);
+    });
+  }
+
   async function handlePhotoSelect(e: React.ChangeEvent<HTMLInputElement>) {
     const selected = Array.from(e.target.files ?? []);
     if (selected.length === 0) return;
@@ -281,6 +304,30 @@ export default function PhotoCapture({
     }
   }
 
+  async function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
+    if (!onAddFiles) return;
+    const selected = Array.from(e.target.files ?? []);
+    if (selected.length === 0) return;
+
+    setCameraError(null);
+    setSavingFiles(true);
+    const processed = await Promise.all(selected.map((file) => fileToAttachmentPayload(file)));
+    const readyFiles = processed.filter(
+      (file): file is { data: string; name: string; mimeType: string; size: number } => file !== null
+    );
+    try {
+      if (readyFiles.length > 0) {
+        await onAddFiles(readyFiles);
+      }
+      if (readyFiles.length < selected.length) {
+        setCameraError('Could not read one or more selected files.');
+      }
+    } finally {
+      setSavingFiles(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  }
+
   useEffect(() => {
     if (!cameraOpen || !videoRef.current || !streamRef.current) return;
     videoRef.current.srcObject = streamRef.current;
@@ -298,7 +345,7 @@ export default function PhotoCapture({
   useEffect(() => {
     if (!openCameraSignal) return;
     openPhotoOptions();
-  }, [openCameraSignal]);
+  }, [openCameraSignal, openPhotoOptions]);
 
   return (
     <div className="space-y-3">
@@ -373,13 +420,25 @@ export default function PhotoCapture({
         {!hideCameraButton && (
           <button
             onClick={openPhotoOptions}
-            disabled={savingPhotos}
+            disabled={savingPhotos || savingFiles}
             className={`flex items-center justify-center rounded-[1rem] bg-gray-100 text-gray-700 transition hover:bg-gray-200 dark:bg-zinc-800 dark:text-gray-100 dark:hover:bg-zinc-700 ${
               compactActions ? 'h-10 w-10' : 'h-11 w-11'
             }`}
             aria-label="Add photos"
           >
             <Camera className={compactActions ? 'h-4 w-4' : 'h-4.5 w-4.5'} />
+          </button>
+        )}
+        {onAddFiles && (
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            disabled={savingPhotos || savingFiles}
+            className={`flex items-center justify-center rounded-[1rem] bg-gray-100 text-gray-700 transition hover:bg-gray-200 dark:bg-zinc-800 dark:text-gray-100 dark:hover:bg-zinc-700 ${
+              compactActions ? 'h-10 w-10' : 'h-11 w-11'
+            }`}
+            aria-label="Attach files"
+          >
+            <Paperclip className={compactActions ? 'h-4 w-4' : 'h-4.5 w-4.5'} />
           </button>
         )}
         {cameraError && <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">{cameraError}</p>}
@@ -392,6 +451,16 @@ export default function PhotoCapture({
           disabled={savingPhotos}
           className="hidden"
         />
+        {onAddFiles && (
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            onChange={handleFileSelect}
+            disabled={savingFiles}
+            className="hidden"
+          />
+        )}
       </div>
 
       {showPhotoSourceSheet && (
