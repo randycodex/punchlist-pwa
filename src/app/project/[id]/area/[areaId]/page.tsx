@@ -29,6 +29,9 @@ import {
   getMicrosoftRetryDelayMs,
 } from '@/lib/microsoftErrors';
 import AreaEditorModal from '@/components/AreaEditorModal';
+import AppMessageDialog from '@/components/AppMessageDialog';
+import AppConfirmDialog from '@/components/AppConfirmDialog';
+import AppPromptDialog from '@/components/AppPromptDialog';
 import {
   areaHasRecordedActivity,
   buildAreaName,
@@ -102,6 +105,22 @@ type ItemMetrics = {
   commentCount: number;
 };
 
+type ConfirmDialogState = {
+  title: string;
+  message: string;
+  confirmLabel?: string;
+  danger?: boolean;
+  onConfirm: () => void | Promise<void>;
+};
+
+type PromptDialogState = {
+  title: string;
+  label: string;
+  initialValue: string;
+  confirmLabel?: string;
+  onConfirm: (value: string) => void | Promise<void>;
+};
+
 type LocationMetrics = {
   stats: StatusMetrics;
   pending: number;
@@ -158,6 +177,9 @@ export default function AreaDetailPage() {
   const [areaClaimError, setAreaClaimError] = useState<string | null>(null);
   const [claimingArea, setClaimingArea] = useState(false);
   const [areaClaimExpiresAt, setAreaClaimExpiresAt] = useState<Date | null>(null);
+  const [claimBlockedMessage, setClaimBlockedMessage] = useState<string | null>(null);
+  const [confirmDialog, setConfirmDialog] = useState<ConfirmDialogState | null>(null);
+  const [promptDialog, setPromptDialog] = useState<PromptDialogState | null>(null);
   const [generalNotes, setGeneralNotes] = useState('');
   const [returnToHome, setReturnToHome] = useState(false);
   const syncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -319,8 +341,7 @@ export default function AreaDetailPage() {
         const message = getCollaborationErrorMessage(error, 'Could not claim this shared area.');
         setAreaClaimError(message);
         if (message.toLowerCase().includes('claimed by another user')) {
-          alert(message);
-          router.push(`/project/${id}`);
+          setClaimBlockedMessage(message);
         }
       })
       .finally(() => {
@@ -618,7 +639,7 @@ export default function AreaDetailPage() {
     setArea({ ...area });
   }
 
-  async function saveAreaChanges() {
+  async function saveAreaChanges(options: { skipResetConfirm?: boolean; skipFacadeConfirm?: boolean } = {}) {
     if (!project || !area) return;
 
     const targetArea = project.areas.find((entry) => entry.id === area.id);
@@ -648,9 +669,7 @@ export default function AreaDetailPage() {
     if (templateChanged) {
       if (
         areaHasRecordedActivity(targetArea) &&
-        !window.confirm(
-          'Changing this area will reset checklist issues, comments, and images for this unit. Continue?'
-        )
+        !options.skipResetConfirm
       ) {
         targetArea.name = area.name;
         targetArea.areaTypeKey = originalTypeKey;
@@ -658,6 +677,16 @@ export default function AreaDetailPage() {
         targetArea.customAreaName = area.customAreaName;
         targetArea.areaNumber = area.areaNumber;
         targetArea.facadeLevel = originalFacadeLevel;
+        setConfirmDialog({
+          title: 'Reset Area Checklist',
+          message: 'Changing this area will reset checklist issues, comments, and images for this unit. Continue?',
+          confirmLabel: 'Continue',
+          danger: true,
+          onConfirm: async () => {
+            setConfirmDialog(null);
+            await saveAreaChanges({ skipResetConfirm: true });
+          },
+        });
         return;
       }
       applyTemplateToArea(targetArea);
@@ -670,9 +699,7 @@ export default function AreaDetailPage() {
 
       if (
         removedLocationsWithActivity.length > 0 &&
-        !window.confirm(
-          `Removing ${removedLocationsWithActivity.map((location) => location.name).join(', ')} will delete recorded checklist information for those floors. Continue?`
-        )
+        !options.skipFacadeConfirm
       ) {
         targetArea.name = area.name;
         targetArea.areaTypeKey = originalTypeKey;
@@ -680,6 +707,16 @@ export default function AreaDetailPage() {
         targetArea.customAreaName = area.customAreaName;
         targetArea.areaNumber = area.areaNumber;
         targetArea.facadeLevel = originalFacadeLevel;
+        setConfirmDialog({
+          title: 'Remove Facade Floors',
+          message: `Removing ${removedLocationsWithActivity.map((location) => location.name).join(', ')} will delete recorded checklist information for those floors. Continue?`,
+          confirmLabel: 'Continue',
+          danger: true,
+          onConfirm: async () => {
+            setConfirmDialog(null);
+            await saveAreaChanges({ skipFacadeConfirm: true });
+          },
+        });
         return;
       }
 
@@ -971,7 +1008,22 @@ export default function AreaDetailPage() {
   async function handleEditCustomLocation(locationId: string, currentName: string) {
     if (!project || !area) return;
 
-    const nextName = window.prompt('Edit item', currentName)?.trim();
+    setPromptDialog({
+      title: 'Edit Item',
+      label: 'Item name',
+      initialValue: currentName,
+      confirmLabel: 'Save',
+      onConfirm: async (value) => {
+        setPromptDialog(null);
+        await renameCustomLocation(locationId, currentName, value);
+      },
+    });
+  }
+
+  async function renameCustomLocation(locationId: string, currentName: string, value: string) {
+    if (!project || !area) return;
+
+    const nextName = value.trim();
     if (!nextName || nextName === currentName) return;
 
     const targetArea = project.areas.find((entry) => entry.id === area.id);
@@ -1517,6 +1569,39 @@ export default function AreaDetailPage() {
         <div className="shrink-0 border-b border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900 dark:border-amber-400/20 dark:bg-amber-400/10 dark:text-amber-100">
           {areaClaimError}
         </div>
+      )}
+
+      {claimBlockedMessage && (
+        <AppMessageDialog
+          title="Area Locked"
+          message={claimBlockedMessage}
+          onClose={() => {
+            setClaimBlockedMessage(null);
+            router.push(`/project/${id}`);
+          }}
+        />
+      )}
+
+      {confirmDialog && (
+        <AppConfirmDialog
+          title={confirmDialog.title}
+          message={confirmDialog.message}
+          confirmLabel={confirmDialog.confirmLabel}
+          danger={confirmDialog.danger}
+          onCancel={() => setConfirmDialog(null)}
+          onConfirm={() => void confirmDialog.onConfirm()}
+        />
+      )}
+
+      {promptDialog && (
+        <AppPromptDialog
+          title={promptDialog.title}
+          label={promptDialog.label}
+          initialValue={promptDialog.initialValue}
+          confirmLabel={promptDialog.confirmLabel}
+          onCancel={() => setPromptDialog(null)}
+          onConfirm={(value) => void promptDialog.onConfirm(value)}
+        />
       )}
 
       {syncError && (

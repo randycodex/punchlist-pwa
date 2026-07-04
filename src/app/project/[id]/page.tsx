@@ -11,6 +11,7 @@ import {
 } from '@/lib/microsoftErrors';
 import AreaEditorModal from '@/components/AreaEditorModal';
 import ProjectEditModal from '@/components/ProjectEditModal';
+import AppMessageDialog from '@/components/AppMessageDialog';
 import {
   buildAreaName,
   buildFacadeLevelOptions,
@@ -105,6 +106,11 @@ type AreaMetrics = {
   commentCount: number;
 };
 
+type MessageDialogState = {
+  title: string;
+  message: string;
+};
+
 type AreaCardProps = {
   projectId: string;
   area: Project['areas'][number];
@@ -113,6 +119,7 @@ type AreaCardProps = {
   deleteMode: boolean;
   isSelected: boolean;
   onToggleSelection: (areaId: string) => void;
+  onBlockedByClaim: () => void;
 };
 
 const AreaCard = memo(function AreaCard({
@@ -123,6 +130,7 @@ const AreaCard = memo(function AreaCard({
   deleteMode,
   isSelected,
   onToggleSelection,
+  onBlockedByClaim,
 }: AreaCardProps) {
   const areaStats = metric?.stats ?? { total: 0, ok: 0, issues: 0 };
   const progress = metric?.progress ?? 0;
@@ -155,7 +163,7 @@ const AreaCard = memo(function AreaCard({
             if (deleteMode || blockedByClaim) {
               event.preventDefault();
               if (blockedByClaim) {
-                alert('This shared area is currently being edited by another user.');
+                onBlockedByClaim();
               }
             }
           }}
@@ -190,7 +198,7 @@ const AreaCard = memo(function AreaCard({
             if (deleteMode || blockedByClaim) {
               event.preventDefault();
               if (blockedByClaim) {
-                alert('This shared area is currently being edited by another user.');
+                onBlockedByClaim();
               }
             }
           }}
@@ -229,6 +237,7 @@ export default function ProjectDetailPage() {
   const [syncError, setSyncError] = useState<string | null>(null);
   const [editingProject, setEditingProject] = useState<Project | null>(null);
   const [sharedAreaClaims, setSharedAreaClaims] = useState<Map<string, 'mine' | 'other'>>(new Map());
+  const [messageDialog, setMessageDialog] = useState<MessageDialogState | null>(null);
   const syncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const sharedPublishTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pullStartYRef = useRef<number | null>(null);
@@ -242,6 +251,10 @@ export default function ProjectDetailPage() {
   const { setRetryAt, setStatus: setSyncStatus } = useSyncStatus();
   const { projectShowOnlyIssues, setProjectShowOnlyIssues, quickSort, markSyncedNow } = useAppSettings();
   loadProjectRef.current = loadProject;
+
+  const showMessage = useCallback((message: string, title = 'Punchlist') => {
+    setMessageDialog({ title, message });
+  }, []);
 
   useEffect(() => {
     // Load saved sort preference
@@ -558,7 +571,7 @@ export default function ProjectDetailPage() {
       }
     } catch (error) {
       console.error('Failed to export selected areas:', error);
-      alert('Failed to export selected areas. Please try again.');
+      showMessage('Failed to export selected areas. Please try again.');
     } finally {
       setExportingSelectedAreas(false);
       setDeleteMode(false);
@@ -598,7 +611,7 @@ export default function ProjectDetailPage() {
       }
     } catch (error) {
       console.error('Failed to export project:', error);
-      alert('Failed to export project. Please try again.');
+      showMessage('Failed to export project. Please try again.');
     } finally {
       setExportingSelectedAreas(false);
     }
@@ -999,6 +1012,7 @@ export default function ProjectDetailPage() {
                     deleteMode={deleteMode}
                     isSelected={isSelected}
                     onToggleSelection={toggleAreaSelection}
+                    onBlockedByClaim={() => showMessage('This shared area is currently locked by another user.')}
                   />
                 );
               })}
@@ -1017,6 +1031,14 @@ export default function ProjectDetailPage() {
             Add Area
           </button>
         </div>
+      )}
+
+      {messageDialog && (
+        <AppMessageDialog
+          title={messageDialog.title}
+          message={messageDialog.message}
+          onClose={() => setMessageDialog(null)}
+        />
       )}
 
       <AreaEditorModal

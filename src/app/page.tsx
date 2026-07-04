@@ -56,6 +56,9 @@ import type { CollaborationSharedProjectDirectoryEntry, CollaborationSnapshotBac
 import ProjectEditModal from '@/components/ProjectEditModal';
 import AreaEditorModal from '@/components/AreaEditorModal';
 import MetadataLine from '@/components/MetadataLine';
+import AppMessageDialog from '@/components/AppMessageDialog';
+import AppConfirmDialog from '@/components/AppConfirmDialog';
+import AppPromptDialog from '@/components/AppPromptDialog';
 import { applyTemplateToArea } from '@/lib/template';
 import {
   buildAreaName,
@@ -138,6 +141,11 @@ type ProjectMetrics = {
   issuePercent: number;
   photoCount: number;
   commentCount: number;
+};
+
+type MessageDialogState = {
+  title: string;
+  message: string;
 };
 
 type AreaMetrics = {
@@ -322,6 +330,7 @@ type HomeAreaCardProps = {
   deleteMode: boolean;
   isSelected: boolean;
   onToggleSelection: (areaId: string) => void;
+  onBlockedByClaim: () => void;
 };
 
 const HomeAreaCard = memo(function HomeAreaCard({
@@ -332,6 +341,7 @@ const HomeAreaCard = memo(function HomeAreaCard({
   deleteMode,
   isSelected,
   onToggleSelection,
+  onBlockedByClaim,
 }: HomeAreaCardProps) {
   const areaStats = metric?.stats ?? { total: 0, ok: 0, issues: 0 };
   const progress = metric?.progress ?? 0;
@@ -365,7 +375,7 @@ const HomeAreaCard = memo(function HomeAreaCard({
             if (deleteMode || blockedByClaim) {
               event.preventDefault();
               if (blockedByClaim) {
-                alert('This shared area is currently being edited by another user.');
+                onBlockedByClaim();
               }
             }
           }}
@@ -401,7 +411,7 @@ const HomeAreaCard = memo(function HomeAreaCard({
             if (deleteMode || blockedByClaim) {
               event.preventDefault();
               if (blockedByClaim) {
-                alert('This shared area is currently being edited by another user.');
+                onBlockedByClaim();
               }
             }
           }}
@@ -453,6 +463,9 @@ export default function ProjectsPage() {
   const [loadingSharedBackups, setLoadingSharedBackups] = useState(false);
   const [sharedBackups, setSharedBackups] = useState<CollaborationSnapshotBackup[]>([]);
   const [restoringBackupId, setRestoringBackupId] = useState<string | null>(null);
+  const [backupRestoreConfirm, setBackupRestoreConfirm] = useState<CollaborationSnapshotBackup | null>(null);
+  const [ownershipTransferProject, setOwnershipTransferProject] = useState<Project | null>(null);
+  const [deleteProjectConfirm, setDeleteProjectConfirm] = useState<Project | null>(null);
   const [sortOption, setSortOption] = useState<SortOption>('issues');
   const [syncing, setSyncing] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
@@ -476,6 +489,7 @@ export default function ProjectsPage() {
   const [newAreaForm, setNewAreaForm] = useState(getDefaultAreaFormValue());
   const [recentAreaTypeKeys, setRecentAreaTypeKeys] = useState<AreaTypeKey[]>([]);
   const [sharedAreaClaims, setSharedAreaClaims] = useState<Map<string, 'mine' | 'other'>>(new Map());
+  const [messageDialog, setMessageDialog] = useState<MessageDialogState | null>(null);
   const syncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const sharedPublishTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   const pullStartYRef = useRef<number | null>(null);
@@ -490,6 +504,10 @@ export default function ProjectsPage() {
   const { quickSort, setQuickSort, markSyncedNow } = useAppSettings();
   const selectionMode = deleteMode || exportMode;
   loadProjectsRef.current = loadProjects;
+
+  const showMessage = useCallback((message: string, title = 'Punchlist') => {
+    setMessageDialog({ title, message });
+  }, []);
   scheduleSyncRef.current = scheduleSync;
 
   useEffect(() => {
@@ -1108,7 +1126,7 @@ export default function ProjectsPage() {
       setExportMode(false);
     } catch (error) {
       console.error('Failed to export selected areas:', error);
-      alert('Failed to export selected areas. Please try again.');
+      showMessage('Failed to export selected areas. Please try again.');
     } finally {
       setExportingSelectedAreas(false);
     }
@@ -1200,7 +1218,7 @@ export default function ProjectsPage() {
       }
     } catch (error) {
       console.error('Failed to export selected projects:', error);
-      alert('Failed to export selected projects. Please try again.');
+      showMessage('Failed to export selected projects. Please try again.');
     } finally {
       setExportingSelected(false);
       setExportingSelectedToDrive(false);
@@ -1224,12 +1242,12 @@ export default function ProjectsPage() {
 
   const handleShareProject = useCallback(async (project: Project) => {
     if (!collaborationAuth.isSignedIn || !collaborationAuth.user) {
-      alert('Enable shared projects before sharing this project.');
+      showMessage('Enable shared projects before sharing this project.');
       return;
     }
 
     if (!accountEmail) {
-      alert('Sign in with your UAI Microsoft account before sharing this project.');
+      showMessage('Sign in with your UAI Microsoft account before sharing this project.');
       return;
     }
 
@@ -1250,21 +1268,21 @@ export default function ProjectsPage() {
             : entry
         )
       );
-      alert('Project sharing is enabled. You are the owner of this shared project.');
+      showMessage('Project sharing is enabled. You are the owner of this shared project.');
     } catch (error) {
       console.error('Failed to share project:', error);
-      alert(getCollaborationErrorMessage(error));
+      showMessage(getCollaborationErrorMessage(error));
     }
-  }, [accountEmail, accountName, collaborationAuth.isSignedIn, collaborationAuth.user]);
+  }, [accountEmail, accountName, collaborationAuth.isSignedIn, collaborationAuth.user, showMessage]);
 
   const handleCreateJoinCode = useCallback(async (project: Project) => {
     if (!project.sharedProjectId) {
-      alert('Share this project before creating an invite code.');
+      showMessage('Share this project before creating an invite code.');
       return;
     }
 
     if (!collaborationAuth.isSignedIn) {
-      alert('Enable shared projects before creating an invite code.');
+      showMessage('Enable shared projects before creating an invite code.');
       return;
     }
 
@@ -1278,20 +1296,20 @@ export default function ProjectsPage() {
       });
     } catch (error) {
       console.error('Failed to create shared project code:', error);
-      alert(getCollaborationErrorMessage(error, 'Failed to create invite code. Please try again.'));
+      showMessage(getCollaborationErrorMessage(error, 'Failed to create invite code. Please try again.'));
     } finally {
       setCreatingJoinCode(false);
     }
-  }, [collaborationAuth.isSignedIn]);
+  }, [collaborationAuth.isSignedIn, showMessage]);
 
   const handleShowSharedMembers = useCallback(async (project: Project) => {
     if (!project.sharedProjectId) {
-      alert('Share this project before viewing shared members.');
+      showMessage('Share this project before viewing shared members.');
       return;
     }
 
     if (!collaborationAuth.isSignedIn) {
-      alert('Enable shared projects before viewing shared members.');
+      showMessage('Enable shared projects before viewing shared members.');
       return;
     }
 
@@ -1299,7 +1317,7 @@ export default function ProjectsPage() {
     try {
       const members = await getSharedProjectMembers(project.sharedProjectId);
       if (members.length === 0) {
-        alert('No shared project members found.');
+        showMessage('No shared project members found.', 'Shared Members');
         return;
       }
 
@@ -1307,14 +1325,14 @@ export default function ProjectsPage() {
         const name = member.displayName ? ` (${member.displayName})` : '';
         return `${member.email}${name} - ${member.accessState}`;
       });
-      alert(lines.join('\n'));
+      showMessage(lines.join('\n'), 'Shared Members');
     } catch (error) {
       console.error('Failed to load shared project members:', error);
-      alert(getCollaborationErrorMessage(error, 'Failed to load shared project members. Please try again.'));
+      showMessage(getCollaborationErrorMessage(error, 'Failed to load shared project members. Please try again.'));
     } finally {
       setLoadingSharedMembers(false);
     }
-  }, [collaborationAuth.isSignedIn]);
+  }, [collaborationAuth.isSignedIn, showMessage]);
 
   async function addSharedProjectToDevice(sharedProjectId: string, projectName: string) {
     const existingProject = projects.find((project) => project.sharedProjectId === sharedProjectId);
@@ -1346,12 +1364,12 @@ export default function ProjectsPage() {
     if (!code || joiningProject) return;
 
     if (!collaborationAuth.isSignedIn) {
-      alert('Enable shared projects before joining a project.');
+      showMessage('Enable shared projects before joining a project.');
       return;
     }
 
     if (!accountEmail) {
-      alert('Sign in with your UAI Microsoft account before joining a shared project.');
+      showMessage('Sign in with your UAI Microsoft account before joining a shared project.');
       return;
     }
 
@@ -1362,15 +1380,15 @@ export default function ProjectsPage() {
       setShowJoinProject(false);
       setJoinProjectCode('');
       if (alreadyLocal) {
-        alert(`You already joined "${result.projectName}".`);
+        showMessage(`You already joined "${result.projectName}".`);
       } else if (pulledSnapshot) {
-        alert(`Joined "${result.projectName}" and pulled the latest shared data.`);
+        showMessage(`Joined "${result.projectName}" and pulled the latest shared data.`);
       } else {
-        alert(`Joined "${result.projectName}". No shared data has been published yet.`);
+        showMessage(`Joined "${result.projectName}". No shared data has been published yet.`);
       }
     } catch (error) {
       console.error('Failed to join shared project:', error);
-      alert(getCollaborationErrorMessage(error, 'Failed to join shared project. Please try again.'));
+      showMessage(getCollaborationErrorMessage(error, 'Failed to join shared project. Please try again.'));
     } finally {
       setJoiningProject(false);
     }
@@ -1378,7 +1396,7 @@ export default function ProjectsPage() {
 
   async function handleShowMySharedProjects() {
     if (!collaborationAuth.isSignedIn) {
-      alert('Enable shared projects before viewing your shared projects.');
+      showMessage('Enable shared projects before viewing your shared projects.');
       return;
     }
 
@@ -1389,7 +1407,7 @@ export default function ProjectsPage() {
       setMySharedProjects(entries);
     } catch (error) {
       console.error('Failed to load shared projects:', error);
-      alert(getCollaborationErrorMessage(error, 'Failed to load your shared projects. Please try again.'));
+      showMessage(getCollaborationErrorMessage(error, 'Failed to load your shared projects. Please try again.'));
       setShowMySharedProjects(false);
     } finally {
       setLoadingMySharedProjects(false);
@@ -1403,15 +1421,15 @@ export default function ProjectsPage() {
     try {
       const { alreadyLocal, pulledSnapshot } = await addSharedProjectToDevice(entry.projectId, entry.projectName);
       if (alreadyLocal) {
-        alert(`"${entry.projectName}" is already on this device.`);
+        showMessage(`"${entry.projectName}" is already on this device.`);
       } else if (pulledSnapshot) {
-        alert(`"${entry.projectName}" was added to this device with the latest shared data.`);
+        showMessage(`"${entry.projectName}" was added to this device with the latest shared data.`);
       } else {
-        alert(`"${entry.projectName}" was added to this device. No shared data has been published yet.`);
+        showMessage(`"${entry.projectName}" was added to this device. No shared data has been published yet.`);
       }
     } catch (error) {
       console.error('Failed to add shared project:', error);
-      alert(getCollaborationErrorMessage(error, 'Failed to add this shared project. Please try again.'));
+      showMessage(getCollaborationErrorMessage(error, 'Failed to add this shared project. Please try again.'));
     } finally {
       setAddingSharedProjectId(null);
     }
@@ -1419,12 +1437,12 @@ export default function ProjectsPage() {
 
   const handlePublishSharedProject = useCallback(async (project: Project) => {
     if (!project.sharedProjectId) {
-      alert('Share this project before publishing shared data.');
+      showMessage('Share this project before publishing shared data.');
       return;
     }
 
     if (!collaborationAuth.isSignedIn || !collaborationAuth.user) {
-      alert('Enable shared projects before publishing shared data.');
+      showMessage('Enable shared projects before publishing shared data.');
       return;
     }
 
@@ -1446,23 +1464,23 @@ export default function ProjectsPage() {
             : entry
         )
       );
-      alert(`Shared data published at ${new Date(result.publishedAt).toLocaleTimeString()}.`);
+      showMessage(`Shared data published at ${new Date(result.publishedAt).toLocaleTimeString()}.`);
     } catch (error) {
       console.error('Failed to publish shared project:', error);
-      alert(getCollaborationErrorMessage(error, 'Failed to publish shared data. Please try again.'));
+      showMessage(getCollaborationErrorMessage(error, 'Failed to publish shared data. Please try again.'));
     } finally {
       setPublishingSharedProject(false);
     }
-  }, [collaborationAuth.isSignedIn, collaborationAuth.user]);
+  }, [collaborationAuth.isSignedIn, collaborationAuth.user, showMessage]);
 
   const handlePullSharedProject = useCallback(async (project: Project) => {
     if (!project.sharedProjectId) {
-      alert('Share or join this project before pulling shared data.');
+      showMessage('Share or join this project before pulling shared data.');
       return;
     }
 
     if (!collaborationAuth.isSignedIn) {
-      alert('Enable shared projects before pulling shared data.');
+      showMessage('Enable shared projects before pulling shared data.');
       return;
     }
 
@@ -1490,23 +1508,23 @@ export default function ProjectsPage() {
             : entry
         )
       );
-      alert(`Shared data pulled from ${new Date(result.publishedAt).toLocaleString()}.`);
+      showMessage(`Shared data pulled from ${new Date(result.publishedAt).toLocaleString()}.`);
     } catch (error) {
       console.error('Failed to pull shared project:', error);
-      alert(getCollaborationErrorMessage(error, 'Failed to pull shared data. Please try again.'));
+      showMessage(getCollaborationErrorMessage(error, 'Failed to pull shared data. Please try again.'));
     } finally {
       setPullingSharedProject(false);
     }
-  }, [collaborationAuth.isSignedIn]);
+  }, [collaborationAuth.isSignedIn, showMessage]);
 
   const handleShowSharedBackups = useCallback(async (project: Project) => {
     if (!project.sharedProjectId) {
-      alert('Share this project before viewing shared backups.');
+      showMessage('Share this project before viewing shared backups.');
       return;
     }
 
     if (!collaborationAuth.isSignedIn) {
-      alert('Enable shared projects before viewing shared backups.');
+      showMessage('Enable shared projects before viewing shared backups.');
       return;
     }
 
@@ -1518,20 +1536,21 @@ export default function ProjectsPage() {
       setSharedBackups(backups);
     } catch (error) {
       console.error('Failed to load shared backups:', error);
-      alert(getCollaborationErrorMessage(error, 'Failed to load shared backups. Please try again.'));
+      showMessage(getCollaborationErrorMessage(error, 'Failed to load shared backups. Please try again.'));
       setBackupProject(null);
     } finally {
       setLoadingSharedBackups(false);
     }
-  }, [collaborationAuth.isSignedIn]);
+  }, [collaborationAuth.isSignedIn, showMessage]);
 
   async function handleRestoreSharedBackup(backup: CollaborationSnapshotBackup) {
+    setBackupRestoreConfirm(backup);
+  }
+
+  async function confirmRestoreSharedBackup(backup: CollaborationSnapshotBackup) {
     if (!backupProject || restoringBackupId) return;
 
-    if (!window.confirm(`Restore backup from ${backup.capturedAt.toLocaleString()} to this device? Publish shared data after restoring if this should become the team version.`)) {
-      return;
-    }
-
+    setBackupRestoreConfirm(null);
     setRestoringBackupId(backup.id);
     try {
       const fullProject = await getProject(backupProject.id);
@@ -1557,10 +1576,10 @@ export default function ProjectsPage() {
         )
       );
       setBackupProject({ ...result.project, areas: [...result.project.areas] });
-      alert('Backup restored on this device. Publish shared data if you want this restored version to become the team version.');
+      showMessage('Backup restored on this device. Publish shared data if you want this restored version to become the team version.');
     } catch (error) {
       console.error('Failed to restore shared backup:', error);
-      alert(getCollaborationErrorMessage(error, 'Failed to restore this backup. Please try again.'));
+      showMessage(getCollaborationErrorMessage(error, 'Failed to restore this backup. Please try again.'));
     } finally {
       setRestoringBackupId(null);
     }
@@ -1568,37 +1587,47 @@ export default function ProjectsPage() {
 
   const handleTransferSharedProjectOwnership = useCallback(async (project: Project) => {
     if (!project.sharedProjectId) {
-      alert('Share this project before transferring ownership.');
+      showMessage('Share this project before transferring ownership.');
       return;
     }
 
     if (!collaborationAuth.isSignedIn) {
-      alert('Enable shared projects before transferring ownership.');
+      showMessage('Enable shared projects before transferring ownership.');
       return;
     }
 
-    const newOwnerEmail = window.prompt('New owner UAI email')?.trim().toLowerCase();
+    setOwnershipTransferProject(project);
+  }, [collaborationAuth.isSignedIn, showMessage]);
+
+  async function confirmTransferSharedProjectOwnership(newOwnerEmailValue: string) {
+    const project = ownershipTransferProject;
+    if (!project?.sharedProjectId) return;
+
+    const newOwnerEmail = newOwnerEmailValue.trim().toLowerCase();
     if (!newOwnerEmail) return;
 
+    setOwnershipTransferProject(null);
     setTransferringSharedProject(true);
     try {
       const result = await transferSharedProjectOwnership(project.sharedProjectId, newOwnerEmail);
-      alert(`Ownership transferred to ${result.ownerEmail}.`);
+      showMessage(`Ownership transferred to ${result.ownerEmail}.`);
     } catch (error) {
       console.error('Failed to transfer shared project ownership:', error);
-      alert(getCollaborationErrorMessage(error, 'Failed to transfer ownership. Please try again.'));
+      showMessage(getCollaborationErrorMessage(error, 'Failed to transfer ownership. Please try again.'));
     } finally {
       setTransferringSharedProject(false);
     }
-  }, [collaborationAuth.isSignedIn]);
+  }
 
   async function handleDeleteEditingProject() {
     if (!editingProject) return;
     const projectToDelete = editingProject;
-    if (!window.confirm(`Delete "${projectToDelete.projectName}"? You can restore it later from Trash.`)) {
-      return;
-    }
+    setDeleteProjectConfirm(projectToDelete);
+  }
+
+  async function confirmDeleteEditingProject(projectToDelete: Project) {
     setEditingProject(null);
+    setDeleteProjectConfirm(null);
     await handleTrashProject(projectToDelete);
   }
 
@@ -2076,6 +2105,7 @@ export default function ProjectsPage() {
                     deleteMode={deleteMode}
                     isSelected={isSelected}
                     onToggleSelection={toggleAreaSelection}
+                    onBlockedByClaim={() => showMessage('This shared area is currently locked by another user.')}
                   />
                 );
               })
@@ -2141,6 +2171,48 @@ export default function ProjectsPage() {
             </button>
           )}
         </div>
+      )}
+
+      {messageDialog && (
+        <AppMessageDialog
+          title={messageDialog.title}
+          message={messageDialog.message}
+          onClose={() => setMessageDialog(null)}
+        />
+      )}
+
+      {backupRestoreConfirm && (
+        <AppConfirmDialog
+          title="Restore Backup"
+          message={`Restore backup from ${backupRestoreConfirm.capturedAt.toLocaleString()} to this device?\n\nPublish shared data after restoring if this should become the team version.`}
+          confirmLabel="Restore"
+          onCancel={() => setBackupRestoreConfirm(null)}
+          onConfirm={() => void confirmRestoreSharedBackup(backupRestoreConfirm)}
+        />
+      )}
+
+      {ownershipTransferProject && (
+        <AppPromptDialog
+          title="Transfer Ownership"
+          message={ownershipTransferProject.projectName}
+          label="New owner UAI email"
+          placeholder="name@uai-ny.com"
+          inputMode="email"
+          confirmLabel="Transfer"
+          onCancel={() => setOwnershipTransferProject(null)}
+          onConfirm={(value) => void confirmTransferSharedProjectOwnership(value)}
+        />
+      )}
+
+      {deleteProjectConfirm && (
+        <AppConfirmDialog
+          title="Delete Project"
+          message={`Delete "${deleteProjectConfirm.projectName}"?\n\nYou can restore it later from Trash.`}
+          confirmLabel="Delete"
+          danger
+          onCancel={() => setDeleteProjectConfirm(null)}
+          onConfirm={() => void confirmDeleteEditingProject(deleteProjectConfirm)}
+        />
       )}
 
       <AreaEditorModal
