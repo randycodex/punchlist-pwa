@@ -215,6 +215,30 @@ export interface CollaborationDatabase {
         Update: Partial<CollaborationDatabase['public']['Tables']['shared_project_snapshots']['Insert']>;
         Relationships: [];
       };
+      shared_project_snapshot_history: {
+        Row: {
+          id: string;
+          project_id: string;
+          project_payload: Json;
+          payload_version: number;
+          captured_by_user_id: string;
+          captured_at: string;
+          reason: 'publish' | 'before_publish' | 'before_pull' | 'manual' | 'restore';
+          note: string | null;
+        };
+        Insert: {
+          id?: string;
+          project_id: string;
+          project_payload: Json;
+          payload_version?: number;
+          captured_by_user_id: string;
+          captured_at?: string;
+          reason?: 'publish' | 'before_publish' | 'before_pull' | 'manual' | 'restore';
+          note?: string | null;
+        };
+        Update: Partial<CollaborationDatabase['public']['Tables']['shared_project_snapshot_history']['Insert']>;
+        Relationships: [];
+      };
     };
     Views: Record<string, never>;
     Functions: {
@@ -241,6 +265,28 @@ export interface CollaborationDatabase {
           p_base_published_at?: string | null;
         };
         Returns: string;
+      };
+      capture_shared_project_backup: {
+        Args: {
+          p_project_id: string;
+          p_project_payload: Json;
+          p_payload_version?: number;
+          p_reason?: 'publish' | 'before_publish' | 'before_pull' | 'manual' | 'restore';
+          p_note?: string | null;
+        };
+        Returns: string;
+      };
+      list_my_shared_projects: {
+        Args: Record<string, never>;
+        Returns: {
+          project_id: string;
+          project_name: string;
+          owner_user_id: string;
+          owner_email: string | null;
+          joined_at: string | null;
+          published_at: string | null;
+          updated_at: string;
+        }[];
       };
       join_shared_project_by_code: {
         Args: {

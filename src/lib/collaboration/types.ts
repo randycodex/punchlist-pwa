@@ -42,6 +42,16 @@ export interface CollaborationSharedProject {
   updatedAt: Date;
 }
 
+export interface CollaborationSharedProjectDirectoryEntry {
+  projectId: string;
+  projectName: string;
+  ownerUserId: string;
+  ownerEmail?: string;
+  joinedAt?: Date;
+  publishedAt?: Date;
+  updatedAt: Date;
+}
+
 export interface CollaborationProjectMember {
   projectId: string;
   userId: string;
@@ -53,6 +63,23 @@ export interface CollaborationProjectMember {
   invitedAt: Date;
   joinedAt?: Date;
   removedAt?: Date;
+}
+
+export type CollaborationSnapshotBackupReason =
+  | 'publish'
+  | 'before_publish'
+  | 'before_pull'
+  | 'manual'
+  | 'restore';
+
+export interface CollaborationSnapshotBackup {
+  id: string;
+  projectId: string;
+  projectName: string;
+  capturedByUserId: string;
+  capturedAt: Date;
+  reason: CollaborationSnapshotBackupReason;
+  note?: string;
 }
 
 export interface CollaborationOwnershipTransfer {

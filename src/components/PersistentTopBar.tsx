@@ -9,7 +9,7 @@ import { useCollaborationAuth } from '@/contexts/CollaborationAuthContext';
 import { useSyncStatus } from '@/contexts/SyncStatusContext';
 import { useAppSettings } from '@/contexts/AppSettingsContext';
 import { getProject } from '@/lib/db';
-import { MoreVertical, LogOut, LogIn, ArrowDownAZ, Clock3, BarChart3, PlusSquare, FolderPlus, Trash2, Pencil, FileDown, Users, Share2, CheckCircle2, KeyRound, UserPlus, CloudUpload, CloudDownload } from 'lucide-react';
+import { MoreVertical, LogOut, LogIn, ArrowDownAZ, Clock3, BarChart3, PlusSquare, FolderPlus, Trash2, Pencil, FileDown, Users, Share2, CheckCircle2, KeyRound, UserPlus, CloudUpload, CloudDownload, ArchiveRestore } from 'lucide-react';
 
 const projectTitleCache = new Map<string, string>();
 type SortOption = 'alphabetical' | 'issues' | 'progress';
@@ -360,6 +360,10 @@ export default function PersistentTopBar() {
                             <CloudDownload className="h-4 w-4" />
                             {homeMenuState.isPullingSharedProject ? 'Pulling...' : 'Pull shared data'}
                           </button>
+                          <button onClick={() => dispatchHomeAction('shared-backups')} className={menuItemClass}>
+                            <ArchiveRestore className="h-4 w-4" />
+                            Shared backups
+                          </button>
                           <button
                             onClick={() => dispatchHomeAction('transfer-shared-project')}
                             disabled={!!homeMenuState.isTransferringSharedProject}
@@ -371,10 +375,16 @@ export default function PersistentTopBar() {
                         </>
                       )}
                       {showAuth && (
-                        <button onClick={() => dispatchHomeAction('join-shared-project')} className={menuItemClass}>
-                          <UserPlus className="h-4 w-4" />
-                          Join shared project
-                        </button>
+                        <>
+                          <button onClick={() => dispatchHomeAction('my-shared-projects')} className={menuItemClass}>
+                            <Users className="h-4 w-4" />
+                            My shared projects
+                          </button>
+                          <button onClick={() => dispatchHomeAction('join-shared-project')} className={menuItemClass}>
+                            <UserPlus className="h-4 w-4" />
+                            Join shared project
+                          </button>
+                        </>
                       )}
                     </div>
                   </div>

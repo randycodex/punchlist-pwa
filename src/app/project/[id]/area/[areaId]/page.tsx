@@ -157,6 +157,7 @@ export default function AreaDetailPage() {
   const [syncError, setSyncError] = useState<string | null>(null);
   const [areaClaimError, setAreaClaimError] = useState<string | null>(null);
   const [claimingArea, setClaimingArea] = useState(false);
+  const [areaClaimExpiresAt, setAreaClaimExpiresAt] = useState<Date | null>(null);
   const [generalNotes, setGeneralNotes] = useState('');
   const [returnToHome, setReturnToHome] = useState(false);
   const syncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -272,11 +273,13 @@ export default function AreaDetailPage() {
     const currentAreaId = area?.id;
     if (!sharedProjectId || !currentAreaId) {
       setAreaClaimError(null);
+      setAreaClaimExpiresAt(null);
       return;
     }
 
     if (!collaborationAuth.isSignedIn) {
       setAreaClaimError('Enable shared projects before working in this shared area.');
+      setAreaClaimExpiresAt(null);
       return;
     }
 
@@ -292,15 +295,22 @@ export default function AreaDetailPage() {
     };
 
     void claimSharedProjectArea(sharedProjectId, currentAreaId)
-      .then(() => {
+      .then((claim) => {
         if (!cancelled) {
           setAreaClaimError(null);
+          setAreaClaimExpiresAt(claim.expiresAt ?? null);
           claimRenewTimer = setInterval(() => {
-            void claimSharedProjectArea(sharedProjectId, currentAreaId).catch((error) => {
-              if (cancelled) return;
-              const message = getCollaborationErrorMessage(error, 'Could not renew this shared area claim.');
-              setAreaClaimError(message);
-            });
+            void claimSharedProjectArea(sharedProjectId, currentAreaId)
+              .then((renewedClaim) => {
+                if (cancelled) return;
+                setAreaClaimError(null);
+                setAreaClaimExpiresAt(renewedClaim.expiresAt ?? null);
+              })
+              .catch((error) => {
+                if (cancelled) return;
+                const message = getCollaborationErrorMessage(error, 'Could not renew this shared area claim.');
+                setAreaClaimError(message);
+              });
           }, 2 * 60 * 1000);
         }
       })
@@ -326,6 +336,7 @@ export default function AreaDetailPage() {
       if (claimRenewTimer) {
         clearInterval(claimRenewTimer);
       }
+      setAreaClaimExpiresAt(null);
       window.removeEventListener('pagehide', releaseClaim);
       releaseClaim();
     };
@@ -1400,6 +1411,13 @@ export default function AreaDetailPage() {
   const supportsGlobalCustomItems = !supportsInlineLocationCustomItems && !deleteMode;
   const flattenSingleStairsLocation =
     !deleteMode && !isApartmentArea(area) && sortedStandardLocations.length === 1;
+  const sharedAreaClaimLabel = areaClaimError
+    ? 'Shared claim blocked'
+    : claimingArea
+      ? 'Claiming shared area...'
+      : areaClaimExpiresAt
+        ? `Locked to you until ${areaClaimExpiresAt.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`
+        : 'Shared area claimed';
 
   return (
     <div className="app-page h-[calc(100dvh-env(safe-area-inset-top)-3.5rem)] flex flex-col overflow-hidden">
@@ -1419,7 +1437,7 @@ export default function AreaDetailPage() {
               </h1>
               {project.sharedProjectId && (
                 <div className="mt-1 text-xs font-medium text-gray-500 dark:text-gray-400">
-                  {areaClaimError ? 'Shared claim blocked' : claimingArea ? 'Claiming shared area...' : 'Shared area claimed'}
+                  {sharedAreaClaimLabel}
                 </div>
               )}
             </div>

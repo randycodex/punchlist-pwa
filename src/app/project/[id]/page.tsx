@@ -58,6 +58,7 @@ type ExportScope = 'project' | 'selected-areas';
 
 const SORT_STORAGE_KEY = 'punchlist-areas-sort';
 const RECENT_AREA_TYPES_STORAGE_KEY = 'punchlist-recent-area-types';
+const SHARED_AREA_CLAIM_REFRESH_MS = 60 * 1000;
 
 function sanitizeOneDriveProjectFolderPart(value: string | undefined, fallback: string) {
   const cleaned = (value ?? '')
@@ -170,7 +171,7 @@ const AreaCard = memo(function AreaCard({
               <h3 className="truncate text-[1.05rem] font-semibold tracking-[-0.02em] text-gray-900 dark:text-white">{area.name}</h3>
               {claimStatus && (
                 <span className="segmented-chip shrink-0 px-2.5 py-1 text-[11px]">
-                  {claimStatus === 'mine' ? 'You are editing' : 'In use'}
+                  {claimStatus === 'mine' ? 'Locked by you' : 'Locked'}
                 </span>
               )}
             </div>
@@ -383,7 +384,7 @@ export default function ProjectDetailPage() {
     void refreshSharedAreaClaims();
     const refreshTimer = setInterval(() => {
       void refreshSharedAreaClaims();
-    }, 30_000);
+    }, SHARED_AREA_CLAIM_REFRESH_MS);
 
     return () => {
       cancelled = true;

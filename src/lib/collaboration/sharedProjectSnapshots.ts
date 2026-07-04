@@ -1,5 +1,6 @@
 import type { Area, Project } from '@/types';
 import type { Json } from './database';
+import type { CollaborationSnapshotBackup, CollaborationSnapshotBackupReason } from './types';
 import { getCollaborationSupabaseClient } from './supabaseClient';
 
 type SnapshotResult = {
@@ -141,6 +142,35 @@ export async function publishSharedProjectSnapshot(project: Project, publishedBy
   return { publishedAt };
 }
 
+export async function captureSharedProjectBackup(
+  project: Project,
+  reason: CollaborationSnapshotBackupReason,
+  note?: string
+) {
+  if (!project.sharedProjectId) {
+    throw new Error('Share this project before backing up shared data.');
+  }
+
+  const supabase = getCollaborationSupabaseClient();
+  if (!supabase) {
+    throw new Error('Collaboration is not configured.');
+  }
+
+  const { data, error } = await supabase.rpc('capture_shared_project_backup', {
+    p_project_id: project.sharedProjectId,
+    p_project_payload: toJson(project),
+    p_payload_version: 1,
+    p_reason: reason,
+    p_note: note ?? null,
+  });
+
+  if (error) {
+    throw error;
+  }
+
+  return data;
+}
+
 export async function getSharedProjectSnapshot(localProject: Project): Promise<SnapshotResult> {
   if (!localProject.sharedProjectId) {
     throw new Error('This project is not linked to a shared project.');
@@ -173,6 +203,83 @@ export async function getSharedProjectSnapshot(localProject: Project): Promise<S
       sharedSnapshotPublishedAt: new Date(data.published_at),
     },
     publishedAt: data.published_at,
+  };
+}
+
+function reviveBackup(row: {
+  id: string;
+  project_id: string;
+  project_payload: Json;
+  captured_by_user_id: string;
+  captured_at: string;
+  reason: CollaborationSnapshotBackupReason;
+  note: string | null;
+}): CollaborationSnapshotBackup {
+  const payload = row.project_payload as unknown as Partial<Project>;
+  return {
+    id: row.id,
+    projectId: row.project_id,
+    projectName: payload.projectName ?? 'Shared project backup',
+    capturedByUserId: row.captured_by_user_id,
+    capturedAt: new Date(row.captured_at),
+    reason: row.reason,
+    note: row.note ?? undefined,
+  };
+}
+
+export async function listSharedProjectBackups(sharedProjectId: string): Promise<CollaborationSnapshotBackup[]> {
+  const supabase = getCollaborationSupabaseClient();
+  if (!supabase) {
+    throw new Error('Collaboration is not configured.');
+  }
+
+  const { data, error } = await supabase
+    .from('shared_project_snapshot_history')
+    .select('id, project_id, project_payload, captured_by_user_id, captured_at, reason, note')
+    .eq('project_id', sharedProjectId)
+    .order('captured_at', { ascending: false })
+    .limit(50);
+
+  if (error) {
+    throw error;
+  }
+
+  return (data ?? []).map(reviveBackup);
+}
+
+export async function getSharedProjectBackupSnapshot(localProject: Project, backupId: string): Promise<SnapshotResult> {
+  if (!localProject.sharedProjectId) {
+    throw new Error('This project is not linked to a shared project.');
+  }
+
+  const supabase = getCollaborationSupabaseClient();
+  if (!supabase) {
+    throw new Error('Collaboration is not configured.');
+  }
+
+  const { data, error } = await supabase
+    .from('shared_project_snapshot_history')
+    .select('project_payload, captured_at')
+    .eq('id', backupId)
+    .eq('project_id', localProject.sharedProjectId)
+    .maybeSingle();
+
+  if (error) {
+    throw error;
+  }
+
+  if (!data) {
+    throw new Error('Could not find this shared project backup.');
+  }
+
+  const revivedProject = reviveProjectDates(data.project_payload as unknown as Project);
+  const retargetedProject = retargetProject(revivedProject, localProject);
+  return {
+    project: {
+      ...retargetedProject,
+      sharedSnapshotPublishedAt: localProject.sharedSnapshotPublishedAt,
+    },
+    publishedAt: data.captured_at,
   };
 }
 

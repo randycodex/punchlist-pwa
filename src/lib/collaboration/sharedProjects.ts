@@ -1,6 +1,6 @@
 import type { Project } from '@/types';
 import type { Json } from './database';
-import type { CollaborationProjectMember } from './types';
+import type { CollaborationProjectMember, CollaborationSharedProjectDirectoryEntry } from './types';
 import { getCollaborationSupabaseClient } from './supabaseClient';
 
 type JoinCodeResult = {
@@ -128,6 +128,29 @@ export async function createSharedProjectFromLocalProject(
   }
 
   return sharedProjectId;
+}
+
+export async function listMySharedProjects(): Promise<CollaborationSharedProjectDirectoryEntry[]> {
+  const supabase = getCollaborationSupabaseClient();
+  if (!supabase) {
+    throw new Error('Collaboration is not configured.');
+  }
+
+  const { data, error } = await supabase.rpc('list_my_shared_projects');
+
+  if (error) {
+    throw error;
+  }
+
+  return (data ?? []).map((row) => ({
+    projectId: row.project_id,
+    projectName: row.project_name,
+    ownerUserId: row.owner_user_id,
+    ownerEmail: row.owner_email ?? undefined,
+    joinedAt: row.joined_at ? new Date(row.joined_at) : undefined,
+    publishedAt: row.published_at ? new Date(row.published_at) : undefined,
+    updatedAt: new Date(row.updated_at),
+  }));
 }
 
 export async function generateSharedProjectJoinCode(sharedProjectId: string): Promise<JoinCodeResult> {
