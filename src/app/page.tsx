@@ -73,7 +73,7 @@ import {
 } from 'lucide-react';
 
 type SortOption = 'alphabetical' | 'issues' | 'progress';
-type ExportDestination = 'local' | 'onedrive' | 'both';
+type ExportDestination = 'local' | 'onedrive';
 type ExportScope = 'selected-projects' | 'selected-areas';
 
 const SORT_STORAGE_KEY = 'punchlist-projects-sort';
@@ -1055,7 +1055,7 @@ export default function ProjectsPage() {
       const selectedSortedAreaIds = sortedAreas
         .filter((area) => selectedIds.has(area.id))
         .map((area) => area.id);
-      const shouldSaveToDrive = destination === 'onedrive' || destination === 'both';
+      const shouldSaveToDrive = destination === 'onedrive';
       const token = shouldSaveToDrive ? await ensureAccessToken() : null;
       if (shouldSaveToDrive && !token) {
         signIn();
@@ -1067,7 +1067,7 @@ export default function ProjectsPage() {
       const projectForExport = fullProject ?? singleProject;
       const { generateProjectPDF, downloadPDF } = await import('@/lib/pdfExport');
       const blob = await generateProjectPDF(projectForExport, 'issues', { areaIds: selectedSortedAreaIds });
-      if (destination === 'local' || destination === 'both') {
+      if (destination === 'local') {
         const filename = `${sanitizeExportNamePart(singleProject.projectName)}_Selected_Areas_${formatDateForExport()}.pdf`;
         downloadPDF(blob, filename);
       }
@@ -1138,8 +1138,8 @@ export default function ProjectsPage() {
   async function handleExportSelected(destination: ExportDestination) {
     if (exportingSelected || exportingSelectedToDrive || selectedProjectIds.size === 0) return;
     setActionSheet(null);
-    const shouldSaveLocal = destination === 'local' || destination === 'both';
-    const shouldSaveToDrive = destination === 'onedrive' || destination === 'both';
+    const shouldSaveLocal = destination === 'local';
+    const shouldSaveToDrive = destination === 'onedrive';
     setExportingSelected(shouldSaveLocal);
     setExportingSelectedToDrive(shouldSaveToDrive);
     try {
@@ -2273,22 +2273,10 @@ export default function ProjectsPage() {
                     <div className="text-sm font-semibold text-gray-900 dark:text-white">Export PDF</div>
                     <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">
                       {exportScope === 'selected-areas'
-                        ? 'Save selected issue areas locally, to OneDrive, or both.'
-                        : 'Save this report locally, to OneDrive, or both.'}
+                        ? 'Save selected issue areas locally or to OneDrive.'
+                        : 'Save this report locally or to OneDrive.'}
                     </div>
                   </div>
-                  <button
-                    onClick={() => {
-                      if (exportScope === 'selected-areas') {
-                        void handleExportSelectedAreas('both');
-                        return;
-                      }
-                      void handleExportSelected('both');
-                    }}
-                    className="w-full rounded-[1.1rem] px-4 py-3 text-center text-[17px] font-medium text-gray-900 transition hover:bg-black/[0.04] dark:text-white dark:hover:bg-white/[0.05]"
-                  >
-                    Local + OneDrive
-                  </button>
                   <button
                     onClick={() => {
                       if (exportScope === 'selected-areas') {
@@ -2314,10 +2302,10 @@ export default function ProjectsPage() {
                     Local
                   </button>
                   <button
-                    onClick={() => setActionSheet(null)}
+                    onClick={() => setActionSheet('export-scope')}
                     className="mt-1 w-full rounded-[1.1rem] px-4 py-3 text-center text-[17px] text-gray-900 transition hover:bg-black/[0.04] dark:text-white dark:hover:bg-white/[0.05]"
                   >
-                    Cancel
+                    Back
                   </button>
                 </>
               ) : (

@@ -53,7 +53,7 @@ import {
 } from 'lucide-react';
 
 type SortOption = 'alphabetical' | 'issues' | 'progress';
-type ExportDestination = 'local' | 'onedrive' | 'both';
+type ExportDestination = 'local' | 'onedrive';
 type ExportScope = 'project' | 'selected-areas';
 
 const SORT_STORAGE_KEY = 'punchlist-areas-sort';
@@ -530,7 +530,7 @@ export default function ProjectDetailPage() {
       const sortedAreaIds = [...sortedAreas]
         .filter((area) => selectedIds.has(area.id))
         .map((area) => area.id);
-      const shouldSaveToDrive = destination === 'onedrive' || destination === 'both';
+      const shouldSaveToDrive = destination === 'onedrive';
       const token = shouldSaveToDrive ? await ensureAccessToken() : null;
       if (shouldSaveToDrive && !token) {
         signIn();
@@ -541,7 +541,7 @@ export default function ProjectDetailPage() {
         : project;
       const { generateProjectPDF, downloadPDF } = await import('@/lib/pdfExport');
       const blob = await generateProjectPDF(projectForExport ?? project, 'issues', { areaIds: sortedAreaIds });
-      if (destination === 'local' || destination === 'both') {
+      if (destination === 'local') {
         const filename = `${sanitizeExportNamePart(project.projectName)}_Selected_Areas_${formatDateForExport()}.pdf`;
         downloadPDF(blob, filename);
       }
@@ -570,7 +570,7 @@ export default function ProjectDetailPage() {
     setExportingSelectedAreas(true);
     setActionSheet(null);
     try {
-      const shouldSaveToDrive = destination === 'onedrive' || destination === 'both';
+      const shouldSaveToDrive = destination === 'onedrive';
       const token = shouldSaveToDrive ? await ensureAccessToken() : null;
       if (shouldSaveToDrive && !token) {
         signIn();
@@ -581,7 +581,7 @@ export default function ProjectDetailPage() {
         : project;
       const { generateProjectPDF, downloadPDF } = await import('@/lib/pdfExport');
       const blob = await generateProjectPDF(projectForExport ?? project, 'issues');
-      if (destination === 'local' || destination === 'both') {
+      if (destination === 'local') {
         const filename = `${sanitizeExportNamePart(project.projectName)}_Issues_${formatDateForExport()}.pdf`;
         downloadPDF(blob, filename);
       }
@@ -1088,22 +1088,10 @@ export default function ProjectDetailPage() {
                     <div className="text-sm font-semibold text-gray-900 dark:text-white">Export PDF</div>
                     <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">
                       {exportScope === 'selected-areas'
-                        ? 'Save selected issue areas locally, to OneDrive, or both.'
-                        : 'Save all project issue areas locally, to OneDrive, or both.'}
+                        ? 'Save selected issue areas locally or to OneDrive.'
+                        : 'Save all project issue areas locally or to OneDrive.'}
                     </div>
                   </div>
-                  <button
-                    onClick={() => {
-                      if (exportScope === 'selected-areas') {
-                        void handleExportSelectedAreas('both');
-                        return;
-                      }
-                      void handleExportProject('both');
-                    }}
-                    className="w-full rounded-[1.1rem] px-4 py-3 text-center text-[17px] font-medium text-gray-900 transition hover:bg-black/[0.04] dark:text-white dark:hover:bg-white/[0.05]"
-                  >
-                    Local + OneDrive
-                  </button>
                   <button
                     onClick={() => {
                       if (exportScope === 'selected-areas') {
@@ -1129,10 +1117,10 @@ export default function ProjectDetailPage() {
                     Local
                   </button>
                   <button
-                    onClick={() => setActionSheet(null)}
+                    onClick={() => setActionSheet('export-scope')}
                     className="mt-1 w-full rounded-[1.1rem] px-4 py-3 text-center text-[17px] text-gray-900 transition hover:bg-black/[0.04] dark:text-white dark:hover:bg-white/[0.05]"
                   >
-                    Cancel
+                    Back
                   </button>
                 </>
               ) : (
