@@ -2,7 +2,16 @@
 
 import { memo, useState, useEffect, useMemo, useRef, useCallback, type TouchEvent } from 'react';
 import { Area, Project, checkpointHasIssue, getReviewMetrics } from '@/types';
-import { getAllProjects, getProject, saveProject, deleteProject, createProject, createArea } from '@/lib/db';
+import {
+  getAllProjects,
+  getProject,
+  saveProject,
+  saveProjectMetadataOnly,
+  saveProjectPreserveTimestamps,
+  deleteProject,
+  createProject,
+  createArea,
+} from '@/lib/db';
 import {
   syncProjectsWithOneDrive,
   SyncConflict,
@@ -16,7 +25,7 @@ import {
   queuePendingSync,
   recordPendingSyncRetry,
 } from '@/lib/pendingSync';
-import { generateMultiProjectPDF, generateProjectPDF, downloadPDF, type PdfExportMode } from '@/lib/pdfExport';
+import type { PdfExportMode } from '@/lib/pdfExport';
 import { uploadPdfToOneDrive, getNextOneDriveExportFilename } from '@/lib/oneDrive';
 import {
   formatMicrosoftManualRetryMessage,
@@ -24,8 +33,21 @@ import {
   getMicrosoftRetryDelayMs,
 } from '@/lib/microsoftErrors';
 import { useMicrosoftAuth } from '@/contexts/MicrosoftAuthContext';
+import { useCollaborationAuth } from '@/contexts/CollaborationAuthContext';
 import { useSyncStatus } from '@/contexts/SyncStatusContext';
 import { useAppSettings } from '@/contexts/AppSettingsContext';
+import {
+  createSharedProjectFromLocalProject,
+  generateSharedProjectJoinCode,
+  getActiveSharedProjectAreaClaims,
+  getSharedProjectMembers,
+  getSharedProjectSnapshot,
+  getCollaborationErrorMessage,
+  isSharedSnapshotNewer,
+  joinSharedProjectByCode,
+  publishSharedProjectSnapshot,
+  transferSharedProjectOwnership,
+} from '@/lib/collaboration';
 import ProjectEditModal from '@/components/ProjectEditModal';
 import AreaEditorModal from '@/components/AreaEditorModal';
 import MetadataLine from '@/components/MetadataLine';
@@ -51,7 +73,7 @@ import {
 } from 'lucide-react';
 
 type SortOption = 'alphabetical' | 'issues' | 'progress';
-type ExportDestination = 'local' | 'onedrive' | 'both';
+type ExportDestination = 'local' | 'onedrive';
 type ExportScope = 'selected-projects' | 'selected-areas';
 
 const SORT_STORAGE_KEY = 'punchlist-projects-sort';
@@ -282,6 +304,7 @@ type HomeAreaCardProps = {
   projectId: string;
   area: Project['areas'][number];
   metric?: AreaMetrics;
+  claimStatus?: 'mine' | 'other';
   deleteMode: boolean;
   isSelected: boolean;
   onToggleSelection: (areaId: string) => void;
@@ -291,6 +314,7 @@ const HomeAreaCard = memo(function HomeAreaCard({
   projectId,
   area,
   metric,
+  claimStatus,
   deleteMode,
   isSelected,
   onToggleSelection,
@@ -299,6 +323,7 @@ const HomeAreaCard = memo(function HomeAreaCard({
   const progress = metric?.progress ?? 0;
   const commentCount = metric?.commentCount ?? 0;
   const photoCount = metric?.photoCount ?? 0;
+  const blockedByClaim = claimStatus === 'other';
 
   return (
     <div
@@ -321,9 +346,14 @@ const HomeAreaCard = memo(function HomeAreaCard({
     >
       <div className="flex items-start gap-3">
         <Link
-          href={deleteMode ? '#' : `/project/${projectId}/area/${area.id}`}
+          href={deleteMode || blockedByClaim ? '#' : `/project/${projectId}/area/${area.id}`}
           onClick={(event) => {
-            if (deleteMode) event.preventDefault();
+            if (deleteMode || blockedByClaim) {
+              event.preventDefault();
+              if (blockedByClaim) {
+                alert('This shared area is currently being edited by another user.');
+              }
+            }
           }}
           onContextMenu={(event) => {
             if (!deleteMode) {
@@ -336,7 +366,11 @@ const HomeAreaCard = memo(function HomeAreaCard({
           <div className="min-w-0">
             <div className="flex items-center gap-2 min-w-0">
               <h3 className="truncate text-[1.03rem] font-semibold tracking-[-0.02em] text-gray-900 dark:text-white">{area.name}</h3>
-              <span className="segmented-chip shrink-0 px-2.5 py-1 text-[11px]">{areaStats.total} items</span>
+              {claimStatus && (
+                <span className="segmented-chip shrink-0 px-2.5 py-1 text-[11px]">
+                  {claimStatus === 'mine' ? 'You are editing' : 'In use'}
+                </span>
+              )}
             </div>
             <MetadataLine className="mt-2" issues={areaStats.issues} notes={commentCount} photos={photoCount} />
             <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-gray-200 dark:bg-white/[0.12]">
@@ -348,9 +382,14 @@ const HomeAreaCard = memo(function HomeAreaCard({
           </div>
         </Link>
         <Link
-          href={deleteMode ? '#' : `/project/${projectId}/area/${area.id}`}
+          href={deleteMode || blockedByClaim ? '#' : `/project/${projectId}/area/${area.id}`}
           onClick={(event) => {
-            if (deleteMode) event.preventDefault();
+            if (deleteMode || blockedByClaim) {
+              event.preventDefault();
+              if (blockedByClaim) {
+                alert('This shared area is currently being edited by another user.');
+              }
+            }
           }}
           onContextMenu={(event) => {
             if (!deleteMode) {
@@ -379,6 +418,19 @@ export default function ProjectsPage() {
   const [newProjectGcName, setNewProjectGcName] = useState('');
   const [newProjectLevelStart, setNewProjectLevelStart] = useState('');
   const [newProjectLevelEnd, setNewProjectLevelEnd] = useState('');
+  const [joinProjectCode, setJoinProjectCode] = useState('');
+  const [showJoinProject, setShowJoinProject] = useState(false);
+  const [joiningProject, setJoiningProject] = useState(false);
+  const [sharedProjectCode, setSharedProjectCode] = useState<{
+    projectName: string;
+    code: string;
+    expiresAt: string;
+  } | null>(null);
+  const [creatingJoinCode, setCreatingJoinCode] = useState(false);
+  const [loadingSharedMembers, setLoadingSharedMembers] = useState(false);
+  const [publishingSharedProject, setPublishingSharedProject] = useState(false);
+  const [pullingSharedProject, setPullingSharedProject] = useState(false);
+  const [transferringSharedProject, setTransferringSharedProject] = useState(false);
   const [sortOption, setSortOption] = useState<SortOption>('issues');
   const [syncing, setSyncing] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
@@ -401,14 +453,22 @@ export default function ProjectsPage() {
   const [selectedAreaIds, setSelectedAreaIds] = useState<Set<string>>(new Set());
   const [newAreaForm, setNewAreaForm] = useState(getDefaultAreaFormValue());
   const [recentAreaTypeKeys, setRecentAreaTypeKeys] = useState<AreaTypeKey[]>([]);
+  const [sharedAreaClaims, setSharedAreaClaims] = useState<Map<string, 'mine' | 'other'>>(new Map());
   const syncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const sharedPublishTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   const pullStartYRef = useRef<number | null>(null);
   const pullArmedRef = useRef(false);
   const listRef = useRef<HTMLElement | null>(null);
-  const { signIn, signOut, isSignedIn, ensureAccessToken } = useMicrosoftAuth();
+  const homeMenuActionHandlerRef = useRef<((event: Event) => void) | null>(null);
+  const loadProjectsRef = useRef<() => Promise<void>>(() => Promise.resolve());
+  const scheduleSyncRef = useRef<(projectId?: string, options?: { fullSync?: boolean }) => void>(() => {});
+  const { signIn, signOut, isSignedIn, ensureAccessToken, accountEmail, accountName } = useMicrosoftAuth();
+  const collaborationAuth = useCollaborationAuth();
   const { setRetryAt, setStatus: setSyncStatus } = useSyncStatus();
   const { quickSort, setQuickSort, markSyncedNow } = useAppSettings();
   const selectionMode = deleteMode || exportMode;
+  loadProjectsRef.current = loadProjects;
+  scheduleSyncRef.current = scheduleSync;
 
   useEffect(() => {
     const savedSort = localStorage.getItem(SORT_STORAGE_KEY);
@@ -432,16 +492,26 @@ export default function ProjectsPage() {
         console.error('Failed to parse recent area types:', error);
       }
     }
-    loadProjects();
+    void loadProjectsRef.current();
   }, []);
 
   useEffect(() => {
+    const sharedPublishTimers = sharedPublishTimersRef.current;
     return () => {
       if (syncTimerRef.current) {
         clearTimeout(syncTimerRef.current);
       }
+      for (const timer of sharedPublishTimers.values()) {
+        clearTimeout(timer);
+      }
+      sharedPublishTimers.clear();
     };
   }, []);
+
+  useEffect(() => {
+    if (!collaborationAuth.isSignedIn || loading) return;
+    void loadProjectsRef.current();
+  }, [collaborationAuth.isSignedIn, loading]);
 
   function handleSortChange(option: SortOption) {
     setSortOption(option);
@@ -467,7 +537,11 @@ export default function ProjectsPage() {
       }
 
       const expiredIds = new Set(expiredProjects.map((project) => project.id));
-      setProjects(data.filter((project) => !expiredIds.has(project.id)));
+      const activeData = data.filter((project) => !expiredIds.has(project.id));
+      const nextProjects = collaborationAuth.isSignedIn
+        ? await pullNewerSharedSnapshots(activeData)
+        : activeData;
+      setProjects(nextProjects);
     } catch (error) {
       console.error('Failed to load projects:', error);
     } finally {
@@ -531,10 +605,75 @@ export default function ProjectsPage() {
   function scheduleSync(projectId?: string, options?: { fullSync?: boolean }) {
     queuePendingSync(projectId, options);
     setSyncStatus('pending');
+    if (projectId) {
+      scheduleSharedPublish(projectId);
+    }
     if (syncTimerRef.current) {
       clearTimeout(syncTimerRef.current);
     }
     syncTimerRef.current = null;
+  }
+
+  async function pullNewerSharedSnapshots(projectsToCheck: Project[]) {
+    const pulledProjects: Project[] = [];
+    for (const project of projectsToCheck) {
+      if (!project.sharedProjectId) {
+        pulledProjects.push(project);
+        continue;
+      }
+
+      try {
+        const snapshot = await getSharedProjectSnapshot(project);
+        if (isSharedSnapshotNewer(project, snapshot.publishedAt)) {
+          await saveProjectPreserveTimestamps(snapshot.project);
+          pulledProjects.push(snapshot.project);
+        } else {
+          pulledProjects.push(project);
+        }
+      } catch (error) {
+        console.info('Shared snapshot pull skipped:', error);
+        pulledProjects.push(project);
+      }
+    }
+
+    return pulledProjects;
+  }
+
+  function scheduleSharedPublish(projectId: string) {
+    if (!collaborationAuth.isSignedIn || !collaborationAuth.user) return;
+
+    const existingTimer = sharedPublishTimersRef.current.get(projectId);
+    if (existingTimer) {
+      clearTimeout(existingTimer);
+    }
+
+    const timer = setTimeout(() => {
+      sharedPublishTimersRef.current.delete(projectId);
+      void publishSharedProjectSilently(projectId);
+    }, 1_200);
+    sharedPublishTimersRef.current.set(projectId, timer);
+  }
+
+  async function publishSharedProjectSilently(projectId: string) {
+    const userId = collaborationAuth.user?.id;
+    if (!userId) return;
+
+    try {
+      const fullProject = await getProject(projectId);
+      if (!fullProject?.sharedProjectId) return;
+      await publishSharedProjectSnapshot(fullProject, userId);
+      await saveProjectMetadataOnly(fullProject, { touch: false });
+      setProjects((prev) =>
+        prev.map((project) =>
+          project.id === fullProject.id
+            ? { ...project, sharedSnapshotPublishedAt: fullProject.sharedSnapshotPublishedAt }
+            : project
+        )
+      );
+    } catch (error) {
+      console.error('Automatic shared publish failed:', error);
+      setSyncError(getCollaborationErrorMessage(error, 'Shared data was saved locally but could not be published.'));
+    }
   }
 
   const projectMetrics = useMemo(() => {
@@ -624,6 +763,47 @@ export default function ProjectsPage() {
     () => (singleProject ? singleProject.areas.filter((area) => !area.deletedAt) : []),
     [singleProject]
   );
+
+  useEffect(() => {
+    const sharedProjectId = singleProject?.sharedProjectId;
+    const userId = collaborationAuth.user?.id;
+    if (!sharedProjectId || !collaborationAuth.isSignedIn || !userId) {
+      setSharedAreaClaims(new Map());
+      return;
+    }
+
+    const activeSharedProjectId = sharedProjectId;
+    const activeUserId = userId;
+    let cancelled = false;
+    async function refreshSharedAreaClaims() {
+      try {
+        const claims = await getActiveSharedProjectAreaClaims(activeSharedProjectId);
+        if (cancelled) return;
+        setSharedAreaClaims(
+          new Map(
+            claims.map((claim) => [
+              claim.areaId,
+              claim.claimedByUserId === activeUserId ? 'mine' : 'other',
+            ])
+          )
+        );
+      } catch (error) {
+        if (cancelled) return;
+        console.info('Shared area claims unavailable:', error);
+        setSharedAreaClaims(new Map());
+      }
+    }
+
+    void refreshSharedAreaClaims();
+    const refreshTimer = setInterval(() => {
+      void refreshSharedAreaClaims();
+    }, 30_000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(refreshTimer);
+    };
+  }, [collaborationAuth.isSignedIn, collaborationAuth.user?.id, singleProject?.sharedProjectId]);
 
   const areaMetrics = useMemo(() => {
     const metrics = new Map<string, AreaMetrics>();
@@ -839,7 +1019,7 @@ export default function ProjectsPage() {
   const handleTrashProject = useCallback(async (project: Project) => {
     project.deletedAt = new Date();
     await saveProject(project);
-    scheduleSync(project.id);
+    scheduleSyncRef.current(project.id);
     setShowProjectMenuId(null);
     setProjects((prev) =>
       prev.map((entry) => (entry.id === project.id ? { ...project, areas: [...project.areas] } : entry))
@@ -875,7 +1055,7 @@ export default function ProjectsPage() {
       const selectedSortedAreaIds = sortedAreas
         .filter((area) => selectedIds.has(area.id))
         .map((area) => area.id);
-      const shouldSaveToDrive = destination === 'onedrive' || destination === 'both';
+      const shouldSaveToDrive = destination === 'onedrive';
       const token = shouldSaveToDrive ? await ensureAccessToken() : null;
       if (shouldSaveToDrive && !token) {
         signIn();
@@ -885,8 +1065,9 @@ export default function ProjectsPage() {
         ? await hydrateProjectMediaFromOneDrive(token, singleProject.id)
         : await getProject(singleProject.id);
       const projectForExport = fullProject ?? singleProject;
+      const { generateProjectPDF, downloadPDF } = await import('@/lib/pdfExport');
       const blob = await generateProjectPDF(projectForExport, 'issues', { areaIds: selectedSortedAreaIds });
-      if (destination === 'local' || destination === 'both') {
+      if (destination === 'local') {
         const filename = `${sanitizeExportNamePart(singleProject.projectName)}_Selected_Areas_${formatDateForExport()}.pdf`;
         downloadPDF(blob, filename);
       }
@@ -957,8 +1138,8 @@ export default function ProjectsPage() {
   async function handleExportSelected(destination: ExportDestination) {
     if (exportingSelected || exportingSelectedToDrive || selectedProjectIds.size === 0) return;
     setActionSheet(null);
-    const shouldSaveLocal = destination === 'local' || destination === 'both';
-    const shouldSaveToDrive = destination === 'onedrive' || destination === 'both';
+    const shouldSaveLocal = destination === 'local';
+    const shouldSaveToDrive = destination === 'onedrive';
     setExportingSelected(shouldSaveLocal);
     setExportingSelectedToDrive(shouldSaveToDrive);
     try {
@@ -975,6 +1156,7 @@ export default function ProjectsPage() {
         .filter((project) => selectedProjectIds.has(project.id))
         .sort((a, b) => a.projectName.localeCompare(b.projectName));
       const projectsForExport = await loadProjectsForExport(token);
+      const { generateMultiProjectPDF, downloadPDF } = await import('@/lib/pdfExport');
       const blob = await generateMultiProjectPDF(projectsForExport, exportType);
       if (shouldSaveLocal) {
         const filename = exportType === 'issues' ? 'UAI_PUNCHLIST_APP_Issues_Report.pdf' : 'UAI_PUNCHLIST_APP_Full_Report.pdf';
@@ -1018,6 +1200,236 @@ export default function ProjectsPage() {
     setEditingProject(null);
   }
 
+  const handleShareProject = useCallback(async (project: Project) => {
+    if (!collaborationAuth.isSignedIn || !collaborationAuth.user) {
+      alert('Enable shared projects before sharing this project.');
+      return;
+    }
+
+    if (!accountEmail) {
+      alert('Sign in with your UAI Microsoft account before sharing this project.');
+      return;
+    }
+
+    try {
+      const sharedProjectId = await createSharedProjectFromLocalProject(
+        project,
+        accountEmail,
+        accountName
+      );
+      const linkedAt = new Date();
+      project.sharedProjectId = sharedProjectId;
+      project.sharedProjectLinkedAt = linkedAt;
+      await saveProject(project);
+      setProjects((prev) =>
+        prev.map((entry) =>
+          entry.id === project.id
+            ? { ...project, sharedProjectId, sharedProjectLinkedAt: linkedAt, areas: [...project.areas] }
+            : entry
+        )
+      );
+      alert('Project sharing is enabled. You are the owner of this shared project.');
+    } catch (error) {
+      console.error('Failed to share project:', error);
+      alert(getCollaborationErrorMessage(error));
+    }
+  }, [accountEmail, accountName, collaborationAuth.isSignedIn, collaborationAuth.user]);
+
+  const handleCreateJoinCode = useCallback(async (project: Project) => {
+    if (!project.sharedProjectId) {
+      alert('Share this project before creating an invite code.');
+      return;
+    }
+
+    if (!collaborationAuth.isSignedIn) {
+      alert('Enable shared projects before creating an invite code.');
+      return;
+    }
+
+    setCreatingJoinCode(true);
+    try {
+      const result = await generateSharedProjectJoinCode(project.sharedProjectId);
+      setSharedProjectCode({
+        projectName: project.projectName,
+        code: result.joinCode,
+        expiresAt: result.expiresAt,
+      });
+    } catch (error) {
+      console.error('Failed to create shared project code:', error);
+      alert(getCollaborationErrorMessage(error, 'Failed to create invite code. Please try again.'));
+    } finally {
+      setCreatingJoinCode(false);
+    }
+  }, [collaborationAuth.isSignedIn]);
+
+  const handleShowSharedMembers = useCallback(async (project: Project) => {
+    if (!project.sharedProjectId) {
+      alert('Share this project before viewing shared members.');
+      return;
+    }
+
+    if (!collaborationAuth.isSignedIn) {
+      alert('Enable shared projects before viewing shared members.');
+      return;
+    }
+
+    setLoadingSharedMembers(true);
+    try {
+      const members = await getSharedProjectMembers(project.sharedProjectId);
+      if (members.length === 0) {
+        alert('No shared project members found.');
+        return;
+      }
+
+      const lines = members.map((member) => {
+        const name = member.displayName ? ` (${member.displayName})` : '';
+        return `${member.email}${name} - ${member.accessState}`;
+      });
+      alert(lines.join('\n'));
+    } catch (error) {
+      console.error('Failed to load shared project members:', error);
+      alert(getCollaborationErrorMessage(error, 'Failed to load shared project members. Please try again.'));
+    } finally {
+      setLoadingSharedMembers(false);
+    }
+  }, [collaborationAuth.isSignedIn]);
+
+  async function handleJoinSharedProject() {
+    const code = joinProjectCode.trim();
+    if (!code || joiningProject) return;
+
+    if (!collaborationAuth.isSignedIn) {
+      alert('Enable shared projects before joining a project.');
+      return;
+    }
+
+    if (!accountEmail) {
+      alert('Sign in with your UAI Microsoft account before joining a shared project.');
+      return;
+    }
+
+    setJoiningProject(true);
+    try {
+      const result = await joinSharedProjectByCode(code, accountEmail, accountName);
+      const existingProject = projects.find((project) => project.sharedProjectId === result.sharedProjectId);
+      if (existingProject) {
+        alert(`You already joined "${existingProject.projectName}".`);
+        setShowJoinProject(false);
+        setJoinProjectCode('');
+        return;
+      }
+
+      const project = createProject(result.projectName);
+      project.sharedProjectId = result.sharedProjectId;
+      project.sharedProjectLinkedAt = new Date();
+      await saveProject(project);
+      setProjects((prev) => [...prev, project]);
+      setShowJoinProject(false);
+      setJoinProjectCode('');
+      alert(`Joined "${result.projectName}".`);
+    } catch (error) {
+      console.error('Failed to join shared project:', error);
+      alert(getCollaborationErrorMessage(error, 'Failed to join shared project. Please try again.'));
+    } finally {
+      setJoiningProject(false);
+    }
+  }
+
+  const handlePublishSharedProject = useCallback(async (project: Project) => {
+    if (!project.sharedProjectId) {
+      alert('Share this project before publishing shared data.');
+      return;
+    }
+
+    if (!collaborationAuth.isSignedIn || !collaborationAuth.user) {
+      alert('Enable shared projects before publishing shared data.');
+      return;
+    }
+
+    setPublishingSharedProject(true);
+    try {
+      const fullProject = await getProject(project.id);
+      if (!fullProject) {
+        throw new Error('Could not load this project.');
+      }
+
+      fullProject.sharedProjectId = project.sharedProjectId;
+      fullProject.sharedProjectLinkedAt = project.sharedProjectLinkedAt;
+      const result = await publishSharedProjectSnapshot(fullProject, collaborationAuth.user.id);
+      await saveProjectMetadataOnly(fullProject, { touch: false });
+      setProjects((prev) =>
+        prev.map((entry) =>
+          entry.id === fullProject.id
+            ? { ...entry, sharedSnapshotPublishedAt: fullProject.sharedSnapshotPublishedAt }
+            : entry
+        )
+      );
+      alert(`Shared data published at ${new Date(result.publishedAt).toLocaleTimeString()}.`);
+    } catch (error) {
+      console.error('Failed to publish shared project:', error);
+      alert(getCollaborationErrorMessage(error, 'Failed to publish shared data. Please try again.'));
+    } finally {
+      setPublishingSharedProject(false);
+    }
+  }, [collaborationAuth.isSignedIn, collaborationAuth.user]);
+
+  const handlePullSharedProject = useCallback(async (project: Project) => {
+    if (!project.sharedProjectId) {
+      alert('Share or join this project before pulling shared data.');
+      return;
+    }
+
+    if (!collaborationAuth.isSignedIn) {
+      alert('Enable shared projects before pulling shared data.');
+      return;
+    }
+
+    setPullingSharedProject(true);
+    try {
+      const result = await getSharedProjectSnapshot(project);
+      await saveProjectPreserveTimestamps(result.project);
+      setProjects((prev) =>
+        prev.map((entry) =>
+          entry.id === project.id
+            ? { ...result.project, areas: [...result.project.areas] }
+            : entry
+        )
+      );
+      alert(`Shared data pulled from ${new Date(result.publishedAt).toLocaleString()}.`);
+    } catch (error) {
+      console.error('Failed to pull shared project:', error);
+      alert(getCollaborationErrorMessage(error, 'Failed to pull shared data. Please try again.'));
+    } finally {
+      setPullingSharedProject(false);
+    }
+  }, [collaborationAuth.isSignedIn]);
+
+  const handleTransferSharedProjectOwnership = useCallback(async (project: Project) => {
+    if (!project.sharedProjectId) {
+      alert('Share this project before transferring ownership.');
+      return;
+    }
+
+    if (!collaborationAuth.isSignedIn) {
+      alert('Enable shared projects before transferring ownership.');
+      return;
+    }
+
+    const newOwnerEmail = window.prompt('New owner UAI email')?.trim().toLowerCase();
+    if (!newOwnerEmail) return;
+
+    setTransferringSharedProject(true);
+    try {
+      const result = await transferSharedProjectOwnership(project.sharedProjectId, newOwnerEmail);
+      alert(`Ownership transferred to ${result.ownerEmail}.`);
+    } catch (error) {
+      console.error('Failed to transfer shared project ownership:', error);
+      alert(getCollaborationErrorMessage(error, 'Failed to transfer ownership. Please try again.'));
+    } finally {
+      setTransferringSharedProject(false);
+    }
+  }, [collaborationAuth.isSignedIn]);
+
   async function handleDeleteEditingProject() {
     if (!editingProject) return;
     const projectToDelete = editingProject;
@@ -1037,100 +1449,139 @@ export default function ProjectsPage() {
     setSelectedAreaIds(new Set());
   }
 
+  homeMenuActionHandlerRef.current = (event: Event) => {
+    const customEvent = event as CustomEvent<{ action: string; sort?: SortOption }>;
+    const detail = customEvent.detail;
+    if (!detail) return;
+
+    if (detail.action === 'sort' && detail.sort) {
+      handleSortChange(detail.sort);
+      return;
+    }
+
+    if (detail.action === 'sync-now') {
+      void handleSync();
+      return;
+    }
+
+    if (detail.action.startsWith('quick-sort:')) {
+      const nextQuickSort = detail.action.replace('quick-sort:', '');
+      if (nextQuickSort === 'issues' || nextQuickSort === 'alphabetical' || nextQuickSort === 'progress') {
+        setQuickSort(nextQuickSort);
+        handleSortChange(nextQuickSort);
+      }
+      return;
+    }
+
+    if (detail.action === 'new-project') {
+      setShowNewProject(true);
+      return;
+    }
+
+    if (detail.action === 'new-area') {
+      if (singleProject) {
+        setAreaTargetProjectId(singleProject.id);
+        setShowAddArea(true);
+      }
+      return;
+    }
+
+    if (detail.action === 'toggle-trash') {
+      toggleTrashView();
+      return;
+    }
+
+    if (detail.action === 'clear-trash') {
+      setShowTrash(false);
+      setDeleteMode(false);
+      setExportMode(false);
+      setSelectedProjectIds(new Set());
+      setSelectedAreaIds(new Set());
+      return;
+    }
+
+    if (detail.action === 'edit-project' && singleProject) {
+      handleOpenProjectEditor(singleProject);
+      return;
+    }
+
+    if (detail.action === 'toggle-selection' && singleProject) {
+      setShowTrash(false);
+      setExportMode(false);
+      setSelectedProjectIds(new Set());
+      setActionSheet(null);
+      if (deleteMode) {
+        setDeleteMode(false);
+        setSelectedAreaIds(new Set());
+      } else {
+        setDeleteMode(true);
+        setSelectedAreaIds(new Set());
+      }
+      return;
+    }
+
+    if (detail.action === 'export-project' && singleProject) {
+      setShowTrash(false);
+      setDeleteMode(false);
+      setExportMode(false);
+      setSelectedAreaIds(new Set());
+      setSelectedProjectIds(new Set([singleProject.id]));
+      setExportScope('selected-projects');
+      setActionSheet('export-scope');
+      return;
+    }
+
+    if (detail.action === 'share-project' && singleProject) {
+      void handleShareProject(singleProject);
+      return;
+    }
+
+    if (detail.action === 'invite-code' && singleProject) {
+      void handleCreateJoinCode(singleProject);
+      return;
+    }
+
+    if (detail.action === 'shared-members' && singleProject) {
+      void handleShowSharedMembers(singleProject);
+      return;
+    }
+
+    if (detail.action === 'join-shared-project') {
+      setShowJoinProject(true);
+      return;
+    }
+
+    if (detail.action === 'publish-shared-project' && singleProject) {
+      void handlePublishSharedProject(singleProject);
+      return;
+    }
+
+    if (detail.action === 'pull-shared-project' && singleProject) {
+      void handlePullSharedProject(singleProject);
+      return;
+    }
+
+    if (detail.action === 'transfer-shared-project' && singleProject) {
+      void handleTransferSharedProjectOwnership(singleProject);
+      return;
+    }
+
+    if (detail.action === 'auth') {
+      if (isSignedIn) signOut();
+      else signIn();
+    }
+  };
+
   useEffect(() => {
     function handleHomeMenuAction(event: Event) {
-      const customEvent = event as CustomEvent<{ action: string; sort?: SortOption }>;
-      const detail = customEvent.detail;
-      if (!detail) return;
-
-      if (detail.action === 'sort' && detail.sort) {
-        handleSortChange(detail.sort);
-        return;
-      }
-
-      if (detail.action === 'sync-now') {
-        void handleSync();
-        return;
-      }
-
-      if (detail.action.startsWith('quick-sort:')) {
-        const nextQuickSort = detail.action.replace('quick-sort:', '');
-        if (nextQuickSort === 'issues' || nextQuickSort === 'alphabetical' || nextQuickSort === 'progress') {
-          setQuickSort(nextQuickSort);
-          handleSortChange(nextQuickSort);
-        }
-        return;
-      }
-
-      if (detail.action === 'new-project') {
-        setShowNewProject(true);
-        return;
-      }
-
-      if (detail.action === 'new-area') {
-        if (singleProject) {
-          setAreaTargetProjectId(singleProject.id);
-          setShowAddArea(true);
-        }
-        return;
-      }
-
-      if (detail.action === 'toggle-trash') {
-        toggleTrashView();
-        return;
-      }
-
-      if (detail.action === 'clear-trash') {
-        setShowTrash(false);
-        setDeleteMode(false);
-        setExportMode(false);
-        setSelectedProjectIds(new Set());
-        setSelectedAreaIds(new Set());
-        return;
-      }
-
-      if (detail.action === 'edit-project' && singleProject) {
-        handleOpenProjectEditor(singleProject);
-        return;
-      }
-
-      if (detail.action === 'toggle-selection' && singleProject) {
-        setShowTrash(false);
-        setExportMode(false);
-        setSelectedProjectIds(new Set());
-        setActionSheet(null);
-        if (deleteMode) {
-          setDeleteMode(false);
-          setSelectedAreaIds(new Set());
-        } else {
-          setDeleteMode(true);
-          setSelectedAreaIds(new Set());
-        }
-        return;
-      }
-
-      if (detail.action === 'export-project' && singleProject) {
-        setShowTrash(false);
-        setDeleteMode(false);
-        setExportMode(false);
-        setSelectedAreaIds(new Set());
-        setSelectedProjectIds(new Set([singleProject.id]));
-        setExportScope('selected-projects');
-        setActionSheet('export-scope');
-        return;
-      }
-
-      if (detail.action === 'auth') {
-        if (isSignedIn) signOut();
-        else signIn();
-      }
+      homeMenuActionHandlerRef.current?.(event);
     }
 
     window.addEventListener('punchlist-home-menu-action', handleHomeMenuAction as EventListener);
     return () => {
       window.removeEventListener('punchlist-home-menu-action', handleHomeMenuAction as EventListener);
     };
-  }, [deleteMode, isSignedIn, signIn, signOut, singleProject, sortOption, showTrash, setQuickSort]);
+  }, []);
 
   useEffect(() => {
     window.dispatchEvent(
@@ -1143,10 +1594,16 @@ export default function ProjectsPage() {
           isSingleProject: !!singleProject,
           singleProjectName: singleProject?.projectName ?? '',
           selectionMode: deleteMode,
+          isSharedProject: !!singleProject?.sharedProjectId,
+          isCreatingJoinCode: creatingJoinCode,
+          isLoadingSharedMembers: loadingSharedMembers,
+          isPublishingSharedProject: publishingSharedProject,
+          isPullingSharedProject: pullingSharedProject,
+          isTransferringSharedProject: transferringSharedProject,
         },
       })
     );
-  }, [deleteMode, sortOption, showTrash, singleProject]);
+  }, [creatingJoinCode, deleteMode, loadingSharedMembers, publishingSharedProject, pullingSharedProject, sortOption, showTrash, singleProject, transferringSharedProject]);
 
   function toggleTrashView() {
     setShowTrash((current) => {
@@ -1443,6 +1900,7 @@ export default function ProjectsPage() {
                     projectId={singleProject.id}
                     area={area}
                     metric={metric}
+                    claimStatus={sharedAreaClaims.get(area.id)}
                     deleteMode={deleteMode}
                     isSelected={isSelected}
                     onToggleSelection={toggleAreaSelection}
@@ -1683,6 +2141,79 @@ export default function ProjectsPage() {
         </div>
       )}
 
+      {sharedProjectCode && (
+        <div className="modal-overlay fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="modal-panel w-full max-w-md rounded-[1.9rem] p-6">
+            <h2 className="mb-1 text-xl font-semibold tracking-[-0.02em] text-gray-900 dark:text-white">Invite Code</h2>
+            <p className="mb-5 text-sm text-gray-500 dark:text-gray-400">
+              {sharedProjectCode.projectName}
+            </p>
+            <div className="rounded-[1.25rem] border border-[var(--surface-border)] bg-white/70 px-4 py-5 text-center dark:bg-white/[0.04]">
+              <div className="select-all font-mono text-3xl font-semibold tracking-[0.18em] text-gray-900 dark:text-white">
+                {sharedProjectCode.code}
+              </div>
+              <div className="mt-3 text-xs text-gray-500 dark:text-gray-400">
+                Expires {new Date(sharedProjectCode.expiresAt).toLocaleString()}
+              </div>
+            </div>
+            <div className="mt-6 flex gap-3">
+              <button
+                onClick={() => setSharedProjectCode(null)}
+                className="flex-1 rounded-2xl border border-gray-300/90 bg-white/70 px-4 py-3 font-medium text-gray-700 transition hover:bg-white dark:border-white/10 dark:bg-white/[0.04] dark:text-gray-300 dark:hover:bg-white/[0.08]"
+              >
+                Done
+              </button>
+              <button
+                onClick={() => {
+                  void navigator.clipboard?.writeText(sharedProjectCode.code);
+                }}
+                className="flex-1 rounded-2xl bg-zinc-900 px-4 py-3 font-medium text-white transition hover:bg-black dark:bg-white dark:text-gray-900 dark:hover:bg-gray-200"
+              >
+                Copy
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showJoinProject && (
+        <div className="modal-overlay fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="modal-panel w-full max-w-md rounded-[1.9rem] p-6">
+            <h2 className="mb-1 text-xl font-semibold tracking-[-0.02em] text-gray-900 dark:text-white">Join Shared Project</h2>
+            <p className="mb-5 text-sm text-gray-500 dark:text-gray-400">Enter the code from the project owner.</p>
+            <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
+              Code
+            </label>
+            <input
+              type="text"
+              value={joinProjectCode}
+              onChange={(event) => setJoinProjectCode(event.target.value.toUpperCase())}
+              className="field-shell font-mono tracking-[0.12em]"
+              placeholder="ABC123"
+              autoFocus
+            />
+            <div className="mt-6 flex gap-3">
+              <button
+                onClick={() => {
+                  setShowJoinProject(false);
+                  setJoinProjectCode('');
+                }}
+                className="flex-1 rounded-2xl border border-gray-300/90 bg-white/70 px-4 py-3 font-medium text-gray-700 transition hover:bg-white dark:border-white/10 dark:bg-white/[0.04] dark:text-gray-300 dark:hover:bg-white/[0.08]"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => void handleJoinSharedProject()}
+                disabled={!joinProjectCode.trim() || joiningProject}
+                className="flex-1 rounded-2xl bg-zinc-900 px-4 py-3 font-medium text-white transition hover:bg-black dark:bg-white dark:text-gray-900 dark:hover:bg-gray-200 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {joiningProject ? 'Joining...' : 'Join'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {editingProject && (
         <ProjectEditModal
           project={editingProject}
@@ -1742,22 +2273,10 @@ export default function ProjectsPage() {
                     <div className="text-sm font-semibold text-gray-900 dark:text-white">Export PDF</div>
                     <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">
                       {exportScope === 'selected-areas'
-                        ? 'Save selected issue areas locally, to OneDrive, or both.'
-                        : 'Save this report locally, to OneDrive, or both.'}
+                        ? 'Save selected issue areas locally or to OneDrive.'
+                        : 'Save this report locally or to OneDrive.'}
                     </div>
                   </div>
-                  <button
-                    onClick={() => {
-                      if (exportScope === 'selected-areas') {
-                        void handleExportSelectedAreas('both');
-                        return;
-                      }
-                      void handleExportSelected('both');
-                    }}
-                    className="w-full rounded-[1.1rem] px-4 py-3 text-center text-[17px] font-medium text-gray-900 transition hover:bg-black/[0.04] dark:text-white dark:hover:bg-white/[0.05]"
-                  >
-                    Local + OneDrive
-                  </button>
                   <button
                     onClick={() => {
                       if (exportScope === 'selected-areas') {
@@ -1783,10 +2302,10 @@ export default function ProjectsPage() {
                     Local
                   </button>
                   <button
-                    onClick={() => setActionSheet(null)}
+                    onClick={() => setActionSheet('export-scope')}
                     className="mt-1 w-full rounded-[1.1rem] px-4 py-3 text-center text-[17px] text-gray-900 transition hover:bg-black/[0.04] dark:text-white dark:hover:bg-white/[0.05]"
                   >
-                    Cancel
+                    Back
                   </button>
                 </>
               ) : (

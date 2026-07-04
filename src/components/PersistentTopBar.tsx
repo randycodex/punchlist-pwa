@@ -5,10 +5,11 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useMicrosoftAuth } from '@/contexts/MicrosoftAuthContext';
+import { useCollaborationAuth } from '@/contexts/CollaborationAuthContext';
 import { useSyncStatus } from '@/contexts/SyncStatusContext';
 import { useAppSettings } from '@/contexts/AppSettingsContext';
 import { getProject } from '@/lib/db';
-import { MoreVertical, LogOut, LogIn, ArrowDownAZ, Clock3, BarChart3, PlusSquare, FolderPlus, Trash2, Pencil, FileDown } from 'lucide-react';
+import { MoreVertical, LogOut, LogIn, ArrowDownAZ, Clock3, BarChart3, PlusSquare, FolderPlus, Trash2, Pencil, FileDown, Users, Share2, CheckCircle2, KeyRound, UserPlus, CloudUpload, CloudDownload } from 'lucide-react';
 
 const projectTitleCache = new Map<string, string>();
 type SortOption = 'alphabetical' | 'issues' | 'progress';
@@ -22,11 +23,18 @@ type HomeMenuState = {
   singleProjectName: string;
   showOnlyIssues?: boolean;
   selectionMode?: boolean;
+  isSharedProject?: boolean;
+  isCreatingJoinCode?: boolean;
+  isLoadingSharedMembers?: boolean;
+  isPublishingSharedProject?: boolean;
+  isPullingSharedProject?: boolean;
+  isTransferringSharedProject?: boolean;
 };
 
 export default function PersistentTopBar() {
   const pathname = usePathname();
   const { isReady, isSignedIn } = useMicrosoftAuth();
+  const collaborationAuth = useCollaborationAuth();
   const { retryInSeconds, status } = useSyncStatus();
   const { homeShowOnlyIssues, projectShowOnlyIssues, quickSort } = useAppSettings();
   const showAuth = pathname === '/';
@@ -169,6 +177,10 @@ export default function PersistentTopBar() {
 
   const currentShowOnlyIssues =
     homeMenuState.context === 'project' ? (homeMenuState.showOnlyIssues ?? projectShowOnlyIssues) : (homeMenuState.showOnlyIssues ?? homeShowOnlyIssues);
+  const menuCardClass = 'space-y-1 rounded-[1.25rem] bg-black/[0.03] p-2.5 dark:bg-white/[0.03]';
+  const menuGroupLabelClass = 'px-3 pt-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-gray-500 dark:text-gray-400';
+  const menuItemClass = 'flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm text-gray-700 transition hover:bg-black/[0.04] dark:text-gray-300 dark:hover:bg-white/[0.04]';
+  const disabledMenuItemClass = `${menuItemClass} disabled:cursor-default disabled:opacity-60`;
 
   return (
     <div className="persistent-top-bar fixed top-0 left-0 right-0 z-30 border-b pt-[env(safe-area-inset-top)]">
@@ -278,69 +290,150 @@ export default function PersistentTopBar() {
                   </>
                 )}
                 {(homeMenuState.context === 'project' || homeMenuState.isSingleProject) && (
-                  <button
-                    onClick={() => dispatchHomeAction('edit-project')}
-                    className="flex w-full items-center gap-3 rounded-[1.1rem] px-4 py-3 text-left text-sm text-gray-700 transition hover:bg-black/[0.04] dark:text-gray-300 dark:hover:bg-white/[0.05]"
-                  >
-                    <Pencil className="h-4 w-4" />
-                    Edit project
-                  </button>
+                  <div className="px-1 py-1">
+                    <div className={menuCardClass}>
+                      <div className={menuGroupLabelClass}>Project</div>
+                      {(homeMenuState.context === 'project' || homeMenuState.isSingleProject) && (
+                        <button onClick={() => dispatchHomeAction('edit-project')} className={menuItemClass}>
+                          <Pencil className="h-4 w-4" />
+                          Edit project
+                        </button>
+                      )}
+                      {homeMenuState.isSingleProject && (
+                        <button onClick={() => dispatchHomeAction('export-project')} className={menuItemClass}>
+                          <FileDown className="h-4 w-4" />
+                          Export project
+                        </button>
+                      )}
+                      {homeMenuState.isSingleProject && collaborationAuth.isSignedIn && (
+                        <button
+                          onClick={() => dispatchHomeAction('share-project')}
+                          disabled={!!homeMenuState.isSharedProject}
+                          className={disabledMenuItemClass}
+                        >
+                          {homeMenuState.isSharedProject ? (
+                            <CheckCircle2 className="h-4 w-4" />
+                          ) : (
+                            <Share2 className="h-4 w-4" />
+                          )}
+                          {homeMenuState.isSharedProject ? 'Project shared' : 'Share project'}
+                        </button>
+                      )}
+                    </div>
+                  </div>
                 )}
-                {homeMenuState.isSingleProject && (
-                  <button
-                    onClick={() => dispatchHomeAction('export-project')}
-                    className="flex w-full items-center gap-3 rounded-[1.1rem] px-4 py-3 text-left text-sm text-gray-700 transition hover:bg-black/[0.04] dark:text-gray-300 dark:hover:bg-white/[0.05]"
-                  >
-                    <FileDown className="h-4 w-4" />
-                    Export project
-                  </button>
+                {(showAuth || (homeMenuState.isSingleProject && homeMenuState.isSharedProject)) && collaborationAuth.isSignedIn && (
+                  <div className="px-1 py-1">
+                    <div className={menuCardClass}>
+                      <div className={menuGroupLabelClass}>Shared project</div>
+                      {homeMenuState.isSingleProject && homeMenuState.isSharedProject && (
+                        <>
+                          <button
+                            onClick={() => dispatchHomeAction('invite-code')}
+                            disabled={!!homeMenuState.isCreatingJoinCode}
+                            className={disabledMenuItemClass}
+                          >
+                            <KeyRound className="h-4 w-4" />
+                            {homeMenuState.isCreatingJoinCode ? 'Creating code...' : 'Invite by code'}
+                          </button>
+                          <button
+                            onClick={() => dispatchHomeAction('shared-members')}
+                            disabled={!!homeMenuState.isLoadingSharedMembers}
+                            className={disabledMenuItemClass}
+                          >
+                            <Users className="h-4 w-4" />
+                            {homeMenuState.isLoadingSharedMembers ? 'Loading members...' : 'Shared members'}
+                          </button>
+                          <button
+                            onClick={() => dispatchHomeAction('publish-shared-project')}
+                            disabled={!!homeMenuState.isPublishingSharedProject}
+                            className={disabledMenuItemClass}
+                          >
+                            <CloudUpload className="h-4 w-4" />
+                            {homeMenuState.isPublishingSharedProject ? 'Publishing...' : 'Publish shared data'}
+                          </button>
+                          <button
+                            onClick={() => dispatchHomeAction('pull-shared-project')}
+                            disabled={!!homeMenuState.isPullingSharedProject}
+                            className={disabledMenuItemClass}
+                          >
+                            <CloudDownload className="h-4 w-4" />
+                            {homeMenuState.isPullingSharedProject ? 'Pulling...' : 'Pull shared data'}
+                          </button>
+                          <button
+                            onClick={() => dispatchHomeAction('transfer-shared-project')}
+                            disabled={!!homeMenuState.isTransferringSharedProject}
+                            className={disabledMenuItemClass}
+                          >
+                            <Users className="h-4 w-4" />
+                            {homeMenuState.isTransferringSharedProject ? 'Transferring...' : 'Transfer ownership'}
+                          </button>
+                        </>
+                      )}
+                      {showAuth && (
+                        <button onClick={() => dispatchHomeAction('join-shared-project')} className={menuItemClass}>
+                          <UserPlus className="h-4 w-4" />
+                          Join shared project
+                        </button>
+                      )}
+                    </div>
+                  </div>
                 )}
-                {homeMenuState.context !== 'project' && (
-                  <button
-                    onClick={() => dispatchHomeAction('new-project')}
-                    className="flex w-full items-center gap-3 rounded-[1.1rem] px-4 py-3 text-left text-sm text-gray-700 transition hover:bg-black/[0.04] dark:text-gray-300 dark:hover:bg-white/[0.05]"
-                  >
-                    <PlusSquare className="h-4 w-4" />
-                    Add project
-                  </button>
+                {(homeMenuState.context !== 'project' || (homeMenuState.canAddArea && !homeMenuState.isSingleProject)) && (
+                  <div className="px-1 py-1">
+                    <div className={menuCardClass}>
+                      <div className={menuGroupLabelClass}>Create</div>
+                      {homeMenuState.context !== 'project' && (
+                        <button onClick={() => dispatchHomeAction('new-project')} className={menuItemClass}>
+                          <PlusSquare className="h-4 w-4" />
+                          Add project
+                        </button>
+                      )}
+                      {homeMenuState.canAddArea && !homeMenuState.isSingleProject && (
+                        <button onClick={() => dispatchHomeAction('new-area')} className={menuItemClass}>
+                          <FolderPlus className="h-4 w-4" />
+                          Add area
+                        </button>
+                      )}
+                    </div>
+                  </div>
                 )}
-                {homeMenuState.canAddArea && !homeMenuState.isSingleProject && (
-                  <button
-                    onClick={() => dispatchHomeAction('new-area')}
-                    className="flex w-full items-center gap-3 rounded-[1.1rem] px-4 py-3 text-left text-sm text-gray-700 transition hover:bg-black/[0.04] dark:text-gray-300 dark:hover:bg-white/[0.05]"
-                  >
-                    <FolderPlus className="h-4 w-4" />
-                    Add area
-                  </button>
-                )}
-                <button
-                  onClick={() => dispatchHomeAction('toggle-trash')}
-                  className="flex w-full items-center gap-3 rounded-[1.1rem] px-4 py-3 text-left text-sm text-gray-700 transition hover:bg-black/[0.04] dark:text-gray-300 dark:hover:bg-white/[0.05]"
-                >
-                  <Trash2 className="h-4 w-4" />
-                  {homeMenuState.showTrash ? 'Hide trash' : 'Trash'}
-                </button>
-                {!isSignedIn ? (
-                  <button
-                    onClick={() => {
-                      dispatchHomeAction('auth');
-                    }}
-                    className="flex w-full items-center gap-3 rounded-[1.1rem] px-4 py-3 text-left text-sm text-gray-700 transition hover:bg-black/[0.04] dark:text-gray-300 dark:hover:bg-white/[0.05]"
-                  >
-                    <LogIn className="h-4 w-4" />
-                    Sign in
-                  </button>
-                ) : (
-                  <button
-                    onClick={() => {
-                      dispatchHomeAction('auth');
-                    }}
-                    className="flex w-full items-center gap-3 rounded-[1.1rem] px-4 py-3 text-left text-sm text-gray-700 transition hover:bg-black/[0.04] dark:text-gray-300 dark:hover:bg-white/[0.05]"
-                  >
-                    <LogOut className="h-4 w-4" />
-                    Sign out
-                  </button>
-                )}
+                <div className="px-1 py-1">
+                  <div className={menuCardClass}>
+                    <div className={menuGroupLabelClass}>Account</div>
+                    <button onClick={() => dispatchHomeAction('toggle-trash')} className={menuItemClass}>
+                      <Trash2 className="h-4 w-4" />
+                      {homeMenuState.showTrash ? 'Hide trash' : 'Trash'}
+                    </button>
+                    {isSignedIn && collaborationAuth.canUseCollaboration && (
+                      <button
+                        onClick={() => {
+                          if (collaborationAuth.isSignedIn) {
+                            void collaborationAuth.signOut();
+                          } else {
+                            void collaborationAuth.signIn();
+                          }
+                          setShowHomeMenu(false);
+                        }}
+                        className={menuItemClass}
+                      >
+                        <Users className="h-4 w-4" />
+                        {collaborationAuth.isSignedIn ? 'Leave shared projects' : 'Enable shared projects'}
+                      </button>
+                    )}
+                    {!isSignedIn ? (
+                      <button onClick={() => dispatchHomeAction('auth')} className={menuItemClass}>
+                        <LogIn className="h-4 w-4" />
+                        Sign in
+                      </button>
+                    ) : (
+                      <button onClick={() => dispatchHomeAction('auth')} className={menuItemClass}>
+                        <LogOut className="h-4 w-4" />
+                        Sign out
+                      </button>
+                    )}
+                  </div>
+                </div>
               </div>
             )}
           </div>

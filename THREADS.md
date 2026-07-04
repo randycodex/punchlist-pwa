@@ -31,3 +31,4 @@ Use one branch + one worktree per workstream.
 | Inspection Flow | `codex/inspection-flow` | `.worktrees/inspection-flow` | Project, area, and inspection walkthrough UX | Planned | You | |
 | PDF Export | `codex/pdf-export` | `.worktrees/pdf-export` | PDF generation, layout, export behavior | Planned | You | |
 | Sync / OneDrive | `codex/sync-onedrive` | `.worktrees/sync-onedrive` | OneDrive auth, sync behavior, conflict handling | Planned | You | |
+| Collaboration Mode | `collaboration-mode` | `.` | Shared project architecture, membership, realtime sync | Active | You | User-requested branch name |

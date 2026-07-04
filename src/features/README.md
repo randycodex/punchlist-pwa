@@ -8,5 +8,6 @@ Use these folders for parallel workstreams. Keep route files in `src/app` thin a
 - `export`: PDF/export UX and orchestration
 - `sync`: sync orchestration and conflict UI
 - `auth`: sign-in/out and token lifecycle UI
+- `collaboration`: shared projects, membership, realtime updates, and mutation-based sync
 
 Rule: new work should prefer feature folders first, then wire from routes.

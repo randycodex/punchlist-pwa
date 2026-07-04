@@ -3,7 +3,7 @@
 import { memo, useState, useEffect, useMemo, useRef, useCallback, type TouchEvent } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { Area, Project, checkpointHasIssue, getReviewMetrics } from '@/types';
-import { getProject, saveProject, createArea } from '@/lib/db';
+import { getProject, saveProject, saveProjectMetadataOnly, saveProjectPreserveTimestamps, createArea } from '@/lib/db';
 import {
   formatMicrosoftManualRetryMessage,
   getMicrosoftErrorMessage,
@@ -28,10 +28,17 @@ import {
   recordPendingSyncRetry,
 } from '@/lib/pendingSync';
 import { useMicrosoftAuth } from '@/contexts/MicrosoftAuthContext';
+import { useCollaborationAuth } from '@/contexts/CollaborationAuthContext';
 import { useSyncStatus } from '@/contexts/SyncStatusContext';
 import { useAppSettings } from '@/contexts/AppSettingsContext';
+import {
+  getActiveSharedProjectAreaClaims,
+  getCollaborationErrorMessage,
+  getSharedProjectSnapshot,
+  isSharedSnapshotNewer,
+  publishSharedProjectSnapshot,
+} from '@/lib/collaboration';
 import MetadataLine from '@/components/MetadataLine';
-import { downloadPDF, generateProjectPDF } from '@/lib/pdfExport';
 import { getNextOneDriveExportFilename, uploadPdfToOneDrive } from '@/lib/oneDrive';
 import Link from 'next/link';
 import {
@@ -46,7 +53,7 @@ import {
 } from 'lucide-react';
 
 type SortOption = 'alphabetical' | 'issues' | 'progress';
-type ExportDestination = 'local' | 'onedrive' | 'both';
+type ExportDestination = 'local' | 'onedrive';
 type ExportScope = 'project' | 'selected-areas';
 
 const SORT_STORAGE_KEY = 'punchlist-areas-sort';
@@ -101,6 +108,7 @@ type AreaCardProps = {
   projectId: string;
   area: Project['areas'][number];
   metric?: AreaMetrics;
+  claimStatus?: 'mine' | 'other';
   deleteMode: boolean;
   isSelected: boolean;
   onToggleSelection: (areaId: string) => void;
@@ -110,6 +118,7 @@ const AreaCard = memo(function AreaCard({
   projectId,
   area,
   metric,
+  claimStatus,
   deleteMode,
   isSelected,
   onToggleSelection,
@@ -118,6 +127,7 @@ const AreaCard = memo(function AreaCard({
   const progress = metric?.progress ?? 0;
   const commentCount = metric?.commentCount ?? 0;
   const photoCount = metric?.photoCount ?? 0;
+  const blockedByClaim = claimStatus === 'other';
 
   return (
     <div
@@ -139,9 +149,14 @@ const AreaCard = memo(function AreaCard({
     >
       <div className="flex items-start gap-3">
         <Link
-          href={deleteMode ? '#' : `/project/${projectId}/area/${area.id}`}
+          href={deleteMode || blockedByClaim ? '#' : `/project/${projectId}/area/${area.id}`}
           onClick={(event) => {
-            if (deleteMode) event.preventDefault();
+            if (deleteMode || blockedByClaim) {
+              event.preventDefault();
+              if (blockedByClaim) {
+                alert('This shared area is currently being edited by another user.');
+              }
+            }
           }}
           onContextMenu={(event) => {
             if (!deleteMode) {
@@ -153,6 +168,11 @@ const AreaCard = memo(function AreaCard({
           <div className="min-w-0">
             <div className="min-w-0 flex items-center gap-2">
               <h3 className="truncate text-[1.05rem] font-semibold tracking-[-0.02em] text-gray-900 dark:text-white">{area.name}</h3>
+              {claimStatus && (
+                <span className="segmented-chip shrink-0 px-2.5 py-1 text-[11px]">
+                  {claimStatus === 'mine' ? 'You are editing' : 'In use'}
+                </span>
+              )}
             </div>
             <MetadataLine className="mt-2" issues={areaStats.issues} notes={commentCount} photos={photoCount} />
             <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-gray-200 dark:bg-white/[0.12]">
@@ -164,9 +184,14 @@ const AreaCard = memo(function AreaCard({
           </div>
         </Link>
         <Link
-          href={deleteMode ? '#' : `/project/${projectId}/area/${area.id}`}
+          href={deleteMode || blockedByClaim ? '#' : `/project/${projectId}/area/${area.id}`}
           onClick={(event) => {
-            if (deleteMode) event.preventDefault();
+            if (deleteMode || blockedByClaim) {
+              event.preventDefault();
+              if (blockedByClaim) {
+                alert('This shared area is currently being edited by another user.');
+              }
+            }
           }}
           onContextMenu={(event) => {
             if (!deleteMode) {
@@ -202,14 +227,20 @@ export default function ProjectDetailPage() {
   const [syncing, setSyncing] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
   const [editingProject, setEditingProject] = useState<Project | null>(null);
+  const [sharedAreaClaims, setSharedAreaClaims] = useState<Map<string, 'mine' | 'other'>>(new Map());
   const syncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const sharedPublishTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pullStartYRef = useRef<number | null>(null);
   const pullDistanceRef = useRef(0);
   const pullArmedRef = useRef(false);
   const listRef = useRef<HTMLElement | null>(null);
+  const topMenuActionHandlerRef = useRef<((event: Event) => void) | null>(null);
+  const loadProjectRef = useRef<() => Promise<void>>(() => Promise.resolve());
   const { ensureAccessToken, signIn } = useMicrosoftAuth();
+  const collaborationAuth = useCollaborationAuth();
   const { setRetryAt, setStatus: setSyncStatus } = useSyncStatus();
   const { projectShowOnlyIssues, setProjectShowOnlyIssues, quickSort, markSyncedNow } = useAppSettings();
+  loadProjectRef.current = loadProject;
 
   useEffect(() => {
     // Load saved sort preference
@@ -238,16 +269,24 @@ export default function ProjectDetailPage() {
         console.error('Failed to parse recent area types:', error);
       }
     }
-    loadProject();
-  }, [id]);
+    void loadProjectRef.current();
+  }, [id, router]);
 
   useEffect(() => {
     return () => {
       if (syncTimerRef.current) {
         clearTimeout(syncTimerRef.current);
       }
+      if (sharedPublishTimerRef.current) {
+        clearTimeout(sharedPublishTimerRef.current);
+      }
     };
   }, []);
+
+  useEffect(() => {
+    if (!collaborationAuth.isSignedIn || loading) return;
+    void loadProjectRef.current();
+  }, [collaborationAuth.isSignedIn, loading]);
 
   function handleSortChange(option: SortOption) {
     setSortOption(option);
@@ -272,7 +311,19 @@ export default function ProjectDetailPage() {
           router.push('/');
           return;
         }
-        setProject(data);
+        let nextProject = data;
+        if (collaborationAuth.isSignedIn && data.sharedProjectId) {
+          try {
+            const snapshot = await getSharedProjectSnapshot(data);
+            if (isSharedSnapshotNewer(data, snapshot.publishedAt)) {
+              await saveProjectPreserveTimestamps(snapshot.project);
+              nextProject = snapshot.project;
+            }
+          } catch (error) {
+            console.info('Shared snapshot pull skipped:', error);
+          }
+        }
+        setProject(nextProject);
       } else {
         router.push('/');
       }
@@ -298,6 +349,47 @@ export default function ProjectDetailPage() {
         : [],
     [project]
   );
+
+  useEffect(() => {
+    const sharedProjectId = project?.sharedProjectId;
+    const userId = collaborationAuth.user?.id;
+    if (!sharedProjectId || !collaborationAuth.isSignedIn || !userId) {
+      setSharedAreaClaims(new Map());
+      return;
+    }
+
+    const activeSharedProjectId = sharedProjectId;
+    const activeUserId = userId;
+    let cancelled = false;
+    async function refreshSharedAreaClaims() {
+      try {
+        const claims = await getActiveSharedProjectAreaClaims(activeSharedProjectId);
+        if (cancelled) return;
+        setSharedAreaClaims(
+          new Map(
+            claims.map((claim) => [
+              claim.areaId,
+              claim.claimedByUserId === activeUserId ? 'mine' : 'other',
+            ])
+          )
+        );
+      } catch (error) {
+        if (cancelled) return;
+        console.info('Shared area claims unavailable:', error);
+        setSharedAreaClaims(new Map());
+      }
+    }
+
+    void refreshSharedAreaClaims();
+    const refreshTimer = setInterval(() => {
+      void refreshSharedAreaClaims();
+    }, 30_000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(refreshTimer);
+    };
+  }, [collaborationAuth.isSignedIn, collaborationAuth.user?.id, project?.sharedProjectId]);
 
   const areaMetrics = useMemo(() => {
     const metrics = new Map<string, AreaMetrics>();
@@ -438,7 +530,7 @@ export default function ProjectDetailPage() {
       const sortedAreaIds = [...sortedAreas]
         .filter((area) => selectedIds.has(area.id))
         .map((area) => area.id);
-      const shouldSaveToDrive = destination === 'onedrive' || destination === 'both';
+      const shouldSaveToDrive = destination === 'onedrive';
       const token = shouldSaveToDrive ? await ensureAccessToken() : null;
       if (shouldSaveToDrive && !token) {
         signIn();
@@ -447,8 +539,9 @@ export default function ProjectDetailPage() {
       const projectForExport = token
         ? await hydrateProjectMediaFromOneDrive(token, project.id)
         : project;
+      const { generateProjectPDF, downloadPDF } = await import('@/lib/pdfExport');
       const blob = await generateProjectPDF(projectForExport ?? project, 'issues', { areaIds: sortedAreaIds });
-      if (destination === 'local' || destination === 'both') {
+      if (destination === 'local') {
         const filename = `${sanitizeExportNamePart(project.projectName)}_Selected_Areas_${formatDateForExport()}.pdf`;
         downloadPDF(blob, filename);
       }
@@ -477,7 +570,7 @@ export default function ProjectDetailPage() {
     setExportingSelectedAreas(true);
     setActionSheet(null);
     try {
-      const shouldSaveToDrive = destination === 'onedrive' || destination === 'both';
+      const shouldSaveToDrive = destination === 'onedrive';
       const token = shouldSaveToDrive ? await ensureAccessToken() : null;
       if (shouldSaveToDrive && !token) {
         signIn();
@@ -486,8 +579,9 @@ export default function ProjectDetailPage() {
       const projectForExport = token
         ? await hydrateProjectMediaFromOneDrive(token, project.id)
         : project;
+      const { generateProjectPDF, downloadPDF } = await import('@/lib/pdfExport');
       const blob = await generateProjectPDF(projectForExport ?? project, 'issues');
-      if (destination === 'local' || destination === 'both') {
+      if (destination === 'local') {
         const filename = `${sanitizeExportNamePart(project.projectName)}_Issues_${formatDateForExport()}.pdf`;
         downloadPDF(blob, filename);
       }
@@ -574,10 +668,44 @@ export default function ProjectDetailPage() {
   function scheduleSync(projectId?: string, options?: { fullSync?: boolean }) {
     queuePendingSync(projectId, options);
     setSyncStatus('pending');
+    if (projectId) {
+      scheduleSharedPublish(projectId);
+    }
     if (syncTimerRef.current) {
       clearTimeout(syncTimerRef.current);
     }
     syncTimerRef.current = null;
+  }
+
+  function scheduleSharedPublish(projectId: string) {
+    if (!collaborationAuth.isSignedIn || !collaborationAuth.user) return;
+    if (sharedPublishTimerRef.current) {
+      clearTimeout(sharedPublishTimerRef.current);
+    }
+    sharedPublishTimerRef.current = setTimeout(() => {
+      sharedPublishTimerRef.current = null;
+      void publishSharedProjectSilently(projectId);
+    }, 1_200);
+  }
+
+  async function publishSharedProjectSilently(projectId: string) {
+    const userId = collaborationAuth.user?.id;
+    if (!userId) return;
+
+    try {
+      const fullProject = await getProject(projectId);
+      if (!fullProject?.sharedProjectId) return;
+      await publishSharedProjectSnapshot(fullProject, userId);
+      await saveProjectMetadataOnly(fullProject, { touch: false });
+      setProject((currentProject) =>
+        currentProject?.id === fullProject.id
+          ? { ...currentProject, sharedSnapshotPublishedAt: fullProject.sharedSnapshotPublishedAt }
+          : currentProject
+      );
+    } catch (error) {
+      console.error('Automatic shared publish failed:', error);
+      setSyncError(getCollaborationErrorMessage(error, 'Shared data was saved locally but could not be published.'));
+    }
   }
 
   function cancelSelectionMode() {
@@ -587,77 +715,81 @@ export default function ProjectDetailPage() {
     setSelectedAreaIds(new Set());
   }
 
+  topMenuActionHandlerRef.current = (event: Event) => {
+    const customEvent = event as CustomEvent<{ action: string; sort?: SortOption }>;
+    const detail = customEvent.detail;
+    if (!detail || !project) return;
+
+    if (detail.action === 'sort' && detail.sort) {
+      handleSortChange(detail.sort);
+      return;
+    }
+
+    if (detail.action === 'sync-now') {
+      void handleSync();
+      return;
+    }
+
+    if (detail.action === 'new-area') {
+      setShowAddArea(true);
+      return;
+    }
+
+    if (detail.action === 'edit-project') {
+      setEditingProject(project);
+      return;
+    }
+
+    if (detail.action === 'toggle-issues-only') {
+      setProjectShowOnlyIssues(!projectShowOnlyIssues);
+      return;
+    }
+
+    if (detail.action === 'toggle-selection') {
+      if (deleteMode) {
+        cancelSelectionMode();
+      } else {
+        setDeleteMode(true);
+        setSelectedAreaIds(new Set());
+      }
+      return;
+    }
+
+    if (detail.action === 'export-project') {
+      setShowTrash(false);
+      setDeleteMode(false);
+      setSelectedAreaIds(new Set());
+      setExportScope('project');
+      setActionSheet('export-scope');
+      return;
+    }
+
+    if (detail.action === 'toggle-trash') {
+      setShowTrash((current) => !current);
+      setDeleteMode(false);
+      setSelectedAreaIds(new Set());
+      setActionSheet(null);
+      return;
+    }
+
+    if (detail.action === 'clear-trash') {
+      setShowTrash(false);
+      setDeleteMode(false);
+      setSelectedAreaIds(new Set());
+      setActionSheet(null);
+    }
+  };
+
   useEffect(() => {
     function handleTopMenuAction(event: Event) {
-      const customEvent = event as CustomEvent<{ action: string; sort?: SortOption }>;
-      const detail = customEvent.detail;
-      if (!detail || !project) return;
-
-      if (detail.action === 'sort' && detail.sort) {
-        handleSortChange(detail.sort);
-        return;
-      }
-
-      if (detail.action === 'sync-now') {
-        void handleSync();
-        return;
-      }
-
-      if (detail.action === 'new-area') {
-        setShowAddArea(true);
-        return;
-      }
-
-      if (detail.action === 'edit-project') {
-        setEditingProject(project);
-        return;
-      }
-
-      if (detail.action === 'toggle-issues-only') {
-        setProjectShowOnlyIssues(!projectShowOnlyIssues);
-        return;
-      }
-
-      if (detail.action === 'toggle-selection') {
-        if (deleteMode) {
-          cancelSelectionMode();
-        } else {
-          setDeleteMode(true);
-          setSelectedAreaIds(new Set());
-        }
-        return;
-      }
-
-      if (detail.action === 'export-project') {
-        setShowTrash(false);
-        setDeleteMode(false);
-        setSelectedAreaIds(new Set());
-        setExportScope('project');
-        setActionSheet('export-scope');
-        return;
-      }
-
-      if (detail.action === 'toggle-trash') {
-        setShowTrash((current) => !current);
-        setDeleteMode(false);
-        setSelectedAreaIds(new Set());
-        setActionSheet(null);
-        return;
-      }
-
-      if (detail.action === 'clear-trash') {
-        setShowTrash(false);
-        setDeleteMode(false);
-        setSelectedAreaIds(new Set());
-        setActionSheet(null);
-      }
+      topMenuActionHandlerRef.current?.(event);
     }
 
     window.addEventListener('punchlist-home-menu-action', handleTopMenuAction as EventListener);
     return () => {
       window.removeEventListener('punchlist-home-menu-action', handleTopMenuAction as EventListener);
     };
-  }, [project, deleteMode, projectShowOnlyIssues, setProjectShowOnlyIssues]);
+  }, []);
 
   useEffect(() => {
     if (!project) return;
@@ -862,6 +994,7 @@ export default function ProjectDetailPage() {
                     projectId={project.id}
                     area={area}
                     metric={metric}
+                    claimStatus={sharedAreaClaims.get(area.id)}
                     deleteMode={deleteMode}
                     isSelected={isSelected}
                     onToggleSelection={toggleAreaSelection}
@@ -955,22 +1088,10 @@ export default function ProjectDetailPage() {
                     <div className="text-sm font-semibold text-gray-900 dark:text-white">Export PDF</div>
                     <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">
                       {exportScope === 'selected-areas'
-                        ? 'Save selected issue areas locally, to OneDrive, or both.'
-                        : 'Save all project issue areas locally, to OneDrive, or both.'}
+                        ? 'Save selected issue areas locally or to OneDrive.'
+                        : 'Save all project issue areas locally or to OneDrive.'}
                     </div>
                   </div>
-                  <button
-                    onClick={() => {
-                      if (exportScope === 'selected-areas') {
-                        void handleExportSelectedAreas('both');
-                        return;
-                      }
-                      void handleExportProject('both');
-                    }}
-                    className="w-full rounded-[1.1rem] px-4 py-3 text-center text-[17px] font-medium text-gray-900 transition hover:bg-black/[0.04] dark:text-white dark:hover:bg-white/[0.05]"
-                  >
-                    Local + OneDrive
-                  </button>
                   <button
                     onClick={() => {
                       if (exportScope === 'selected-areas') {
@@ -996,10 +1117,10 @@ export default function ProjectDetailPage() {
                     Local
                   </button>
                   <button
-                    onClick={() => setActionSheet(null)}
+                    onClick={() => setActionSheet('export-scope')}
                     className="mt-1 w-full rounded-[1.1rem] px-4 py-3 text-center text-[17px] text-gray-900 transition hover:bg-black/[0.04] dark:text-white dark:hover:bg-white/[0.05]"
                   >
-                    Cancel
+                    Back
                   </button>
                 </>
               ) : (

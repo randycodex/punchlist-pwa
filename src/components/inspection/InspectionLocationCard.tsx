@@ -868,7 +868,6 @@ function CheckpointRow({
   onOpenCamera: () => void;
   extraActions?: ReactNode;
 }) {
-  const noteCount = checkpoint.comments.trim() ? 1 : 0;
   const photoCount = checkpoint.photos.length;
 
   return (

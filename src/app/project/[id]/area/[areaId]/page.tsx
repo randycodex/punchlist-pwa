@@ -11,7 +11,18 @@ import {
   isAreaInspectionComplete,
   type IssueState,
 } from '@/types';
-import { getActiveProjectCount, getProject, saveProject, createPhotoAttachment, createFileAttachment, createLocation, createItem, createCheckpoint } from '@/lib/db';
+import {
+  getActiveProjectCount,
+  getProject,
+  saveProject,
+  saveProjectMetadataOnly,
+  saveProjectPreserveTimestamps,
+  createPhotoAttachment,
+  createFileAttachment,
+  createLocation,
+  createItem,
+  createCheckpoint,
+} from '@/lib/db';
 import {
   formatMicrosoftManualRetryMessage,
   getMicrosoftErrorMessage,
@@ -38,8 +49,17 @@ import {
   recordPendingSyncRetry,
 } from '@/lib/pendingSync';
 import { useMicrosoftAuth } from '@/contexts/MicrosoftAuthContext';
+import { useCollaborationAuth } from '@/contexts/CollaborationAuthContext';
 import { useSyncStatus } from '@/contexts/SyncStatusContext';
 import { useAppSettings } from '@/contexts/AppSettingsContext';
+import {
+  claimSharedProjectArea,
+  getCollaborationErrorMessage,
+  getSharedProjectSnapshot,
+  isSharedSnapshotNewer,
+  publishSharedProjectSnapshot,
+  releaseSharedProjectArea,
+} from '@/lib/collaboration';
 import AreaNotesCard from '@/components/inspection/AreaNotesCard';
 import CustomItemComposer from '@/components/inspection/CustomItemComposer';
 import InspectionLocationCard from '@/components/inspection/InspectionLocationCard';
@@ -91,6 +111,7 @@ type LocationMetrics = {
 };
 
 type CheckpointReviewState = 'pending' | 'ok' | 'open' | 'resolved' | 'verified';
+type ScheduleSyncOptions = { fullSync?: boolean };
 
 export default function AreaDetailPage() {
   const params = useParams<{ id: string; areaId: string }>();
@@ -134,11 +155,18 @@ export default function AreaDetailPage() {
   } | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
+  const [areaClaimError, setAreaClaimError] = useState<string | null>(null);
+  const [claimingArea, setClaimingArea] = useState(false);
   const [generalNotes, setGeneralNotes] = useState('');
   const [returnToHome, setReturnToHome] = useState(false);
   const syncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const sharedPublishTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const notesTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const notesDraftRef = useRef('');
+  const projectRef = useRef<Project | null>(null);
+  const areaRef = useRef<Area | null>(null);
+  const scheduleSyncRef = useRef<(projectId?: string, options?: ScheduleSyncOptions) => void>(() => {});
+  const loadDataRef = useRef<() => Promise<void>>(() => Promise.resolve());
   const pullStartYRef = useRef<number | null>(null);
   const pullDistanceRef = useRef(0);
   const pullArmedRef = useRef(false);
@@ -147,8 +175,31 @@ export default function AreaDetailPage() {
   const locationRefs = useRef(new Map<string, HTMLDivElement | null>());
   const headerMenuRef = useRef<HTMLDivElement | null>(null);
   const { ensureAccessToken } = useMicrosoftAuth();
+  const collaborationAuth = useCollaborationAuth();
   const { retryInSeconds, setRetryAt, setStatus: setSyncStatus } = useSyncStatus();
   const { inspectionShowOnlyIssues, setInspectionShowOnlyIssues, quickSort, markSyncedNow } = useAppSettings();
+
+  useEffect(() => {
+    projectRef.current = project;
+    areaRef.current = area;
+    scheduleSyncRef.current = scheduleSync;
+    loadDataRef.current = loadData;
+  });
+
+  const persistGeneralNotes = useCallback(async (value: string) => {
+    const currentProject = projectRef.current;
+    const currentArea = areaRef.current;
+    if (!currentProject || !currentArea) return;
+    const targetArea = currentProject.areas.find((entry) => entry.id === currentArea.id);
+    if (!targetArea) return;
+    if ((targetArea.notes ?? '') === value) return;
+    targetArea.notes = value;
+    targetArea.updatedAt = new Date();
+    await saveProjectMetadataOnly(currentProject);
+    scheduleSyncRef.current(currentProject.id);
+    setProject({ ...currentProject, areas: [...currentProject.areas] });
+    setArea({ ...targetArea });
+  }, []);
 
   useEffect(() => {
     if (!id || !areaId) {
@@ -173,20 +224,23 @@ export default function AreaDetailPage() {
         console.error('Failed to parse recent area types:', error);
       }
     }
-    loadData();
-  }, [id, areaId]);
+    void loadDataRef.current();
+  }, [id, areaId, router]);
 
   useEffect(() => {
     return () => {
       if (syncTimerRef.current) {
         clearTimeout(syncTimerRef.current);
       }
+      if (sharedPublishTimerRef.current) {
+        clearTimeout(sharedPublishTimerRef.current);
+      }
       if (notesTimerRef.current) {
         clearTimeout(notesTimerRef.current);
         void persistGeneralNotes(notesDraftRef.current);
       }
     };
-  }, []);
+  }, [persistGeneralNotes]);
 
   useEffect(() => {
     if (!showHeaderMenu) return;
@@ -212,6 +266,70 @@ export default function AreaDetailPage() {
   useEffect(() => {
     setAreaForm(getAreaFormValue(area));
   }, [area]);
+
+  useEffect(() => {
+    const sharedProjectId = project?.sharedProjectId;
+    const currentAreaId = area?.id;
+    if (!sharedProjectId || !currentAreaId) {
+      setAreaClaimError(null);
+      return;
+    }
+
+    if (!collaborationAuth.isSignedIn) {
+      setAreaClaimError('Enable shared projects before working in this shared area.');
+      return;
+    }
+
+    let cancelled = false;
+    let claimRenewTimer: ReturnType<typeof setInterval> | null = null;
+    setClaimingArea(true);
+    setAreaClaimError(null);
+
+    const releaseClaim = () => {
+      void releaseSharedProjectArea(sharedProjectId, currentAreaId).catch((error) => {
+        console.error('Failed to release shared area claim:', error);
+      });
+    };
+
+    void claimSharedProjectArea(sharedProjectId, currentAreaId)
+      .then(() => {
+        if (!cancelled) {
+          setAreaClaimError(null);
+          claimRenewTimer = setInterval(() => {
+            void claimSharedProjectArea(sharedProjectId, currentAreaId).catch((error) => {
+              if (cancelled) return;
+              const message = getCollaborationErrorMessage(error, 'Could not renew this shared area claim.');
+              setAreaClaimError(message);
+            });
+          }, 2 * 60 * 1000);
+        }
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        const message = getCollaborationErrorMessage(error, 'Could not claim this shared area.');
+        setAreaClaimError(message);
+        if (message.toLowerCase().includes('claimed by another user')) {
+          alert(message);
+          router.push(`/project/${id}`);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setClaimingArea(false);
+        }
+      });
+
+    window.addEventListener('pagehide', releaseClaim);
+
+    return () => {
+      cancelled = true;
+      if (claimRenewTimer) {
+        clearInterval(claimRenewTimer);
+      }
+      window.removeEventListener('pagehide', releaseClaim);
+      releaseClaim();
+    };
+  }, [area?.id, collaborationAuth.isSignedIn, id, project?.sharedProjectId, router]);
 
   const visibleLocations = useMemo(
     () =>
@@ -252,8 +370,20 @@ export default function AreaDetailPage() {
           router.push('/');
           return;
         }
-        setProject(projectData);
-        const areaData = projectData.areas.find((a) => a.id === areaId);
+        let nextProject = projectData;
+        if (collaborationAuth.isSignedIn && projectData.sharedProjectId) {
+          try {
+            const snapshot = await getSharedProjectSnapshot(projectData);
+            if (isSharedSnapshotNewer(projectData, snapshot.publishedAt)) {
+              await saveProjectPreserveTimestamps(snapshot.project);
+              nextProject = snapshot.project;
+            }
+          } catch (error) {
+            console.info('Shared snapshot pull skipped:', error);
+          }
+        }
+        setProject(nextProject);
+        const areaData = nextProject.areas.find((a) => a.id === areaId);
         if (areaData && !areaData.deletedAt) {
           const normalizedLocations = areaData.locations.filter(
             (location) => location.name.trim().toLowerCase() !== OTHER_LOCATION_NAME.toLowerCase()
@@ -263,7 +393,8 @@ export default function AreaDetailPage() {
               ...location,
               sortOrder: index,
             }));
-            await saveProject(projectData);
+            await saveProject(nextProject);
+            scheduleSync(nextProject.id);
           }
           setArea(areaData);
         } else {
@@ -440,7 +571,7 @@ export default function AreaDetailPage() {
     }
     checkpoint.updatedAt = new Date();
     syncAreaCompletion(area);
-    await saveProject(project);
+    await saveProjectMetadataOnly(project);
     scheduleSync(project.id);
     setArea({ ...area });
   }
@@ -460,7 +591,7 @@ export default function AreaDetailPage() {
     checkpoint.comments = value;
     checkpoint.updatedAt = new Date();
     syncAreaCompletion(area);
-    await saveProject(project);
+    await saveProjectMetadataOnly(project);
     scheduleSync(project.id);
 
     const trimmedComment = value.trim();
@@ -1082,19 +1213,6 @@ export default function AreaDetailPage() {
     }
   }
 
-  async function persistGeneralNotes(value: string) {
-    if (!project || !area) return;
-    const targetArea = project.areas.find((entry) => entry.id === area.id);
-    if (!targetArea) return;
-    if ((targetArea.notes ?? '') === value) return;
-    targetArea.notes = value;
-    targetArea.updatedAt = new Date();
-    await saveProject(project);
-    scheduleSync(project.id);
-    setProject({ ...project, areas: [...project.areas] });
-    setArea({ ...targetArea });
-  }
-
   function handleGeneralNotesChange(value: string) {
     setGeneralNotes(value);
     notesDraftRef.current = value;
@@ -1142,13 +1260,47 @@ export default function AreaDetailPage() {
     pullArmedRef.current = false;
   }
 
-  function scheduleSync(projectId?: string, options?: { fullSync?: boolean }) {
+  function scheduleSync(projectId?: string, options?: ScheduleSyncOptions) {
     queuePendingSync(projectId, options);
     setSyncStatus('pending');
+    if (projectId) {
+      scheduleSharedPublish(projectId);
+    }
     if (syncTimerRef.current) {
       clearTimeout(syncTimerRef.current);
     }
     syncTimerRef.current = null;
+  }
+
+  function scheduleSharedPublish(projectId: string) {
+    if (!collaborationAuth.isSignedIn || !collaborationAuth.user) return;
+    if (sharedPublishTimerRef.current) {
+      clearTimeout(sharedPublishTimerRef.current);
+    }
+    sharedPublishTimerRef.current = setTimeout(() => {
+      sharedPublishTimerRef.current = null;
+      void publishSharedProjectSilently(projectId);
+    }, 1_200);
+  }
+
+  async function publishSharedProjectSilently(projectId: string) {
+    const userId = collaborationAuth.user?.id;
+    if (!userId) return;
+
+    try {
+      const fullProject = await getProject(projectId);
+      if (!fullProject?.sharedProjectId) return;
+      await publishSharedProjectSnapshot(fullProject, userId);
+      await saveProjectMetadataOnly(fullProject, { touch: false });
+      setProject((currentProject) =>
+        currentProject?.id === fullProject.id
+          ? { ...currentProject, sharedSnapshotPublishedAt: fullProject.sharedSnapshotPublishedAt }
+          : currentProject
+      );
+    } catch (error) {
+      console.error('Automatic shared publish failed:', error);
+      setSyncError(getCollaborationErrorMessage(error, 'Shared data was saved locally but could not be published.'));
+    }
   }
 
   async function closeExpandedCheckpoint() {
@@ -1265,6 +1417,11 @@ export default function AreaDetailPage() {
               <h1 className="truncate text-[1.12rem] font-semibold tracking-[-0.02em] text-gray-900 dark:text-white">
                 {areaTitle}
               </h1>
+              {project.sharedProjectId && (
+                <div className="mt-1 text-xs font-medium text-gray-500 dark:text-gray-400">
+                  {areaClaimError ? 'Shared claim blocked' : claimingArea ? 'Claiming shared area...' : 'Shared area claimed'}
+                </div>
+              )}
             </div>
             <button
               onClick={() => setInspectionShowOnlyIssues(!inspectionShowOnlyIssues)}
@@ -1337,6 +1494,12 @@ export default function AreaDetailPage() {
           </div>
         )}
       </header>
+
+      {areaClaimError && (
+        <div className="shrink-0 border-b border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900 dark:border-amber-400/20 dark:bg-amber-400/10 dark:text-amber-100">
+          {areaClaimError}
+        </div>
+      )}
 
       {syncError && (
         <div className="shrink-0 border-b border-gray-200/80 bg-white/70 px-4 py-2 text-sm text-gray-700 dark:border-zinc-700 dark:bg-white/[0.03] dark:text-gray-200">

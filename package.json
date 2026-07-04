@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev --webpack",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@azure/msal-browser": "^3.28.0",
+    "@supabase/supabase-js": "^2.110.0",
     "html2canvas": "^1.4.1",
     "idb": "^8.0.3",
     "jspdf": "^4.0.0",
