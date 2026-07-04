@@ -11,7 +11,18 @@ import {
   isAreaInspectionComplete,
   type IssueState,
 } from '@/types';
-import { getActiveProjectCount, getProject, saveProject, saveProjectPreserveTimestamps, createPhotoAttachment, createFileAttachment, createLocation, createItem, createCheckpoint } from '@/lib/db';
+import {
+  getActiveProjectCount,
+  getProject,
+  saveProject,
+  saveProjectMetadataOnly,
+  saveProjectPreserveTimestamps,
+  createPhotoAttachment,
+  createFileAttachment,
+  createLocation,
+  createItem,
+  createCheckpoint,
+} from '@/lib/db';
 import {
   formatMicrosoftManualRetryMessage,
   getMicrosoftErrorMessage,
@@ -182,7 +193,7 @@ export default function AreaDetailPage() {
     if ((targetArea.notes ?? '') === value) return;
     targetArea.notes = value;
     targetArea.updatedAt = new Date();
-    await saveProject(currentProject);
+    await saveProjectMetadataOnly(currentProject);
     scheduleSyncRef.current(currentProject.id);
     setProject({ ...currentProject, areas: [...currentProject.areas] });
     setArea({ ...targetArea });
@@ -558,7 +569,7 @@ export default function AreaDetailPage() {
     }
     checkpoint.updatedAt = new Date();
     syncAreaCompletion(area);
-    await saveProject(project);
+    await saveProjectMetadataOnly(project);
     scheduleSync(project.id);
     setArea({ ...area });
   }
@@ -578,7 +589,7 @@ export default function AreaDetailPage() {
     checkpoint.comments = value;
     checkpoint.updatedAt = new Date();
     syncAreaCompletion(area);
-    await saveProject(project);
+    await saveProjectMetadataOnly(project);
     scheduleSync(project.id);
 
     const trimmedComment = value.trim();

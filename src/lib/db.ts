@@ -200,6 +200,13 @@ export async function saveProject(project: Project): Promise<void> {
   await saveProjectInternal(project, { touch: true });
 }
 
+export async function saveProjectMetadataOnly(project: Project): Promise<void> {
+  const db = await getDB();
+  project.updatedAt = new Date();
+  const { storedProject } = serializeProjectForStorage(project);
+  await db.put('projects', storedProject);
+}
+
 export async function saveProjectPreserveTimestamps(project: Project): Promise<void> {
   await saveProjectInternal(project, { touch: false });
 }
