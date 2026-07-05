@@ -1,4 +1,4 @@
-import type { CollaborationAreaClaim } from './types';
+import type { CollaborationAreaClaim, CollaborationAreaClaimSummary } from './types';
 import type { Json } from './database';
 import { getCollaborationRuntimeConfig } from './config';
 import { getCollaborationSupabaseClient } from './supabaseClient';
@@ -114,6 +114,58 @@ export async function getActiveSharedProjectAreaClaims(sharedProjectId: string) 
   return (data ?? [])
     .map(reviveAreaClaim)
     .filter((claim) => isAreaClaimActive(claim));
+}
+
+export async function getActiveSharedProjectAreaClaimSummaries(sharedProjectId: string): Promise<CollaborationAreaClaimSummary[]> {
+  const supabase = getCollaborationSupabaseClient();
+  if (!supabase) {
+    throw new Error('Collaboration is not configured.');
+  }
+
+  const [claimsResult, membersResult] = await Promise.all([
+    supabase
+      .from('area_claims')
+      .select('id, project_id, area_id, claimed_by_user_id, status, claimed_at, expires_at, released_at, transferred_to_user_id')
+      .eq('project_id', sharedProjectId)
+      .eq('status', 'active'),
+    supabase
+      .from('project_members')
+      .select('user_id, email, display_name')
+      .eq('project_id', sharedProjectId)
+      .eq('access_state', 'active'),
+  ]);
+
+  if (claimsResult.error) {
+    throw claimsResult.error;
+  }
+
+  if (membersResult.error) {
+    throw membersResult.error;
+  }
+
+  const membersByUserId = new Map(
+    (membersResult.data ?? [])
+      .filter((member) => member.user_id)
+      .map((member) => [
+        member.user_id as string,
+        {
+          email: member.email,
+          displayName: member.display_name ?? undefined,
+        },
+      ])
+  );
+
+  return (claimsResult.data ?? [])
+    .map(reviveAreaClaim)
+    .filter((claim) => isAreaClaimActive(claim))
+    .map((claim) => {
+      const member = membersByUserId.get(claim.claimedByUserId);
+      return {
+        ...claim,
+        claimedByEmail: member?.email,
+        claimedByDisplayName: member?.displayName,
+      };
+    });
 }
 
 export async function releaseSharedProjectArea(sharedProjectId: string, areaId: string) {

@@ -12,6 +12,7 @@ import {
 import AreaEditorModal from '@/components/AreaEditorModal';
 import ProjectEditModal from '@/components/ProjectEditModal';
 import AppMessageDialog from '@/components/AppMessageDialog';
+import CollaborationHealthDialog from '@/components/CollaborationHealthDialog';
 import {
   buildAreaName,
   buildFacadeLevelOptions,
@@ -33,12 +34,14 @@ import { useCollaborationAuth } from '@/contexts/CollaborationAuthContext';
 import { useSyncStatus } from '@/contexts/SyncStatusContext';
 import { useAppSettings } from '@/contexts/AppSettingsContext';
 import {
-  getActiveSharedProjectAreaClaims,
+  getActiveSharedProjectAreaClaimSummaries,
   getCollaborationErrorMessage,
   getSharedProjectSnapshot,
   isSharedSnapshotNewer,
   publishSharedProjectSnapshot,
+  runCollaborationHealthCheck,
 } from '@/lib/collaboration';
+import type { CollaborationHealthReport } from '@/lib/collaboration';
 import MetadataLine from '@/components/MetadataLine';
 import { getNextOneDriveExportFilename, uploadPdfToOneDrive } from '@/lib/oneDrive';
 import Link from 'next/link';
@@ -106,6 +109,12 @@ type AreaMetrics = {
   commentCount: number;
 };
 
+type AreaClaimDisplay = {
+  ownership: 'mine' | 'other';
+  label: string;
+  expiresAt?: Date;
+};
+
 type MessageDialogState = {
   title: string;
   message: string;
@@ -115,7 +124,7 @@ type AreaCardProps = {
   projectId: string;
   area: Project['areas'][number];
   metric?: AreaMetrics;
-  claimStatus?: 'mine' | 'other';
+  claimStatus?: AreaClaimDisplay;
   deleteMode: boolean;
   isSelected: boolean;
   onToggleSelection: (areaId: string) => void;
@@ -136,7 +145,12 @@ const AreaCard = memo(function AreaCard({
   const progress = metric?.progress ?? 0;
   const commentCount = metric?.commentCount ?? 0;
   const photoCount = metric?.photoCount ?? 0;
-  const blockedByClaim = claimStatus === 'other';
+  const blockedByClaim = claimStatus?.ownership === 'other';
+  const claimLabel = claimStatus
+    ? claimStatus.ownership === 'mine'
+      ? 'Locked by you'
+      : `Locked by ${claimStatus.label}`
+    : null;
 
   return (
     <div
@@ -177,9 +191,9 @@ const AreaCard = memo(function AreaCard({
           <div className="min-w-0">
             <div className="min-w-0 flex items-center gap-2">
               <h3 className="truncate text-[1.05rem] font-semibold tracking-[-0.02em] text-gray-900 dark:text-white">{area.name}</h3>
-              {claimStatus && (
+              {claimLabel && (
                 <span className="segmented-chip shrink-0 px-2.5 py-1 text-[11px]">
-                  {claimStatus === 'mine' ? 'Locked by you' : 'Locked'}
+                  {claimLabel}
                 </span>
               )}
             </div>
@@ -236,8 +250,11 @@ export default function ProjectDetailPage() {
   const [syncing, setSyncing] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
   const [editingProject, setEditingProject] = useState<Project | null>(null);
-  const [sharedAreaClaims, setSharedAreaClaims] = useState<Map<string, 'mine' | 'other'>>(new Map());
+  const [sharedAreaClaims, setSharedAreaClaims] = useState<Map<string, AreaClaimDisplay>>(new Map());
   const [messageDialog, setMessageDialog] = useState<MessageDialogState | null>(null);
+  const [showCollaborationHealth, setShowCollaborationHealth] = useState(false);
+  const [collaborationHealthReport, setCollaborationHealthReport] = useState<CollaborationHealthReport | null>(null);
+  const [runningCollaborationHealth, setRunningCollaborationHealth] = useState(false);
   const syncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const sharedPublishTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pullStartYRef = useRef<number | null>(null);
@@ -255,6 +272,20 @@ export default function ProjectDetailPage() {
   const showMessage = useCallback((message: string, title = 'Punchlist') => {
     setMessageDialog({ title, message });
   }, []);
+
+  async function handleRunCollaborationHealthCheck() {
+    setShowCollaborationHealth(true);
+    setRunningCollaborationHealth(true);
+    try {
+      const report = await runCollaborationHealthCheck();
+      setCollaborationHealthReport(report);
+    } catch (error) {
+      console.error('Failed to run collaboration health check:', error);
+      showMessage(getCollaborationErrorMessage(error, 'Failed to run collaboration health check.'));
+    } finally {
+      setRunningCollaborationHealth(false);
+    }
+  }
 
   useEffect(() => {
     // Load saved sort preference
@@ -377,14 +408,21 @@ export default function ProjectDetailPage() {
     let cancelled = false;
     async function refreshSharedAreaClaims() {
       try {
-        const claims = await getActiveSharedProjectAreaClaims(activeSharedProjectId);
+        const claims = await getActiveSharedProjectAreaClaimSummaries(activeSharedProjectId);
         if (cancelled) return;
         setSharedAreaClaims(
           new Map(
-            claims.map((claim) => [
-              claim.areaId,
-              claim.claimedByUserId === activeUserId ? 'mine' : 'other',
-            ])
+            claims.map((claim): [string, AreaClaimDisplay] => {
+              const isMine = claim.claimedByUserId === activeUserId;
+              return [
+                claim.areaId,
+                {
+                  ownership: isMine ? 'mine' : 'other',
+                  label: claim.claimedByDisplayName || claim.claimedByEmail || 'another user',
+                  expiresAt: claim.expiresAt,
+                },
+              ];
+            })
           )
         );
       } catch (error) {
@@ -786,6 +824,11 @@ export default function ProjectDetailPage() {
       return;
     }
 
+    if (detail.action === 'collaboration-health') {
+      void handleRunCollaborationHealthCheck();
+      return;
+    }
+
     if (detail.action === 'clear-trash') {
       setShowTrash(false);
       setDeleteMode(false);
@@ -1038,6 +1081,15 @@ export default function ProjectDetailPage() {
           title={messageDialog.title}
           message={messageDialog.message}
           onClose={() => setMessageDialog(null)}
+        />
+      )}
+
+      {showCollaborationHealth && (
+        <CollaborationHealthDialog
+          report={collaborationHealthReport}
+          loading={runningCollaborationHealth}
+          onClose={() => setShowCollaborationHealth(false)}
+          onRefresh={() => void handleRunCollaborationHealthCheck()}
         />
       )}
 

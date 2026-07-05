@@ -9,7 +9,7 @@ import { useCollaborationAuth } from '@/contexts/CollaborationAuthContext';
 import { useSyncStatus } from '@/contexts/SyncStatusContext';
 import { useAppSettings } from '@/contexts/AppSettingsContext';
 import { getProject } from '@/lib/db';
-import { MoreVertical, LogOut, LogIn, ArrowDownAZ, Clock3, BarChart3, PlusSquare, FolderPlus, Trash2, Pencil, FileDown, Users, Share2, CheckCircle2, KeyRound, UserPlus, CloudUpload, CloudDownload, ArchiveRestore } from 'lucide-react';
+import { MoreVertical, LogOut, LogIn, ArrowDownAZ, Clock3, BarChart3, PlusSquare, FolderPlus, Trash2, Pencil, FileDown, Users, Share2, CheckCircle2, KeyRound, UserPlus, CloudUpload, CloudDownload, ArchiveRestore, Activity } from 'lucide-react';
 
 const projectTitleCache = new Map<string, string>();
 type SortOption = 'alphabetical' | 'issues' | 'progress';
@@ -429,6 +429,12 @@ export default function PersistentTopBar() {
                       >
                         <Users className="h-4 w-4" />
                         {collaborationAuth.isSignedIn ? 'Leave shared projects' : 'Enable shared projects'}
+                      </button>
+                    )}
+                    {isSignedIn && collaborationAuth.canUseCollaboration && (
+                      <button onClick={() => dispatchHomeAction('collaboration-health')} className={menuItemClass}>
+                        <Activity className="h-4 w-4" />
+                        Collaboration health
                       </button>
                     )}
                     {!isSignedIn ? (

@@ -58,13 +58,15 @@ function reviveProjectMember(
     invited_at: string;
     joined_at: string | null;
     removed_at: string | null;
-  }
+  },
+  ownerUserId?: string | null
 ): CollaborationProjectMember {
   return {
     projectId: row.project_id,
     userId: row.user_id ?? '',
     email: row.email,
     displayName: row.display_name ?? undefined,
+    isOwner: !!row.user_id && row.user_id === ownerUserId,
     accessState: row.access_state,
     joinedBy: row.joined_by,
     invitedByUserId: row.invited_by_user_id ?? undefined,
@@ -182,6 +184,16 @@ export async function getSharedProjectMembers(sharedProjectId: string): Promise<
     throw new Error('Collaboration is not configured.');
   }
 
+  const { data: projectRow, error: projectError } = await supabase
+    .from('shared_projects')
+    .select('owner_user_id')
+    .eq('id', sharedProjectId)
+    .maybeSingle();
+
+  if (projectError) {
+    throw projectError;
+  }
+
   const { data, error } = await supabase
     .from('project_members')
     .select('project_id, user_id, email, display_name, access_state, joined_by, invited_by_user_id, invited_at, joined_at, removed_at')
@@ -192,7 +204,7 @@ export async function getSharedProjectMembers(sharedProjectId: string): Promise<
     throw error;
   }
 
-  return (data ?? []).map(reviveProjectMember);
+  return (data ?? []).map((row) => reviveProjectMember(row, projectRow?.owner_user_id));
 }
 
 export async function joinSharedProjectByCode(

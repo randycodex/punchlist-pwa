@@ -57,6 +57,7 @@ export interface CollaborationProjectMember {
   userId: string;
   email: string;
   displayName?: string;
+  isOwner?: boolean;
   accessState: CollaborationAccessState;
   joinedBy: CollaborationJoinMethod;
   invitedByUserId?: string;
@@ -100,6 +101,11 @@ export interface CollaborationAreaClaim {
   expiresAt?: Date;
   releasedAt?: Date;
   transferredToUserId?: string;
+}
+
+export interface CollaborationAreaClaimSummary extends CollaborationAreaClaim {
+  claimedByEmail?: string;
+  claimedByDisplayName?: string;
 }
 
 export interface CollaborationMutation {

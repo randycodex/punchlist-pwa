@@ -40,7 +40,7 @@ import {
   createSharedProjectFromLocalProject,
   captureSharedProjectBackup,
   generateSharedProjectJoinCode,
-  getActiveSharedProjectAreaClaims,
+  getActiveSharedProjectAreaClaimSummaries,
   getSharedProjectMembers,
   getSharedProjectBackupSnapshot,
   getSharedProjectSnapshot,
@@ -50,15 +50,17 @@ import {
   listMySharedProjects,
   listSharedProjectBackups,
   publishSharedProjectSnapshot,
+  runCollaborationHealthCheck,
   transferSharedProjectOwnership,
 } from '@/lib/collaboration';
-import type { CollaborationSharedProjectDirectoryEntry, CollaborationSnapshotBackup } from '@/lib/collaboration';
+import type { CollaborationHealthReport, CollaborationProjectMember, CollaborationSharedProjectDirectoryEntry, CollaborationSnapshotBackup } from '@/lib/collaboration';
 import ProjectEditModal from '@/components/ProjectEditModal';
 import AreaEditorModal from '@/components/AreaEditorModal';
 import MetadataLine from '@/components/MetadataLine';
 import AppMessageDialog from '@/components/AppMessageDialog';
 import AppConfirmDialog from '@/components/AppConfirmDialog';
 import AppPromptDialog from '@/components/AppPromptDialog';
+import CollaborationHealthDialog from '@/components/CollaborationHealthDialog';
 import { applyTemplateToArea } from '@/lib/template';
 import {
   buildAreaName,
@@ -133,6 +135,16 @@ function formatSharedBackupReason(reason: CollaborationSnapshotBackup['reason'])
   return 'Manual backup';
 }
 
+function formatMemberStatus(status: CollaborationProjectMember['accessState']) {
+  if (status === 'active') return 'Active';
+  if (status === 'invited') return 'Invited';
+  return 'Removed';
+}
+
+function formatMemberJoinMethod(method: CollaborationProjectMember['joinedBy']) {
+  return method === 'joinCode' ? 'Joined by code' : 'Email invite';
+}
+
 type ProjectMetrics = {
   stats: { total: number; ok: number; issues: number; areas: number };
   pending: number;
@@ -148,12 +160,30 @@ type MessageDialogState = {
   message: string;
 };
 
+type PendingPullState = {
+  localProject: Project;
+  sharedProject: Project;
+  publishedAt: string;
+  hasNewerLocalChanges: boolean;
+};
+
+type BackupRestoreConfirmState = {
+  backup: CollaborationSnapshotBackup;
+  publishAfterRestore: boolean;
+};
+
 type AreaMetrics = {
   stats: { total: number; ok: number; issues: number; areas?: number };
   pending: number;
   progress: number;
   photoCount: number;
   commentCount: number;
+};
+
+type AreaClaimDisplay = {
+  ownership: 'mine' | 'other';
+  label: string;
+  expiresAt?: Date;
 };
 
 type ProjectCardProps = {
@@ -326,7 +356,7 @@ type HomeAreaCardProps = {
   projectId: string;
   area: Project['areas'][number];
   metric?: AreaMetrics;
-  claimStatus?: 'mine' | 'other';
+  claimStatus?: AreaClaimDisplay;
   deleteMode: boolean;
   isSelected: boolean;
   onToggleSelection: (areaId: string) => void;
@@ -347,7 +377,12 @@ const HomeAreaCard = memo(function HomeAreaCard({
   const progress = metric?.progress ?? 0;
   const commentCount = metric?.commentCount ?? 0;
   const photoCount = metric?.photoCount ?? 0;
-  const blockedByClaim = claimStatus === 'other';
+  const blockedByClaim = claimStatus?.ownership === 'other';
+  const claimLabel = claimStatus
+    ? claimStatus.ownership === 'mine'
+      ? 'Locked by you'
+      : `Locked by ${claimStatus.label}`
+    : null;
 
   return (
     <div
@@ -390,9 +425,9 @@ const HomeAreaCard = memo(function HomeAreaCard({
           <div className="min-w-0">
             <div className="flex items-center gap-2 min-w-0">
               <h3 className="truncate text-[1.03rem] font-semibold tracking-[-0.02em] text-gray-900 dark:text-white">{area.name}</h3>
-              {claimStatus && (
+              {claimLabel && (
                 <span className="segmented-chip shrink-0 px-2.5 py-1 text-[11px]">
-                  {claimStatus === 'mine' ? 'Locked by you' : 'Locked'}
+                  {claimLabel}
                 </span>
               )}
             </div>
@@ -452,8 +487,11 @@ export default function ProjectsPage() {
   } | null>(null);
   const [creatingJoinCode, setCreatingJoinCode] = useState(false);
   const [loadingSharedMembers, setLoadingSharedMembers] = useState(false);
+  const [sharedMembersProject, setSharedMembersProject] = useState<Project | null>(null);
+  const [sharedMembers, setSharedMembers] = useState<CollaborationProjectMember[]>([]);
   const [publishingSharedProject, setPublishingSharedProject] = useState(false);
   const [pullingSharedProject, setPullingSharedProject] = useState(false);
+  const [pendingPull, setPendingPull] = useState<PendingPullState | null>(null);
   const [transferringSharedProject, setTransferringSharedProject] = useState(false);
   const [showMySharedProjects, setShowMySharedProjects] = useState(false);
   const [loadingMySharedProjects, setLoadingMySharedProjects] = useState(false);
@@ -463,9 +501,12 @@ export default function ProjectsPage() {
   const [loadingSharedBackups, setLoadingSharedBackups] = useState(false);
   const [sharedBackups, setSharedBackups] = useState<CollaborationSnapshotBackup[]>([]);
   const [restoringBackupId, setRestoringBackupId] = useState<string | null>(null);
-  const [backupRestoreConfirm, setBackupRestoreConfirm] = useState<CollaborationSnapshotBackup | null>(null);
+  const [backupRestoreConfirm, setBackupRestoreConfirm] = useState<BackupRestoreConfirmState | null>(null);
   const [ownershipTransferProject, setOwnershipTransferProject] = useState<Project | null>(null);
   const [deleteProjectConfirm, setDeleteProjectConfirm] = useState<Project | null>(null);
+  const [showCollaborationHealth, setShowCollaborationHealth] = useState(false);
+  const [collaborationHealthReport, setCollaborationHealthReport] = useState<CollaborationHealthReport | null>(null);
+  const [runningCollaborationHealth, setRunningCollaborationHealth] = useState(false);
   const [sortOption, setSortOption] = useState<SortOption>('issues');
   const [syncing, setSyncing] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
@@ -488,7 +529,7 @@ export default function ProjectsPage() {
   const [selectedAreaIds, setSelectedAreaIds] = useState<Set<string>>(new Set());
   const [newAreaForm, setNewAreaForm] = useState(getDefaultAreaFormValue());
   const [recentAreaTypeKeys, setRecentAreaTypeKeys] = useState<AreaTypeKey[]>([]);
-  const [sharedAreaClaims, setSharedAreaClaims] = useState<Map<string, 'mine' | 'other'>>(new Map());
+  const [sharedAreaClaims, setSharedAreaClaims] = useState<Map<string, AreaClaimDisplay>>(new Map());
   const [messageDialog, setMessageDialog] = useState<MessageDialogState | null>(null);
   const syncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const sharedPublishTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
@@ -817,14 +858,21 @@ export default function ProjectsPage() {
     let cancelled = false;
     async function refreshSharedAreaClaims() {
       try {
-        const claims = await getActiveSharedProjectAreaClaims(activeSharedProjectId);
+        const claims = await getActiveSharedProjectAreaClaimSummaries(activeSharedProjectId);
         if (cancelled) return;
         setSharedAreaClaims(
           new Map(
-            claims.map((claim) => [
-              claim.areaId,
-              claim.claimedByUserId === activeUserId ? 'mine' : 'other',
-            ])
+            claims.map((claim): [string, AreaClaimDisplay] => {
+              const isMine = claim.claimedByUserId === activeUserId;
+              return [
+                claim.areaId,
+                {
+                  ownership: isMine ? 'mine' : 'other',
+                  label: claim.claimedByDisplayName || claim.claimedByEmail || 'another user',
+                  expiresAt: claim.expiresAt,
+                },
+              ];
+            })
           )
         );
       } catch (error) {
@@ -1314,21 +1362,20 @@ export default function ProjectsPage() {
     }
 
     setLoadingSharedMembers(true);
+    setSharedMembersProject(project);
+    setSharedMembers([]);
     try {
       const members = await getSharedProjectMembers(project.sharedProjectId);
       if (members.length === 0) {
-        showMessage('No shared project members found.', 'Shared Members');
+        setSharedMembers([]);
         return;
       }
 
-      const lines = members.map((member) => {
-        const name = member.displayName ? ` (${member.displayName})` : '';
-        return `${member.email}${name} - ${member.accessState}`;
-      });
-      showMessage(lines.join('\n'), 'Shared Members');
+      setSharedMembers(members);
     } catch (error) {
       console.error('Failed to load shared project members:', error);
       showMessage(getCollaborationErrorMessage(error, 'Failed to load shared project members. Please try again.'));
+      setSharedMembersProject(null);
     } finally {
       setLoadingSharedMembers(false);
     }
@@ -1414,6 +1461,20 @@ export default function ProjectsPage() {
     }
   }
 
+  async function handleRunCollaborationHealthCheck() {
+    setShowCollaborationHealth(true);
+    setRunningCollaborationHealth(true);
+    try {
+      const report = await runCollaborationHealthCheck();
+      setCollaborationHealthReport(report);
+    } catch (error) {
+      console.error('Failed to run collaboration health check:', error);
+      showMessage(getCollaborationErrorMessage(error, 'Failed to run collaboration health check.'));
+    } finally {
+      setRunningCollaborationHealth(false);
+    }
+  }
+
   async function handleAddSharedProjectFromDirectory(entry: CollaborationSharedProjectDirectoryEntry) {
     if (addingSharedProjectId) return;
 
@@ -1493,22 +1554,18 @@ export default function ProjectsPage() {
 
       fullProject.sharedProjectId = project.sharedProjectId;
       fullProject.sharedProjectLinkedAt = project.sharedProjectLinkedAt;
-      await captureSharedProjectBackup(
-        fullProject,
-        'before_pull',
-        'Local data before pulling shared data.'
-      );
-
       const result = await getSharedProjectSnapshot(project);
-      await saveProjectPreserveTimestamps(result.project);
-      setProjects((prev) =>
-        prev.map((entry) =>
-          entry.id === project.id
-            ? { ...result.project, areas: [...result.project.areas] }
-            : entry
-        )
-      );
-      showMessage(`Shared data pulled from ${new Date(result.publishedAt).toLocaleString()}.`);
+      const localUpdatedMs = new Date(fullProject.updatedAt).getTime();
+      const sharedPublishedMs = new Date(result.publishedAt).getTime();
+      setPendingPull({
+        localProject: fullProject,
+        sharedProject: result.project,
+        publishedAt: result.publishedAt,
+        hasNewerLocalChanges:
+          Number.isFinite(localUpdatedMs) &&
+          Number.isFinite(sharedPublishedMs) &&
+          localUpdatedMs > sharedPublishedMs + 2_000,
+      });
     } catch (error) {
       console.error('Failed to pull shared project:', error);
       showMessage(getCollaborationErrorMessage(error, 'Failed to pull shared data. Please try again.'));
@@ -1516,6 +1573,36 @@ export default function ProjectsPage() {
       setPullingSharedProject(false);
     }
   }, [collaborationAuth.isSignedIn, showMessage]);
+
+  async function confirmPullSharedProject() {
+    if (!pendingPull) return;
+
+    const pullState = pendingPull;
+    setPendingPull(null);
+    setPullingSharedProject(true);
+    try {
+      await captureSharedProjectBackup(
+        pullState.localProject,
+        'before_pull',
+        'Local data before pulling shared data.'
+      );
+
+      await saveProjectPreserveTimestamps(pullState.sharedProject);
+      setProjects((prev) =>
+        prev.map((entry) =>
+          entry.id === pullState.localProject.id
+            ? { ...pullState.sharedProject, areas: [...pullState.sharedProject.areas] }
+            : entry
+        )
+      );
+      showMessage(`Shared data pulled from ${new Date(pullState.publishedAt).toLocaleString()}.`);
+    } catch (error) {
+      console.error('Failed to pull shared project:', error);
+      showMessage(getCollaborationErrorMessage(error, 'Failed to pull shared data. Please try again.'));
+    } finally {
+      setPullingSharedProject(false);
+    }
+  }
 
   const handleShowSharedBackups = useCallback(async (project: Project) => {
     if (!project.sharedProjectId) {
@@ -1543,12 +1630,16 @@ export default function ProjectsPage() {
     }
   }, [collaborationAuth.isSignedIn, showMessage]);
 
-  async function handleRestoreSharedBackup(backup: CollaborationSnapshotBackup) {
-    setBackupRestoreConfirm(backup);
+  async function handleRestoreSharedBackup(backup: CollaborationSnapshotBackup, publishAfterRestore = false) {
+    setBackupRestoreConfirm({ backup, publishAfterRestore });
   }
 
-  async function confirmRestoreSharedBackup(backup: CollaborationSnapshotBackup) {
+  async function confirmRestoreSharedBackup(backup: CollaborationSnapshotBackup, publishAfterRestore: boolean) {
     if (!backupProject || restoringBackupId) return;
+    if (publishAfterRestore && !collaborationAuth.user) {
+      showMessage('Enable shared projects before restoring and publishing a backup.');
+      return;
+    }
 
     setBackupRestoreConfirm(null);
     setRestoringBackupId(backup.id);
@@ -1568,6 +1659,12 @@ export default function ProjectsPage() {
 
       const result = await getSharedProjectBackupSnapshot(fullProject, backup.id);
       await saveProjectPreserveTimestamps(result.project);
+      let publishedAt: string | null = null;
+      if (publishAfterRestore && collaborationAuth.user) {
+        const publishResult = await publishSharedProjectSnapshot(result.project, collaborationAuth.user.id);
+        publishedAt = publishResult.publishedAt;
+        await saveProjectMetadataOnly(result.project, { touch: false });
+      }
       setProjects((prev) =>
         prev.map((entry) =>
           entry.id === backupProject.id
@@ -1576,7 +1673,11 @@ export default function ProjectsPage() {
         )
       );
       setBackupProject({ ...result.project, areas: [...result.project.areas] });
-      showMessage('Backup restored on this device. Publish shared data if you want this restored version to become the team version.');
+      showMessage(
+        publishedAt
+          ? `Backup restored and published as the team version at ${new Date(publishedAt).toLocaleTimeString()}.`
+          : 'Backup restored on this device. Publish shared data if you want this restored version to become the team version.'
+      );
     } catch (error) {
       console.error('Failed to restore shared backup:', error);
       showMessage(getCollaborationErrorMessage(error, 'Failed to restore this backup. Please try again.'));
@@ -1739,6 +1840,11 @@ export default function ProjectsPage() {
 
     if (detail.action === 'my-shared-projects') {
       void handleShowMySharedProjects();
+      return;
+    }
+
+    if (detail.action === 'collaboration-health') {
+      void handleRunCollaborationHealthCheck();
       return;
     }
 
@@ -2183,11 +2289,27 @@ export default function ProjectsPage() {
 
       {backupRestoreConfirm && (
         <AppConfirmDialog
-          title="Restore Backup"
-          message={`Restore backup from ${backupRestoreConfirm.capturedAt.toLocaleString()} to this device?\n\nPublish shared data after restoring if this should become the team version.`}
-          confirmLabel="Restore"
+          title={backupRestoreConfirm.publishAfterRestore ? 'Restore and Publish' : 'Restore Backup'}
+          message={
+            backupRestoreConfirm.publishAfterRestore
+              ? `Restore backup from ${backupRestoreConfirm.backup.capturedAt.toLocaleString()}, then publish it as the current team version?\n\nThis will replace the shared version after first saving a backup of your current local data.`
+              : `Restore backup from ${backupRestoreConfirm.backup.capturedAt.toLocaleString()} to this device?\n\nPublish shared data after restoring if this should become the team version.`
+          }
+          confirmLabel={backupRestoreConfirm.publishAfterRestore ? 'Restore + Publish' : 'Restore'}
+          danger={backupRestoreConfirm.publishAfterRestore}
           onCancel={() => setBackupRestoreConfirm(null)}
-          onConfirm={() => void confirmRestoreSharedBackup(backupRestoreConfirm)}
+          onConfirm={() => void confirmRestoreSharedBackup(backupRestoreConfirm.backup, backupRestoreConfirm.publishAfterRestore)}
+        />
+      )}
+
+      {pendingPull && (
+        <AppConfirmDialog
+          title="Pull Shared Data"
+          message={`${pendingPull.hasNewerLocalChanges ? 'Your local project has changes newer than the shared version.\n\n' : ''}This will save a backup of your current local project, then replace this device's project data with the shared version from ${new Date(pendingPull.publishedAt).toLocaleString()}.`}
+          confirmLabel="Pull"
+          danger={pendingPull.hasNewerLocalChanges}
+          onCancel={() => setPendingPull(null)}
+          onConfirm={() => void confirmPullSharedProject()}
         />
       )}
 
@@ -2213,6 +2335,89 @@ export default function ProjectsPage() {
           onCancel={() => setDeleteProjectConfirm(null)}
           onConfirm={() => void confirmDeleteEditingProject(deleteProjectConfirm)}
         />
+      )}
+
+      {showCollaborationHealth && (
+        <CollaborationHealthDialog
+          report={collaborationHealthReport}
+          loading={runningCollaborationHealth}
+          onClose={() => setShowCollaborationHealth(false)}
+          onRefresh={() => void handleRunCollaborationHealthCheck()}
+        />
+      )}
+
+      {sharedMembersProject && (
+        <div className="modal-overlay fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="modal-panel max-h-[82dvh] w-full max-w-md overflow-y-auto rounded-[1.9rem] p-6">
+            <h2 className="mb-1 text-xl font-semibold tracking-[-0.02em] text-gray-900 dark:text-white">Shared Members</h2>
+            <p className="mb-5 text-sm text-gray-500 dark:text-gray-400">
+              {sharedMembersProject.projectName}
+            </p>
+            {loadingSharedMembers ? (
+              <div className="flex items-center gap-3 rounded-[1.25rem] border border-[var(--surface-border)] bg-white/70 px-4 py-5 text-sm text-gray-500 dark:bg-white/[0.04] dark:text-gray-400">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Loading members...
+              </div>
+            ) : sharedMembers.length === 0 ? (
+              <div className="rounded-[1.25rem] border border-[var(--surface-border)] bg-white/70 px-4 py-5 text-sm text-gray-500 dark:bg-white/[0.04] dark:text-gray-400">
+                No shared project members found.
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {sharedMembers.map((member) => (
+                  <div key={`${member.projectId}:${member.email}`} className="rounded-[1.25rem] border border-[var(--surface-border)] bg-white/70 p-4 dark:bg-white/[0.04]">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="truncate text-sm font-semibold text-gray-900 dark:text-white">
+                          {member.displayName || member.email}
+                        </div>
+                        <div className="mt-1 truncate text-xs text-gray-500 dark:text-gray-400">
+                          {member.email}
+                        </div>
+                      </div>
+                      <div className="flex shrink-0 flex-col items-end gap-1">
+                        {member.isOwner && (
+                          <span className="rounded-full bg-black/[0.06] px-2.5 py-1 text-[11px] font-semibold text-gray-700 dark:bg-white/[0.08] dark:text-gray-300">
+                            Owner
+                          </span>
+                        )}
+                        <span className="rounded-full bg-green-500/10 px-2.5 py-1 text-[11px] font-semibold text-green-700 dark:bg-green-400/10 dark:text-green-300">
+                          {formatMemberStatus(member.accessState)}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="mt-3 grid grid-cols-1 gap-1 text-xs text-gray-500 dark:text-gray-400">
+                      <div>{formatMemberJoinMethod(member.joinedBy)}</div>
+                      <div>
+                        {member.joinedAt
+                          ? `Joined ${member.joinedAt.toLocaleString()}`
+                          : `Invited ${member.invitedAt.toLocaleString()}`}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className="mt-6 flex gap-3">
+              <button
+                onClick={() => {
+                  setSharedMembersProject(null);
+                  setSharedMembers([]);
+                }}
+                className="flex-1 rounded-2xl border border-gray-300/90 bg-white/70 px-4 py-3 font-medium text-gray-700 transition hover:bg-white dark:border-white/10 dark:bg-white/[0.04] dark:text-gray-300 dark:hover:bg-white/[0.08]"
+              >
+                Done
+              </button>
+              <button
+                onClick={() => void handleShowSharedMembers(sharedMembersProject)}
+                disabled={loadingSharedMembers}
+                className="flex-1 rounded-2xl bg-zinc-900 px-4 py-3 font-medium text-white transition hover:bg-black disabled:cursor-not-allowed disabled:opacity-50 dark:bg-white dark:text-gray-900 dark:hover:bg-gray-200"
+              >
+                Refresh
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       <AreaEditorModal
@@ -2519,13 +2724,22 @@ export default function ProjectsPage() {
                           {backup.note}
                         </div>
                       )}
-                      <button
-                        onClick={() => void handleRestoreSharedBackup(backup)}
-                        disabled={!!restoringBackupId}
-                        className="mt-4 w-full rounded-2xl bg-zinc-900 px-4 py-3 text-sm font-medium text-white transition hover:bg-black disabled:cursor-not-allowed disabled:opacity-50 dark:bg-white dark:text-gray-900 dark:hover:bg-gray-200"
-                      >
-                        {isRestoring ? 'Restoring...' : 'Restore to this device'}
-                      </button>
+                      <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                        <button
+                          onClick={() => void handleRestoreSharedBackup(backup)}
+                          disabled={!!restoringBackupId}
+                          className="rounded-2xl border border-gray-300/90 bg-white/70 px-4 py-3 text-sm font-medium text-gray-700 transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/10 dark:bg-white/[0.04] dark:text-gray-300 dark:hover:bg-white/[0.08]"
+                        >
+                          {isRestoring ? 'Restoring...' : 'Restore'}
+                        </button>
+                        <button
+                          onClick={() => void handleRestoreSharedBackup(backup, true)}
+                          disabled={!!restoringBackupId}
+                          className="rounded-2xl bg-zinc-900 px-4 py-3 text-sm font-medium text-white transition hover:bg-black disabled:cursor-not-allowed disabled:opacity-50 dark:bg-white dark:text-gray-900 dark:hover:bg-gray-200"
+                        >
+                          Restore + publish
+                        </button>
+                      </div>
                     </div>
                   );
                 })}
