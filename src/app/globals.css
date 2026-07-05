@@ -330,6 +330,16 @@ html:not(.dark) {
   background: rgba(255, 255, 255, 0.05);
 }
 
+select.field-shell option {
+  background: #ffffff;
+  color: #111827;
+}
+
+.dark select.field-shell option {
+  background: #27272a;
+  color: #f9fafb;
+}
+
 .empty-state-card {
   border: 1px dashed rgba(107, 114, 128, 0.28);
   background: var(--surface);
