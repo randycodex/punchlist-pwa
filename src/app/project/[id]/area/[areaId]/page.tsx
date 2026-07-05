@@ -66,6 +66,9 @@ import {
 } from '@/lib/collaboration';
 import AreaNotesCard from '@/components/inspection/AreaNotesCard';
 import CustomItemComposer from '@/components/inspection/CustomItemComposer';
+import FacadeElevationViewer, {
+  type FacadeElevationSelection,
+} from '@/components/inspection/FacadeElevationViewer';
 import InspectionLocationCard from '@/components/inspection/InspectionLocationCard';
 import Link from 'next/link';
 import {
@@ -1299,6 +1302,11 @@ export default function AreaDetailPage() {
   }
 
   function handlePullStart(e: TouchEvent<HTMLElement>) {
+    if (e.touches.length !== 1) {
+      pullStartYRef.current = null;
+      pullDistanceRef.current = 0;
+      return;
+    }
     const atTop = isListAtTop();
     if (!atTop || syncing) {
       pullStartYRef.current = null;
@@ -1310,6 +1318,7 @@ export default function AreaDetailPage() {
   }
 
   function handlePullMove(e: TouchEvent<HTMLElement>) {
+    if (e.touches.length !== 1) return;
     const atTop = isListAtTop();
     if (pullStartYRef.current === null || !atTop || syncing) return;
     const currentY = e.touches[0]?.clientY ?? pullStartYRef.current;
@@ -1428,6 +1437,34 @@ export default function AreaDetailPage() {
     }
   }
 
+  async function openElevationSelection({
+    locationId,
+    itemId,
+    checkpointId,
+  }: FacadeElevationSelection) {
+    const checkpoint = findCheckpoint(locationId, itemId, checkpointId);
+    if (!checkpoint) return;
+
+    setShowCustomCheckpointComposer(false);
+    setCustomCheckpointName('');
+    setCustomCheckpointTarget(null);
+    setEditingCustomCheckpoint(null);
+    await closeExpandedCheckpoint();
+    setExpandedLocations(new Set([locationId]));
+    setExpandedItems(new Set([itemId]));
+    setExpandedCheckpoint({ locationId, itemId, checkpointId });
+    setCommentText(checkpoint.comments);
+
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        itemRefs.current.get(itemId)?.scrollIntoView({
+          block: 'start',
+          behavior: 'smooth',
+        });
+      });
+    });
+  }
+
   async function toggleCheckpoint(
     locationId: string,
     itemId: string,
@@ -1464,6 +1501,9 @@ export default function AreaDetailPage() {
   const areaTitle = isApartmentArea(area)
     ? [area.unitType?.trim(), area.areaNumber?.trim()].filter(Boolean).join(' - ') || area.name
     : area.name;
+  const elevationDrawing = area.elevationDrawingId
+    ? project.facadeElevationDrawings?.find((drawing) => drawing.id === area.elevationDrawingId) ?? null
+    : null;
 
   const supportsInlineLocationCustomItems = true;
   const supportsCustomSubareas = isApartmentArea(area) && !deleteMode;
@@ -1626,6 +1666,13 @@ export default function AreaDetailPage() {
         onTouchCancelCapture={handlePullEnd}
       >
         <div className="list-stack mx-auto min-h-[calc(100%+1px)] w-full max-w-6xl">
+          {!deleteMode && area.areaTypeKey === 'facade' && elevationDrawing && (
+            <FacadeElevationViewer
+              drawing={elevationDrawing}
+              locations={area.locations}
+              onOpenSelection={(selection) => void openElevationSelection(selection)}
+            />
+          )}
           {supportsGlobalCustomItems && !editingCustomItem && (
             <CustomItemComposer
               open={showCustomItemComposer}
