@@ -329,6 +329,7 @@ export function areaHasRecordedActivity(area: Area): boolean {
         (checkpoint) =>
           checkpoint.status !== 'pending' ||
           checkpoint.comments.trim().length > 0 ||
+          Boolean(checkpoint.elevationMarker) ||
           checkpoint.photos.length > 0 ||
           (checkpoint.files?.length ?? 0) > 0
       )

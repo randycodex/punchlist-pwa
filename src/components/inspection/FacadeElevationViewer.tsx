@@ -10,6 +10,7 @@ import {
   X,
 } from 'lucide-react';
 import {
+  useEffect,
   useMemo,
   useRef,
   useState,
@@ -17,19 +18,25 @@ import {
   type MouseEvent,
   type PointerEvent,
   type TouchEvent,
-  type WheelEvent,
 } from 'react';
 import type { Area, FacadeElevationDrawing } from '@/types';
+import type { ElevationMarkerReference } from '@/lib/elevationMarkers';
 
-export type FacadeElevationSelection = {
+type ChecklistSelection = {
   locationId: string;
   itemId: string;
   checkpointId: string;
 };
 
+export type FacadeElevationSelection = ChecklistSelection & {
+  xPercent: number;
+  yPercent: number;
+};
+
 type FacadeElevationViewerProps = {
   drawing: FacadeElevationDrawing;
   locations: Area['locations'];
+  markers?: ElevationMarkerReference[];
   onOpenSelection: (selection: FacadeElevationSelection) => void | Promise<void>;
 };
 
@@ -38,7 +45,7 @@ type TapPoint = {
   yPercent: number;
 };
 
-type PickerState = TapPoint & FacadeElevationSelection;
+type PickerState = TapPoint & ChecklistSelection;
 
 type DragGesture = {
   pointerId: number;
@@ -75,7 +82,7 @@ function getTouchDistance(first: TouchPoint, second: TouchPoint) {
   return Math.hypot(first.clientX - second.clientX, first.clientY - second.clientY);
 }
 
-function getFirstAvailableSelection(locations: Area['locations']): FacadeElevationSelection | null {
+function getFirstAvailableSelection(locations: Area['locations']): ChecklistSelection | null {
   for (const location of locations) {
     for (const item of location.items) {
       const checkpoint = item.checkpoints[0];
@@ -99,11 +106,13 @@ function getLocationOptionLabel(location: Area['locations'][number]) {
 export default function FacadeElevationViewer({
   drawing,
   locations,
+  markers = [],
   onOpenSelection,
 }: FacadeElevationViewerProps) {
   const [scale, setScale] = useState(1);
   const [offset, setOffset] = useState({ x: 0, y: 0 });
   const [picker, setPicker] = useState<PickerState | null>(null);
+  const viewportRef = useRef<HTMLDivElement | null>(null);
   const mediaRef = useRef<HTMLImageElement | HTMLObjectElement | HTMLDivElement | null>(null);
   const dragRef = useRef<DragGesture | null>(null);
   const pinchRef = useRef<PinchGesture | null>(null);
@@ -127,6 +136,29 @@ export default function FacadeElevationViewer({
   const selectedCheckpoints = selectedItem?.checkpoints ?? [];
   const isImage = drawing.mimeType.startsWith('image/');
   const isPdf = drawing.mimeType === 'application/pdf';
+
+  useEffect(() => {
+    const viewport = viewportRef.current;
+    if (!viewport) return;
+
+    const handleNativeWheel = (event: globalThis.WheelEvent) => {
+      if (!event.ctrlKey && !event.metaKey) return;
+      event.preventDefault();
+      event.stopPropagation();
+      setScale((currentScale) => {
+        const nextScale = clampZoom(currentScale - event.deltaY * 0.004);
+        if (nextScale <= MIN_ZOOM) {
+          setOffset({ x: 0, y: 0 });
+        }
+        return nextScale;
+      });
+    };
+
+    viewport.addEventListener('wheel', handleNativeWheel, { passive: false });
+    return () => {
+      viewport.removeEventListener('wheel', handleNativeWheel);
+    };
+  }, []);
 
   function updateZoom(nextScale: number) {
     const clampedScale = clampZoom(nextScale);
@@ -264,12 +296,6 @@ export default function FacadeElevationViewer({
     }
   }
 
-  function handleWheel(event: WheelEvent<HTMLDivElement>) {
-    if (!event.ctrlKey && !event.metaKey) return;
-    event.preventDefault();
-    updateZoom(scale - event.deltaY * 0.004);
-  }
-
   function handleLocationChange(locationId: string) {
     const location = selectableLocations.find((entry) => entry.id === locationId);
     const item = location?.items.find((entry) => entry.checkpoints.length > 0);
@@ -310,6 +336,8 @@ export default function FacadeElevationViewer({
       locationId: picker.locationId,
       itemId: picker.itemId,
       checkpointId: picker.checkpointId,
+      xPercent: picker.xPercent,
+      yPercent: picker.yPercent,
     });
     setPicker(null);
   }
@@ -360,8 +388,9 @@ export default function FacadeElevationViewer({
       </div>
 
       <div
-        className={`relative flex h-[min(62vh,34rem)] min-h-[19rem] items-center justify-center overflow-hidden bg-zinc-950 ${
-          scale > 1 ? 'cursor-grab touch-none active:cursor-grabbing' : 'cursor-crosshair touch-pan-y'
+        ref={viewportRef}
+        className={`relative flex h-[min(62vh,34rem)] min-h-[19rem] touch-none items-center justify-center overflow-hidden bg-zinc-950 ${
+          scale > 1 ? 'cursor-grab active:cursor-grabbing' : 'cursor-crosshair'
         }`}
         onClick={handleViewerClick}
         onKeyDown={handleViewerKeyDown}
@@ -373,7 +402,6 @@ export default function FacadeElevationViewer({
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
         onTouchCancel={handleTouchEnd}
-        onWheel={handleWheel}
         role="button"
         tabIndex={0}
         aria-label="Select elevation point"
@@ -415,15 +443,31 @@ export default function FacadeElevationViewer({
               {drawing.fileName}
             </div>
           )}
+          {markers.map((marker) => (
+            <span
+              key={`${marker.checkpointId}-${marker.markerKey}`}
+              className="pointer-events-none absolute flex h-5 w-5 items-center justify-center rounded-full border border-white bg-[var(--accent)] text-[0.52rem] font-bold leading-none text-white shadow-md ring-1 ring-black/35"
+              style={{
+                left: `${marker.xPercent}%`,
+                top: `${marker.yPercent}%`,
+                transform: `translate(-50%, -50%) scale(${1 / scale})`,
+                transformOrigin: 'center center',
+              }}
+            >
+              {marker.markerKey.replace(/^E/, '')}
+            </span>
+          ))}
           {picker && (
             <span
-              className="pointer-events-none absolute flex h-8 w-8 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border-2 border-white bg-[var(--accent)] text-white shadow-lg ring-2 ring-black/45"
+              className="pointer-events-none absolute flex h-5 w-5 items-center justify-center rounded-full border border-white bg-[var(--accent)] text-white shadow-md ring-1 ring-black/35"
               style={{
                 left: `${picker.xPercent}%`,
                 top: `${picker.yPercent}%`,
+                transform: `translate(-50%, -50%) scale(${1 / scale})`,
+                transformOrigin: 'center center',
               }}
             >
-              <MapPin className="h-4 w-4" />
+              <MapPin className="h-2.5 w-2.5" />
             </span>
           )}
         </div>

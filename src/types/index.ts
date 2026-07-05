@@ -20,6 +20,12 @@ export interface FileAttachment {
   createdAt: Date;
 }
 
+export interface ElevationMarker {
+  drawingId: string;
+  xPercent: number;
+  yPercent: number;
+}
+
 export interface Checkpoint {
   id: string;
   itemId: string;
@@ -32,6 +38,7 @@ export interface Checkpoint {
   sortOrder: number;
   photos: PhotoAttachment[];
   files: FileAttachment[];
+  elevationMarker?: ElevationMarker;
   createdAt: Date;
   updatedAt: Date;
 }

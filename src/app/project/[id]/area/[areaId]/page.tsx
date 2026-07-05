@@ -44,6 +44,7 @@ import {
   upsertFacadeElevationDrawing,
   type AreaTypeKey,
 } from '@/lib/areas';
+import { buildElevationMarkerReferences } from '@/lib/elevationMarkers';
 import { applyTemplateToArea } from '@/lib/template';
 import { syncProjectsWithOneDrive } from '@/lib/oneDriveSync';
 import {
@@ -90,6 +91,7 @@ function locationHasRecordedActivity(location: Area['locations'][number]) {
       (checkpoint) =>
         checkpoint.status !== 'pending' ||
         checkpoint.comments.trim().length > 0 ||
+        Boolean(checkpoint.elevationMarker) ||
         checkpoint.photos.length > 0 ||
         (checkpoint.files?.length ?? 0) > 0
     )
@@ -1441,15 +1443,35 @@ export default function AreaDetailPage() {
     locationId,
     itemId,
     checkpointId,
+    xPercent,
+    yPercent,
   }: FacadeElevationSelection) {
-    const checkpoint = findCheckpoint(locationId, itemId, checkpointId);
-    if (!checkpoint) return;
+    if (!project || !area?.elevationDrawingId) return;
 
     setShowCustomCheckpointComposer(false);
     setCustomCheckpointName('');
     setCustomCheckpointTarget(null);
     setEditingCustomCheckpoint(null);
     await closeExpandedCheckpoint();
+
+    const targetArea = project.areas.find((entry) => entry.id === area.id);
+    const targetLocation = targetArea?.locations.find((location) => location.id === locationId);
+    const targetItem = targetLocation?.items.find((item) => item.id === itemId);
+    const checkpoint = targetItem?.checkpoints.find((entry) => entry.id === checkpointId);
+    if (!targetArea || !checkpoint) return;
+
+    checkpoint.elevationMarker = {
+      drawingId: area.elevationDrawingId,
+      xPercent,
+      yPercent,
+    };
+    checkpoint.updatedAt = new Date();
+    syncAreaCompletion(targetArea);
+    await saveProjectMetadataOnly(project);
+    scheduleSync(project.id);
+    setProject({ ...project, areas: [...project.areas] });
+    setArea({ ...targetArea });
+
     setExpandedLocations(new Set([locationId]));
     setExpandedItems(new Set([itemId]));
     setExpandedCheckpoint({ locationId, itemId, checkpointId });
@@ -1670,6 +1692,10 @@ export default function AreaDetailPage() {
             <FacadeElevationViewer
               drawing={elevationDrawing}
               locations={area.locations}
+              markers={buildElevationMarkerReferences(area, {
+                drawingId: elevationDrawing.id,
+                issuesOnly: true,
+              })}
               onOpenSelection={(selection) => void openElevationSelection(selection)}
             />
           )}

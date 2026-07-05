@@ -1,5 +1,10 @@
 import { jsPDF } from 'jspdf';
-import { Area, Checkpoint, Item, Location, Project, checkpointHasIssue, getCheckpointIssueState } from '@/types';
+import { Area, Checkpoint, FacadeElevationDrawing, Item, Location, Project, checkpointHasIssue, getCheckpointIssueState } from '@/types';
+import {
+  buildElevationMarkerReferenceMap,
+  buildElevationMarkerReferences,
+  type ElevationMarkerReference,
+} from '@/lib/elevationMarkers';
 
 export type PdfExportMode = 'full' | 'issues';
 export type PdfExportOptions = {
@@ -51,6 +56,7 @@ type SummaryArea = {
     entries: Array<{
       checkpointId: string;
       subItem: string;
+      elevationRef: string;
       comment: string;
       photoRef: string;
     }>;
@@ -537,6 +543,7 @@ function getProjectIssueSummary(project: Project) {
       entries: Array<{
         checkpointId: string;
         subItem: string;
+        elevationRef: string;
         comment: string;
         photoRef: string;
       }>;
@@ -544,7 +551,17 @@ function getProjectIssueSummary(project: Project) {
 
     for (const location of area.locations) {
       let sectionIssueCount = 0;
-      const entries: Array<{ checkpointId: string; subItem: string; comment: string; photoRef: string }> = [];
+      const entries: Array<{
+        checkpointId: string;
+        subItem: string;
+        elevationRef: string;
+        comment: string;
+        photoRef: string;
+      }> = [];
+      const elevationRefsByCheckpoint = buildElevationMarkerReferenceMap(area, {
+        drawingId: area.elevationDrawingId,
+        issuesOnly: true,
+      });
 
       for (const item of location.items) {
         for (const checkpoint of getUniqueCheckpoints(item.checkpoints)) {
@@ -557,6 +574,7 @@ function getProjectIssueSummary(project: Project) {
           entries.push({
             checkpointId: checkpoint.id,
             subItem: `${item.name} - ${checkpoint.name}`,
+            elevationRef: elevationRefsByCheckpoint.get(checkpoint.id)?.markerKey ?? '',
             comment: sanitizeText(checkpoint.comments),
             photoRef: '',
           });
@@ -704,12 +722,13 @@ function renderEmptyIssuesMessage(pdf: jsPDF, layout: LayoutMetrics, startY: num
 function getAreaSummaryColumns(layout: LayoutMetrics) {
   const tableWidth = layout.contentWidth;
   const sectionColumnWidth = 28;
+  const keyColumnWidth = 12;
   const photoColumnWidth = 18;
   const countColumnWidth = 14;
-  const detailsWidth = tableWidth - sectionColumnWidth - photoColumnWidth - countColumnWidth - 6;
+  const detailsWidth = tableWidth - sectionColumnWidth - keyColumnWidth - photoColumnWidth - countColumnWidth - 6;
   const subItemColumnWidth = Math.max(38, detailsWidth * 0.5);
   const commentsColumnWidth = Math.max(28, detailsWidth - subItemColumnWidth);
-  return { tableWidth, sectionColumnWidth, subItemColumnWidth, commentsColumnWidth, photoColumnWidth };
+  return { tableWidth, sectionColumnWidth, keyColumnWidth, subItemColumnWidth, commentsColumnWidth, photoColumnWidth };
 }
 
 function getSelectedAreasSummaryColumns(layout: LayoutMetrics) {
@@ -717,9 +736,10 @@ function getSelectedAreasSummaryColumns(layout: LayoutMetrics) {
   const areaColumnWidth = 34;
   const createdColumnWidth = 22;
   const sectionColumnWidth = 22;
+  const keyColumnWidth = 11;
   const photoColumnWidth = 17;
   const countColumnWidth = 12;
-  const detailsWidth = tableWidth - areaColumnWidth - createdColumnWidth - sectionColumnWidth - photoColumnWidth - countColumnWidth - 6;
+  const detailsWidth = tableWidth - areaColumnWidth - createdColumnWidth - sectionColumnWidth - keyColumnWidth - photoColumnWidth - countColumnWidth - 6;
   const subItemColumnWidth = Math.max(32, detailsWidth * 0.46);
   const commentsColumnWidth = Math.max(30, detailsWidth - subItemColumnWidth);
 
@@ -728,6 +748,7 @@ function getSelectedAreasSummaryColumns(layout: LayoutMetrics) {
     areaColumnWidth,
     createdColumnWidth,
     sectionColumnWidth,
+    keyColumnWidth,
     subItemColumnWidth,
     commentsColumnWidth,
     photoColumnWidth,
@@ -738,9 +759,12 @@ function getSelectedAreasSummaryColumns(layout: LayoutMetrics) {
 function estimateAreaSummaryHeight(pdf: jsPDF, areaSummary: SummaryArea | undefined, layout: LayoutMetrics) {
   if (!areaSummary || areaSummary.sections.length === 0) return 0;
 
-  const { subItemColumnWidth, commentsColumnWidth, photoColumnWidth } = getAreaSummaryColumns(layout);
+  const { keyColumnWidth, subItemColumnWidth, commentsColumnWidth, photoColumnWidth } = getAreaSummaryColumns(layout);
   return 6 + 5 + areaSummary.sections.reduce((total, section) => {
     const entryLines = section.entries.reduce((linesTotal, entry) => {
+      const keyLines = entry.elevationRef
+        ? (pdf.splitTextToSize(entry.elevationRef, keyColumnWidth - 1) as string[])
+        : [];
       const subItemLines = pdf.splitTextToSize(entry.subItem, subItemColumnWidth - 2) as string[];
       const commentLines = entry.comment
         ? (pdf.splitTextToSize(entry.comment, commentsColumnWidth - 2) as string[])
@@ -748,7 +772,7 @@ function estimateAreaSummaryHeight(pdf: jsPDF, areaSummary: SummaryArea | undefi
       const photoRefLines = entry.photoRef
         ? (pdf.splitTextToSize(entry.photoRef, photoColumnWidth - 1) as string[])
         : [];
-      return linesTotal + Math.max(1, subItemLines.length, commentLines.length, photoRefLines.length);
+      return linesTotal + Math.max(1, keyLines.length, subItemLines.length, commentLines.length, photoRefLines.length);
     }, 0);
     return total + Math.max(6.5, entryLines * 4.1 + 1.5) + 3;
   }, 0) + 3;
@@ -757,11 +781,15 @@ function estimateAreaSummaryHeight(pdf: jsPDF, areaSummary: SummaryArea | undefi
 function getAreaSummaryRowHeight(
   pdf: jsPDF,
   section: SummaryArea['sections'][number],
+  keyColumnWidth: number,
   subItemColumnWidth: number,
   commentsColumnWidth: number,
   photoColumnWidth: number
 ) {
   const entryLines = section.entries.reduce((linesTotal, entry) => {
+    const keyLines = entry.elevationRef
+      ? (pdf.splitTextToSize(entry.elevationRef, keyColumnWidth - 1) as string[])
+      : [];
     const subItemLines = pdf.splitTextToSize(entry.subItem, subItemColumnWidth - 2) as string[];
     const commentLines = entry.comment
       ? (pdf.splitTextToSize(entry.comment, commentsColumnWidth - 2) as string[])
@@ -769,7 +797,7 @@ function getAreaSummaryRowHeight(
     const photoRefLines = entry.photoRef
       ? (pdf.splitTextToSize(entry.photoRef, photoColumnWidth - 1) as string[])
       : [];
-    return linesTotal + Math.max(1, subItemLines.length, commentLines.length, photoRefLines.length);
+    return linesTotal + Math.max(1, keyLines.length, subItemLines.length, commentLines.length, photoRefLines.length);
   }, 0);
 
   return Math.max(6.5, entryLines * 4.1 + 1.5);
@@ -790,6 +818,9 @@ function getSelectedAreasSummaryRowHeight(
     : [];
   const sectionLines = pdf.splitTextToSize(section.sectionName, columns.sectionColumnWidth - 2) as string[];
   const entryLines = section.entries.reduce((linesTotal, entry) => {
+    const keyLines = entry.elevationRef
+      ? (pdf.splitTextToSize(entry.elevationRef, columns.keyColumnWidth - 1) as string[])
+      : [];
     const subItemLines = pdf.splitTextToSize(entry.subItem, columns.subItemColumnWidth - 2) as string[];
     const commentLines = entry.comment
       ? (pdf.splitTextToSize(entry.comment, columns.commentsColumnWidth - 2) as string[])
@@ -797,7 +828,7 @@ function getSelectedAreasSummaryRowHeight(
     const photoRefLines = entry.photoRef
       ? (pdf.splitTextToSize(entry.photoRef, columns.photoColumnWidth - 2) as string[])
       : [];
-    return linesTotal + Math.max(1, subItemLines.length, commentLines.length, photoRefLines.length);
+    return linesTotal + Math.max(1, keyLines.length, subItemLines.length, commentLines.length, photoRefLines.length);
   }, 0);
 
   return Math.max(
@@ -814,14 +845,19 @@ function renderAreaSummaryTableHeader(
   layout: LayoutMetrics,
   y: number
 ) {
-  const { tableWidth, sectionColumnWidth, subItemColumnWidth, commentsColumnWidth } = getAreaSummaryColumns(layout);
+  const { tableWidth, sectionColumnWidth, keyColumnWidth, subItemColumnWidth, commentsColumnWidth } = getAreaSummaryColumns(layout);
+  const areaX = layout.margin + 0.5;
+  const keyX = areaX + sectionColumnWidth;
+  const itemX = keyX + keyColumnWidth;
+  const commentsX = itemX + subItemColumnWidth;
 
   pdf.setFont('helvetica', 'bold');
   pdf.setFontSize(7.8);
-  pdf.text('AREA', layout.margin + 0.5, y);
-  pdf.text('INSPECTED ITEM', layout.margin + 0.5 + sectionColumnWidth, y);
-  pdf.text('COMMENTS', layout.margin + 0.5 + sectionColumnWidth + subItemColumnWidth, y);
-  pdf.text('PHOTOS', layout.margin + 0.5 + sectionColumnWidth + subItemColumnWidth + commentsColumnWidth, y);
+  pdf.text('AREA', areaX, y);
+  pdf.text('KEY', keyX, y);
+  pdf.text('INSPECTED ITEM', itemX, y);
+  pdf.text('COMMENTS', commentsX, y);
+  pdf.text('PHOTOS', commentsX + commentsColumnWidth, y);
   pdf.text('ISSUES QTY', layout.margin + tableWidth - 1, y, { align: 'right' });
 
   return y + 5;
@@ -837,6 +873,7 @@ function renderSelectedAreasSummaryTableHeader(
     areaColumnWidth,
     createdColumnWidth,
     sectionColumnWidth,
+    keyColumnWidth,
     subItemColumnWidth,
     commentsColumnWidth,
   } = getSelectedAreasSummaryColumns(layout);
@@ -844,7 +881,8 @@ function renderSelectedAreasSummaryTableHeader(
   const areaX = layout.margin + 0.5;
   const createdX = areaX + areaColumnWidth;
   const sectionX = createdX + createdColumnWidth;
-  const itemX = sectionX + sectionColumnWidth;
+  const keyX = sectionX + sectionColumnWidth;
+  const itemX = keyX + keyColumnWidth;
   const commentsX = itemX + subItemColumnWidth;
   const photosX = commentsX + commentsColumnWidth;
 
@@ -853,6 +891,7 @@ function renderSelectedAreasSummaryTableHeader(
   pdf.text('AREA', areaX, y);
   pdf.text('CREATED', createdX, y);
   pdf.text('LEVEL', sectionX, y);
+  pdf.text('KEY', keyX, y);
   pdf.text('INSPECTED ITEM', itemX, y);
   pdf.text('COMMENTS', commentsX, y);
   pdf.text('PHOTOS', photosX, y);
@@ -878,6 +917,7 @@ function renderSelectedAreasSummaryBlock(
     areaColumnWidth,
     createdColumnWidth,
     sectionColumnWidth,
+    keyColumnWidth,
     subItemColumnWidth,
     commentsColumnWidth,
   } = columns;
@@ -913,7 +953,8 @@ function renderSelectedAreasSummaryBlock(
       const areaX = layout.margin + 0.5;
       const createdX = areaX + areaColumnWidth;
       const sectionX = createdX + createdColumnWidth;
-      const itemX = sectionX + sectionColumnWidth;
+      const keyX = sectionX + sectionColumnWidth;
+      const itemX = keyX + keyColumnWidth;
       const commentsX = itemX + subItemColumnWidth;
       const photosX = commentsX + commentsColumnWidth;
       const countX = layout.margin + tableWidth - 1;
@@ -934,6 +975,9 @@ function renderSelectedAreasSummaryBlock(
 
       let entryY = rowTextY;
       for (const entry of section.entries) {
+        const keyLines = entry.elevationRef
+          ? (pdf.splitTextToSize(entry.elevationRef, keyColumnWidth - 1) as string[])
+          : [];
         const subItemLines = pdf.splitTextToSize(entry.subItem, subItemColumnWidth - 2) as string[];
         const commentLines = entry.comment
           ? (pdf.splitTextToSize(entry.comment, commentsColumnWidth - 2) as string[])
@@ -941,7 +985,10 @@ function renderSelectedAreasSummaryBlock(
         const photoLines = entry.photoRef
           ? (pdf.splitTextToSize(entry.photoRef, columns.photoColumnWidth - 2) as string[])
           : [];
-        const usedLines = Math.max(subItemLines.length, commentLines.length, photoLines.length, 1);
+        const usedLines = Math.max(keyLines.length, subItemLines.length, commentLines.length, photoLines.length, 1);
+        if (keyLines.length > 0) {
+          pdf.text(keyLines, keyX, entryY);
+        }
         pdf.text(subItemLines, itemX, entryY);
         if (entry.comment) {
           pdf.text(commentLines, commentsX, entryY);
@@ -974,7 +1021,7 @@ function renderAreaSummaryBlock(
     return startY;
   }
 
-  const { tableWidth, sectionColumnWidth, subItemColumnWidth, commentsColumnWidth, photoColumnWidth } = getAreaSummaryColumns(layout);
+  const { tableWidth, sectionColumnWidth, keyColumnWidth, subItemColumnWidth, commentsColumnWidth, photoColumnWidth } = getAreaSummaryColumns(layout);
   let y = startY;
 
   pdf.setFont('helvetica', 'bold');
@@ -989,7 +1036,14 @@ function renderAreaSummaryBlock(
   pdf.setTextColor(55, 65, 81);
 
   for (const section of areaSummary.sections) {
-    const rowHeight = getAreaSummaryRowHeight(pdf, section, subItemColumnWidth, commentsColumnWidth, photoColumnWidth);
+    const rowHeight = getAreaSummaryRowHeight(
+      pdf,
+      section,
+      keyColumnWidth,
+      subItemColumnWidth,
+      commentsColumnWidth,
+      photoColumnWidth
+    );
     if (y + rowHeight > layout.contentBottom) {
       y = startSummaryPage();
       pdf.setFont('helvetica', 'bold');
@@ -1005,7 +1059,8 @@ function renderAreaSummaryBlock(
 
     const rowTextY = y;
     const sectionX = layout.margin + 0.5;
-    const subItemX = sectionX + sectionColumnWidth;
+    const keyX = sectionX + sectionColumnWidth;
+    const subItemX = keyX + keyColumnWidth;
     const commentsX = subItemX + subItemColumnWidth;
     const photosX = commentsX + commentsColumnWidth;
     const countX = layout.margin + tableWidth - 1;
@@ -1014,6 +1069,9 @@ function renderAreaSummaryBlock(
 
     let entryY = rowTextY;
     for (const entry of section.entries) {
+      const keyLines = entry.elevationRef
+        ? (pdf.splitTextToSize(entry.elevationRef, keyColumnWidth - 1) as string[])
+        : [];
       const subItemLines = pdf.splitTextToSize(entry.subItem, subItemColumnWidth - 2) as string[];
       const commentLines = entry.comment
         ? (pdf.splitTextToSize(entry.comment, commentsColumnWidth - 2) as string[])
@@ -1021,8 +1079,11 @@ function renderAreaSummaryBlock(
       const photoRefLines = entry.photoRef
         ? (pdf.splitTextToSize(entry.photoRef, photoColumnWidth - 1) as string[])
         : [];
-      const usedLines = Math.max(1, subItemLines.length, commentLines.length, photoRefLines.length);
+      const usedLines = Math.max(1, keyLines.length, subItemLines.length, commentLines.length, photoRefLines.length);
 
+      if (keyLines.length > 0) {
+        pdf.text(keyLines, keyX, entryY);
+      }
       pdf.text(subItemLines, subItemX, entryY);
       if (commentLines.length > 0) {
         pdf.text(commentLines, commentsX, entryY);
@@ -1035,6 +1096,121 @@ function renderAreaSummaryBlock(
 
     pdf.text(String(section.issueCount), countX, rowTextY, { align: 'right' });
     y += rowHeight + 3;
+  }
+
+  pdf.setTextColor(0, 0, 0);
+  return y + 2;
+}
+
+function getAreaElevationDrawing(project: ExportProject, area: ExportArea): FacadeElevationDrawing | null {
+  if (area.areaTypeKey !== 'facade' || !area.elevationDrawingId) return null;
+  return project.facadeElevationDrawings?.find((drawing) => drawing.id === area.elevationDrawingId) ?? null;
+}
+
+async function prepareElevationDrawingForPdf(drawing: FacadeElevationDrawing) {
+  if (!drawing.mimeType.startsWith('image/')) {
+    return null;
+  }
+
+  return normalizePhotoForPdf(drawing.dataUrl);
+}
+
+function drawElevationMarker(
+  pdf: jsPDF,
+  marker: ElevationMarkerReference,
+  imageX: number,
+  imageY: number,
+  imageWidth: number,
+  imageHeight: number
+) {
+  const x = imageX + (marker.xPercent / 100) * imageWidth;
+  const y = imageY + (marker.yPercent / 100) * imageHeight;
+  const radius = 3.1;
+  const markerText = marker.markerKey.replace(/^E/, '');
+
+  pdf.setDrawColor(255, 255, 255);
+  pdf.setFillColor(239, 78, 36);
+  pdf.setLineWidth(0.45);
+  pdf.circle(x, y, radius, 'FD');
+  pdf.setFont('helvetica', 'bold');
+  pdf.setFontSize(markerText.length > 1 ? 4.8 : 5.6);
+  pdf.setTextColor(255, 255, 255);
+  pdf.text(markerText, x, y + 1.45, { align: 'center' });
+  pdf.setTextColor(0, 0, 0);
+}
+
+async function renderAreaElevationReferenceBlock(
+  pdf: jsPDF,
+  project: ExportProject,
+  area: ExportArea,
+  layout: LayoutMetrics,
+  startY: number,
+  startAreaPage: () => number
+) {
+  const drawing = getAreaElevationDrawing(project, area);
+  if (!drawing) return startY;
+
+  let y = startY + 4;
+  const minBlockHeight = 62;
+  if (y + minBlockHeight > layout.contentBottom) {
+    y = startAreaPage() + 2;
+  }
+
+  pdf.setFont('helvetica', 'bold');
+  pdf.setFontSize(10);
+  pdf.setTextColor(71, 85, 105);
+  pdf.text('Elevation Reference', layout.margin, y);
+
+  pdf.setFont('helvetica', 'normal');
+  pdf.setFontSize(7.8);
+  pdf.setTextColor(107, 114, 128);
+  pdf.text(drawing.name || drawing.fileName, layout.margin, y + 4.2);
+  y += 8;
+
+  const markerReferences = buildElevationMarkerReferences(area, {
+    drawingId: drawing.id,
+    issuesOnly: true,
+  });
+  const preparedDrawing = await prepareElevationDrawingForPdf(drawing);
+
+  if (!preparedDrawing) {
+    const placeholderHeight = 26;
+    pdf.setDrawColor(203, 213, 225);
+    pdf.setFillColor(248, 250, 252);
+    pdf.roundedRect(layout.margin, y, layout.contentWidth, placeholderHeight, 2, 2, 'FD');
+    pdf.setFont('helvetica', 'normal');
+    pdf.setFontSize(8.2);
+    pdf.setTextColor(71, 85, 105);
+    pdf.text('Elevation drawing preview is available in the app.', layout.margin + 4, y + 10);
+    pdf.text(drawing.fileName, layout.margin + 4, y + 16);
+    pdf.setTextColor(0, 0, 0);
+    return y + placeholderHeight + 5;
+  }
+
+  const availableHeight = Math.max(46, Math.min(126, layout.contentBottom - y - 9));
+  const fitted = fitImageSize(preparedDrawing.size, layout.contentWidth, availableHeight);
+  const imageX = layout.margin + (layout.contentWidth - fitted.width) / 2;
+  const imageY = y;
+
+  try {
+    pdf.addImage(preparedDrawing.src, 'JPEG', imageX, imageY, fitted.width, fitted.height);
+  } catch {
+    pdf.setFillColor(229, 231, 235);
+    pdf.roundedRect(imageX, imageY, fitted.width, fitted.height, IMAGE_RADIUS, IMAGE_RADIUS, 'F');
+  }
+
+  for (const marker of markerReferences) {
+    drawElevationMarker(pdf, marker, imageX, imageY, fitted.width, fitted.height);
+  }
+
+  y += fitted.height + 4;
+
+  if (markerReferences.length > 0 && y + 4 <= layout.contentBottom) {
+    pdf.setFont('helvetica', 'normal');
+    pdf.setFontSize(7.3);
+    pdf.setTextColor(107, 114, 128);
+    pdf.text('Elevation keys match the Area Summary KEY column.', layout.margin, y);
+    y += 4.5;
   }
 
   pdf.setTextColor(0, 0, 0);
@@ -1286,6 +1462,14 @@ async function renderProjectDetailPages(
     };
 
     let y = startAreaPage(true);
+    y = await renderAreaElevationReferenceBlock(
+      pdf,
+      project,
+      printableArea,
+      layout,
+      y,
+      () => startAreaPage(false)
+    );
     const continuedAreaStartY = getFreshAreaStartY(layout.contentTop, false);
 
     for (const location of printableLocations) {
