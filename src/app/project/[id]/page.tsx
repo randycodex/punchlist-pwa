@@ -37,6 +37,7 @@ import { useAppSettings } from '@/contexts/AppSettingsContext';
 import {
   captureSharedProjectBackup,
   createSharedProjectFromLocalProject,
+  disconnectSharedProject,
   generateSharedProjectJoinCode,
   getActiveSharedProjectAreaClaimSummaries,
   getCollaborationErrorMessage,
@@ -133,6 +134,14 @@ type PendingPullState = {
   publishedAt: string;
   hasNewerLocalChanges: boolean;
 };
+
+function unlinkLocalSharedProject(project: Project): Project {
+  const nextProject: Project = { ...project, areas: [...project.areas] };
+  delete nextProject.sharedProjectId;
+  delete nextProject.sharedProjectLinkedAt;
+  delete nextProject.sharedSnapshotPublishedAt;
+  return nextProject;
+}
 
 type AreaCardProps = {
   projectId: string;
@@ -330,6 +339,8 @@ export default function ProjectDetailPage() {
   const [publishingSharedProject, setPublishingSharedProject] = useState(false);
   const [pullingSharedProject, setPullingSharedProject] = useState(false);
   const [pendingPull, setPendingPull] = useState<PendingPullState | null>(null);
+  const [disconnectSharedProjectConfirm, setDisconnectSharedProjectConfirm] = useState<Project | null>(null);
+  const [disconnectingSharedProject, setDisconnectingSharedProject] = useState(false);
   const syncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const sharedPublishTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pullStartYRef = useRef<number | null>(null);
@@ -1048,6 +1059,59 @@ export default function ProjectDetailPage() {
     }
   }
 
+  function handleDisconnectSharedProject() {
+    if (!project?.sharedProjectId) {
+      showMessage('This project is not currently shared.');
+      return;
+    }
+
+    if (!collaborationAuth.isSignedIn) {
+      showMessage('Enable shared projects before stopping sharing for this project.');
+      return;
+    }
+
+    setDisconnectSharedProjectConfirm(project);
+  }
+
+  async function confirmDisconnectSharedProject() {
+    const targetProject = disconnectSharedProjectConfirm;
+    const sharedProjectId = targetProject?.sharedProjectId;
+    if (!targetProject || !sharedProjectId || disconnectingSharedProject) return;
+
+    setDisconnectingSharedProject(true);
+    try {
+      const fullProject = await getProject(targetProject.id);
+      if (!fullProject) {
+        throw new Error('Could not load this project.');
+      }
+
+      fullProject.sharedProjectId = targetProject.sharedProjectId;
+      fullProject.sharedProjectLinkedAt = targetProject.sharedProjectLinkedAt;
+      await captureSharedProjectBackup(
+        fullProject,
+        'manual',
+        'Local data before stopping shared project access.'
+      );
+
+      const result = await disconnectSharedProject(sharedProjectId);
+      const localProject = unlinkLocalSharedProject(fullProject);
+      await saveProject(localProject);
+      scheduleSync(localProject.id);
+      setProject({ ...localProject, areas: [...localProject.areas] });
+      setDisconnectSharedProjectConfirm(null);
+      showMessage(
+        result.action === 'archived'
+          ? 'Sharing has stopped for this project. Your local project data is still on this device.'
+          : 'You left this shared project. Your local project data is still on this device.'
+      );
+    } catch (error) {
+      console.error('Failed to stop sharing project:', error);
+      showMessage(getCollaborationErrorMessage(error, 'Failed to stop sharing this project. Please try again.'));
+    } finally {
+      setDisconnectingSharedProject(false);
+    }
+  }
+
   function cancelSelectionMode() {
     setDeleteMode(false);
     setActionSheet(null);
@@ -1134,6 +1198,11 @@ export default function ProjectDetailPage() {
       return;
     }
 
+    if (detail.action === 'disconnect-shared-project') {
+      handleDisconnectSharedProject();
+      return;
+    }
+
     if (detail.action === 'transfer-shared-project') {
       showMessage('Transfer ownership is available from the main project screen for now.');
       return;
@@ -1189,12 +1258,14 @@ export default function ProjectDetailPage() {
           isLoadingSharedMembers: loadingSharedMembers,
           isPublishingSharedProject: publishingSharedProject,
           isPullingSharedProject: pullingSharedProject,
+          isDisconnectingSharedProject: disconnectingSharedProject,
         },
       })
     );
   }, [
     creatingJoinCode,
     deleteMode,
+    disconnectingSharedProject,
     loadingSharedMembers,
     project,
     projectShowOnlyIssues,
@@ -1467,6 +1538,21 @@ export default function ProjectDetailPage() {
             </div>
           </div>
         </div>
+      )}
+
+      {disconnectSharedProjectConfirm && (
+        <AppConfirmDialog
+          title="Stop Sharing"
+          message={`Stop sharing "${disconnectSharedProjectConfirm.projectName}"?\n\nThis will save a shared backup first, then disconnect this device's local copy from the shared project. If you are the owner, the shared project will be archived for everyone. Your local inspection data will stay on this device.`}
+          confirmLabel={disconnectingSharedProject ? 'Stopping...' : 'Stop Sharing'}
+          danger
+          onCancel={() => {
+            if (!disconnectingSharedProject) {
+              setDisconnectSharedProjectConfirm(null);
+            }
+          }}
+          onConfirm={() => void confirmDisconnectSharedProject()}
+        />
       )}
 
       {showCollaborationHealth && (

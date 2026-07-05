@@ -28,6 +28,7 @@ type HomeMenuState = {
   isLoadingSharedMembers?: boolean;
   isPublishingSharedProject?: boolean;
   isPullingSharedProject?: boolean;
+  isDisconnectingSharedProject?: boolean;
   isTransferringSharedProject?: boolean;
 };
 
@@ -363,6 +364,14 @@ export default function PersistentTopBar() {
                           <button onClick={() => dispatchHomeAction('shared-backups')} className={menuItemClass}>
                             <ArchiveRestore className="h-4 w-4" />
                             Shared backups
+                          </button>
+                          <button
+                            onClick={() => dispatchHomeAction('disconnect-shared-project')}
+                            disabled={!!homeMenuState.isDisconnectingSharedProject}
+                            className={disabledMenuItemClass}
+                          >
+                            <LogOut className="h-4 w-4" />
+                            {homeMenuState.isDisconnectingSharedProject ? 'Stopping...' : 'Stop sharing'}
                           </button>
                           <button
                             onClick={() => dispatchHomeAction('transfer-shared-project')}

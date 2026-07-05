@@ -318,6 +318,12 @@ export interface CollaborationDatabase {
         };
         Returns: Json;
       };
+      disconnect_shared_project: {
+        Args: {
+          p_project_id: string;
+        };
+        Returns: Json;
+      };
     };
     Enums: Record<string, never>;
     CompositeTypes: Record<string, never>;

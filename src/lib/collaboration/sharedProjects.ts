@@ -19,6 +19,11 @@ type OwnershipTransferResult = {
   ownerEmail: string;
 };
 
+type DisconnectSharedProjectResult = {
+  action: 'archived' | 'left';
+  projectId: string;
+};
+
 export function getCollaborationErrorMessage(error: unknown, fallback = 'Failed to share project. Please try again.') {
   if (error instanceof Error) {
     return error.message;
@@ -267,4 +272,27 @@ export async function transferSharedProjectOwnership(
   }
 
   return { projectId, ownerUserId, ownerEmail };
+}
+
+export async function disconnectSharedProject(sharedProjectId: string): Promise<DisconnectSharedProjectResult> {
+  const supabase = getCollaborationSupabaseClient();
+  if (!supabase) {
+    throw new Error('Collaboration is not configured.');
+  }
+
+  const { data, error } = await supabase.rpc('disconnect_shared_project', {
+    p_project_id: sharedProjectId,
+  });
+
+  if (error) {
+    throw error;
+  }
+
+  const action = getStringFromJsonObject(data, 'action');
+  const projectId = getStringFromJsonObject(data, 'project_id');
+  if ((action !== 'archived' && action !== 'left') || !projectId) {
+    throw new Error('Shared project disconnect did not return a valid result.');
+  }
+
+  return { action, projectId };
 }
