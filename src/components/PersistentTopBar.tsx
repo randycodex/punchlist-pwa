@@ -21,7 +21,6 @@ type HomeMenuState = {
   canAddArea: boolean;
   isSingleProject: boolean;
   singleProjectName: string;
-  showOnlyIssues?: boolean;
   selectionMode?: boolean;
   isSharedProject?: boolean;
   isCreatingJoinCode?: boolean;
@@ -37,7 +36,7 @@ export default function PersistentTopBar() {
   const { isReady, isSignedIn } = useMicrosoftAuth();
   const collaborationAuth = useCollaborationAuth();
   const { retryInSeconds, status } = useSyncStatus();
-  const { homeShowOnlyIssues, projectShowOnlyIssues, quickSort } = useAppSettings();
+  const { quickSort } = useAppSettings();
   const showAuth = pathname === '/';
   const isProjectOverview = /^\/project\/[^/]+$/.test(pathname);
   const showTopMenu = showAuth || isProjectOverview;
@@ -50,7 +49,6 @@ export default function PersistentTopBar() {
     canAddArea: false,
     isSingleProject: false,
     singleProjectName: '',
-    showOnlyIssues: false,
     selectionMode: false,
   });
   const menuRef = useRef<HTMLDivElement | null>(null);
@@ -176,8 +174,6 @@ export default function PersistentTopBar() {
     );
   }
 
-  const currentShowOnlyIssues =
-    homeMenuState.context === 'project' ? (homeMenuState.showOnlyIssues ?? projectShowOnlyIssues) : (homeMenuState.showOnlyIssues ?? homeShowOnlyIssues);
   const menuCardClass = 'space-y-1 rounded-[1.25rem] bg-black/[0.03] p-2.5 dark:bg-white/[0.03]';
   const menuGroupLabelClass = 'px-3 pt-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-gray-500 dark:text-gray-400';
   const menuItemClass = 'flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm text-gray-700 transition hover:bg-black/[0.04] dark:text-gray-300 dark:hover:bg-white/[0.04]';
@@ -245,28 +241,6 @@ export default function PersistentTopBar() {
                 )}
                 {!showAuth && (
                   <>
-                  <div className="px-1 py-1">
-                    <div className="space-y-2 rounded-[1.25rem] bg-black/[0.03] p-2.5 dark:bg-white/[0.03]">
-                      <button
-                        onClick={() => dispatchHomeAction('toggle-issues-only')}
-                        className="flex w-full items-center justify-between gap-3 rounded-xl px-3 py-2 text-left text-sm text-gray-700 hover:bg-black/[0.04] dark:text-gray-300 dark:hover:bg-white/[0.04]"
-                      >
-                        <span>Show only issues</span>
-                        <span
-                          className={`relative inline-flex h-6 w-10 items-center rounded-full transition ${
-                            currentShowOnlyIssues ? 'bg-[var(--accent)]' : 'bg-gray-300 dark:bg-zinc-700'
-                          }`}
-                        >
-                          <span
-                            className={`inline-block h-4 w-4 rounded-full bg-white transition ${
-                              currentShowOnlyIssues ? 'translate-x-5' : 'translate-x-1'
-                            }`}
-                          />
-                        </span>
-                      </button>
-                    </div>
-                  </div>
-                  <div className="mx-1 my-1 border-t border-gray-200/80 dark:border-zinc-700" />
                   <div className="px-1 py-1">
                     <div className="px-1 pb-2 text-[11px] font-semibold uppercase tracking-[0.24em] text-gray-500 dark:text-gray-400">
                       Sort

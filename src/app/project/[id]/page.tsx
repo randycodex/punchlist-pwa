@@ -376,7 +376,7 @@ export default function ProjectDetailPage() {
   const { ensureAccessToken, signIn, accountEmail, accountName } = useMicrosoftAuth();
   const collaborationAuth = useCollaborationAuth();
   const { setRetryAt, setStatus: setSyncStatus } = useSyncStatus();
-  const { projectShowOnlyIssues, setProjectShowOnlyIssues, quickSort, markSyncedNow } = useAppSettings();
+  const { quickSort, markSyncedNow } = useAppSettings();
   loadProjectRef.current = loadProject;
 
   const showMessage = useCallback((message: string, title = 'Punchlist') => {
@@ -591,11 +591,7 @@ export default function ProjectDetailPage() {
   }, [project, activeAreas]);
 
   const sortedAreas = useMemo(() => {
-    const visibleAreas = projectShowOnlyIssues
-      ? activeAreas.filter((area) => (areaMetrics.get(area.id)?.stats.issues ?? 0) > 0)
-      : activeAreas;
-
-    return [...visibleAreas].sort((a, b) => {
+    return [...activeAreas].sort((a, b) => {
       if (sortOption === 'alphabetical') {
         return compareAreaNames(a, b);
       }
@@ -609,7 +605,7 @@ export default function ProjectDetailPage() {
       const progressB = areaMetrics.get(b.id)?.progress ?? 0;
       return progressB - progressA;
     });
-  }, [activeAreas, sortOption, areaMetrics, projectShowOnlyIssues]);
+  }, [activeAreas, sortOption, areaMetrics]);
 
   async function handleAddArea() {
     if (!project) return;
@@ -1283,11 +1279,6 @@ export default function ProjectDetailPage() {
       return;
     }
 
-    if (detail.action === 'toggle-issues-only') {
-      setProjectShowOnlyIssues(!projectShowOnlyIssues);
-      return;
-    }
-
     if (detail.action === 'toggle-selection') {
       if (deleteMode) {
         cancelSelectionMode();
@@ -1390,7 +1381,6 @@ export default function ProjectDetailPage() {
           canAddArea: true,
           isSingleProject: true,
           singleProjectName: project.projectName,
-          showOnlyIssues: projectShowOnlyIssues,
           selectionMode: deleteMode,
           isSharedProject: !!project.sharedProjectId,
           isCreatingJoinCode: creatingJoinCode,
@@ -1408,7 +1398,6 @@ export default function ProjectDetailPage() {
     disconnectingSharedProject,
     loadingSharedMembers,
     project,
-    projectShowOnlyIssues,
     publishingSharedProject,
     pullingSharedProject,
     showTrash,
