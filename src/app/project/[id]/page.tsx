@@ -12,6 +12,7 @@ import {
 import AreaEditorModal from '@/components/AreaEditorModal';
 import ProjectEditModal from '@/components/ProjectEditModal';
 import AppMessageDialog from '@/components/AppMessageDialog';
+import AppConfirmDialog from '@/components/AppConfirmDialog';
 import CollaborationHealthDialog from '@/components/CollaborationHealthDialog';
 import {
   buildAreaName,
@@ -34,8 +35,12 @@ import { useCollaborationAuth } from '@/contexts/CollaborationAuthContext';
 import { useSyncStatus } from '@/contexts/SyncStatusContext';
 import { useAppSettings } from '@/contexts/AppSettingsContext';
 import {
+  captureSharedProjectBackup,
+  createSharedProjectFromLocalProject,
+  generateSharedProjectJoinCode,
   getActiveSharedProjectAreaClaimSummaries,
   getCollaborationErrorMessage,
+  getSharedProjectMembers,
   getSharedProjectSnapshot,
   isSharedSnapshotNewer,
   publishSharedProjectSnapshot,
@@ -120,6 +125,13 @@ type AreaClaimDisplay = {
 type MessageDialogState = {
   title: string;
   message: string;
+};
+
+type PendingPullState = {
+  localProject: Project;
+  sharedProject: Project;
+  publishedAt: string;
+  hasNewerLocalChanges: boolean;
 };
 
 type AreaCardProps = {
@@ -308,6 +320,16 @@ export default function ProjectDetailPage() {
   const [showCollaborationHealth, setShowCollaborationHealth] = useState(false);
   const [collaborationHealthReport, setCollaborationHealthReport] = useState<CollaborationHealthReport | null>(null);
   const [runningCollaborationHealth, setRunningCollaborationHealth] = useState(false);
+  const [sharedProjectCode, setSharedProjectCode] = useState<{
+    projectName: string;
+    code: string;
+    expiresAt: string;
+  } | null>(null);
+  const [creatingJoinCode, setCreatingJoinCode] = useState(false);
+  const [loadingSharedMembers, setLoadingSharedMembers] = useState(false);
+  const [publishingSharedProject, setPublishingSharedProject] = useState(false);
+  const [pullingSharedProject, setPullingSharedProject] = useState(false);
+  const [pendingPull, setPendingPull] = useState<PendingPullState | null>(null);
   const syncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const sharedPublishTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pullStartYRef = useRef<number | null>(null);
@@ -316,7 +338,7 @@ export default function ProjectDetailPage() {
   const listRef = useRef<HTMLElement | null>(null);
   const topMenuActionHandlerRef = useRef<((event: Event) => void) | null>(null);
   const loadProjectRef = useRef<() => Promise<void>>(() => Promise.resolve());
-  const { ensureAccessToken, signIn } = useMicrosoftAuth();
+  const { ensureAccessToken, signIn, accountEmail, accountName } = useMicrosoftAuth();
   const collaborationAuth = useCollaborationAuth();
   const { setRetryAt, setStatus: setSyncStatus } = useSyncStatus();
   const { projectShowOnlyIssues, setProjectShowOnlyIssues, quickSort, markSyncedNow } = useAppSettings();
@@ -821,6 +843,211 @@ export default function ProjectDetailPage() {
     }
   }
 
+  const handleShareProject = useCallback(async () => {
+    if (!project) return;
+
+    if (!collaborationAuth.isSignedIn || !collaborationAuth.user) {
+      showMessage('Enable shared projects before sharing this project.');
+      return;
+    }
+
+    if (!accountEmail) {
+      showMessage('Sign in with your UAI Microsoft account before sharing this project.');
+      return;
+    }
+
+    try {
+      const sharedProjectId = await createSharedProjectFromLocalProject(
+        project,
+        accountEmail,
+        accountName
+      );
+      const linkedAt = new Date();
+      const nextProject = {
+        ...project,
+        sharedProjectId,
+        sharedProjectLinkedAt: linkedAt,
+        areas: [...project.areas],
+      };
+      await saveProject(nextProject);
+      setProject(nextProject);
+      showMessage('Project sharing is enabled. You are the owner of this shared project.');
+    } catch (error) {
+      console.error('Failed to share project:', error);
+      showMessage(getCollaborationErrorMessage(error));
+    }
+  }, [accountEmail, accountName, collaborationAuth.isSignedIn, collaborationAuth.user, project, showMessage]);
+
+  const handleCreateJoinCode = useCallback(async () => {
+    if (!project) return;
+
+    if (!project.sharedProjectId) {
+      showMessage('Share this project before creating an invite code.');
+      return;
+    }
+
+    if (!collaborationAuth.isSignedIn) {
+      showMessage('Enable shared projects before creating an invite code.');
+      return;
+    }
+
+    setCreatingJoinCode(true);
+    try {
+      const result = await generateSharedProjectJoinCode(project.sharedProjectId);
+      setSharedProjectCode({
+        projectName: project.projectName,
+        code: result.joinCode,
+        expiresAt: result.expiresAt,
+      });
+    } catch (error) {
+      console.error('Failed to create shared project code:', error);
+      showMessage(getCollaborationErrorMessage(error, 'Failed to create invite code. Please try again.'));
+    } finally {
+      setCreatingJoinCode(false);
+    }
+  }, [collaborationAuth.isSignedIn, project, showMessage]);
+
+  const handleShowSharedMembers = useCallback(async () => {
+    if (!project) return;
+
+    if (!project.sharedProjectId) {
+      showMessage('Share this project before viewing shared members.');
+      return;
+    }
+
+    if (!collaborationAuth.isSignedIn) {
+      showMessage('Enable shared projects before viewing shared members.');
+      return;
+    }
+
+    setLoadingSharedMembers(true);
+    try {
+      const members = await getSharedProjectMembers(project.sharedProjectId);
+      if (members.length === 0) {
+        showMessage('No shared project members found.', 'Shared Members');
+        return;
+      }
+      showMessage(
+        members
+          .map((member) => {
+            const ownerLabel = member.isOwner ? ' owner' : '';
+            return `${member.email}${member.displayName ? ` (${member.displayName})` : ''} - ${member.accessState}${ownerLabel}`;
+          })
+          .join('\n'),
+        'Shared Members'
+      );
+    } catch (error) {
+      console.error('Failed to load shared project members:', error);
+      showMessage(getCollaborationErrorMessage(error, 'Failed to load shared project members. Please try again.'));
+    } finally {
+      setLoadingSharedMembers(false);
+    }
+  }, [collaborationAuth.isSignedIn, project, showMessage]);
+
+  const handlePublishSharedProject = useCallback(async () => {
+    if (!project) return;
+
+    if (!project.sharedProjectId) {
+      showMessage('Share this project before publishing shared data.');
+      return;
+    }
+
+    if (!collaborationAuth.isSignedIn || !collaborationAuth.user) {
+      showMessage('Enable shared projects before publishing shared data.');
+      return;
+    }
+
+    setPublishingSharedProject(true);
+    try {
+      const fullProject = await getProject(project.id);
+      if (!fullProject) {
+        throw new Error('Could not load this project.');
+      }
+
+      fullProject.sharedProjectId = project.sharedProjectId;
+      fullProject.sharedProjectLinkedAt = project.sharedProjectLinkedAt;
+      const result = await publishSharedProjectSnapshot(fullProject, collaborationAuth.user.id);
+      await saveProjectMetadataOnly(fullProject, { touch: false });
+      setProject((currentProject) =>
+        currentProject?.id === fullProject.id
+          ? { ...currentProject, sharedSnapshotPublishedAt: fullProject.sharedSnapshotPublishedAt }
+          : currentProject
+      );
+      showMessage(`Shared data published at ${new Date(result.publishedAt).toLocaleTimeString()}.`);
+    } catch (error) {
+      console.error('Failed to publish shared project:', error);
+      showMessage(getCollaborationErrorMessage(error, 'Failed to publish shared data. Please try again.'));
+    } finally {
+      setPublishingSharedProject(false);
+    }
+  }, [collaborationAuth.isSignedIn, collaborationAuth.user, project, showMessage]);
+
+  const handlePullSharedProject = useCallback(async () => {
+    if (!project) return;
+
+    if (!project.sharedProjectId) {
+      showMessage('Share or join this project before pulling shared data.');
+      return;
+    }
+
+    if (!collaborationAuth.isSignedIn) {
+      showMessage('Enable shared projects before pulling shared data.');
+      return;
+    }
+
+    setPullingSharedProject(true);
+    try {
+      const fullProject = await getProject(project.id);
+      if (!fullProject) {
+        throw new Error('Could not load this project.');
+      }
+
+      fullProject.sharedProjectId = project.sharedProjectId;
+      fullProject.sharedProjectLinkedAt = project.sharedProjectLinkedAt;
+      const result = await getSharedProjectSnapshot(project);
+      const localUpdatedMs = new Date(fullProject.updatedAt).getTime();
+      const sharedPublishedMs = new Date(result.publishedAt).getTime();
+      setPendingPull({
+        localProject: fullProject,
+        sharedProject: result.project,
+        publishedAt: result.publishedAt,
+        hasNewerLocalChanges:
+          Number.isFinite(localUpdatedMs) &&
+          Number.isFinite(sharedPublishedMs) &&
+          localUpdatedMs > sharedPublishedMs + 2_000,
+      });
+    } catch (error) {
+      console.error('Failed to pull shared project:', error);
+      showMessage(getCollaborationErrorMessage(error, 'Failed to pull shared data. Please try again.'));
+    } finally {
+      setPullingSharedProject(false);
+    }
+  }, [collaborationAuth.isSignedIn, project, showMessage]);
+
+  async function confirmPullSharedProject() {
+    if (!pendingPull) return;
+
+    const pullState = pendingPull;
+    setPendingPull(null);
+    setPullingSharedProject(true);
+    try {
+      await captureSharedProjectBackup(
+        pullState.localProject,
+        'before_pull',
+        'Local data before pulling shared data.'
+      );
+
+      await saveProjectPreserveTimestamps(pullState.sharedProject);
+      setProject({ ...pullState.sharedProject, areas: [...pullState.sharedProject.areas] });
+      showMessage(`Shared data pulled from ${new Date(pullState.publishedAt).toLocaleString()}.`);
+    } catch (error) {
+      console.error('Failed to pull shared project:', error);
+      showMessage(getCollaborationErrorMessage(error, 'Failed to pull shared data. Please try again.'));
+    } finally {
+      setPullingSharedProject(false);
+    }
+  }
+
   function cancelSelectionMode() {
     setDeleteMode(false);
     setActionSheet(null);
@@ -877,6 +1104,41 @@ export default function ProjectDetailPage() {
       return;
     }
 
+    if (detail.action === 'share-project') {
+      void handleShareProject();
+      return;
+    }
+
+    if (detail.action === 'invite-code') {
+      void handleCreateJoinCode();
+      return;
+    }
+
+    if (detail.action === 'shared-members') {
+      void handleShowSharedMembers();
+      return;
+    }
+
+    if (detail.action === 'publish-shared-project') {
+      void handlePublishSharedProject();
+      return;
+    }
+
+    if (detail.action === 'pull-shared-project') {
+      void handlePullSharedProject();
+      return;
+    }
+
+    if (detail.action === 'shared-backups') {
+      showMessage('Shared backups are available from the main project screen for now.');
+      return;
+    }
+
+    if (detail.action === 'transfer-shared-project') {
+      showMessage('Transfer ownership is available from the main project screen for now.');
+      return;
+    }
+
     if (detail.action === 'toggle-trash') {
       setShowTrash((current) => !current);
       setDeleteMode(false);
@@ -922,10 +1184,25 @@ export default function ProjectDetailPage() {
           singleProjectName: project.projectName,
           showOnlyIssues: projectShowOnlyIssues,
           selectionMode: deleteMode,
+          isSharedProject: !!project.sharedProjectId,
+          isCreatingJoinCode: creatingJoinCode,
+          isLoadingSharedMembers: loadingSharedMembers,
+          isPublishingSharedProject: publishingSharedProject,
+          isPullingSharedProject: pullingSharedProject,
         },
       })
     );
-  }, [project, sortOption, showTrash, deleteMode, projectShowOnlyIssues]);
+  }, [
+    creatingJoinCode,
+    deleteMode,
+    loadingSharedMembers,
+    project,
+    projectShowOnlyIssues,
+    publishingSharedProject,
+    pullingSharedProject,
+    showTrash,
+    sortOption,
+  ]);
 
   function isListAtTop() {
     return (listRef.current?.scrollTop ?? 0) <= 8;
@@ -1144,6 +1421,52 @@ export default function ProjectDetailPage() {
           message={messageDialog.message}
           onClose={() => setMessageDialog(null)}
         />
+      )}
+
+      {pendingPull && (
+        <AppConfirmDialog
+          title="Pull Shared Data"
+          message={`${pendingPull.hasNewerLocalChanges ? 'Your local project has changes newer than the shared version.\n\n' : ''}This will save a backup of your current local project, then replace this device's project data with the shared version from ${new Date(pendingPull.publishedAt).toLocaleString()}.`}
+          confirmLabel="Pull"
+          danger={pendingPull.hasNewerLocalChanges}
+          onCancel={() => setPendingPull(null)}
+          onConfirm={() => void confirmPullSharedProject()}
+        />
+      )}
+
+      {sharedProjectCode && (
+        <div className="modal-overlay fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="modal-panel w-full max-w-md rounded-[1.9rem] p-6">
+            <h2 className="mb-1 text-xl font-semibold tracking-[-0.02em] text-gray-900 dark:text-white">Invite Code</h2>
+            <p className="mb-5 text-sm text-gray-500 dark:text-gray-400">
+              {sharedProjectCode.projectName}
+            </p>
+            <div className="rounded-[1.25rem] border border-[var(--surface-border)] bg-white/70 px-4 py-5 text-center dark:bg-white/[0.04]">
+              <div className="select-all font-mono text-3xl font-semibold tracking-[0.18em] text-gray-900 dark:text-white">
+                {sharedProjectCode.code}
+              </div>
+              <div className="mt-3 text-xs text-gray-500 dark:text-gray-400">
+                Expires {new Date(sharedProjectCode.expiresAt).toLocaleString()}
+              </div>
+            </div>
+            <div className="mt-6 flex gap-3">
+              <button
+                onClick={() => setSharedProjectCode(null)}
+                className="flex-1 rounded-2xl border border-gray-300/90 bg-white/70 px-4 py-3 font-medium text-gray-700 transition hover:bg-white dark:border-white/10 dark:bg-white/[0.04] dark:text-gray-300 dark:hover:bg-white/[0.08]"
+              >
+                Done
+              </button>
+              <button
+                onClick={() => {
+                  void navigator.clipboard?.writeText(sharedProjectCode.code);
+                }}
+                className="flex-1 rounded-2xl bg-zinc-900 px-4 py-3 font-medium text-white transition hover:bg-black dark:bg-white dark:text-gray-900 dark:hover:bg-gray-200"
+              >
+                Copy
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {showCollaborationHealth && (
