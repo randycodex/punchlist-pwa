@@ -13,6 +13,7 @@ import AreaEditorModal from '@/components/AreaEditorModal';
 import ProjectEditModal from '@/components/ProjectEditModal';
 import AppMessageDialog from '@/components/AppMessageDialog';
 import AppConfirmDialog from '@/components/AppConfirmDialog';
+import AppPromptDialog from '@/components/AppPromptDialog';
 import CollaborationHealthDialog from '@/components/CollaborationHealthDialog';
 import {
   buildAreaName,
@@ -42,12 +43,15 @@ import {
   getActiveSharedProjectAreaClaimSummaries,
   getCollaborationErrorMessage,
   getSharedProjectMembers,
+  getSharedProjectBackupSnapshot,
   getSharedProjectSnapshot,
   isSharedSnapshotNewer,
+  listSharedProjectBackups,
   publishSharedProjectSnapshot,
   runCollaborationHealthCheck,
+  transferSharedProjectOwnership,
 } from '@/lib/collaboration';
-import type { CollaborationHealthReport } from '@/lib/collaboration';
+import type { CollaborationHealthReport, CollaborationSnapshotBackup } from '@/lib/collaboration';
 import MetadataLine from '@/components/MetadataLine';
 import { getNextOneDriveExportFilename, uploadPdfToOneDrive } from '@/lib/oneDrive';
 import Link from 'next/link';
@@ -142,6 +146,19 @@ function unlinkLocalSharedProject(project: Project): Project {
   delete nextProject.sharedSnapshotPublishedAt;
   return nextProject;
 }
+
+function formatSharedBackupReason(reason: CollaborationSnapshotBackup['reason']) {
+  if (reason === 'publish') return 'Published version';
+  if (reason === 'before_publish') return 'Before publish';
+  if (reason === 'before_pull') return 'Before pull';
+  if (reason === 'restore') return 'Before restore';
+  return 'Manual backup';
+}
+
+type BackupRestoreConfirmState = {
+  backup: CollaborationSnapshotBackup;
+  publishAfterRestore: boolean;
+};
 
 type AreaCardProps = {
   projectId: string;
@@ -339,6 +356,13 @@ export default function ProjectDetailPage() {
   const [publishingSharedProject, setPublishingSharedProject] = useState(false);
   const [pullingSharedProject, setPullingSharedProject] = useState(false);
   const [pendingPull, setPendingPull] = useState<PendingPullState | null>(null);
+  const [backupProject, setBackupProject] = useState<Project | null>(null);
+  const [loadingSharedBackups, setLoadingSharedBackups] = useState(false);
+  const [sharedBackups, setSharedBackups] = useState<CollaborationSnapshotBackup[]>([]);
+  const [restoringBackupId, setRestoringBackupId] = useState<string | null>(null);
+  const [backupRestoreConfirm, setBackupRestoreConfirm] = useState<BackupRestoreConfirmState | null>(null);
+  const [ownershipTransferProject, setOwnershipTransferProject] = useState<Project | null>(null);
+  const [transferringSharedProject, setTransferringSharedProject] = useState(false);
   const [disconnectSharedProjectConfirm, setDisconnectSharedProjectConfirm] = useState<Project | null>(null);
   const [disconnectingSharedProject, setDisconnectingSharedProject] = useState(false);
   const syncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1059,6 +1083,121 @@ export default function ProjectDetailPage() {
     }
   }
 
+  const handleShowSharedBackups = useCallback(async () => {
+    if (!project) return;
+
+    if (!project.sharedProjectId) {
+      showMessage('Share this project before viewing shared backups.');
+      return;
+    }
+
+    if (!collaborationAuth.isSignedIn) {
+      showMessage('Enable shared projects before viewing shared backups.');
+      return;
+    }
+
+    setBackupProject(project);
+    setLoadingSharedBackups(true);
+    setSharedBackups([]);
+    try {
+      const backups = await listSharedProjectBackups(project.sharedProjectId);
+      setSharedBackups(backups);
+    } catch (error) {
+      console.error('Failed to load shared backups:', error);
+      showMessage(getCollaborationErrorMessage(error, 'Failed to load shared backups. Please try again.'));
+      setBackupProject(null);
+    } finally {
+      setLoadingSharedBackups(false);
+    }
+  }, [collaborationAuth.isSignedIn, project, showMessage]);
+
+  async function handleRestoreSharedBackup(backup: CollaborationSnapshotBackup, publishAfterRestore = false) {
+    setBackupRestoreConfirm({ backup, publishAfterRestore });
+  }
+
+  async function confirmRestoreSharedBackup(backup: CollaborationSnapshotBackup, publishAfterRestore: boolean) {
+    if (!backupProject || restoringBackupId) return;
+    if (publishAfterRestore && !collaborationAuth.user) {
+      showMessage('Enable shared projects before restoring and publishing a backup.');
+      return;
+    }
+
+    setBackupRestoreConfirm(null);
+    setRestoringBackupId(backup.id);
+    try {
+      const fullProject = await getProject(backupProject.id);
+      if (!fullProject) {
+        throw new Error('Could not load this project.');
+      }
+
+      fullProject.sharedProjectId = backupProject.sharedProjectId;
+      fullProject.sharedProjectLinkedAt = backupProject.sharedProjectLinkedAt;
+      await captureSharedProjectBackup(
+        fullProject,
+        'restore',
+        'Local data before restoring a shared backup.'
+      );
+
+      const result = await getSharedProjectBackupSnapshot(fullProject, backup.id);
+      await saveProjectPreserveTimestamps(result.project);
+      let publishedAt: string | null = null;
+      if (publishAfterRestore && collaborationAuth.user) {
+        const publishResult = await publishSharedProjectSnapshot(result.project, collaborationAuth.user.id);
+        publishedAt = publishResult.publishedAt;
+        await saveProjectMetadataOnly(result.project, { touch: false });
+      }
+      setProject({ ...result.project, areas: [...result.project.areas] });
+      setBackupProject({ ...result.project, areas: [...result.project.areas] });
+      showMessage(
+        publishedAt
+          ? `Backup restored and published as the team version at ${new Date(publishedAt).toLocaleTimeString()}.`
+          : 'Backup restored on this device. Publish shared data if you want this restored version to become the team version.'
+      );
+    } catch (error) {
+      console.error('Failed to restore shared backup:', error);
+      showMessage(getCollaborationErrorMessage(error, 'Failed to restore this backup. Please try again.'));
+    } finally {
+      setRestoringBackupId(null);
+    }
+  }
+
+  const handleTransferSharedProjectOwnership = useCallback(() => {
+    if (!project) return;
+
+    if (!project.sharedProjectId) {
+      showMessage('Share this project before transferring ownership.');
+      return;
+    }
+
+    if (!collaborationAuth.isSignedIn) {
+      showMessage('Enable shared projects before transferring ownership.');
+      return;
+    }
+
+    setOwnershipTransferProject(project);
+  }, [collaborationAuth.isSignedIn, project, showMessage]);
+
+  async function confirmTransferSharedProjectOwnership(newOwnerEmailValue: string) {
+    const targetProject = ownershipTransferProject;
+    const sharedProjectId = targetProject?.sharedProjectId;
+    if (!targetProject || !sharedProjectId) return;
+
+    const newOwnerEmail = newOwnerEmailValue.trim().toLowerCase();
+    if (!newOwnerEmail) return;
+
+    setOwnershipTransferProject(null);
+    setTransferringSharedProject(true);
+    try {
+      const result = await transferSharedProjectOwnership(sharedProjectId, newOwnerEmail);
+      showMessage(`Ownership transferred to ${result.ownerEmail}.`);
+    } catch (error) {
+      console.error('Failed to transfer shared project ownership:', error);
+      showMessage(getCollaborationErrorMessage(error, 'Failed to transfer ownership. Please try again.'));
+    } finally {
+      setTransferringSharedProject(false);
+    }
+  }
+
   function handleDisconnectSharedProject() {
     if (!project?.sharedProjectId) {
       showMessage('This project is not currently shared.');
@@ -1194,7 +1333,7 @@ export default function ProjectDetailPage() {
     }
 
     if (detail.action === 'shared-backups') {
-      showMessage('Shared backups are available from the main project screen for now.');
+      void handleShowSharedBackups();
       return;
     }
 
@@ -1204,7 +1343,7 @@ export default function ProjectDetailPage() {
     }
 
     if (detail.action === 'transfer-shared-project') {
-      showMessage('Transfer ownership is available from the main project screen for now.');
+      handleTransferSharedProjectOwnership();
       return;
     }
 
@@ -1259,6 +1398,7 @@ export default function ProjectDetailPage() {
           isPublishingSharedProject: publishingSharedProject,
           isPullingSharedProject: pullingSharedProject,
           isDisconnectingSharedProject: disconnectingSharedProject,
+          isTransferringSharedProject: transferringSharedProject,
         },
       })
     );
@@ -1273,6 +1413,7 @@ export default function ProjectDetailPage() {
     pullingSharedProject,
     showTrash,
     sortOption,
+    transferringSharedProject,
   ]);
 
   function isListAtTop() {
@@ -1505,6 +1646,21 @@ export default function ProjectDetailPage() {
         />
       )}
 
+      {backupRestoreConfirm && (
+        <AppConfirmDialog
+          title={backupRestoreConfirm.publishAfterRestore ? 'Restore + Publish Backup' : 'Restore Backup'}
+          message={
+            backupRestoreConfirm.publishAfterRestore
+              ? `Restore backup from ${backupRestoreConfirm.backup.capturedAt.toLocaleString()}, then publish it as the current team version?\n\nThis will replace the shared version after first saving a backup of your current local data.`
+              : `Restore backup from ${backupRestoreConfirm.backup.capturedAt.toLocaleString()} to this device?\n\nPublish shared data after restoring if this should become the team version.`
+          }
+          confirmLabel={backupRestoreConfirm.publishAfterRestore ? 'Restore + Publish' : 'Restore'}
+          danger={backupRestoreConfirm.publishAfterRestore}
+          onCancel={() => setBackupRestoreConfirm(null)}
+          onConfirm={() => void confirmRestoreSharedBackup(backupRestoreConfirm.backup, backupRestoreConfirm.publishAfterRestore)}
+        />
+      )}
+
       {sharedProjectCode && (
         <div className="modal-overlay fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="modal-panel w-full max-w-md rounded-[1.9rem] p-6">
@@ -1553,6 +1709,95 @@ export default function ProjectDetailPage() {
           }}
           onConfirm={() => void confirmDisconnectSharedProject()}
         />
+      )}
+
+      {ownershipTransferProject && (
+        <AppPromptDialog
+          title="Transfer Ownership"
+          message={ownershipTransferProject.projectName}
+          label="New owner UAI email"
+          placeholder="name@uai-ny.com"
+          inputMode="email"
+          confirmLabel="Transfer"
+          onCancel={() => setOwnershipTransferProject(null)}
+          onConfirm={(value) => void confirmTransferSharedProjectOwnership(value)}
+        />
+      )}
+
+      {backupProject && (
+        <div className="modal-overlay fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="modal-panel max-h-[82dvh] w-full max-w-md overflow-y-auto rounded-[1.9rem] p-6">
+            <h2 className="mb-1 text-xl font-semibold tracking-[-0.02em] text-gray-900 dark:text-white">Shared Backups</h2>
+            <p className="mb-5 text-sm text-gray-500 dark:text-gray-400">
+              {backupProject.projectName}
+            </p>
+            {loadingSharedBackups ? (
+              <div className="flex items-center gap-3 rounded-[1.25rem] border border-[var(--surface-border)] bg-white/70 px-4 py-5 text-sm text-gray-500 dark:bg-white/[0.04] dark:text-gray-400">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Loading backups...
+              </div>
+            ) : sharedBackups.length === 0 ? (
+              <div className="rounded-[1.25rem] border border-[var(--surface-border)] bg-white/70 px-4 py-5 text-sm text-gray-500 dark:bg-white/[0.04] dark:text-gray-400">
+                No shared backups yet. Backups are created when shared data is published, pulled, or restored.
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {sharedBackups.map((backup) => {
+                  const isRestoring = restoringBackupId === backup.id;
+                  return (
+                    <div key={backup.id} className="rounded-[1.25rem] border border-[var(--surface-border)] bg-white/70 p-4 dark:bg-white/[0.04]">
+                      <div className="text-sm font-semibold text-gray-900 dark:text-white">
+                        {formatSharedBackupReason(backup.reason)}
+                      </div>
+                      <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                        {backup.capturedAt.toLocaleString()}
+                      </div>
+                      {backup.note && (
+                        <div className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                          {backup.note}
+                        </div>
+                      )}
+                      <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                        <button
+                          onClick={() => void handleRestoreSharedBackup(backup)}
+                          disabled={!!restoringBackupId}
+                          className="rounded-2xl border border-gray-300/90 bg-white/70 px-4 py-3 text-sm font-medium text-gray-700 transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/10 dark:bg-white/[0.04] dark:text-gray-300 dark:hover:bg-white/[0.08]"
+                        >
+                          {isRestoring ? 'Restoring...' : 'Restore'}
+                        </button>
+                        <button
+                          onClick={() => void handleRestoreSharedBackup(backup, true)}
+                          disabled={!!restoringBackupId}
+                          className="rounded-2xl bg-zinc-900 px-4 py-3 text-sm font-medium text-white transition hover:bg-black disabled:cursor-not-allowed disabled:opacity-50 dark:bg-white dark:text-gray-900 dark:hover:bg-gray-200"
+                        >
+                          Restore + publish
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            <div className="mt-6 flex gap-3">
+              <button
+                onClick={() => {
+                  setBackupProject(null);
+                  setSharedBackups([]);
+                }}
+                className="flex-1 rounded-2xl border border-gray-300/90 bg-white/70 px-4 py-3 font-medium text-gray-700 transition hover:bg-white dark:border-white/10 dark:bg-white/[0.04] dark:text-gray-300 dark:hover:bg-white/[0.08]"
+              >
+                Done
+              </button>
+              <button
+                onClick={() => void handleShowSharedBackups()}
+                disabled={loadingSharedBackups}
+                className="flex-1 rounded-2xl bg-zinc-900 px-4 py-3 font-medium text-white transition hover:bg-black disabled:cursor-not-allowed disabled:opacity-50 dark:bg-white dark:text-gray-900 dark:hover:bg-gray-200"
+              >
+                Refresh
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {showCollaborationHealth && (
