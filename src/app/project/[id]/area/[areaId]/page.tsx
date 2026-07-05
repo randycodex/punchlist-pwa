@@ -41,8 +41,10 @@ import {
   getAreaFormValue,
   isApartmentArea,
   splitFacadeLevels,
+  upsertFacadeElevationDrawing,
   type AreaTypeKey,
 } from '@/lib/areas';
+import { buildElevationMarkerReferences } from '@/lib/elevationMarkers';
 import { applyTemplateToArea } from '@/lib/template';
 import { syncProjectsWithOneDrive } from '@/lib/oneDriveSync';
 import {
@@ -65,6 +67,9 @@ import {
 } from '@/lib/collaboration';
 import AreaNotesCard from '@/components/inspection/AreaNotesCard';
 import CustomItemComposer from '@/components/inspection/CustomItemComposer';
+import FacadeElevationViewer, {
+  type FacadeElevationSelection,
+} from '@/components/inspection/FacadeElevationViewer';
 import InspectionLocationCard from '@/components/inspection/InspectionLocationCard';
 import Link from 'next/link';
 import {
@@ -86,6 +91,7 @@ function locationHasRecordedActivity(location: Area['locations'][number]) {
       (checkpoint) =>
         checkpoint.status !== 'pending' ||
         checkpoint.comments.trim().length > 0 ||
+        Boolean(checkpoint.elevationMarker) ||
         checkpoint.photos.length > 0 ||
         (checkpoint.files?.length ?? 0) > 0
     )
@@ -648,6 +654,7 @@ export default function AreaDetailPage() {
     const originalTypeKey = targetArea.areaTypeKey;
     const originalUnitType = targetArea.unitType;
     const originalAreaNumber = targetArea.areaNumber;
+    const originalElevationDrawingId = targetArea.elevationDrawingId;
     const originalFacadeLevels = getFacadeInspectionLevels(targetArea);
     const originalFacadeLevel = originalFacadeLevels.join(',');
     const nextName = buildAreaName(areaForm);
@@ -657,6 +664,8 @@ export default function AreaDetailPage() {
     targetArea.customAreaName = areaForm.customAreaName.trim() || undefined;
     targetArea.areaNumber = areaForm.areaNumber.trim() || undefined;
     targetArea.facadeLevel = areaForm.facadeLevel.trim() || undefined;
+    targetArea.elevationDrawingId =
+      areaForm.areaTypeKey === 'facade' ? areaForm.elevationDrawingId || undefined : undefined;
 
     const templateChanged =
       originalTypeKey !== areaForm.areaTypeKey ||
@@ -677,6 +686,7 @@ export default function AreaDetailPage() {
         targetArea.customAreaName = area.customAreaName;
         targetArea.areaNumber = area.areaNumber;
         targetArea.facadeLevel = originalFacadeLevel;
+        targetArea.elevationDrawingId = originalElevationDrawingId;
         setConfirmDialog({
           title: 'Reset Area Checklist',
           message: 'Changing this area will reset checklist issues, comments, and images for this unit. Continue?',
@@ -707,6 +717,7 @@ export default function AreaDetailPage() {
         targetArea.customAreaName = area.customAreaName;
         targetArea.areaNumber = area.areaNumber;
         targetArea.facadeLevel = originalFacadeLevel;
+        targetArea.elevationDrawingId = originalElevationDrawingId;
         setConfirmDialog({
           title: 'Remove Facade Floors',
           message: `Removing ${removedLocationsWithActivity.map((location) => location.name).join(', ')} will delete recorded checklist information for those floors. Continue?`,
@@ -723,6 +734,7 @@ export default function AreaDetailPage() {
       applyTemplateToArea(targetArea, { preserveExisting: true });
     }
 
+    upsertFacadeElevationDrawing(project, areaForm.pendingElevationDrawing);
     syncAreaCompletion(targetArea);
     targetArea.updatedAt = new Date();
     await saveProject(project);
@@ -1292,6 +1304,11 @@ export default function AreaDetailPage() {
   }
 
   function handlePullStart(e: TouchEvent<HTMLElement>) {
+    if (e.touches.length !== 1) {
+      pullStartYRef.current = null;
+      pullDistanceRef.current = 0;
+      return;
+    }
     const atTop = isListAtTop();
     if (!atTop || syncing) {
       pullStartYRef.current = null;
@@ -1303,6 +1320,7 @@ export default function AreaDetailPage() {
   }
 
   function handlePullMove(e: TouchEvent<HTMLElement>) {
+    if (e.touches.length !== 1) return;
     const atTop = isListAtTop();
     if (pullStartYRef.current === null || !atTop || syncing) return;
     const currentY = e.touches[0]?.clientY ?? pullStartYRef.current;
@@ -1421,6 +1439,54 @@ export default function AreaDetailPage() {
     }
   }
 
+  async function openElevationSelection({
+    locationId,
+    itemId,
+    checkpointId,
+    xPercent,
+    yPercent,
+  }: FacadeElevationSelection) {
+    if (!project || !area?.elevationDrawingId) return;
+
+    setShowCustomCheckpointComposer(false);
+    setCustomCheckpointName('');
+    setCustomCheckpointTarget(null);
+    setEditingCustomCheckpoint(null);
+    await closeExpandedCheckpoint();
+
+    const targetArea = project.areas.find((entry) => entry.id === area.id);
+    const targetLocation = targetArea?.locations.find((location) => location.id === locationId);
+    const targetItem = targetLocation?.items.find((item) => item.id === itemId);
+    const checkpoint = targetItem?.checkpoints.find((entry) => entry.id === checkpointId);
+    if (!targetArea || !checkpoint) return;
+
+    checkpoint.elevationMarker = {
+      drawingId: area.elevationDrawingId,
+      xPercent,
+      yPercent,
+    };
+    checkpoint.updatedAt = new Date();
+    syncAreaCompletion(targetArea);
+    await saveProjectMetadataOnly(project);
+    scheduleSync(project.id);
+    setProject({ ...project, areas: [...project.areas] });
+    setArea({ ...targetArea });
+
+    setExpandedLocations(new Set([locationId]));
+    setExpandedItems(new Set([itemId]));
+    setExpandedCheckpoint({ locationId, itemId, checkpointId });
+    setCommentText(checkpoint.comments);
+
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        itemRefs.current.get(itemId)?.scrollIntoView({
+          block: 'start',
+          behavior: 'smooth',
+        });
+      });
+    });
+  }
+
   async function toggleCheckpoint(
     locationId: string,
     itemId: string,
@@ -1457,6 +1523,9 @@ export default function AreaDetailPage() {
   const areaTitle = isApartmentArea(area)
     ? [area.unitType?.trim(), area.areaNumber?.trim()].filter(Boolean).join(' - ') || area.name
     : area.name;
+  const elevationDrawing = area.elevationDrawingId
+    ? project.facadeElevationDrawings?.find((drawing) => drawing.id === area.elevationDrawingId) ?? null
+    : null;
 
   const supportsInlineLocationCustomItems = true;
   const supportsCustomSubareas = isApartmentArea(area) && !deleteMode;
@@ -1619,6 +1688,17 @@ export default function AreaDetailPage() {
         onTouchCancelCapture={handlePullEnd}
       >
         <div className="list-stack mx-auto min-h-[calc(100%+1px)] w-full max-w-6xl">
+          {!deleteMode && area.areaTypeKey === 'facade' && elevationDrawing && (
+            <FacadeElevationViewer
+              drawing={elevationDrawing}
+              locations={area.locations}
+              markers={buildElevationMarkerReferences(area, {
+                drawingId: elevationDrawing.id,
+                issuesOnly: true,
+              })}
+              onOpenSelection={(selection) => void openElevationSelection(selection)}
+            />
+          )}
           {supportsGlobalCustomItems && !editingCustomItem && (
             <CustomItemComposer
               open={showCustomItemComposer}
@@ -1970,6 +2050,7 @@ export default function AreaDetailPage() {
         value={areaForm}
         recentAreaTypeKeys={recentAreaTypeKeys}
         facadeLevelOptions={buildFacadeLevelOptions(project)}
+        facadeElevationDrawings={project.facadeElevationDrawings ?? []}
         enableFacadeLevelBatch
         onChange={setAreaForm}
         onClose={() => {

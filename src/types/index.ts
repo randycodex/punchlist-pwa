@@ -20,6 +20,12 @@ export interface FileAttachment {
   createdAt: Date;
 }
 
+export interface ElevationMarker {
+  drawingId: string;
+  xPercent: number;
+  yPercent: number;
+}
+
 export interface Checkpoint {
   id: string;
   itemId: string;
@@ -32,6 +38,7 @@ export interface Checkpoint {
   sortOrder: number;
   photos: PhotoAttachment[];
   files: FileAttachment[];
+  elevationMarker?: ElevationMarker;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -109,11 +116,24 @@ export interface Area {
   customAreaName?: string;
   areaNumber?: string;
   facadeLevel?: string;
+  elevationDrawingId?: string;
   sortOrder: number;
   isComplete: boolean;
   notes: string;
   locations: Location[];
   deletedAt?: Date;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface FacadeElevationDrawing {
+  id: string;
+  orientation: string;
+  name: string;
+  fileName: string;
+  mimeType: string;
+  size: number;
+  dataUrl: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -132,6 +152,7 @@ export interface Project {
   gcSignoff: string;
   facadeLevelStart?: number;
   facadeLevelEnd?: number;
+  facadeElevationDrawings?: FacadeElevationDrawing[];
   deletedAt?: Date;
   areas: Area[];
   createdAt: Date;

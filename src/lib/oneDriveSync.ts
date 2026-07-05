@@ -1039,6 +1039,11 @@ function reviveProjectDates(project: Project): Project {
     createdAt: new Date(project.createdAt),
     updatedAt: new Date(project.updatedAt),
     deletedAt: project.deletedAt ? new Date(project.deletedAt) : undefined,
+    facadeElevationDrawings: (project.facadeElevationDrawings ?? []).map((drawing) => ({
+      ...drawing,
+      createdAt: new Date(drawing.createdAt),
+      updatedAt: new Date(drawing.updatedAt),
+    })),
     areas: (project.areas ?? []).map((area) => ({
       ...area,
       createdAt: new Date(area.createdAt),
