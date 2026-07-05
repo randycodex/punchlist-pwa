@@ -63,6 +63,8 @@ type ExportScope = 'project' | 'selected-areas';
 const SORT_STORAGE_KEY = 'punchlist-areas-sort';
 const RECENT_AREA_TYPES_STORAGE_KEY = 'punchlist-recent-area-types';
 const SHARED_AREA_CLAIM_REFRESH_MS = 60 * 1000;
+const AREA_CARD_LONG_PRESS_MS = 550;
+const AREA_CARD_LONG_PRESS_MOVE_THRESHOLD = 12;
 
 function sanitizeOneDriveProjectFolderPart(value: string | undefined, fallback: string) {
   const cleaned = (value ?? '')
@@ -128,6 +130,7 @@ type AreaCardProps = {
   deleteMode: boolean;
   isSelected: boolean;
   onToggleSelection: (areaId: string) => void;
+  onLongPressSelect: (areaId: string) => void;
   onBlockedByClaim: () => void;
 };
 
@@ -139,8 +142,12 @@ const AreaCard = memo(function AreaCard({
   deleteMode,
   isSelected,
   onToggleSelection,
+  onLongPressSelect,
   onBlockedByClaim,
 }: AreaCardProps) {
+  const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const longPressStartRef = useRef<{ x: number; y: number } | null>(null);
+  const suppressClickRef = useRef(false);
   const areaStats = metric?.stats ?? { total: 0, ok: 0, issues: 0 };
   const progress = metric?.progress ?? 0;
   const commentCount = metric?.commentCount ?? 0;
@@ -151,12 +158,58 @@ const AreaCard = memo(function AreaCard({
       ? 'Locked by you'
       : `Locked by ${claimStatus.label}`
     : null;
+  const clearLongPressTimer = () => {
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+  };
+  useEffect(() => {
+    return () => {
+      if (longPressTimerRef.current) {
+        clearTimeout(longPressTimerRef.current);
+      }
+    };
+  }, []);
 
   return (
     <div
+      onPointerDown={(event) => {
+        if (deleteMode || blockedByClaim) return;
+        if (event.pointerType === 'mouse' && event.button !== 0) return;
+
+        clearLongPressTimer();
+        longPressStartRef.current = { x: event.clientX, y: event.clientY };
+        suppressClickRef.current = false;
+        longPressTimerRef.current = setTimeout(() => {
+          suppressClickRef.current = true;
+          onLongPressSelect(area.id);
+        }, AREA_CARD_LONG_PRESS_MS);
+      }}
+      onPointerMove={(event) => {
+        const start = longPressStartRef.current;
+        if (!start) return;
+        const moved = Math.hypot(event.clientX - start.x, event.clientY - start.y);
+        if (moved > AREA_CARD_LONG_PRESS_MOVE_THRESHOLD) {
+          clearLongPressTimer();
+        }
+      }}
+      onPointerUp={clearLongPressTimer}
+      onPointerCancel={clearLongPressTimer}
+      onPointerLeave={clearLongPressTimer}
       onContextMenu={(event) => {
         if (!deleteMode) {
           event.preventDefault();
+          if (!blockedByClaim) {
+            onLongPressSelect(area.id);
+          }
+        }
+      }}
+      onClickCapture={(event) => {
+        if (suppressClickRef.current) {
+          event.preventDefault();
+          event.stopPropagation();
+          suppressClickRef.current = false;
         }
       }}
       onClick={() => {
@@ -551,6 +604,14 @@ export default function ProjectDetailPage() {
       else next.add(areaId);
       return next;
     });
+  }, []);
+
+  const enterAreaSelectionMode = useCallback((areaId: string) => {
+    setShowTrash(false);
+    setActionSheet(null);
+    setExportScope('project');
+    setDeleteMode(true);
+    setSelectedAreaIds(new Set([areaId]));
   }, []);
 
   async function handleDeleteSelectedAreas() {
@@ -1055,6 +1116,7 @@ export default function ProjectDetailPage() {
                     deleteMode={deleteMode}
                     isSelected={isSelected}
                     onToggleSelection={toggleAreaSelection}
+                    onLongPressSelect={enterAreaSelectionMode}
                     onBlockedByClaim={() => showMessage('This shared area is currently locked by another user.')}
                   />
                 );
