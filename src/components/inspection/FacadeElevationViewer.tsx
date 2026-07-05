@@ -114,6 +114,7 @@ export default function FacadeElevationViewer({
   const [scale, setScale] = useState(1);
   const [offset, setOffset] = useState({ x: 0, y: 0 });
   const [picker, setPicker] = useState<PickerState | null>(null);
+  const [isOpeningSelection, setIsOpeningSelection] = useState(false);
   const [isCollapsed, setIsCollapsed] = useState(false);
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const mediaRef = useRef<HTMLImageElement | HTMLObjectElement | HTMLDivElement | null>(null);
@@ -339,15 +340,20 @@ export default function FacadeElevationViewer({
   }
 
   async function openSelection() {
-    if (!picker) return;
-    await onOpenSelection({
-      locationId: picker.locationId,
-      itemId: picker.itemId,
-      checkpointId: picker.checkpointId,
-      xPercent: picker.xPercent,
-      yPercent: picker.yPercent,
-    });
-    setPicker(null);
+    if (!picker || isOpeningSelection) return;
+    setIsOpeningSelection(true);
+    try {
+      await onOpenSelection({
+        locationId: picker.locationId,
+        itemId: picker.itemId,
+        checkpointId: picker.checkpointId,
+        xPercent: picker.xPercent,
+        yPercent: picker.yPercent,
+      });
+      setPicker(null);
+    } finally {
+      setIsOpeningSelection(false);
+    }
   }
 
   return (
@@ -507,6 +513,7 @@ export default function FacadeElevationViewer({
             aria-modal="true"
             aria-labelledby="elevation-picker-title"
             className="w-full max-w-md rounded-[1.6rem] bg-white p-4 shadow-2xl dark:bg-zinc-900"
+            onPointerDown={(event) => event.stopPropagation()}
             onClick={(event) => event.stopPropagation()}
           >
             <div className="flex items-center justify-between gap-3">
@@ -573,15 +580,24 @@ export default function FacadeElevationViewer({
             <div className="mt-5 flex gap-2">
               <button
                 type="button"
-                onClick={() => setPicker(null)}
+                onClick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  setPicker(null);
+                }}
                 className="flex h-11 flex-1 items-center justify-center rounded-full border border-black/5 bg-gray-100 text-sm font-semibold text-gray-700 transition hover:bg-gray-200 dark:border-white/10 dark:bg-white/[0.06] dark:text-gray-200 dark:hover:bg-white/[0.1]"
               >
                 Cancel
               </button>
               <button
                 type="button"
-                onClick={() => void openSelection()}
-                className="accent-tint accent-text hover:accent-tint-strong flex h-11 flex-1 items-center justify-center rounded-full text-sm font-semibold transition"
+                onClick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  void openSelection();
+                }}
+                disabled={isOpeningSelection}
+                className="accent-tint accent-text hover:accent-tint-strong flex h-11 flex-1 items-center justify-center rounded-full text-sm font-semibold transition disabled:opacity-60"
               >
                 Open Item
               </button>

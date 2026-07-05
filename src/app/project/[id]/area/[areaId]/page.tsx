@@ -1696,7 +1696,7 @@ export default function AreaDetailPage() {
                 drawingId: elevationDrawing.id,
                 issuesOnly: true,
               })}
-              onOpenSelection={(selection) => void openElevationSelection(selection)}
+              onOpenSelection={openElevationSelection}
             />
           )}
           {supportsGlobalCustomItems && !editingCustomItem && (
