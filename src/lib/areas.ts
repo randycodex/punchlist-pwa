@@ -1,4 +1,4 @@
-import type { Area } from '@/types';
+import type { Area, FacadeElevationDrawing, Project } from '@/types';
 
 export type AreaTemplateKey = 'apartment' | 'commonArea' | 'facadeBrick' | 'facadeGFRC' | 'facadeEIFS' | 'halfBathroom' | 'notesOnly' | 'stairs' | 'vestibule' | 'lobby' | 'mailArea' | 'security';
 export type AreaTypeKey =
@@ -82,6 +82,8 @@ export type AreaFormValue = {
   areaNumber: string;
   facadeLevel: string;
   facadeLevelMode: '' | 'yes' | 'no';
+  elevationDrawingId: string;
+  pendingElevationDrawing?: FacadeElevationDrawing | null;
 };
 
 export const APARTMENT_UNIT_TYPES: ApartmentUnitType[] = ['EFF', '1BR', '2BR', '3BR'];
@@ -193,6 +195,8 @@ export function getDefaultAreaFormValue(): AreaFormValue {
     areaNumber: '',
     facadeLevel: '',
     facadeLevelMode: '',
+    elevationDrawingId: '',
+    pendingElevationDrawing: null,
   };
 }
 
@@ -226,7 +230,33 @@ export function getAreaFormValue(area?: Area | null): AreaFormValue {
     areaNumber: area?.areaNumber ?? '',
     facadeLevel: areaTypeKey === 'facade' ? facadeLevels.join(',') : '',
     facadeLevelMode: areaTypeKey === 'facade' && facadeLevels.length > 0 ? 'yes' : 'no',
+    elevationDrawingId: areaTypeKey === 'facade' ? area?.elevationDrawingId ?? '' : '',
+    pendingElevationDrawing: null,
   };
+}
+
+export function cloneFacadeElevationDrawing(drawing: FacadeElevationDrawing): FacadeElevationDrawing {
+  return {
+    ...drawing,
+    createdAt: new Date(drawing.createdAt),
+    updatedAt: new Date(drawing.updatedAt),
+  };
+}
+
+export function upsertFacadeElevationDrawing(
+  project: Project,
+  drawing?: FacadeElevationDrawing | null
+): void {
+  if (!drawing) return;
+
+  const nextDrawing = cloneFacadeElevationDrawing(drawing);
+  const drawings = project.facadeElevationDrawings ?? [];
+  const existingIndex = drawings.findIndex((entry) => entry.id === nextDrawing.id);
+
+  project.facadeElevationDrawings =
+    existingIndex >= 0
+      ? drawings.map((entry, index) => (index === existingIndex ? nextDrawing : entry))
+      : [...drawings, nextDrawing];
 }
 
 export function getFacadeCreationLevels(form: AreaFormValue, facadeLevelOptions: string[]): string[] {

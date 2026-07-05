@@ -1,6 +1,7 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState, type ChangeEvent } from 'react';
+import type { FacadeElevationDrawing } from '@/types';
 import {
   APARTMENT_UNIT_TYPES,
   AREA_TYPE_DEFINITIONS,
@@ -12,8 +13,46 @@ import {
   type ApartmentUnitType,
   type FacadeOrientation,
 } from '@/lib/areas';
+import { FileText, Upload, X } from 'lucide-react';
 
 const FACADE_LEVEL_CUSTOM_VALUE = '__custom__';
+const MAX_ELEVATION_FILE_SIZE = 25 * 1024 * 1024;
+const ELEVATION_FILE_ACCEPT = '.pdf,image/jpeg,image/png,image/webp,application/pdf';
+const ELEVATION_FILE_TYPES = new Set(['application/pdf', 'image/jpeg', 'image/png', 'image/webp']);
+
+function createElevationDrawingId() {
+  return globalThis.crypto?.randomUUID?.() ?? `elevation-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+function getDefaultDrawingName(fileName: string) {
+  return fileName.replace(/\.[^.]+$/, '').trim() || 'Elevation';
+}
+
+function inferElevationMimeType(file: File) {
+  if (file.type) return file.type;
+  return file.name.toLowerCase().endsWith('.pdf') ? 'application/pdf' : '';
+}
+
+function isSupportedElevationFile(file: File) {
+  const mimeType = inferElevationMimeType(file);
+  return ELEVATION_FILE_TYPES.has(mimeType);
+}
+
+function formatFileSize(size: number) {
+  if (size < 1024 * 1024) {
+    return `${Math.max(1, Math.round(size / 1024))} KB`;
+  }
+  return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = () => reject(reader.error ?? new Error('Unable to read elevation file.'));
+    reader.readAsDataURL(file);
+  });
+}
 
 type AreaEditorModalProps = {
   open: boolean;
@@ -21,6 +60,7 @@ type AreaEditorModalProps = {
   value: AreaFormValue;
   recentAreaTypeKeys: AreaTypeKey[];
   facadeLevelOptions?: string[];
+  facadeElevationDrawings?: FacadeElevationDrawing[];
   enableFacadeLevelBatch?: boolean;
   onChange: (value: AreaFormValue) => void;
   onClose: () => void;
@@ -34,6 +74,7 @@ export default function AreaEditorModal({
   value,
   recentAreaTypeKeys,
   facadeLevelOptions = [],
+  facadeElevationDrawings = [],
   enableFacadeLevelBatch = false,
   onChange,
   onClose,
@@ -41,6 +82,8 @@ export default function AreaEditorModal({
   submitLabel,
 }: AreaEditorModalProps) {
   const [levelMode, setLevelMode] = useState('');
+  const [elevationError, setElevationError] = useState('');
+  const elevationInputRef = useRef<HTMLInputElement | null>(null);
   const orderedAreaTypes = useMemo(() => {
     const preferredOrder: AreaTypeKey[] = ['apartment_unit', 'custom'];
     const recentSet = new Set(recentAreaTypeKeys);
@@ -62,6 +105,7 @@ export default function AreaEditorModal({
   if (!open) return null;
 
   const selectedDefinition = getAreaTypeDefinition(value.areaTypeKey);
+  const selectedOrientation = selectedDefinition.key === 'facade' ? (value.unitType as FacadeOrientation | '') : '';
   const selectedLevelMode = value.facadeLevel.trim()
     ? facadeLevelOptions.includes(value.facadeLevel.trim())
       ? value.facadeLevel.trim()
@@ -69,6 +113,59 @@ export default function AreaEditorModal({
     : levelMode;
   const selectedFacadeLevels = value.facadeLevel.split(',').map((level) => level.trim()).filter(Boolean);
   const selectedFacadeLevelSet = new Set(selectedFacadeLevels);
+  const matchingElevationDrawings = selectedOrientation
+    ? facadeElevationDrawings.filter((drawing) => drawing.orientation === selectedOrientation)
+    : [];
+  const selectedStoredElevationDrawing =
+    value.elevationDrawingId && !value.pendingElevationDrawing
+      ? matchingElevationDrawings.find((drawing) => drawing.id === value.elevationDrawingId) ?? null
+      : null;
+  const selectedElevationDrawing = value.pendingElevationDrawing ?? selectedStoredElevationDrawing;
+
+  async function handleElevationFileChange(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+
+    if (!selectedOrientation) {
+      setElevationError('Select an orientation before uploading an elevation.');
+      return;
+    }
+
+    if (!isSupportedElevationFile(file)) {
+      setElevationError('Upload a PDF, JPG, PNG, or WebP elevation.');
+      return;
+    }
+
+    if (file.size > MAX_ELEVATION_FILE_SIZE) {
+      setElevationError('Use an elevation file under 25 MB.');
+      return;
+    }
+
+    try {
+      const now = new Date();
+      const drawing: FacadeElevationDrawing = {
+        id: createElevationDrawingId(),
+        orientation: selectedOrientation,
+        name: getDefaultDrawingName(file.name),
+        fileName: file.name,
+        mimeType: inferElevationMimeType(file),
+        size: file.size,
+        dataUrl: await readFileAsDataUrl(file),
+        createdAt: now,
+        updatedAt: now,
+      };
+      setElevationError('');
+      onChange({
+        ...value,
+        elevationDrawingId: drawing.id,
+        pendingElevationDrawing: drawing,
+      });
+    } catch (error) {
+      console.error('Failed to read elevation file:', error);
+      setElevationError('Unable to read that elevation file.');
+    }
+  }
 
   return (
     <div className="modal-overlay fixed inset-0 z-50 flex items-start justify-center overflow-y-auto p-4">
@@ -84,15 +181,29 @@ export default function AreaEditorModal({
             <select
               value={value.areaTypeKey}
               onChange={(e) => {
+                const nextAreaType = e.target.value as AreaTypeKey;
+                const keepsFacadeFields = nextAreaType === 'facade';
+                const nextUnitType =
+                  nextAreaType === 'apartment_unit'
+                    ? APARTMENT_UNIT_TYPES.includes(value.unitType as ApartmentUnitType)
+                      ? value.unitType
+                      : ''
+                    : keepsFacadeFields && FACADE_ORIENTATIONS.includes(value.unitType as FacadeOrientation)
+                      ? value.unitType
+                      : '';
+                const keepsElevationDrawing = keepsFacadeFields && Boolean(nextUnitType);
                 setLevelMode('');
+                setElevationError('');
                 onChange({
                   ...value,
-                  areaTypeKey: e.target.value as AreaTypeKey,
-                  unitType: e.target.value === 'apartment_unit' ? value.unitType : '',
-                  customAreaName: e.target.value === 'custom' ? value.customAreaName : '',
-                  areaNumber: e.target.value === 'facade' ? value.areaNumber : '',
-                  facadeLevel: e.target.value === 'facade' ? value.facadeLevel : '',
-                  facadeLevelMode: e.target.value === 'facade' ? value.facadeLevelMode : '',
+                  areaTypeKey: nextAreaType,
+                  unitType: nextUnitType,
+                  customAreaName: nextAreaType === 'custom' ? value.customAreaName : '',
+                  areaNumber: keepsFacadeFields ? value.areaNumber : '',
+                  facadeLevel: keepsFacadeFields ? value.facadeLevel : '',
+                  facadeLevelMode: keepsFacadeFields ? value.facadeLevelMode : '',
+                  elevationDrawingId: keepsElevationDrawing ? value.elevationDrawingId : '',
+                  pendingElevationDrawing: keepsElevationDrawing ? value.pendingElevationDrawing ?? null : null,
                 });
               }}
               className="field-shell"
@@ -137,12 +248,16 @@ export default function AreaEditorModal({
               </label>
               <select
                 value={value.unitType}
-                onChange={(e) =>
+                onChange={(e) => {
+                  const nextOrientation = e.target.value as FacadeOrientation;
+                  setElevationError('');
                   onChange({
                     ...value,
-                    unitType: e.target.value as FacadeOrientation,
-                  })
-                }
+                    unitType: nextOrientation,
+                    elevationDrawingId: '',
+                    pendingElevationDrawing: null,
+                  });
+                }}
                 className="field-shell"
               >
                 <option value="">Select orientation</option>
@@ -287,6 +402,116 @@ export default function AreaEditorModal({
             </div>
           )}
 
+          {selectedDefinition.key === 'facade' && (
+            <div>
+              <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                Elevation Drawing
+              </label>
+              <div className="rounded-[1rem] border border-[var(--surface-border)] bg-white/70 p-3 dark:bg-white/[0.05]">
+                {selectedOrientation ? (
+                  <div className="space-y-3">
+                    <select
+                      value={value.elevationDrawingId}
+                      onChange={(e) => {
+                        setElevationError('');
+                        onChange({
+                          ...value,
+                          elevationDrawingId: e.target.value,
+                          pendingElevationDrawing: null,
+                        });
+                      }}
+                      className="field-shell"
+                    >
+                      <option value="">No drawing selected</option>
+                      {matchingElevationDrawings.map((drawing) => (
+                        <option key={drawing.id} value={drawing.id}>
+                          {drawing.name}
+                        </option>
+                      ))}
+                    </select>
+
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => elevationInputRef.current?.click()}
+                        className="flex h-10 flex-1 items-center justify-center gap-2 rounded-2xl border border-gray-300/90 bg-white/70 px-4 text-sm font-medium text-gray-700 transition hover:bg-white dark:border-white/10 dark:bg-white/[0.04] dark:text-gray-300 dark:hover:bg-white/[0.08]"
+                      >
+                        <Upload className="h-4 w-4" />
+                        Upload PDF/JPEG
+                      </button>
+                      {selectedElevationDrawing && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setElevationError('');
+                            onChange({
+                              ...value,
+                              elevationDrawingId: '',
+                              pendingElevationDrawing: null,
+                            });
+                          }}
+                          className="flex h-10 w-10 items-center justify-center rounded-2xl border border-gray-300/90 bg-white/70 text-gray-600 transition hover:bg-white hover:text-gray-900 dark:border-white/10 dark:bg-white/[0.04] dark:text-gray-300 dark:hover:bg-white/[0.08]"
+                          aria-label="Clear elevation drawing"
+                        >
+                          <X className="h-4 w-4" />
+                        </button>
+                      )}
+                    </div>
+                    <input
+                      ref={elevationInputRef}
+                      type="file"
+                      accept={ELEVATION_FILE_ACCEPT}
+                      className="hidden"
+                      onChange={(event) => void handleElevationFileChange(event)}
+                    />
+
+                    {selectedElevationDrawing && (
+                      <div className="rounded-[0.9rem] border border-[var(--surface-border)] bg-white/80 p-3 dark:bg-white/[0.05]">
+                        <div className="flex items-start gap-2">
+                          <FileText className="mt-0.5 h-4 w-4 shrink-0 text-gray-500 dark:text-gray-400" />
+                          <div className="min-w-0 flex-1">
+                            <div className="truncate text-sm font-medium text-gray-900 dark:text-white">
+                              {selectedElevationDrawing.name}
+                            </div>
+                            <div className="mt-0.5 truncate text-xs text-gray-500 dark:text-gray-400">
+                              {selectedElevationDrawing.fileName} - {formatFileSize(selectedElevationDrawing.size)}
+                            </div>
+                          </div>
+                        </div>
+                        {value.pendingElevationDrawing && (
+                          <input
+                            type="text"
+                            value={value.pendingElevationDrawing.name}
+                            onChange={(e) =>
+                              onChange({
+                                ...value,
+                                pendingElevationDrawing: {
+                                  ...value.pendingElevationDrawing!,
+                                  name: e.target.value,
+                                  updatedAt: new Date(),
+                                },
+                              })
+                            }
+                            className="field-shell mt-3"
+                            placeholder="Drawing name"
+                          />
+                        )}
+                      </div>
+                    )}
+
+                    {elevationError && (
+                      <p className="text-xs text-red-600 dark:text-red-300">{elevationError}</p>
+                    )}
+                  </div>
+                ) : (
+                  <p className="text-sm text-gray-500 dark:text-gray-400">
+                    Select an orientation to choose or upload an elevation.
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
+
           {selectedDefinition.requiresCustomName && (
             <div>
               <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
@@ -349,6 +574,7 @@ export default function AreaEditorModal({
               (selectedDefinition.requiresOrientation &&
                 !enableFacadeLevelBatch &&
                 !value.facadeLevel.trim()) ||
+              (!!value.pendingElevationDrawing && !value.pendingElevationDrawing.name.trim()) ||
               (selectedDefinition.requiresFacadeType && !value.areaNumber) ||
               (selectedDefinition.requiresCustomName && !value.customAreaName.trim())
             }

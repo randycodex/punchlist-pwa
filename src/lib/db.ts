@@ -278,6 +278,7 @@ export function createArea(
     customAreaName?: string;
     areaNumber?: string;
     facadeLevel?: string;
+    elevationDrawingId?: string;
   }
 ): Area {
   const now = new Date();
@@ -290,6 +291,7 @@ export function createArea(
     customAreaName: options?.customAreaName?.trim() || undefined,
     areaNumber: options?.areaNumber?.trim() || undefined,
     facadeLevel: options?.facadeLevel?.trim() || undefined,
+    elevationDrawingId: options?.elevationDrawingId?.trim() || undefined,
     sortOrder,
     isComplete: false,
     notes: '',

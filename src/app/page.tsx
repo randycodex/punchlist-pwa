@@ -69,6 +69,7 @@ import {
   compareAreaNames,
   getAreaCreationForms,
   getDefaultAreaFormValue,
+  upsertFacadeElevationDrawing,
   type AreaTypeKey,
 } from '@/lib/areas';
 import Link from 'next/link';
@@ -985,6 +986,7 @@ export default function ProjectsPage() {
 
     const areaForms = getAreaCreationForms(newAreaForm, buildFacadeLevelOptions(targetProject));
     if (areaForms.length === 0) return;
+    upsertFacadeElevationDrawing(targetProject, newAreaForm.pendingElevationDrawing);
 
     const createdAreas = areaForms.map(
       (areaForm, index) => {
@@ -997,12 +999,15 @@ export default function ProjectsPage() {
           customAreaName: areaForm.customAreaName,
           areaNumber: areaForm.areaNumber,
           facadeLevel: areaForm.facadeLevel,
+          elevationDrawingId: areaForm.areaTypeKey === 'facade' ? areaForm.elevationDrawingId : '',
         });
         area.areaTypeKey = areaForm.areaTypeKey;
         area.unitType = areaForm.unitType || undefined;
         area.customAreaName = areaForm.customAreaName.trim() || undefined;
         area.areaNumber = areaForm.areaNumber.trim() || undefined;
         area.facadeLevel = areaForm.facadeLevel.trim() || undefined;
+        area.elevationDrawingId =
+          areaForm.areaTypeKey === 'facade' ? areaForm.elevationDrawingId || undefined : undefined;
         applyTemplateToArea(area);
         return area;
       }
@@ -1129,6 +1134,7 @@ export default function ProjectsPage() {
     if (!singleProject) return;
     if (selectedAreaIds.size === 0) {
       setDeleteMode(false);
+      setExportScope('selected-projects');
       return;
     }
     const now = new Date();
@@ -1141,6 +1147,7 @@ export default function ProjectsPage() {
     scheduleSync(singleProject.id);
     setSelectedAreaIds(new Set());
     setDeleteMode(false);
+    setExportScope('selected-projects');
     setActionSheet(null);
     await loadProjects();
   }
@@ -1868,6 +1875,7 @@ export default function ProjectsPage() {
     if (detail.action === 'toggle-selection' && singleProject) {
       setShowTrash(false);
       setExportMode(false);
+      setExportScope('selected-projects');
       setSelectedProjectIds(new Set());
       setActionSheet(null);
       if (deleteMode) {
@@ -2526,6 +2534,7 @@ export default function ProjectsPage() {
         value={newAreaForm}
         recentAreaTypeKeys={recentAreaTypeKeys}
         facadeLevelOptions={facadeLevelOptions}
+        facadeElevationDrawings={areaTargetProject?.facadeElevationDrawings ?? []}
         enableFacadeLevelBatch
         onChange={setNewAreaForm}
         onClose={() => {

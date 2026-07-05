@@ -21,6 +21,7 @@ import {
   compareAreaNames,
   getAreaCreationForms,
   getDefaultAreaFormValue,
+  upsertFacadeElevationDrawing,
   type AreaTypeKey,
 } from '@/lib/areas';
 import { applyTemplateToArea } from '@/lib/template';
@@ -612,6 +613,7 @@ export default function ProjectDetailPage() {
 
     const areaForms = getAreaCreationForms(newAreaForm, buildFacadeLevelOptions(project));
     if (areaForms.length === 0) return;
+    upsertFacadeElevationDrawing(project, newAreaForm.pendingElevationDrawing);
 
     const createdAreas = areaForms.map(
       (areaForm, index) => {
@@ -624,12 +626,15 @@ export default function ProjectDetailPage() {
           customAreaName: areaForm.customAreaName,
           areaNumber: areaForm.areaNumber,
           facadeLevel: areaForm.facadeLevel,
+          elevationDrawingId: areaForm.areaTypeKey === 'facade' ? areaForm.elevationDrawingId : '',
         });
         area.areaTypeKey = areaForm.areaTypeKey;
         area.unitType = areaForm.unitType || undefined;
         area.customAreaName = areaForm.customAreaName.trim() || undefined;
         area.areaNumber = areaForm.areaNumber.trim() || undefined;
         area.facadeLevel = areaForm.facadeLevel.trim() || undefined;
+        area.elevationDrawingId =
+          areaForm.areaTypeKey === 'facade' ? areaForm.elevationDrawingId || undefined : undefined;
         applyTemplateToArea(area);
         return area;
       }
@@ -671,6 +676,7 @@ export default function ProjectDetailPage() {
     if (!project) return;
     if (selectedAreaIds.size === 0) {
       setDeleteMode(false);
+      setExportScope('project');
       return;
     }
     const now = new Date();
@@ -683,6 +689,7 @@ export default function ProjectDetailPage() {
     scheduleSync(project.id);
     setSelectedAreaIds(new Set());
     setDeleteMode(false);
+    setExportScope('project');
     setActionSheet(null);
     setProject({ ...project, areas: [...project.areas] });
   }
@@ -1283,6 +1290,7 @@ export default function ProjectDetailPage() {
       if (deleteMode) {
         cancelSelectionMode();
       } else {
+        setExportScope('project');
         setDeleteMode(true);
         setSelectedAreaIds(new Set());
       }
@@ -1804,6 +1812,7 @@ export default function ProjectDetailPage() {
         value={newAreaForm}
         recentAreaTypeKeys={recentAreaTypeKeys}
         facadeLevelOptions={buildFacadeLevelOptions(project)}
+        facadeElevationDrawings={project?.facadeElevationDrawings ?? []}
         enableFacadeLevelBatch
         onChange={setNewAreaForm}
         onClose={() => {

@@ -41,6 +41,7 @@ import {
   getAreaFormValue,
   isApartmentArea,
   splitFacadeLevels,
+  upsertFacadeElevationDrawing,
   type AreaTypeKey,
 } from '@/lib/areas';
 import { applyTemplateToArea } from '@/lib/template';
@@ -648,6 +649,7 @@ export default function AreaDetailPage() {
     const originalTypeKey = targetArea.areaTypeKey;
     const originalUnitType = targetArea.unitType;
     const originalAreaNumber = targetArea.areaNumber;
+    const originalElevationDrawingId = targetArea.elevationDrawingId;
     const originalFacadeLevels = getFacadeInspectionLevels(targetArea);
     const originalFacadeLevel = originalFacadeLevels.join(',');
     const nextName = buildAreaName(areaForm);
@@ -657,6 +659,8 @@ export default function AreaDetailPage() {
     targetArea.customAreaName = areaForm.customAreaName.trim() || undefined;
     targetArea.areaNumber = areaForm.areaNumber.trim() || undefined;
     targetArea.facadeLevel = areaForm.facadeLevel.trim() || undefined;
+    targetArea.elevationDrawingId =
+      areaForm.areaTypeKey === 'facade' ? areaForm.elevationDrawingId || undefined : undefined;
 
     const templateChanged =
       originalTypeKey !== areaForm.areaTypeKey ||
@@ -677,6 +681,7 @@ export default function AreaDetailPage() {
         targetArea.customAreaName = area.customAreaName;
         targetArea.areaNumber = area.areaNumber;
         targetArea.facadeLevel = originalFacadeLevel;
+        targetArea.elevationDrawingId = originalElevationDrawingId;
         setConfirmDialog({
           title: 'Reset Area Checklist',
           message: 'Changing this area will reset checklist issues, comments, and images for this unit. Continue?',
@@ -707,6 +712,7 @@ export default function AreaDetailPage() {
         targetArea.customAreaName = area.customAreaName;
         targetArea.areaNumber = area.areaNumber;
         targetArea.facadeLevel = originalFacadeLevel;
+        targetArea.elevationDrawingId = originalElevationDrawingId;
         setConfirmDialog({
           title: 'Remove Facade Floors',
           message: `Removing ${removedLocationsWithActivity.map((location) => location.name).join(', ')} will delete recorded checklist information for those floors. Continue?`,
@@ -723,6 +729,7 @@ export default function AreaDetailPage() {
       applyTemplateToArea(targetArea, { preserveExisting: true });
     }
 
+    upsertFacadeElevationDrawing(project, areaForm.pendingElevationDrawing);
     syncAreaCompletion(targetArea);
     targetArea.updatedAt = new Date();
     await saveProject(project);
@@ -1970,6 +1977,7 @@ export default function AreaDetailPage() {
         value={areaForm}
         recentAreaTypeKeys={recentAreaTypeKeys}
         facadeLevelOptions={buildFacadeLevelOptions(project)}
+        facadeElevationDrawings={project.facadeElevationDrawings ?? []}
         enableFacadeLevelBatch
         onChange={setAreaForm}
         onClose={() => {
