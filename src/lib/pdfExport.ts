@@ -361,6 +361,8 @@ const GROUP_INDENT = 5;
 const ITEM_INDENT = 10;
 const BODY_INDENT = 14;
 const IMAGE_RADIUS = 1.8;
+const ELEVATION_MIN_IMAGE_HEIGHT = 150;
+const ELEVATION_MAX_IMAGE_HEIGHT = 210;
 
 function isGeneralNotesLocation(location: Location | ExportLocation) {
   const locationName = location.name.trim().toLowerCase();
@@ -1151,8 +1153,9 @@ async function renderAreaElevationReferenceBlock(
   if (!drawing) return startY;
 
   let y = startY + 4;
-  const minBlockHeight = 62;
-  if (y + minBlockHeight > layout.contentBottom) {
+  const titleBlockHeight = 8;
+  const remainingImageHeight = layout.contentBottom - (y + titleBlockHeight) - 9;
+  if (remainingImageHeight < ELEVATION_MIN_IMAGE_HEIGHT) {
     y = startAreaPage() + 2;
   }
 
@@ -1187,7 +1190,10 @@ async function renderAreaElevationReferenceBlock(
     return y + placeholderHeight + 5;
   }
 
-  const availableHeight = Math.max(46, Math.min(126, layout.contentBottom - y - 9));
+  const availableHeight = Math.max(
+    46,
+    Math.min(ELEVATION_MAX_IMAGE_HEIGHT, layout.contentBottom - y - 9)
+  );
   const fitted = fitImageSize(preparedDrawing.size, layout.contentWidth, availableHeight);
   const imageX = layout.margin + (layout.contentWidth - fitted.width) / 2;
   const imageY = y;
