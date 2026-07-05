@@ -280,6 +280,12 @@ export default function PersistentTopBar() {
                           Export project
                         </button>
                       )}
+                      {homeMenuState.isSingleProject && homeMenuState.canAddArea && (
+                        <button onClick={() => dispatchHomeAction('toggle-selection')} className={menuItemClass}>
+                          <CheckCircle2 className="h-4 w-4" />
+                          {homeMenuState.selectionMode ? 'Cancel selection' : 'Select areas'}
+                        </button>
+                      )}
                       {homeMenuState.isSingleProject && collaborationAuth.isSignedIn && (
                         <button
                           onClick={() => dispatchHomeAction('share-project')}
