@@ -1,5 +1,14 @@
 import { openDB, DBSchema, IDBPDatabase } from 'idb';
-import { Project, Area, Location, Item, Checkpoint, PhotoAttachment, FileAttachment } from '@/types';
+import {
+  Project,
+  Area,
+  Location,
+  Item,
+  Checkpoint,
+  PhotoAttachment,
+  FileAttachment,
+  FacadeElevationDrawing,
+} from '@/types';
 import type { AreaTypeKey, ApartmentUnitType, FacadeOrientation } from '@/lib/areas';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -8,6 +17,10 @@ interface CheckpointMediaRecord {
   projectId: string;
   photos: PhotoAttachment[];
   files: FileAttachment[];
+}
+
+interface ElevationDrawingRecord extends FacadeElevationDrawing {
+  projectId: string;
 }
 
 interface PunchListDB extends DBSchema {
@@ -19,6 +32,11 @@ interface PunchListDB extends DBSchema {
   checkpointMedia: {
     key: string;
     value: CheckpointMediaRecord;
+    indexes: { 'by-project': string };
+  };
+  elevationDrawings: {
+    key: string;
+    value: ElevationDrawingRecord;
     indexes: { 'by-project': string };
   };
 }
@@ -50,9 +68,17 @@ function stripFilePayload(file: FileAttachment): FileAttachment {
   };
 }
 
+function stripElevationDrawingPayload(drawing: FacadeElevationDrawing): FacadeElevationDrawing {
+  return {
+    ...drawing,
+    dataUrl: '',
+  };
+}
+
 function cloneProjectWithoutMediaPayload(project: Project): Project {
   return {
     ...project,
+    facadeElevationDrawings: project.facadeElevationDrawings?.map(stripElevationDrawingPayload),
     areas: project.areas.map((area) => ({
       ...area,
       locations: area.locations.map((location) => ({
@@ -73,11 +99,19 @@ function cloneProjectWithoutMediaPayload(project: Project): Project {
 function serializeProjectForStorage(project: Project): {
   storedProject: Project;
   mediaRecords: CheckpointMediaRecord[];
+  elevationDrawingRecords: ElevationDrawingRecord[];
 } {
   const mediaRecords: CheckpointMediaRecord[] = [];
+  const elevationDrawingRecords: ElevationDrawingRecord[] = (project.facadeElevationDrawings ?? [])
+    .filter((drawing) => Boolean(drawing.dataUrl))
+    .map((drawing) => ({
+      ...drawing,
+      projectId: project.id,
+    }));
 
   const storedProject: Project = {
     ...project,
+    facadeElevationDrawings: project.facadeElevationDrawings?.map(stripElevationDrawingPayload),
     areas: project.areas.map((area) => ({
       ...area,
       locations: area.locations.map((location) => ({
@@ -111,7 +145,7 @@ function serializeProjectForStorage(project: Project): {
     })),
   };
 
-  return { storedProject, mediaRecords };
+  return { storedProject, mediaRecords, elevationDrawingRecords };
 }
 
 function hydrateProjectMedia(project: Project, mediaRecords: CheckpointMediaRecord[]): Project {
@@ -144,10 +178,41 @@ function hydrateProjectMedia(project: Project, mediaRecords: CheckpointMediaReco
   };
 }
 
+function hydrateProjectElevationDrawings(
+  project: Project,
+  drawingRecords: ElevationDrawingRecord[]
+): Project {
+  if (drawingRecords.length === 0) {
+    return project;
+  }
+
+  const recordsByDrawingId = new Map(drawingRecords.map((record) => [record.id, record]));
+
+  return {
+    ...project,
+    facadeElevationDrawings: project.facadeElevationDrawings?.map((drawing) => {
+      const record = recordsByDrawingId.get(drawing.id);
+      if (!record) return drawing;
+      return {
+        ...drawing,
+        id: record.id,
+        orientation: record.orientation,
+        name: record.name,
+        fileName: record.fileName,
+        mimeType: record.mimeType,
+        size: record.size,
+        dataUrl: record.dataUrl,
+        createdAt: record.createdAt,
+        updatedAt: record.updatedAt,
+      };
+    }),
+  };
+}
+
 function getDB() {
   if (!dbPromise) {
-    dbPromise = openDB<PunchListDB>('punchlist-db', 2, {
-      upgrade(db) {
+    dbPromise = openDB<PunchListDB>('punchlist-db', 3, {
+      async upgrade(db, oldVersion, _newVersion, transaction) {
         if (!db.objectStoreNames.contains('projects')) {
           const projectStore = db.createObjectStore('projects', { keyPath: 'id' });
           projectStore.createIndex('by-name', 'projectName');
@@ -157,6 +222,37 @@ function getDB() {
         if (!db.objectStoreNames.contains('checkpointMedia')) {
           const mediaStore = db.createObjectStore('checkpointMedia', { keyPath: 'checkpointId' });
           mediaStore.createIndex('by-project', 'projectId');
+        }
+
+        if (!db.objectStoreNames.contains('elevationDrawings')) {
+          const drawingStore = db.createObjectStore('elevationDrawings', { keyPath: 'id' });
+          drawingStore.createIndex('by-project', 'projectId');
+        }
+
+        if (oldVersion < 3 && db.objectStoreNames.contains('projects')) {
+          const projectStore = transaction.objectStore('projects');
+          const drawingStore = transaction.objectStore('elevationDrawings');
+          let cursor = await projectStore.openCursor();
+
+          while (cursor) {
+            const project = cursor.value;
+            const drawings = project.facadeElevationDrawings ?? [];
+            if (drawings.some((drawing) => drawing.dataUrl)) {
+              for (const drawing of drawings) {
+                if (drawing.dataUrl) {
+                  await drawingStore.put({
+                    ...drawing,
+                    projectId: project.id,
+                  });
+                }
+              }
+              await cursor.update({
+                ...project,
+                facadeElevationDrawings: drawings.map(stripElevationDrawingPayload),
+              });
+            }
+            cursor = await cursor.continue();
+          }
         }
       },
     });
@@ -175,8 +271,11 @@ export async function getProject(id: string): Promise<Project | undefined> {
   const db = await getDB();
   const project = await db.get('projects', id);
   if (!project) return undefined;
-  const mediaRecords = await db.getAllFromIndex('checkpointMedia', 'by-project', id);
-  return hydrateProjectMedia(project, mediaRecords);
+  const [mediaRecords, drawingRecords] = await Promise.all([
+    db.getAllFromIndex('checkpointMedia', 'by-project', id),
+    db.getAllFromIndex('elevationDrawings', 'by-project', id),
+  ]);
+  return hydrateProjectElevationDrawings(hydrateProjectMedia(project, mediaRecords), drawingRecords);
 }
 
 export async function getActiveProjectCount(): Promise<number> {
@@ -221,10 +320,11 @@ async function saveProjectInternal(project: Project, options: { touch: boolean }
   if (options.touch) {
     project.updatedAt = new Date();
   }
-  const { storedProject, mediaRecords } = serializeProjectForStorage(project);
-  const tx = db.transaction(['projects', 'checkpointMedia'], 'readwrite');
+  const { storedProject, mediaRecords, elevationDrawingRecords } = serializeProjectForStorage(project);
+  const tx = db.transaction(['projects', 'checkpointMedia', 'elevationDrawings'], 'readwrite');
   const projectStore = tx.objectStore('projects');
   const mediaStore = tx.objectStore('checkpointMedia');
+  const drawingStore = tx.objectStore('elevationDrawings');
 
   await projectStore.put(storedProject);
 
@@ -238,16 +338,47 @@ async function saveProjectInternal(project: Project, options: { touch: boolean }
   );
 
   await Promise.all(mediaRecords.map((record) => mediaStore.put(record)));
+
+  const existingDrawingRecords = await drawingStore.index('by-project').getAll(project.id);
+  const existingDrawingById = new Map(existingDrawingRecords.map((record) => [record.id, record]));
+  const incomingDrawingPayloadById = new Map(
+    elevationDrawingRecords.map((record) => [record.id, record.dataUrl])
+  );
+  const nextDrawingMetadata = storedProject.facadeElevationDrawings ?? [];
+  const nextDrawingIds = new Set(nextDrawingMetadata.map((drawing) => drawing.id));
+
+  await Promise.all(
+    existingDrawingRecords
+      .filter((record) => !nextDrawingIds.has(record.id))
+      .map((record) => drawingStore.delete(record.id))
+  );
+
+  await Promise.all(
+    nextDrawingMetadata
+      .map((drawing) => {
+        const dataUrl = incomingDrawingPayloadById.get(drawing.id) || existingDrawingById.get(drawing.id)?.dataUrl || '';
+        if (!dataUrl) return null;
+        return drawingStore.put({
+          ...drawing,
+          dataUrl,
+          projectId: project.id,
+        });
+      })
+      .filter((operation): operation is Promise<string> => operation !== null)
+  );
   await tx.done;
 }
 
 export async function deleteProject(id: string): Promise<void> {
   const db = await getDB();
-  const tx = db.transaction(['projects', 'checkpointMedia'], 'readwrite');
+  const tx = db.transaction(['projects', 'checkpointMedia', 'elevationDrawings'], 'readwrite');
   await tx.objectStore('projects').delete(id);
   const mediaStore = tx.objectStore('checkpointMedia');
   const mediaRecords = await mediaStore.index('by-project').getAll(id);
   await Promise.all(mediaRecords.map((record) => mediaStore.delete(record.checkpointId)));
+  const drawingStore = tx.objectStore('elevationDrawings');
+  const drawingRecords = await drawingStore.index('by-project').getAll(id);
+  await Promise.all(drawingRecords.map((record) => drawingStore.delete(record.id)));
   await tx.done;
 }
 

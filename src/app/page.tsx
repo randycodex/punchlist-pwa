@@ -1018,7 +1018,7 @@ export default function ProjectsPage() {
     const facadeLevelEnd = Number.parseInt(newProjectLevelEnd, 10);
     project.facadeLevelStart = Number.isNaN(facadeLevelStart) ? undefined : facadeLevelStart;
     project.facadeLevelEnd = Number.isNaN(facadeLevelEnd) ? undefined : facadeLevelEnd;
-    await saveProject(project);
+    await saveProjectMetadataOnly(project);
     scheduleSync(project.id);
     setProjects((prev) => [...prev, project]);
     setNewProjectName('');
@@ -1067,7 +1067,11 @@ export default function ProjectsPage() {
     if (createdAreas.length === 0) return;
 
     targetProject.areas.push(...createdAreas);
-    await saveProject(targetProject);
+    if (newAreaForm.pendingElevationDrawing) {
+      await saveProject(targetProject);
+    } else {
+      await saveProjectMetadataOnly(targetProject);
+    }
     scheduleSync(targetProject.id);
     const nextRecentAreaTypeKeys = [
       newAreaForm.areaTypeKey,
@@ -1164,7 +1168,7 @@ export default function ProjectsPage() {
 
       for (const project of projectsToTrash) {
         project.deletedAt = new Date();
-        await saveProject(project);
+        await saveProjectMetadataOnly(project);
         queuePendingSync(project.id);
       }
       scheduleSync();
@@ -1183,7 +1187,7 @@ export default function ProjectsPage() {
 
   const handleTrashProject = useCallback(async (project: Project) => {
     project.deletedAt = new Date();
-    await saveProject(project);
+    await saveProjectMetadataOnly(project);
     scheduleSyncRef.current(project.id);
     setShowProjectMenuId(null);
     setProjects((prev) =>
@@ -1204,7 +1208,7 @@ export default function ProjectsPage() {
         area.deletedAt = now;
       }
     });
-    await saveProject(singleProject);
+    await saveProjectMetadataOnly(singleProject);
     scheduleSync(singleProject.id);
     setSelectedAreaIds(new Set());
     setDeleteMode(false);
@@ -1264,7 +1268,7 @@ export default function ProjectsPage() {
     if (!project) return;
     delete project.deletedAt;
     unmarkProjectDeleted(project.id);
-    await saveProject(project);
+    await saveProjectMetadataOnly(project);
     scheduleSync(project.id, { fullSync: true });
     setProjects((prev) =>
       prev.map((entry) => (entry.id === project.id ? { ...project, areas: [...project.areas] } : entry))
@@ -1357,7 +1361,7 @@ export default function ProjectsPage() {
   async function handleEditProject(updates: Partial<Project>) {
     if (!editingProject) return;
     Object.assign(editingProject, updates);
-    await saveProject(editingProject);
+    await saveProjectMetadataOnly(editingProject);
     scheduleSync(editingProject.id);
     setProjects((prev) =>
       prev.map((project) =>

@@ -113,6 +113,18 @@ function locationHasRecordedActivity(location: Area['locations'][number]) {
   );
 }
 
+function checkpointHasStoredMedia(checkpoint: Checkpoint) {
+  return checkpoint.photos.length > 0 || (checkpoint.files?.length ?? 0) > 0;
+}
+
+function itemHasStoredMedia(item: Area['locations'][number]['items'][number]) {
+  return item.checkpoints.some(checkpointHasStoredMedia);
+}
+
+function locationHasStoredMedia(location: Area['locations'][number]) {
+  return location.items.some(itemHasStoredMedia);
+}
+
 function facadeAreaNeedsTemplateRefresh(area: Area) {
   if (area.areaTypeKey !== 'facade') return false;
   const standardLocations = area.locations.filter(
@@ -705,6 +717,8 @@ export default function AreaDetailPage() {
     const originalElevationDrawingId = targetArea.elevationDrawingId;
     const originalFacadeLevels = getFacadeInspectionLevels(targetArea);
     const originalFacadeLevel = originalFacadeLevels.join(',');
+    const hadRecordedActivityBeforeTemplateChange = areaHasRecordedActivity(targetArea);
+    let removedLocationsWithActivity: Area['locations'] = [];
     const nextName = buildAreaName(areaForm);
     targetArea.name = nextName;
     targetArea.areaTypeKey = areaForm.areaTypeKey;
@@ -725,7 +739,7 @@ export default function AreaDetailPage() {
       originalFacadeLevel !== areaForm.facadeLevel.trim();
     if (templateChanged) {
       if (
-        areaHasRecordedActivity(targetArea) &&
+        hadRecordedActivityBeforeTemplateChange &&
         !options.skipResetConfirm
       ) {
         targetArea.name = area.name;
@@ -751,7 +765,7 @@ export default function AreaDetailPage() {
     } else if (facadeLevelsChanged) {
       const nextLevels = new Set(splitFacadeLevels(areaForm.facadeLevel));
       const removedActiveLevels = originalFacadeLevels.filter((level) => !nextLevels.has(level));
-      const removedLocationsWithActivity = targetArea.locations.filter(
+      removedLocationsWithActivity = targetArea.locations.filter(
         (location) => removedActiveLevels.includes(location.name) && locationHasRecordedActivity(location)
       );
 
@@ -782,10 +796,19 @@ export default function AreaDetailPage() {
       applyTemplateToArea(targetArea, { preserveExisting: true });
     }
 
+    const shouldUseFullSave =
+      Boolean(areaForm.pendingElevationDrawing) ||
+      (templateChanged && hadRecordedActivityBeforeTemplateChange) ||
+      removedLocationsWithActivity.some(locationHasStoredMedia);
+
     upsertFacadeElevationDrawing(project, areaForm.pendingElevationDrawing);
     syncAreaCompletion(targetArea);
     targetArea.updatedAt = new Date();
-    await saveProject(project);
+    if (shouldUseFullSave) {
+      await saveProject(project);
+    } else {
+      await saveProjectMetadataOnly(project);
+    }
     scheduleSync(project.id);
 
     const nextRecentAreaTypeKeys = [
@@ -814,7 +837,7 @@ export default function AreaDetailPage() {
 
       targetItem.name = trimmedName;
       syncAreaCompletion(targetArea);
-      await saveProject(project);
+      await saveProjectMetadataOnly(project);
       scheduleSync(project.id);
 
       setCustomItemName('');
@@ -848,7 +871,7 @@ export default function AreaDetailPage() {
     });
     syncAreaCompletion(targetArea);
 
-    await saveProject(project);
+    await saveProjectMetadataOnly(project);
     scheduleSync(project.id);
 
     setCustomItemName('');
@@ -878,7 +901,7 @@ export default function AreaDetailPage() {
     });
 
     syncAreaCompletion(targetArea);
-    await saveProject(project);
+    await saveProjectMetadataOnly(project);
     scheduleSync(project.id);
 
     setCustomSubareaName('');
@@ -920,7 +943,7 @@ export default function AreaDetailPage() {
       checkpoint.updatedAt = new Date();
 
       syncAreaCompletion(targetArea);
-      await saveProject(project);
+      await saveProjectMetadataOnly(project);
       scheduleSync(project.id);
 
       setCustomCheckpointName('');
@@ -947,7 +970,7 @@ export default function AreaDetailPage() {
     });
 
     syncAreaCompletion(targetArea);
-    await saveProject(project);
+    await saveProjectMetadataOnly(project);
     scheduleSync(project.id);
 
     setCustomCheckpointName('');
@@ -984,6 +1007,8 @@ export default function AreaDetailPage() {
     const targetItem = targetLocation?.items.find((item) => item.id === itemId);
     if (!targetArea || !targetLocation || !targetItem) return;
 
+    const removedCheckpoint = targetItem.checkpoints.find((checkpoint) => checkpoint.id === checkpointId);
+    const removedStoredMedia = removedCheckpoint ? checkpointHasStoredMedia(removedCheckpoint) : false;
     targetItem.checkpoints = targetItem.checkpoints.filter((checkpoint) => checkpoint.id !== checkpointId);
     targetItem.checkpoints.forEach((checkpoint, index) => {
       checkpoint.sortOrder = index;
@@ -1024,7 +1049,11 @@ export default function AreaDetailPage() {
     }
 
     syncAreaCompletion(targetArea);
-    await saveProject(project);
+    if (removedStoredMedia) {
+      await saveProject(project);
+    } else {
+      await saveProjectMetadataOnly(project);
+    }
     scheduleSync(project.id);
     setProject({ ...project, areas: [...project.areas] });
     setArea({ ...targetArea });
@@ -1037,6 +1066,8 @@ export default function AreaDetailPage() {
     const targetLocation = targetArea?.locations.find((location) => location.id === locationId);
     if (!targetArea || !targetLocation) return;
 
+    const removedItem = targetLocation.items.find((item) => item.id === itemId);
+    const removedStoredMedia = removedItem ? itemHasStoredMedia(removedItem) : false;
     targetLocation.items = targetLocation.items.filter((item) => item.id !== itemId);
     targetLocation.items.forEach((item, index) => {
       item.sortOrder = index;
@@ -1059,7 +1090,11 @@ export default function AreaDetailPage() {
     });
 
     syncAreaCompletion(targetArea);
-    await saveProject(project);
+    if (removedStoredMedia) {
+      await saveProject(project);
+    } else {
+      await saveProjectMetadataOnly(project);
+    }
     scheduleSync(project.id);
     setProject({ ...project, areas: [...project.areas] });
     setArea({ ...targetArea });
@@ -1094,7 +1129,7 @@ export default function AreaDetailPage() {
     targetLocation.updatedAt = new Date();
 
     syncAreaCompletion(targetArea);
-    await saveProject(project);
+    await saveProjectMetadataOnly(project);
     scheduleSync(project.id);
     setProject({ ...project, areas: [...project.areas] });
     setArea({ ...targetArea });
@@ -1106,6 +1141,8 @@ export default function AreaDetailPage() {
     const targetArea = project.areas.find((entry) => entry.id === area.id);
     if (!targetArea) return;
 
+    const removedLocation = targetArea.locations.find((location) => location.id === locationId);
+    const removedStoredMedia = removedLocation ? locationHasStoredMedia(removedLocation) : false;
     targetArea.locations = targetArea.locations.filter((location) => location.id !== locationId);
     targetArea.locations.forEach((location, index) => {
       location.sortOrder = index;
@@ -1123,7 +1160,11 @@ export default function AreaDetailPage() {
     });
 
     syncAreaCompletion(targetArea);
-    await saveProject(project);
+    if (removedStoredMedia) {
+      await saveProject(project);
+    } else {
+      await saveProjectMetadataOnly(project);
+    }
     scheduleSync(project.id);
     setProject({ ...project, areas: [...project.areas] });
     setArea({ ...targetArea });

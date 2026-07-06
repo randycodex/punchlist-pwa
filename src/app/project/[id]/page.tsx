@@ -452,7 +452,7 @@ export default function ProjectDetailPage() {
   async function handleEditProject(updates: Partial<Project>) {
     if (!editingProject) return;
     Object.assign(editingProject, updates);
-    await saveProject(editingProject);
+    await saveProjectMetadataOnly(editingProject);
     scheduleSync(editingProject.id);
     setProject({ ...editingProject, areas: [...editingProject.areas] });
     setEditingProject(null);
@@ -642,7 +642,11 @@ export default function ProjectDetailPage() {
     if (createdAreas.length === 0) return;
 
     project.areas.push(...createdAreas);
-    await saveProject(project);
+    if (newAreaForm.pendingElevationDrawing) {
+      await saveProject(project);
+    } else {
+      await saveProjectMetadataOnly(project);
+    }
     scheduleSync(project.id);
     const nextRecentAreaTypeKeys = [
       newAreaForm.areaTypeKey,
@@ -685,7 +689,7 @@ export default function ProjectDetailPage() {
         area.deletedAt = now;
       }
     });
-    await saveProject(project);
+    await saveProjectMetadataOnly(project);
     scheduleSync(project.id);
     setSelectedAreaIds(new Set());
     setDeleteMode(false);
@@ -781,7 +785,7 @@ export default function ProjectDetailPage() {
     const area = project.areas.find((entry) => entry.id === areaId);
     if (!area) return;
     delete area.deletedAt;
-    await saveProject(project);
+    await saveProjectMetadataOnly(project);
     scheduleSync(project.id);
     setProject({ ...project, areas: [...project.areas] });
   }

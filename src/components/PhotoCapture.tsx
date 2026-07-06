@@ -8,6 +8,8 @@ import { PhotoAttachment, FileAttachment } from '@/types';
 const PHOTO_INPUT_ACCEPT = 'image/*,.heic,.heif,image/heic,image/heif';
 const HEIC_EXTENSIONS = new Set(['heic', 'heif']);
 const HEIC_MIME_TYPES = new Set(['image/heic', 'image/heif']);
+const MAX_SOURCE_PHOTO_SIZE = 25 * 1024 * 1024;
+const MAX_FILE_ATTACHMENT_SIZE = 25 * 1024 * 1024;
 
 interface PhotoCaptureProps {
   photos: PhotoAttachment[];
@@ -274,12 +276,17 @@ export default function PhotoCapture({
   }
 
   async function handlePhotoSelect(e: React.ChangeEvent<HTMLInputElement>) {
-    const selected = Array.from(e.target.files ?? []);
-    if (selected.length === 0) return;
+    const selectedFiles = Array.from(e.target.files ?? []);
+    if (selectedFiles.length === 0) return;
+    const selected = selectedFiles.filter((file) => file.size <= MAX_SOURCE_PHOTO_SIZE);
+    const oversizedCount = selectedFiles.length - selected.length;
 
     setCameraError(null);
     setSavingPhotos(true);
-    const processed = await Promise.all(selected.map((file) => fileToPhotoPayload(file)));
+    const processed: Array<{ imageData: string; thumbnail?: string } | null> = [];
+    for (const file of selected) {
+      processed.push(await fileToPhotoPayload(file));
+    }
     const readyPhotos = processed.filter((photo): photo is { imageData: string; thumbnail?: string } => photo !== null);
     const failedHeicCount = selected.filter((file, index) => processed[index] === null && isHeicFile(file)).length;
     const failedOtherCount = processed.length - readyPhotos.length - failedHeicCount;
@@ -293,10 +300,17 @@ export default function PhotoCapture({
           }
         }
       }
+      const errors: string[] = [];
+      if (oversizedCount > 0) {
+        errors.push('Use photos under 25 MB.');
+      }
       if (failedHeicCount > 0) {
-        setCameraError('Could not read one or more HEIC/HEIF photos. Try opening the photo and sharing it as a JPEG if it does not attach.');
+        errors.push('Could not read one or more HEIC/HEIF photos. Try opening the photo and sharing it as a JPEG if it does not attach.');
       } else if (failedOtherCount > 0) {
-        setCameraError('Could not read one or more selected photos.');
+        errors.push('Could not read one or more selected photos.');
+      }
+      if (errors.length > 0) {
+        setCameraError(errors.join(' '));
       }
     } finally {
       setSavingPhotos(false);
@@ -306,12 +320,17 @@ export default function PhotoCapture({
 
   async function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
     if (!onAddFiles) return;
-    const selected = Array.from(e.target.files ?? []);
-    if (selected.length === 0) return;
+    const selectedFiles = Array.from(e.target.files ?? []);
+    if (selectedFiles.length === 0) return;
+    const selected = selectedFiles.filter((file) => file.size <= MAX_FILE_ATTACHMENT_SIZE);
+    const oversizedCount = selectedFiles.length - selected.length;
 
     setCameraError(null);
     setSavingFiles(true);
-    const processed = await Promise.all(selected.map((file) => fileToAttachmentPayload(file)));
+    const processed: Array<{ data: string; name: string; mimeType: string; size: number } | null> = [];
+    for (const file of selected) {
+      processed.push(await fileToAttachmentPayload(file));
+    }
     const readyFiles = processed.filter(
       (file): file is { data: string; name: string; mimeType: string; size: number } => file !== null
     );
@@ -319,8 +338,15 @@ export default function PhotoCapture({
       if (readyFiles.length > 0) {
         await onAddFiles(readyFiles);
       }
+      const errors: string[] = [];
+      if (oversizedCount > 0) {
+        errors.push('Use files under 25 MB.');
+      }
       if (readyFiles.length < selected.length) {
-        setCameraError('Could not read one or more selected files.');
+        errors.push('Could not read one or more selected files.');
+      }
+      if (errors.length > 0) {
+        setCameraError(errors.join(' '));
       }
     } finally {
       setSavingFiles(false);

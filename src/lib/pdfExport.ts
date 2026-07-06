@@ -220,7 +220,11 @@ async function normalizePhotoForPdf(source: string): Promise<{ src: string; size
 }
 
 async function preparePdfPhotos(photos: string[]) {
-  return Promise.all(photos.map((photo) => normalizePhotoForPdf(photo)));
+  const prepared: Array<{ src: string; size: ImageSize }> = [];
+  for (const photo of photos) {
+    prepared.push(await normalizePhotoForPdf(photo));
+  }
+  return prepared;
 }
 
 function drawStatusIcon(pdf: jsPDF, checkpoint: Checkpoint, x: number, y: number, radius: number) {
