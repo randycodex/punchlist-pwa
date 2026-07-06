@@ -74,36 +74,6 @@ export default function PhotoCapture({
     setShowPhotoSourceSheet(true);
   }, [openPhotoPicker]);
 
-  const configureAutoFocus = useCallback(async (stream: MediaStream) => {
-    type FocusCapabilities = MediaTrackCapabilities & { focusMode?: string[] };
-    type FocusConstraintSet = MediaTrackConstraintSet & { focusMode?: string };
-
-    const [track] = stream.getVideoTracks();
-    if (!track) return;
-
-    const capabilities =
-      typeof track.getCapabilities === 'function' ? (track.getCapabilities() as FocusCapabilities) : null;
-    if (!capabilities) return;
-
-    const focusMode = capabilities.focusMode;
-
-    const advanced: FocusConstraintSet[] = [];
-
-    if (Array.isArray(focusMode) && focusMode.includes('continuous')) {
-      advanced.push({ focusMode: 'continuous' });
-    } else if (Array.isArray(focusMode) && focusMode.includes('single-shot')) {
-      advanced.push({ focusMode: 'single-shot' });
-    }
-
-    if (advanced.length === 0) return;
-
-    try {
-      await track.applyConstraints({ advanced });
-    } catch {
-      // Some mobile browsers expose focus capabilities but reject the constraint at runtime.
-    }
-  }, []);
-
   function createScaledImageData(img: HTMLImageElement, maxSize: number, quality: number) {
     const scale = Math.min(1, maxSize / Math.max(img.width, img.height));
     const width = Math.max(1, Math.round(img.width * scale));
@@ -139,6 +109,10 @@ export default function PhotoCapture({
   const requestCameraStream = useCallback(async () => {
     let stream: MediaStream | null = null;
     const constraintOptions: MediaStreamConstraints[] = [
+      {
+        video: { facingMode: 'environment' },
+        audio: false,
+      },
       {
         video: {
           facingMode: { ideal: 'environment' },
@@ -391,6 +365,7 @@ export default function PhotoCapture({
     let cancelled = false;
     let ready = false;
     let streamForCleanup: MediaStream | null = null;
+    let readinessTimer: number | null = null;
     let startupTimer: number | null = window.setTimeout(() => {
       if (!cancelled && !ready) {
         setCameraError('Camera is taking too long to start. Try Device Camera or Library.');
@@ -403,20 +378,32 @@ export default function PhotoCapture({
       startupTimer = null;
     }
 
+    function clearReadinessTimer() {
+      if (!readinessTimer) return;
+      window.clearInterval(readinessTimer);
+      readinessTimer = null;
+    }
+
+    function markVideoReady() {
+      if (cancelled || ready || video.videoWidth === 0 || video.videoHeight === 0) return;
+      ready = true;
+      clearStartupTimer();
+      clearReadinessTimer();
+      setCameraError(null);
+      setVideoReady(true);
+    }
+
     video.muted = true;
     video.playsInline = true;
+    video.setAttribute('playsinline', 'true');
+    video.setAttribute('webkit-playsinline', 'true');
     setVideoReady(false);
 
     async function playPreview() {
       if (cancelled) return;
       try {
         await video.play();
-        if (!cancelled && video.videoWidth > 0 && video.videoHeight > 0) {
-          ready = true;
-          clearStartupTimer();
-          setCameraError(null);
-          setVideoReady(true);
-        }
+        markVideoReady();
       } catch {
         clearStartupTimer();
         if (!cancelled) {
@@ -427,11 +414,7 @@ export default function PhotoCapture({
     }
 
     function handleVideoReady() {
-      if (cancelled || video.videoWidth === 0 || video.videoHeight === 0) return;
-      ready = true;
-      clearStartupTimer();
-      setCameraError(null);
-      setVideoReady(true);
+      markVideoReady();
     }
 
     async function startCamera() {
@@ -443,12 +426,14 @@ export default function PhotoCapture({
         }
         streamForCleanup = stream;
         streamRef.current = stream;
-        await configureAutoFocus(stream);
-        if (cancelled) return;
         video.srcObject = stream;
+        video.load();
+        if (cancelled) return;
         void playPreview();
+        readinessTimer = window.setInterval(markVideoReady, 200);
       } catch {
         clearStartupTimer();
+        clearReadinessTimer();
         if (!cancelled) {
           setVideoReady(false);
           setCameraError('Could not access camera. Try Device Camera or Library.');
@@ -464,6 +449,7 @@ export default function PhotoCapture({
     return () => {
       cancelled = true;
       clearStartupTimer();
+      clearReadinessTimer();
       video.removeEventListener('loadedmetadata', handleVideoReady);
       video.removeEventListener('loadeddata', handleVideoReady);
       video.removeEventListener('canplay', handleVideoReady);
@@ -471,7 +457,7 @@ export default function PhotoCapture({
         video.srcObject = null;
       }
     };
-  }, [cameraOpen, configureAutoFocus, requestCameraStream]);
+  }, [cameraOpen, requestCameraStream]);
 
   useEffect(() => {
     return () => {
