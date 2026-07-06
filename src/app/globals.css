@@ -352,6 +352,21 @@ html:not(.dark) {
   color: white;
 }
 
+.floating-action-rail {
+  left: 0;
+  right: 0;
+  display: flex;
+  justify-content: center;
+  padding-inline: 1rem;
+  transition: right 220ms ease;
+}
+
+@media (min-width: 768px) {
+  html[data-app-menu-open="true"] .floating-action-rail {
+    right: var(--app-menu-drawer-width);
+  }
+}
+
 .dark .floating-action {
   background: #27272a;
 }
