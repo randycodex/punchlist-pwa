@@ -312,8 +312,6 @@ html:not(.dark) {
   padding: 0.8rem 0.95rem;
   transition:
     border-color 160ms ease,
-    background-color 160ms ease,
-    border-color 160ms ease,
     background-color 160ms ease;
 }
 

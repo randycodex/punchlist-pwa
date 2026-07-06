@@ -125,6 +125,17 @@ function locationHasStoredMedia(location: Area['locations'][number]) {
   return location.items.some(itemHasStoredMedia);
 }
 
+function locationHasFacadeIssueInstance(location: Area['locations'][number], drawingId?: string) {
+  return location.items.some((item) =>
+    item.checkpoints.some(
+      (checkpoint) =>
+        checkpoint.isElevationIssue &&
+        checkpointHasIssue(checkpoint) &&
+        (!drawingId || checkpoint.elevationMarker?.drawingId === drawingId)
+    )
+  );
+}
+
 function facadeAreaNeedsTemplateRefresh(area: Area) {
   if (area.areaTypeKey !== 'facade') return false;
   const standardLocations = area.locations.filter(
@@ -592,13 +603,20 @@ export default function AreaDetailPage() {
   }, [customItemsLocation, inspectionShowOnlyIssues, areaDerived]);
 
   const filteredStandardLocations = useMemo(
-    () =>
-      inspectionShowOnlyIssues
+    () => {
+      if (area?.areaTypeKey === 'facade') {
+        return standardLocations.filter((location) =>
+          locationHasFacadeIssueInstance(location, area.elevationDrawingId)
+        );
+      }
+
+      return inspectionShowOnlyIssues
         ? standardLocations.filter(
             (location) => (areaDerived?.locationMetrics.get(location.id)?.stats.issues ?? 0) > 0
           )
-        : standardLocations,
-    [inspectionShowOnlyIssues, standardLocations, areaDerived]
+        : standardLocations;
+    },
+    [area?.areaTypeKey, area?.elevationDrawingId, inspectionShowOnlyIssues, standardLocations, areaDerived]
   );
 
   const sortedStandardLocations = useMemo(() => {
@@ -1866,6 +1884,14 @@ export default function AreaDetailPage() {
               onOpenSelection={openElevationSelection}
             />
           )}
+          {!deleteMode &&
+            area.areaTypeKey === 'facade' &&
+            elevationDrawing &&
+            elevationMarkerRefsByCheckpoint.size === 0 && (
+              <div className="empty-state-card rounded-[1.4rem] px-4 py-4 text-sm font-medium text-gray-500 dark:text-gray-300">
+                No marked facade issues yet.
+              </div>
+            )}
           {supportsGlobalCustomItems && !editingCustomItem && (
             <CustomItemComposer
               open={showCustomItemComposer}

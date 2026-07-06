@@ -241,7 +241,9 @@ export default function InspectionLocationCard({
       }
     >
       {!hideHeader && (
-        <button
+        <div
+          role="button"
+          tabIndex={0}
           onClick={() => {
             if (deleteMode) {
               onToggleSelection?.(location.id);
@@ -249,7 +251,17 @@ export default function InspectionLocationCard({
               void onToggleLocation(location.id);
             }
           }}
-          className={`w-full px-4 py-4 text-left transition ${
+          onKeyDown={(event) => {
+            if (event.target !== event.currentTarget) return;
+            if (event.key !== 'Enter' && event.key !== ' ') return;
+            event.preventDefault();
+            if (deleteMode) {
+              onToggleSelection?.(location.id);
+            } else if (!alwaysExpanded) {
+              void onToggleLocation(location.id);
+            }
+          }}
+          className={`w-full cursor-pointer px-4 py-4 text-left transition ${
             deleteMode ? '' : 'hover:bg-black/[0.02] dark:hover:bg-white/[0.04]'
           }`}
         >
@@ -322,7 +334,7 @@ export default function InspectionLocationCard({
               )}
             </div>
           </div>
-        </button>
+        </div>
       )}
 
       {(alwaysExpanded || isExpanded) && (
@@ -435,6 +447,15 @@ export default function InspectionLocationCard({
                       onAddFiles={onAddFiles}
                       onDeletePhoto={onDeletePhoto}
                       onDeleteFile={onDeleteFile}
+                      issueState={customIssueState}
+                      onToggleIssue={() =>
+                        void onUpdateCheckpointStatus(
+                          location.id,
+                          item.id,
+                          customCheckpoint.id,
+                          customIssueState === 'open' ? 'pending' : 'open'
+                        )
+                      }
                       showCommentEditor={activeCameraOnlyCheckpointId !== customCheckpoint.id}
                       onCloseEditor={() =>
                         openCheckpointComments(location.id, item.id, customCheckpoint.id, customCheckpoint.comments)
@@ -562,6 +583,15 @@ export default function InspectionLocationCard({
                             onAddFiles={onAddFiles}
                             onDeletePhoto={onDeletePhoto}
                             onDeleteFile={onDeleteFile}
+                            issueState={issueState}
+                            onToggleIssue={() =>
+                              void onUpdateCheckpointStatus(
+                                location.id,
+                                item.id,
+                                checkpoint.id,
+                                issueState === 'open' ? 'pending' : 'open'
+                              )
+                            }
                             showCommentEditor={activeCameraOnlyCheckpointId !== checkpoint.id}
                             onCloseEditor={() =>
                               openCheckpointComments(location.id, item.id, checkpoint.id, checkpoint.comments)
@@ -637,9 +667,17 @@ export default function InspectionLocationCard({
                     </div>
                   </div>
                 ) : (
-                  <button
+                  <div
+                    role="button"
+                    tabIndex={0}
                     onClick={() => void onToggleItem(item.id)}
-                    className={`w-full px-4 py-3 text-left transition ${
+                    onKeyDown={(event) => {
+                      if (event.target !== event.currentTarget) return;
+                      if (event.key !== 'Enter' && event.key !== ' ') return;
+                      event.preventDefault();
+                      void onToggleItem(item.id);
+                    }}
+                    className={`w-full cursor-pointer px-4 py-3 text-left transition ${
                       isItemExpanded
                         ? 'rounded-t-[1.4rem]'
                         : 'card-surface-subtle rounded-[1.3rem] dark:border-transparent hover:bg-[var(--surface-strong)] dark:hover:bg-white/[0.06]'
@@ -717,7 +755,7 @@ export default function InspectionLocationCard({
                         {isItemExpanded ? <ChevronDown className="w-4 h-4 text-gray-400" /> : <ChevronRight className="w-4 h-4 text-gray-400" />}
                       </div>
                     </div>
-                  </button>
+                  </div>
                 )}
 
                 {isItemExpanded && (
@@ -832,6 +870,15 @@ export default function InspectionLocationCard({
                               onAddFiles={onAddFiles}
                               onDeletePhoto={onDeletePhoto}
                               onDeleteFile={onDeleteFile}
+                              issueState={issueState}
+                              onToggleIssue={() =>
+                                void onUpdateCheckpointStatus(
+                                  location.id,
+                                  item.id,
+                                  checkpoint.id,
+                                  issueState === 'open' ? 'pending' : 'open'
+                                )
+                              }
                               showCommentEditor={activeCameraOnlyCheckpointId !== checkpoint.id}
                               onCloseEditor={() =>
                                 openCheckpointComments(location.id, item.id, checkpoint.id, checkpoint.comments)
