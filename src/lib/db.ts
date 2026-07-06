@@ -209,6 +209,37 @@ function hydrateProjectElevationDrawings(
   };
 }
 
+function preserveExistingMediaPayloads(
+  record: CheckpointMediaRecord,
+  existingRecord?: CheckpointMediaRecord
+): CheckpointMediaRecord {
+  if (!existingRecord) return record;
+
+  const existingPhotosById = new Map(existingRecord.photos.map((photo) => [photo.id, photo]));
+  const existingFilesById = new Map(existingRecord.files.map((file) => [file.id, file]));
+
+  return {
+    ...record,
+    photos: record.photos.map((photo) => {
+      const existingPhoto = existingPhotosById.get(photo.id);
+      if (!existingPhoto || photo.imageData) return photo;
+      return {
+        ...photo,
+        imageData: existingPhoto.imageData,
+        thumbnail: photo.thumbnail ?? existingPhoto.thumbnail,
+      };
+    }),
+    files: record.files.map((file) => {
+      const existingFile = existingFilesById.get(file.id);
+      if (!existingFile || file.data) return file;
+      return {
+        ...file,
+        data: existingFile.data,
+      };
+    }),
+  };
+}
+
 function getDB() {
   if (!dbPromise) {
     dbPromise = openDB<PunchListDB>('punchlist-db', 3, {
@@ -278,6 +309,12 @@ export async function getProject(id: string): Promise<Project | undefined> {
   return hydrateProjectElevationDrawings(hydrateProjectMedia(project, mediaRecords), drawingRecords);
 }
 
+export async function getProjectMetadata(id: string): Promise<Project | undefined> {
+  const db = await getDB();
+  const project = await db.get('projects', id);
+  return project ? cloneProjectWithoutMediaPayload(project) : undefined;
+}
+
 export async function getActiveProjectCount(): Promise<number> {
   const db = await getDB();
   const tx = db.transaction('projects');
@@ -329,6 +366,9 @@ async function saveProjectInternal(project: Project, options: { touch: boolean }
   await projectStore.put(storedProject);
 
   const existingMediaRecords = await mediaStore.index('by-project').getAll(project.id);
+  const existingMediaByCheckpoint = new Map(
+    existingMediaRecords.map((record) => [record.checkpointId, record])
+  );
   const nextCheckpointIds = new Set(mediaRecords.map((record) => record.checkpointId));
 
   await Promise.all(
@@ -337,7 +377,11 @@ async function saveProjectInternal(project: Project, options: { touch: boolean }
       .map((record) => mediaStore.delete(record.checkpointId))
   );
 
-  await Promise.all(mediaRecords.map((record) => mediaStore.put(record)));
+  await Promise.all(
+    mediaRecords.map((record) =>
+      mediaStore.put(preserveExistingMediaPayloads(record, existingMediaByCheckpoint.get(record.checkpointId)))
+    )
+  );
 
   const existingDrawingRecords = await drawingStore.index('by-project').getAll(project.id);
   const existingDrawingById = new Map(existingDrawingRecords.map((record) => [record.id, record]));

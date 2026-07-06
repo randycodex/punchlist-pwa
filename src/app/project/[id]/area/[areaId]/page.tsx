@@ -23,6 +23,7 @@ import {
   createItem,
   createCheckpoint,
 } from '@/lib/db';
+import { getCachedProjectPreview } from '@/lib/projectNavigationCache';
 import {
   formatMicrosoftManualRetryMessage,
   getMicrosoftErrorMessage,
@@ -210,9 +211,11 @@ export default function AreaDetailPage() {
   const id = Array.isArray(params.id) ? params.id[0] : params.id;
   const areaId = Array.isArray(params.areaId) ? params.areaId[0] : params.areaId;
   const router = useRouter();
-  const [project, setProject] = useState<Project | null>(null);
-  const [area, setArea] = useState<Area | null>(null);
-  const [loading, setLoading] = useState(true);
+  const cachedProject = getCachedProjectPreview(id);
+  const cachedArea = cachedProject?.areas.find((entry) => entry.id === areaId && !entry.deletedAt) ?? null;
+  const [project, setProject] = useState<Project | null>(() => (cachedArea ? cachedProject : null));
+  const [area, setArea] = useState<Area | null>(() => cachedArea);
+  const [loading, setLoading] = useState(() => !cachedArea);
   const [expandedLocations, setExpandedLocations] = useState<Set<string>>(new Set());
   const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set());
   const [expandedCheckpoint, setExpandedCheckpoint] = useState<{

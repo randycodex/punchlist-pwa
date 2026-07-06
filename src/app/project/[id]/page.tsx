@@ -3,7 +3,8 @@
 import { memo, useState, useEffect, useMemo, useRef, useCallback, type TouchEvent } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { Area, Project, checkpointHasIssue, getReviewMetrics } from '@/types';
-import { getProject, saveProject, saveProjectMetadataOnly, saveProjectPreserveTimestamps, createArea } from '@/lib/db';
+import { getProject, getProjectMetadata, saveProject, saveProjectMetadataOnly, saveProjectPreserveTimestamps, createArea } from '@/lib/db';
+import { getCachedProjectPreview } from '@/lib/projectNavigationCache';
 import {
   formatMicrosoftManualRetryMessage,
   getMicrosoftErrorMessage,
@@ -327,8 +328,9 @@ export default function ProjectDetailPage() {
   const params = useParams<{ id: string }>();
   const id = Array.isArray(params.id) ? params.id[0] : params.id;
   const router = useRouter();
-  const [project, setProject] = useState<Project | null>(null);
-  const [loading, setLoading] = useState(true);
+  const cachedProject = getCachedProjectPreview(id);
+  const [project, setProject] = useState<Project | null>(() => cachedProject);
+  const [loading, setLoading] = useState(() => !cachedProject);
   const [showAddArea, setShowAddArea] = useState(false);
   const [deleteMode, setDeleteMode] = useState(false);
   const [selectedAreaIds, setSelectedAreaIds] = useState<Set<string>>(new Set());
@@ -461,7 +463,7 @@ export default function ProjectDetailPage() {
   async function loadProject() {
     if (!id) return;
     try {
-      const data = await getProject(id);
+      const data = await getProjectMetadata(id);
       if (data) {
         if (data.deletedAt) {
           router.push('/');
@@ -715,7 +717,7 @@ export default function ProjectDetailPage() {
       }
       const projectForExport = token
         ? await hydrateProjectMediaFromOneDrive(token, project.id)
-        : project;
+        : await getProject(project.id);
       const { generateProjectPDF, downloadPDF } = await import('@/lib/pdfExport');
       const blob = await generateProjectPDF(projectForExport ?? project, 'issues', { areaIds: sortedAreaIds });
       if (destination === 'local') {
@@ -755,7 +757,7 @@ export default function ProjectDetailPage() {
       }
       const projectForExport = token
         ? await hydrateProjectMediaFromOneDrive(token, project.id)
-        : project;
+        : await getProject(project.id);
       const { generateProjectPDF, downloadPDF } = await import('@/lib/pdfExport');
       const blob = await generateProjectPDF(projectForExport ?? project, 'issues');
       if (destination === 'local') {
@@ -899,20 +901,24 @@ export default function ProjectDetailPage() {
     }
 
     try {
+      const fullProject = await getProject(project.id);
+      if (!fullProject) {
+        throw new Error('Could not load this project.');
+      }
       const sharedProjectId = await createSharedProjectFromLocalProject(
-        project,
+        fullProject,
         accountEmail,
         accountName
       );
       const linkedAt = new Date();
       const nextProject = {
-        ...project,
+        ...fullProject,
         sharedProjectId,
         sharedProjectLinkedAt: linkedAt,
-        areas: [...project.areas],
+        areas: [...fullProject.areas],
       };
-      await saveProject(nextProject);
-      setProject(nextProject);
+      await saveProjectMetadataOnly(nextProject);
+      setProject({ ...nextProject, areas: [...nextProject.areas] });
       showMessage('Project sharing is enabled. You are the owner of this shared project.');
     } catch (error) {
       console.error('Failed to share project:', error);

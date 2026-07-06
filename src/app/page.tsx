@@ -63,6 +63,7 @@ import AppConfirmDialog from '@/components/AppConfirmDialog';
 import AppPromptDialog from '@/components/AppPromptDialog';
 import CollaborationHealthDialog from '@/components/CollaborationHealthDialog';
 import { applyTemplateToArea } from '@/lib/template';
+import { cacheProjectPreview } from '@/lib/projectNavigationCache';
 import {
   buildAreaName,
   buildFacadeLevelOptions,
@@ -73,6 +74,7 @@ import {
   type AreaTypeKey,
 } from '@/lib/areas';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import {
   ChevronRight,
   Trash2,
@@ -209,6 +211,7 @@ type ProjectCardProps = {
   onEditProject: (project: Project) => void;
   onDeleteProject: (project: Project) => void;
   onLongPressSelect: (projectId: string) => void;
+  onPrimeOpen: (project: Project) => void;
 };
 
 const ProjectCard = memo(function ProjectCard({
@@ -223,6 +226,7 @@ const ProjectCard = memo(function ProjectCard({
   onEditProject,
   onDeleteProject,
   onLongPressSelect,
+  onPrimeOpen,
 }: ProjectCardProps) {
   const stats = metric?.stats ?? { total: 0, ok: 0, issues: 0, areas: project.areas.length };
   const progress = metric?.progress ?? 0;
@@ -253,10 +257,16 @@ const ProjectCard = memo(function ProjectCard({
       }}
       onPointerDown={() => {
         if (!selectionMode) {
+          onPrimeOpen(project);
           longPressRef.current = setTimeout(() => {
             onLongPressSelect(project.id);
             longPressRef.current = null;
           }, LONG_PRESS_MS);
+        }
+      }}
+      onMouseEnter={() => {
+        if (!selectionMode) {
+          onPrimeOpen(project);
         }
       }}
       onPointerUp={clearLongPress}
@@ -351,7 +361,17 @@ const ProjectCard = memo(function ProjectCard({
                 event.preventDefault();
               }
             }}
-            onPointerDown={(event) => event.stopPropagation()}
+            onPointerDown={(event) => {
+              event.stopPropagation();
+              if (!selectionMode) {
+                onPrimeOpen(project);
+              }
+            }}
+            onMouseEnter={() => {
+              if (!selectionMode) {
+                onPrimeOpen(project);
+              }
+            }}
             className="mt-0.5 rounded-[1rem] border border-transparent p-1.5 text-gray-400 transition hover:border-black/5 hover:bg-white hover:text-gray-700 dark:text-gray-300 dark:hover:border-white/10 dark:hover:bg-white/[0.08] dark:hover:text-white [-webkit-touch-callout:none]"
             aria-label={`Open ${project.projectName}`}
           >
@@ -364,7 +384,7 @@ const ProjectCard = memo(function ProjectCard({
 });
 
 type HomeAreaCardProps = {
-  projectId: string;
+  project: Project;
   area: Project['areas'][number];
   metric?: AreaMetrics;
   claimStatus?: AreaClaimDisplay;
@@ -373,10 +393,11 @@ type HomeAreaCardProps = {
   onToggleSelection: (areaId: string) => void;
   onLongPressSelect: (areaId: string) => void;
   onBlockedByClaim: () => void;
+  onPrimeOpen: (project: Project, areaId: string) => void;
 };
 
 const HomeAreaCard = memo(function HomeAreaCard({
-  projectId,
+  project,
   area,
   metric,
   claimStatus,
@@ -385,6 +406,7 @@ const HomeAreaCard = memo(function HomeAreaCard({
   onToggleSelection,
   onLongPressSelect,
   onBlockedByClaim,
+  onPrimeOpen,
 }: HomeAreaCardProps) {
   const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const longPressStartRef = useRef<{ x: number; y: number } | null>(null);
@@ -419,6 +441,7 @@ const HomeAreaCard = memo(function HomeAreaCard({
         if (deleteMode || blockedByClaim) return;
         if (event.pointerType === 'mouse' && event.button !== 0) return;
 
+        onPrimeOpen(project, area.id);
         clearLongPressTimer();
         longPressStartRef.current = { x: event.clientX, y: event.clientY };
         suppressClickRef.current = false;
@@ -438,6 +461,11 @@ const HomeAreaCard = memo(function HomeAreaCard({
       onPointerUp={clearLongPressTimer}
       onPointerCancel={clearLongPressTimer}
       onPointerLeave={clearLongPressTimer}
+      onMouseEnter={() => {
+        if (!deleteMode && !blockedByClaim) {
+          onPrimeOpen(project, area.id);
+        }
+      }}
       onContextMenu={(event) => {
         if (!deleteMode) {
           event.preventDefault();
@@ -467,7 +495,7 @@ const HomeAreaCard = memo(function HomeAreaCard({
     >
       <div className="flex items-start gap-3">
         <Link
-          href={deleteMode || blockedByClaim ? '#' : `/project/${projectId}/area/${area.id}`}
+          href={deleteMode || blockedByClaim ? '#' : `/project/${project.id}/area/${area.id}`}
           onClick={(event) => {
             if (deleteMode || blockedByClaim) {
               event.preventDefault();
@@ -503,7 +531,7 @@ const HomeAreaCard = memo(function HomeAreaCard({
           </div>
         </Link>
         <Link
-          href={deleteMode || blockedByClaim ? '#' : `/project/${projectId}/area/${area.id}`}
+          href={deleteMode || blockedByClaim ? '#' : `/project/${project.id}/area/${area.id}`}
           onClick={(event) => {
             if (deleteMode || blockedByClaim) {
               event.preventDefault();
@@ -517,7 +545,17 @@ const HomeAreaCard = memo(function HomeAreaCard({
               event.preventDefault();
             }
           }}
-          onPointerDown={(event) => event.stopPropagation()}
+          onPointerDown={(event) => {
+            event.stopPropagation();
+            if (!deleteMode && !blockedByClaim) {
+              onPrimeOpen(project, area.id);
+            }
+          }}
+          onMouseEnter={() => {
+            if (!deleteMode && !blockedByClaim) {
+              onPrimeOpen(project, area.id);
+            }
+          }}
           className="mt-0.5 rounded-[1rem] border border-transparent p-1.5 text-gray-400 transition hover:border-black/5 hover:bg-white hover:text-gray-700 dark:hover:border-white/10 dark:hover:bg-white/[0.06] dark:hover:text-gray-200 [-webkit-touch-callout:none]"
           style={{ WebkitTapHighlightColor: 'transparent' }}
           aria-label={`Open ${area.name}`}
@@ -530,6 +568,7 @@ const HomeAreaCard = memo(function HomeAreaCard({
 });
 
 export default function ProjectsPage() {
+  const router = useRouter();
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
   const [showNewProject, setShowNewProject] = useState(false);
@@ -662,6 +701,22 @@ export default function ProjectsPage() {
     setSortOption(option);
     localStorage.setItem(SORT_STORAGE_KEY, option);
   }
+
+  const primeProjectOpen = useCallback(
+    (project: Project) => {
+      cacheProjectPreview(project);
+      router.prefetch(`/project/${project.id}`);
+    },
+    [router]
+  );
+
+  const primeAreaOpen = useCallback(
+    (project: Project, areaId: string) => {
+      cacheProjectPreview(project);
+      router.prefetch(`/project/${project.id}/area/${areaId}`);
+    },
+    [router]
+  );
 
   async function loadProjects() {
     try {
@@ -2362,7 +2417,7 @@ export default function ProjectsPage() {
                 return (
                   <HomeAreaCard
                     key={area.id}
-                    projectId={singleProject.id}
+                    project={singleProject}
                     area={area}
                     metric={metric}
                     claimStatus={sharedAreaClaims.get(area.id)}
@@ -2371,6 +2426,7 @@ export default function ProjectsPage() {
                     onToggleSelection={toggleAreaSelection}
                     onLongPressSelect={enterAreaSelectionMode}
                     onBlockedByClaim={() => showMessage('This shared area is currently locked by another user.')}
+                    onPrimeOpen={primeAreaOpen}
                   />
                 );
               })
@@ -2405,6 +2461,7 @@ export default function ProjectsPage() {
                     onEditProject={handleOpenProjectEditor}
                     onDeleteProject={handleTrashProject}
                     onLongPressSelect={handleProjectCardLongPress}
+                    onPrimeOpen={primeProjectOpen}
                   />
                 );
               })
