@@ -124,8 +124,6 @@ html:not(.dark) {
   }
 
   .app-menu-drawer {
-    border-top-left-radius: 1.6rem;
-    border-bottom-left-radius: 1.6rem;
     box-shadow: 0 25px 50px -12px rgb(0 0 0 / 0.25);
   }
 
