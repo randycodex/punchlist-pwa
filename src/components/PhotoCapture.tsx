@@ -74,7 +74,7 @@ export default function PhotoCapture({
     setShowPhotoSourceSheet(true);
   }, [openPhotoPicker]);
 
-  async function configureAutoFocus(stream: MediaStream) {
+  const configureAutoFocus = useCallback(async (stream: MediaStream) => {
     type FocusCapabilities = MediaTrackCapabilities & { focusMode?: string[] };
     type FocusConstraintSet = MediaTrackConstraintSet & { focusMode?: string };
 
@@ -102,7 +102,7 @@ export default function PhotoCapture({
     } catch {
       // Some mobile browsers expose focus capabilities but reject the constraint at runtime.
     }
-  }
+  }, []);
 
   function createScaledImageData(img: HTMLImageElement, maxSize: number, quality: number) {
     const scale = Math.min(1, maxSize / Math.max(img.width, img.height));
@@ -136,50 +136,39 @@ export default function PhotoCapture({
     streamRef.current = null;
   }
 
-  async function openCamera() {
+  const requestCameraStream = useCallback(async () => {
+    let stream: MediaStream | null = null;
+    const constraintOptions: MediaStreamConstraints[] = [
+      {
+        video: {
+          facingMode: { ideal: 'environment' },
+        },
+        audio: false,
+      },
+      { video: true, audio: false },
+    ];
+
+    for (const constraints of constraintOptions) {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia(constraints);
+        break;
+      } catch {
+        stream = null;
+      }
+    }
+
+    if (!stream) throw new Error('Camera unavailable');
+
+    return stream;
+  }, []);
+
+  function openCamera() {
     setCameraError(null);
     setShowPhotoSourceSheet(false);
     setVideoReady(false);
+    setCapturedBatch([]);
     stopCameraStream();
-    try {
-      let stream: MediaStream | null = null;
-      const constraintOptions: MediaStreamConstraints[] = [
-        {
-          video: {
-            facingMode: { ideal: 'environment' },
-            width: { ideal: 1920 },
-            height: { ideal: 1080 },
-          },
-          audio: false,
-        },
-        {
-          video: {
-            facingMode: { ideal: 'environment' },
-          },
-          audio: false,
-        },
-        { video: true, audio: false },
-      ];
-
-      for (const constraints of constraintOptions) {
-        try {
-          stream = await navigator.mediaDevices.getUserMedia(constraints);
-          break;
-        } catch {
-          stream = null;
-        }
-      }
-
-      if (!stream) throw new Error('Camera unavailable');
-
-      await configureAutoFocus(stream);
-      streamRef.current = stream;
-      setCapturedBatch([]);
-      setCameraOpen(true);
-    } catch {
-      setCameraError('Could not access camera. Opening device camera fallback.');
-      cameraInputRef.current?.click();
-    }
+    setCameraOpen(true);
   }
 
   function closeCamera(discard = false) {
@@ -189,6 +178,16 @@ export default function PhotoCapture({
     if (discard) {
       setCapturedBatch([]);
     }
+  }
+
+  function openDeviceCameraFallback() {
+    stopCameraStream();
+    setCameraOpen(false);
+    setVideoReady(false);
+    setCapturedBatch([]);
+    setCameraError(null);
+    setShowPhotoSourceSheet(false);
+    cameraInputRef.current?.click();
   }
 
   function captureFromVideo() {
@@ -387,25 +386,39 @@ export default function PhotoCapture({
   }
 
   useEffect(() => {
-    if (!cameraOpen || !videoRef.current || !streamRef.current) return;
+    if (!cameraOpen || !videoRef.current) return;
     const video = videoRef.current;
-    const stream = streamRef.current;
     let cancelled = false;
+    let ready = false;
+    let streamForCleanup: MediaStream | null = null;
+    let startupTimer: number | null = window.setTimeout(() => {
+      if (!cancelled && !ready) {
+        setCameraError('Camera is taking too long to start. Try Device Camera or Library.');
+      }
+    }, 12_000);
 
-    video.srcObject = stream;
+    function clearStartupTimer() {
+      if (!startupTimer) return;
+      window.clearTimeout(startupTimer);
+      startupTimer = null;
+    }
+
     video.muted = true;
     video.playsInline = true;
     setVideoReady(false);
 
-    async function startPreview() {
+    async function playPreview() {
       if (cancelled) return;
       try {
         await video.play();
-        if (!cancelled) {
+        if (!cancelled && video.videoWidth > 0 && video.videoHeight > 0) {
+          ready = true;
+          clearStartupTimer();
           setCameraError(null);
           setVideoReady(true);
         }
       } catch {
+        clearStartupTimer();
         if (!cancelled) {
           setVideoReady(false);
           setCameraError('Camera preview failed to start. Try Device Camera or Library.');
@@ -413,22 +426,52 @@ export default function PhotoCapture({
       }
     }
 
-    if (video.readyState >= HTMLMediaElement.HAVE_METADATA) {
-      void startPreview();
-    } else {
-      video.onloadedmetadata = () => {
-        void startPreview();
-      };
+    function handleVideoReady() {
+      if (cancelled || video.videoWidth === 0 || video.videoHeight === 0) return;
+      ready = true;
+      clearStartupTimer();
+      setCameraError(null);
+      setVideoReady(true);
     }
+
+    async function startCamera() {
+      try {
+        const stream = await requestCameraStream();
+        if (cancelled) {
+          stream.getTracks().forEach((track) => track.stop());
+          return;
+        }
+        streamForCleanup = stream;
+        streamRef.current = stream;
+        await configureAutoFocus(stream);
+        if (cancelled) return;
+        video.srcObject = stream;
+        void playPreview();
+      } catch {
+        clearStartupTimer();
+        if (!cancelled) {
+          setVideoReady(false);
+          setCameraError('Could not access camera. Try Device Camera or Library.');
+        }
+      }
+    }
+
+    video.addEventListener('loadedmetadata', handleVideoReady);
+    video.addEventListener('loadeddata', handleVideoReady);
+    video.addEventListener('canplay', handleVideoReady);
+    void startCamera();
 
     return () => {
       cancelled = true;
-      video.onloadedmetadata = null;
-      if (video.srcObject === stream) {
+      clearStartupTimer();
+      video.removeEventListener('loadedmetadata', handleVideoReady);
+      video.removeEventListener('loadeddata', handleVideoReady);
+      video.removeEventListener('canplay', handleVideoReady);
+      if (streamForCleanup && video.srcObject === streamForCleanup) {
         video.srcObject = null;
       }
     };
-  }, [cameraOpen]);
+  }, [cameraOpen, configureAutoFocus, requestCameraStream]);
 
   useEffect(() => {
     return () => {
@@ -661,6 +704,16 @@ export default function PhotoCapture({
                 ? `${capturedBatch.length} photo${capturedBatch.length === 1 ? '' : 's'} ready`
                 : 'Take as many photos as needed, then tap Done.'}
             </p>
+            {cameraError && (
+              <div className="mt-3 flex justify-center">
+                <button
+                  onClick={openDeviceCameraFallback}
+                  className="rounded-full bg-white px-4 py-2 text-sm font-medium text-gray-900"
+                >
+                  Device Camera or Library
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}
