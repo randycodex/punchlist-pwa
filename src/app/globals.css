@@ -253,6 +253,12 @@ html:not(.dark) {
   background: var(--surface-strong);
 }
 
+@media (max-width: 767px) {
+  .app-menu-drawer.menu-surface {
+    border-top: 0;
+  }
+}
+
 .scrollbar-hidden {
   scrollbar-width: none;
 }
