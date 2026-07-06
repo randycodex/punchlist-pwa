@@ -1416,6 +1416,14 @@ async function renderProjectDetailPages(
     const printableArea = { ...area, locations: printableLocations };
     const areaSummary = summaryByArea.get(area.id);
     const areaPhotoRefs = buildAreaPhotoReferenceData(printableArea);
+    const areaElevationRefsByCheckpoint = buildElevationMarkerReferenceMap(printableArea, {
+      drawingId: printableArea.elevationDrawingId,
+      issuesOnly: true,
+    });
+    const getPrintableCheckpoint = (checkpoint: ExportCheckpoint): ExportCheckpoint => {
+      const elevationRef = areaElevationRefsByCheckpoint.get(checkpoint.id)?.markerKey;
+      return elevationRef ? { ...checkpoint, name: `${elevationRef} - ${checkpoint.name}` } : checkpoint;
+    };
     const drawAreaIntro = (baseY: number, includeSummary: boolean) => {
       let y = drawAreaHeader(pdf, area, baseY, layout);
       if (hasAreaNotes) {
@@ -1570,7 +1578,7 @@ async function renderProjectDetailPages(
 
           y = await renderCheckpointBlock(
             pdf,
-            checkpoint,
+            getPrintableCheckpoint(checkpoint),
             areaPhotoRefs.checkpointPhotoRefs.get(checkpoint.id) ?? [],
             layout.margin,
             y,

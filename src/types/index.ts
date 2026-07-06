@@ -31,6 +31,8 @@ export interface Checkpoint {
   itemId: string;
   name: string;
   isCustom?: boolean;
+  isElevationIssue?: boolean;
+  sourceCheckpointId?: string;
   status: CheckpointStatus;
   fixStatus: FixStatus;
   issueState?: IssueState;

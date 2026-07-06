@@ -44,7 +44,10 @@ import {
   upsertFacadeElevationDrawing,
   type AreaTypeKey,
 } from '@/lib/areas';
-import { buildElevationMarkerReferences } from '@/lib/elevationMarkers';
+import {
+  buildElevationMarkerReferenceMap,
+  buildElevationMarkerReferences,
+} from '@/lib/elevationMarkers';
 import { applyTemplateToArea } from '@/lib/template';
 import { syncProjectsWithOneDrive } from '@/lib/oneDriveSync';
 import {
@@ -84,6 +87,17 @@ const RECENT_AREA_TYPES_STORAGE_KEY = 'punchlist-recent-area-types';
 const CUSTOM_ITEMS_LOCATION_NAME = 'Custom Items';
 const OTHER_LOCATION_NAME = 'Other';
 const MAX_RECENT_COMMENTS = 5;
+const REQUIRED_FACADE_ITEM_NAMES = [
+  'Doors',
+  'Storefront',
+  'Planting',
+  'Light Fixture',
+  'Security Camera',
+  'Fence',
+  'Signage',
+  'Canopy',
+  'Louvers',
+];
 
 function locationHasRecordedActivity(location: Area['locations'][number]) {
   return location.items.some((item) =>
@@ -96,6 +110,22 @@ function locationHasRecordedActivity(location: Area['locations'][number]) {
         (checkpoint.files?.length ?? 0) > 0
     )
   );
+}
+
+function facadeAreaNeedsTemplateRefresh(area: Area) {
+  if (area.areaTypeKey !== 'facade') return false;
+  const standardLocations = area.locations.filter(
+    (location) =>
+      !location.isCustom &&
+      location.name.trim().toLowerCase() !== CUSTOM_ITEMS_LOCATION_NAME.toLowerCase() &&
+      location.name.trim().toLowerCase() !== OTHER_LOCATION_NAME.toLowerCase()
+  );
+  if (standardLocations.length === 0) return false;
+
+  return standardLocations.some((location) => {
+    const itemNames = new Set(location.items.map((item) => item.name));
+    return REQUIRED_FACADE_ITEM_NAMES.some((itemName) => !itemNames.has(itemName));
+  });
 }
 
 type StatusMetrics = {
@@ -434,6 +464,11 @@ export default function AreaDetailPage() {
             await saveProject(nextProject);
             scheduleSync(nextProject.id);
           }
+          if (facadeAreaNeedsTemplateRefresh(areaData)) {
+            applyTemplateToArea(areaData, { preserveExisting: true });
+            await saveProject(nextProject);
+            scheduleSync(nextProject.id);
+          }
           setArea(areaData);
         } else {
           router.push(`/project/${id}`);
@@ -522,6 +557,17 @@ export default function AreaDetailPage() {
       itemMetrics,
     };
   }, [area, visibleLocations]);
+
+  const elevationMarkerRefsByCheckpoint = useMemo(
+    () =>
+      area
+        ? buildElevationMarkerReferenceMap(area, {
+            drawingId: area.elevationDrawingId,
+            issuesOnly: true,
+          })
+        : new Map(),
+    [area]
+  );
 
   const filteredCustomItemsLocation = useMemo(() => {
     if (!customItemsLocation) return null;
@@ -1445,6 +1491,8 @@ export default function AreaDetailPage() {
     checkpointId,
     xPercent,
     yPercent,
+    customItemName,
+    customCheckpointName,
   }: FacadeElevationSelection) {
     if (!project || !area?.elevationDrawingId) return;
 
@@ -1456,10 +1504,43 @@ export default function AreaDetailPage() {
 
     const targetArea = project.areas.find((entry) => entry.id === area.id);
     const targetLocation = targetArea?.locations.find((location) => location.id === locationId);
-    const targetItem = targetLocation?.items.find((item) => item.id === itemId);
-    const checkpoint = targetItem?.checkpoints.find((entry) => entry.id === checkpointId);
-    if (!targetArea || !checkpoint) return;
+    if (!targetArea || !targetLocation) return;
 
+    let targetItem = targetLocation.items.find((item) => item.id === itemId);
+    let sourceCheckpoint = targetItem?.checkpoints.find((entry) => entry.id === checkpointId);
+    let issueName = sourceCheckpoint?.name;
+    let sourceCheckpointId = sourceCheckpoint?.sourceCheckpointId ?? sourceCheckpoint?.id;
+    const trimmedCustomItemName = customItemName?.trim();
+    const trimmedCustomCheckpointName = customCheckpointName?.trim();
+
+    if (trimmedCustomItemName && trimmedCustomCheckpointName) {
+      const customTargetItem =
+        targetLocation.items.find(
+          (item) => item.isCustom && item.name.trim().toLowerCase() === trimmedCustomItemName.toLowerCase()
+        ) ??
+        createItem(targetLocation.id, trimmedCustomItemName, targetLocation.items.length, {
+          isCustom: true,
+        });
+
+      if (!targetLocation.items.some((item) => item.id === customTargetItem.id)) {
+        targetLocation.items.push(customTargetItem);
+      }
+      targetLocation.items.forEach((entry, index) => {
+        entry.sortOrder = index;
+      });
+      targetItem = customTargetItem;
+      sourceCheckpoint = undefined;
+      issueName = trimmedCustomCheckpointName;
+      sourceCheckpointId = undefined;
+    }
+
+    if (!targetItem || !issueName) return;
+
+    const checkpoint = createCheckpoint(targetItem.id, issueName, targetItem.checkpoints.length, {
+      isCustom: Boolean(trimmedCustomItemName && trimmedCustomCheckpointName),
+      isElevationIssue: true,
+      sourceCheckpointId,
+    });
     checkpoint.elevationMarker = {
       drawingId: area.elevationDrawingId,
       xPercent,
@@ -1469,6 +1550,10 @@ export default function AreaDetailPage() {
     checkpoint.status = 'needsReview';
     checkpoint.fixStatus = 'pending';
     checkpoint.updatedAt = new Date();
+    targetItem.checkpoints.push(checkpoint);
+    targetItem.checkpoints.forEach((entry, index) => {
+      entry.sortOrder = index;
+    });
     syncAreaCompletion(targetArea);
     await saveProjectMetadataOnly(project);
     scheduleSync(project.id);
@@ -1476,13 +1561,13 @@ export default function AreaDetailPage() {
     setArea({ ...targetArea });
 
     setExpandedLocations(new Set([locationId]));
-    setExpandedItems(new Set([itemId]));
-    setExpandedCheckpoint({ locationId, itemId, checkpointId });
+    setExpandedItems(new Set([targetItem.id]));
+    setExpandedCheckpoint({ locationId, itemId: targetItem.id, checkpointId: checkpoint.id });
     setCommentText(checkpoint.comments);
 
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
-        itemRefs.current.get(itemId)?.scrollIntoView({
+        itemRefs.current.get(targetItem.id)?.scrollIntoView({
           block: 'start',
           behavior: 'smooth',
         });
@@ -1743,6 +1828,8 @@ export default function AreaDetailPage() {
                 location={location}
                 locationMetric={areaDerived?.locationMetrics.get(location.id)}
                 itemMetrics={areaDerived?.itemMetrics ?? new Map()}
+                elevationMarkerRefsByCheckpoint={elevationMarkerRefsByCheckpoint}
+                showElevationIssueInstancesOnly={area.areaTypeKey === 'facade'}
                 deleteMode={deleteMode}
                 isSelected={selectedLocationIds.has(location.id)}
                 onToggleSelection={toggleLocationSelection}
@@ -1837,7 +1924,7 @@ export default function AreaDetailPage() {
                 onEditCustomCheckpoint={handleEditCustomCheckpoint}
                 onDeleteCustomCheckpoint={handleDeleteCustomCheckpoint}
                 renderCheckpointAddControl={
-                  supportsInlineLocationCustomItems
+                  supportsInlineLocationCustomItems && area.areaTypeKey !== 'facade'
                     ? (locationId, itemId) => (
                         <CustomItemComposer
                           open={
@@ -1867,7 +1954,7 @@ export default function AreaDetailPage() {
                     : undefined
                 }
                 addItemControl={
-                  supportsInlineLocationCustomItems && !editingCustomItem ? (
+                  supportsInlineLocationCustomItems && area.areaTypeKey !== 'facade' && !editingCustomItem ? (
                     <CustomItemComposer
                       open={
                         primaryStandardItem
@@ -1936,6 +2023,8 @@ export default function AreaDetailPage() {
               location={filteredCustomItemsLocation}
               locationMetric={areaDerived?.locationMetrics.get(filteredCustomItemsLocation.id)}
               itemMetrics={areaDerived?.itemMetrics ?? new Map()}
+              elevationMarkerRefsByCheckpoint={elevationMarkerRefsByCheckpoint}
+              showElevationIssueInstancesOnly={area.areaTypeKey === 'facade'}
               showOnlyIssues={inspectionShowOnlyIssues}
               expandedItems={expandedItems}
               isExpanded

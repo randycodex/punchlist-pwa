@@ -13,6 +13,45 @@ interface TemplateLocation {
   sectionLabel?: string;
 }
 
+const facadeCommonElementTemplate: TemplateLocation[] = [
+  {
+    name: 'Doors',
+    items: [{ name: 'Doors', checkpoints: ['Door', 'Frame', 'Hardware', 'Closer', 'Threshold', 'Weatherstripping', 'Sealant', 'Finish', 'Operation'] }],
+  },
+  {
+    name: 'Storefront',
+    items: [{ name: 'Storefront', checkpoints: ['Glass', 'Frame', 'Mullions', 'Door', 'Hardware', 'Gaskets', 'Sealant', 'Finish', 'Operation'] }],
+  },
+  {
+    name: 'Planting',
+    items: [{ name: 'Planting', checkpoints: ['Planter', 'Soil', 'Drainage', 'Vegetation', 'Edging', 'Irrigation', 'Clean'] }],
+  },
+  {
+    name: 'Light Fixture',
+    items: [{ name: 'Light Fixture', checkpoints: ['Fixture', 'Lens', 'Mounting', 'Wiring', 'Operation', 'Finish', 'Sealant'] }],
+  },
+  {
+    name: 'Security Camera',
+    items: [{ name: 'Security Camera', checkpoints: ['Camera', 'Mounting', 'Conduit', 'Wiring', 'Operation', 'Aim', 'Sealant'] }],
+  },
+  {
+    name: 'Fence',
+    items: [{ name: 'Fence', checkpoints: ['Posts', 'Rails', 'Mesh/Pickets', 'Gate', 'Hardware', 'Anchors', 'Coating'] }],
+  },
+  {
+    name: 'Signage',
+    items: [{ name: 'Signage', checkpoints: ['Face', 'Lettering', 'Mounting', 'Illumination', 'Finish', 'Sealant'] }],
+  },
+  {
+    name: 'Canopy',
+    items: [{ name: 'Canopy', checkpoints: ['Structure', 'Panels', 'Soffit', 'Flashing', 'Drainage', 'Sealant', 'Finish'] }],
+  },
+  {
+    name: 'Louvers',
+    items: [{ name: 'Louvers', checkpoints: ['Blades', 'Frame', 'Screen', 'Fasteners', 'Sealant', 'Finish', 'Operation'] }],
+  },
+];
+
 const facadeBrickTemplate: TemplateLocation[] = [
   {
     name: 'Masonry Units',
@@ -30,6 +69,7 @@ const facadeBrickTemplate: TemplateLocation[] = [
     name: 'Waterproofing',
     items: [{ name: 'Waterproofing', checkpoints: ['Flashing', 'Weepholes', 'Sealants', 'Infiltration'] }],
   },
+  ...facadeCommonElementTemplate,
 ];
 
 const facadeGFRCTemplate: TemplateLocation[] = [
@@ -50,6 +90,7 @@ const facadeGFRCTemplate: TemplateLocation[] = [
     name: 'Joints',
     items: [{ name: 'Joints', checkpoints: ['Sealants', 'Compression', 'Adhesion', 'Backer Rod'] }],
   },
+  ...facadeCommonElementTemplate,
 ];
 
 const facadeEIFSTemplate: TemplateLocation[] = [
@@ -69,6 +110,7 @@ const facadeEIFSTemplate: TemplateLocation[] = [
     name: 'Moisture',
     items: [{ name: 'Moisture', checkpoints: ['Pooling', 'Saturation', 'Drainage', 'Infiltration'] }],
   },
+  ...facadeCommonElementTemplate,
 ];
 
 const commonAreaItems: TemplateItem[] = [
@@ -344,9 +386,12 @@ function reconcileCheckpoints(
 ): Checkpoint[] {
   const usedCheckpointIds = new Set<string>();
 
-  return templateCheckpointNames.map((checkpointName, checkpointIndex) => {
+  const templateCheckpoints = templateCheckpointNames.map((checkpointName, checkpointIndex) => {
     const existingCheckpoint = existingCheckpoints.find(
-      (checkpoint) => !usedCheckpointIds.has(checkpoint.id) && checkpoint.name === checkpointName
+      (checkpoint) =>
+        !checkpoint.isElevationIssue &&
+        !usedCheckpointIds.has(checkpoint.id) &&
+        checkpoint.name === checkpointName
     );
     const checkpoint =
       existingCheckpoint ?? createCheckpoint(item.id, checkpointName, checkpointIndex);
@@ -359,6 +404,21 @@ function reconcileCheckpoints(
 
     return checkpoint;
   });
+
+  const preservedCheckpoints = existingCheckpoints
+    .filter(
+      (checkpoint) =>
+        !usedCheckpointIds.has(checkpoint.id) &&
+        (checkpoint.isCustom || checkpoint.isElevationIssue)
+    )
+    .map((checkpoint, index) => ({
+      ...checkpoint,
+      itemId: item.id,
+      sortOrder: templateCheckpoints.length + index,
+      updatedAt: now,
+    }));
+
+  return [...templateCheckpoints, ...preservedCheckpoints];
 }
 
 function reconcileItems(

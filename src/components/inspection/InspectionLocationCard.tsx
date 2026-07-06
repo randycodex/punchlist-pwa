@@ -6,12 +6,13 @@ import {
   Check,
   ChevronDown,
   ChevronRight,
+  MessageSquare,
   MoreVertical,
   Pencil,
   Trash2,
   X,
 } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
 import type { Area, Checkpoint, IssueState } from '@/types';
 import { getCheckpointIssueState } from '@/types';
 import PhotoCapture from '@/components/PhotoCapture';
@@ -30,6 +31,8 @@ type InspectionLocationCardProps = {
   location: Area['locations'][number];
   locationMetric?: Metrics;
   itemMetrics: Map<string, Metrics>;
+  elevationMarkerRefsByCheckpoint?: Map<string, { markerKey: string }>;
+  showElevationIssueInstancesOnly?: boolean;
   deleteMode?: boolean;
   isSelected?: boolean;
   onToggleSelection?: (locationId: string) => void;
@@ -91,6 +94,8 @@ export default function InspectionLocationCard({
   location,
   locationMetric,
   itemMetrics,
+  elevationMarkerRefsByCheckpoint,
+  showElevationIssueInstancesOnly = false,
   deleteMode = false,
   isSelected = false,
   onToggleSelection,
@@ -145,13 +150,27 @@ export default function InspectionLocationCard({
   const cameraRequestTokenRef = useRef(0);
   const activeCameraOnlyCheckpointId =
     expandedCheckpointId === cameraOnlyCheckpointId ? cameraOnlyCheckpointId : null;
+  const shouldShowCheckpoint = useCallback((checkpoint: Checkpoint) => {
+    if (showElevationIssueInstancesOnly && !checkpoint.isElevationIssue) return false;
+    return !showOnlyIssues || getCheckpointIssueState(checkpoint) !== 'none';
+  }, [showElevationIssueInstancesOnly, showOnlyIssues]);
   const visibleItems = useMemo(
-    () =>
-      showOnlyIssues
+    () => {
+      if (showElevationIssueInstancesOnly) {
+        return location.items.filter((item) => item.checkpoints.some(shouldShowCheckpoint));
+      }
+      return showOnlyIssues
         ? location.items.filter((item) => (itemMetrics.get(item.id)?.stats.issues ?? 0) > 0)
-        : location.items,
-    [showOnlyIssues, location.items, itemMetrics]
+        : location.items;
+    },
+    [showElevationIssueInstancesOnly, showOnlyIssues, location.items, itemMetrics, shouldShowCheckpoint]
   );
+
+  function getCheckpointRowLabel(checkpoint: Checkpoint, fallbackLabel?: string) {
+    const markerKey = elevationMarkerRefsByCheckpoint?.get(checkpoint.id)?.markerKey;
+    const baseLabel = fallbackLabel ?? checkpoint.name;
+    return markerKey ? `${markerKey} - ${baseLabel}` : fallbackLabel;
+  }
 
   useEffect(() => {
     if (!openCustomItemMenuId) return;
@@ -323,7 +342,7 @@ export default function InspectionLocationCard({
                 <div key={item.id} ref={(node) => registerItemRef(item.id, node)} className="space-y-2">
                   <CheckpointRow
                     checkpoint={customCheckpoint}
-                    label={item.name}
+                    label={getCheckpointRowLabel(customCheckpoint, item.name)}
                     editContainerRef={isEditingCustomItem ? customItemEditRef : undefined}
                     editableLabel={isEditingCustomItem}
                     editableValue={editingCustomItemName ?? item.name}
@@ -439,9 +458,7 @@ export default function InspectionLocationCard({
               item.name.trim().toLowerCase() === location.name.trim().toLowerCase();
 
             if (hideItemHeader) {
-              const filteredCheckpoints = item.checkpoints.filter(
-                (checkpoint) => !showOnlyIssues || getCheckpointIssueState(checkpoint) !== 'none'
-              );
+              const filteredCheckpoints = item.checkpoints.filter(shouldShowCheckpoint);
               return (
                 <div key={item.id} ref={(node) => registerItemRef(item.id, node)} className="space-y-2.5">
                   {filteredCheckpoints.map((checkpoint) => {
@@ -451,6 +468,7 @@ export default function InspectionLocationCard({
                       <div key={checkpoint.id} className="space-y-2">
                         <CheckpointRow
                           checkpoint={checkpoint}
+                          label={getCheckpointRowLabel(checkpoint)}
                           issueState={issueState}
                           onToggleExpand={() =>
                             openCheckpointComments(location.id, item.id, checkpoint.id, checkpoint.comments)
@@ -705,7 +723,7 @@ export default function InspectionLocationCard({
                 {isItemExpanded && (
                   <div className="space-y-2.5 px-2 pb-2">
                     {item.checkpoints
-                      .filter((checkpoint) => !showOnlyIssues || getCheckpointIssueState(checkpoint) !== 'none')
+                      .filter(shouldShowCheckpoint)
                       .map((checkpoint) => {
                         const issueState = getCheckpointIssueState(checkpoint);
                         const isExpandedCheckpoint = expandedCheckpointId === checkpoint.id;
@@ -714,6 +732,7 @@ export default function InspectionLocationCard({
                           <div key={checkpoint.id} className="space-y-2">
                           <CheckpointRow
                             checkpoint={checkpoint}
+                            label={getCheckpointRowLabel(checkpoint)}
                             editContainerRef={editingCustomCheckpointId === checkpoint.id ? customCheckpointEditRef : undefined}
                             editableLabel={editingCustomCheckpointId === checkpoint.id}
                             editableValue={editingCustomCheckpointName ?? checkpoint.name}
@@ -869,6 +888,7 @@ function CheckpointRow({
   extraActions?: ReactNode;
 }) {
   const photoCount = checkpoint.photos.length;
+  const hasComments = checkpoint.comments.trim().length > 0;
 
   return (
     <div
@@ -931,7 +951,19 @@ function CheckpointRow({
             </>
           ) : (
             <>
+              {hasComments ? (
+                <span
+                  data-inspection-inline-action="true"
+                  onClick={(event) => event.stopPropagation()}
+                  className="flex h-10 w-10 items-center justify-center rounded-[1rem] border border-black/5 bg-white/70 text-gray-500 dark:border-white/10 dark:bg-white/[0.04] dark:text-gray-300"
+                  title="Has note"
+                  aria-label={`Has note for ${checkpoint.name}`}
+                >
+                  <MessageSquare className="h-4 w-4" />
+                </span>
+              ) : null}
               <button
+                data-inspection-inline-action="true"
                 onClick={(event) => {
                   event.stopPropagation();
                   onOpenCamera();
@@ -946,6 +978,7 @@ function CheckpointRow({
                 <Camera className="h-4 w-4" />
               </button>
               <button
+                data-inspection-inline-action="true"
                 onClick={(event) => {
                   event.stopPropagation();
                   onToggleIssue();
@@ -1010,7 +1043,14 @@ function InlineCheckpointEditor({
   useEffect(() => {
     function handleDocumentClick(event: MouseEvent) {
       if (!editorRef.current) return;
-      if (editorRef.current.contains(event.target as Node)) return;
+      const target = event.target as Node;
+      if (editorRef.current.contains(target)) return;
+      if (
+        target instanceof Element &&
+        target.closest('[data-inspection-inline-action="true"]')
+      ) {
+        return;
+      }
       onCloseEditor?.();
     }
 

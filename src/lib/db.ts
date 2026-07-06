@@ -345,7 +345,7 @@ export function createCheckpoint(
   itemId: string,
   name: string,
   sortOrder: number,
-  options?: { isCustom?: boolean }
+  options?: { isCustom?: boolean; isElevationIssue?: boolean; sourceCheckpointId?: string }
 ): Checkpoint {
   const now = new Date();
   return {
@@ -353,6 +353,8 @@ export function createCheckpoint(
     itemId,
     name,
     isCustom: options?.isCustom ?? false,
+    isElevationIssue: options?.isElevationIssue,
+    sourceCheckpointId: options?.sourceCheckpointId,
     status: 'pending',
     fixStatus: 'pending',
     issueState: 'none',

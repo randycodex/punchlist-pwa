@@ -33,6 +33,8 @@ type ChecklistSelection = {
 export type FacadeElevationSelection = ChecklistSelection & {
   xPercent: number;
   yPercent: number;
+  customItemName?: string;
+  customCheckpointName?: string;
 };
 
 type FacadeElevationViewerProps = {
@@ -48,6 +50,8 @@ type TapPoint = {
 };
 
 type PickerState = TapPoint & ChecklistSelection;
+
+type PickerMode = 'existing' | 'custom';
 
 type DragGesture = {
   pointerId: number;
@@ -68,6 +72,10 @@ type TouchPoint = {
   clientY: number;
 };
 
+type ElevationLocation = Area['locations'][number];
+type ElevationItem = ElevationLocation['items'][number];
+type ElevationCheckpoint = ElevationItem['checkpoints'][number];
+
 const MIN_ZOOM = 1;
 const MAX_ZOOM = 6;
 const ZOOM_STEP = 0.5;
@@ -84,10 +92,18 @@ function getTouchDistance(first: TouchPoint, second: TouchPoint) {
   return Math.hypot(first.clientX - second.clientX, first.clientY - second.clientY);
 }
 
+function isExistingElevationCheckpoint(checkpoint: ElevationCheckpoint) {
+  return !checkpoint.isCustom && !checkpoint.isElevationIssue;
+}
+
+function isExistingElevationItem(item: ElevationItem) {
+  return !item.isCustom && item.checkpoints.some(isExistingElevationCheckpoint);
+}
+
 function getFirstAvailableSelection(locations: Area['locations']): ChecklistSelection | null {
   for (const location of locations) {
-    for (const item of location.items) {
-      const checkpoint = item.checkpoints[0];
+    for (const item of location.items.filter(isExistingElevationItem)) {
+      const checkpoint = item.checkpoints.find(isExistingElevationCheckpoint);
       if (checkpoint) {
         return {
           locationId: location.id,
@@ -114,6 +130,9 @@ export default function FacadeElevationViewer({
   const [scale, setScale] = useState(1);
   const [offset, setOffset] = useState({ x: 0, y: 0 });
   const [picker, setPicker] = useState<PickerState | null>(null);
+  const [pickerMode, setPickerMode] = useState<PickerMode>('existing');
+  const [customItemName, setCustomItemName] = useState('');
+  const [customCheckpointName, setCustomCheckpointName] = useState('');
   const [isOpeningSelection, setIsOpeningSelection] = useState(false);
   const [isCollapsed, setIsCollapsed] = useState(false);
   const viewportRef = useRef<HTMLDivElement | null>(null);
@@ -123,7 +142,10 @@ export default function FacadeElevationViewer({
   const suppressNextClickRef = useRef(false);
 
   const selectableLocations = useMemo(
-    () => locations.filter((location) => location.items.some((item) => item.checkpoints.length > 0)),
+    () =>
+      locations.filter((location) =>
+        location.items.some(isExistingElevationItem)
+      ),
     [locations]
   );
   const firstSelection = useMemo(
@@ -133,11 +155,12 @@ export default function FacadeElevationViewer({
   const selectedLocation = picker
     ? selectableLocations.find((location) => location.id === picker.locationId) ?? null
     : null;
-  const selectedItems = selectedLocation?.items.filter((item) => item.checkpoints.length > 0) ?? [];
+  const selectedItems =
+    selectedLocation?.items.filter(isExistingElevationItem) ?? [];
   const selectedItem = picker
     ? selectedItems.find((item) => item.id === picker.itemId) ?? null
     : null;
-  const selectedCheckpoints = selectedItem?.checkpoints ?? [];
+  const selectedCheckpoints = selectedItem?.checkpoints.filter(isExistingElevationCheckpoint) ?? [];
   const isImage = drawing.mimeType.startsWith('image/');
   const isPdf = drawing.mimeType === 'application/pdf';
 
@@ -180,6 +203,9 @@ export default function FacadeElevationViewer({
   function toggleCollapsed() {
     setIsCollapsed((current) => !current);
     setPicker(null);
+    setPickerMode('existing');
+    setCustomItemName('');
+    setCustomCheckpointName('');
   }
 
   function getTapPoint(clientX: number, clientY: number): TapPoint | null {
@@ -201,6 +227,9 @@ export default function FacadeElevationViewer({
       ...tapPoint,
       ...firstSelection,
     });
+    setPickerMode('existing');
+    setCustomItemName('');
+    setCustomCheckpointName('');
   }
 
   function handleViewerClick(event: MouseEvent<HTMLDivElement>) {
@@ -307,8 +336,8 @@ export default function FacadeElevationViewer({
 
   function handleLocationChange(locationId: string) {
     const location = selectableLocations.find((entry) => entry.id === locationId);
-    const item = location?.items.find((entry) => entry.checkpoints.length > 0);
-    const checkpoint = item?.checkpoints[0];
+    const item = location?.items.find(isExistingElevationItem);
+    const checkpoint = item?.checkpoints.find(isExistingElevationCheckpoint);
     if (!picker || !location || !item || !checkpoint) return;
 
     setPicker({
@@ -321,7 +350,7 @@ export default function FacadeElevationViewer({
 
   function handleItemChange(itemId: string) {
     const item = selectedItems.find((entry) => entry.id === itemId);
-    const checkpoint = item?.checkpoints[0];
+    const checkpoint = item?.checkpoints.find(isExistingElevationCheckpoint);
     if (!picker || !item || !checkpoint) return;
 
     setPicker({
@@ -341,6 +370,10 @@ export default function FacadeElevationViewer({
 
   async function openSelection() {
     if (!picker || isOpeningSelection) return;
+    const trimmedCustomItemName = customItemName.trim();
+    const trimmedCustomCheckpointName = customCheckpointName.trim();
+    if (pickerMode === 'custom' && (!trimmedCustomItemName || !trimmedCustomCheckpointName)) return;
+
     setIsOpeningSelection(true);
     try {
       await onOpenSelection({
@@ -349,8 +382,13 @@ export default function FacadeElevationViewer({
         checkpointId: picker.checkpointId,
         xPercent: picker.xPercent,
         yPercent: picker.yPercent,
+        customItemName: pickerMode === 'custom' ? trimmedCustomItemName : undefined,
+        customCheckpointName: pickerMode === 'custom' ? trimmedCustomCheckpointName : undefined,
       });
       setPicker(null);
+      setPickerMode('existing');
+      setCustomItemName('');
+      setCustomCheckpointName('');
     } finally {
       setIsOpeningSelection(false);
     }
@@ -358,60 +396,58 @@ export default function FacadeElevationViewer({
 
   return (
     <section className="card-surface-subtle overflow-hidden rounded-[1.6rem]">
-      <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
-        <div className="min-w-0">
+      <div className="flex items-center gap-3 px-4 py-3">
+        <div className="min-w-0 flex-1">
           <div className="section-eyebrow">Elevation Drawing</div>
           <div className="truncate text-sm font-semibold text-gray-900 dark:text-white">
             {drawing.name || drawing.fileName}
           </div>
         </div>
-        <div className="flex items-center gap-1.5">
-          <button
-            type="button"
-            onClick={toggleCollapsed}
-            className="flex h-10 w-10 items-center justify-center rounded-full border border-black/5 bg-white/75 text-gray-600 transition hover:bg-white dark:border-white/10 dark:bg-white/[0.06] dark:text-gray-300 dark:hover:bg-white/[0.1]"
-            aria-label={isCollapsed ? 'Expand elevation drawing' : 'Collapse elevation drawing'}
-            title={isCollapsed ? 'Expand elevation drawing' : 'Collapse elevation drawing'}
-          >
-            {isCollapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-          </button>
-          {!isCollapsed && (
-            <>
-              <button
-                type="button"
-                onClick={() => updateZoom(scale - ZOOM_STEP)}
-                className="flex h-10 w-10 items-center justify-center rounded-full border border-black/5 bg-white/75 text-gray-600 transition hover:bg-white disabled:opacity-40 dark:border-white/10 dark:bg-white/[0.06] dark:text-gray-300 dark:hover:bg-white/[0.1]"
-                disabled={scale <= MIN_ZOOM}
-                aria-label="Zoom out"
-                title="Zoom out"
-              >
-                <Minus className="h-4 w-4" />
-              </button>
-              <div className="min-w-14 text-center text-xs font-semibold text-gray-500 dark:text-gray-400">
-                {Math.round(scale * 100)}%
-              </div>
-              <button
-                type="button"
-                onClick={() => updateZoom(scale + ZOOM_STEP)}
-                className="flex h-10 w-10 items-center justify-center rounded-full border border-black/5 bg-white/75 text-gray-600 transition hover:bg-white disabled:opacity-40 dark:border-white/10 dark:bg-white/[0.06] dark:text-gray-300 dark:hover:bg-white/[0.1]"
-                disabled={scale >= MAX_ZOOM}
-                aria-label="Zoom in"
-                title="Zoom in"
-              >
-                <Plus className="h-4 w-4" />
-              </button>
-              <button
-                type="button"
-                onClick={resetZoom}
-                className="flex h-10 w-10 items-center justify-center rounded-full border border-black/5 bg-white/75 text-gray-600 transition hover:bg-white dark:border-white/10 dark:bg-white/[0.06] dark:text-gray-300 dark:hover:bg-white/[0.1]"
-                aria-label="Reset zoom"
-                title="Reset zoom"
-              >
-                <RotateCcw className="h-4 w-4" />
-              </button>
-            </>
-          )}
-        </div>
+        {!isCollapsed && (
+          <div className="flex shrink-0 items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => updateZoom(scale - ZOOM_STEP)}
+              className="flex h-10 w-10 items-center justify-center rounded-full border border-black/5 bg-white/75 text-gray-600 transition hover:bg-white disabled:opacity-40 dark:border-white/10 dark:bg-white/[0.06] dark:text-gray-300 dark:hover:bg-white/[0.1]"
+              disabled={scale <= MIN_ZOOM}
+              aria-label="Zoom out"
+              title="Zoom out"
+            >
+              <Minus className="h-4 w-4" />
+            </button>
+            <div className="min-w-14 text-center text-xs font-semibold text-gray-500 dark:text-gray-400">
+              {Math.round(scale * 100)}%
+            </div>
+            <button
+              type="button"
+              onClick={() => updateZoom(scale + ZOOM_STEP)}
+              className="flex h-10 w-10 items-center justify-center rounded-full border border-black/5 bg-white/75 text-gray-600 transition hover:bg-white disabled:opacity-40 dark:border-white/10 dark:bg-white/[0.06] dark:text-gray-300 dark:hover:bg-white/[0.1]"
+              disabled={scale >= MAX_ZOOM}
+              aria-label="Zoom in"
+              title="Zoom in"
+            >
+              <Plus className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              onClick={resetZoom}
+              className="flex h-10 w-10 items-center justify-center rounded-full border border-black/5 bg-white/75 text-gray-600 transition hover:bg-white dark:border-white/10 dark:bg-white/[0.06] dark:text-gray-300 dark:hover:bg-white/[0.1]"
+              aria-label="Reset zoom"
+              title="Reset zoom"
+            >
+              <RotateCcw className="h-4 w-4" />
+            </button>
+          </div>
+        )}
+        <button
+          type="button"
+          onClick={toggleCollapsed}
+          className="flex h-10 w-10 shrink-0 items-center justify-center text-gray-400 transition hover:text-gray-600 dark:hover:text-gray-200"
+          aria-label={isCollapsed ? 'Expand elevation drawing' : 'Collapse elevation drawing'}
+          title={isCollapsed ? 'Expand elevation drawing' : 'Collapse elevation drawing'}
+        >
+          {isCollapsed ? <ChevronRight className="h-5 w-5" /> : <ChevronDown className="h-5 w-5" />}
+        </button>
       </div>
 
       {!isCollapsed && (
@@ -506,7 +542,12 @@ export default function FacadeElevationViewer({
         <div
           className="fixed inset-0 z-50 flex items-end bg-black/45 px-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] pt-4 sm:items-center sm:justify-center sm:p-4"
           role="presentation"
-          onClick={() => setPicker(null)}
+          onClick={() => {
+            setPicker(null);
+            setPickerMode('existing');
+            setCustomItemName('');
+            setCustomCheckpointName('');
+          }}
         >
           <div
             role="dialog"
@@ -522,7 +563,12 @@ export default function FacadeElevationViewer({
               </h2>
               <button
                 type="button"
-                onClick={() => setPicker(null)}
+                onClick={() => {
+                  setPicker(null);
+                  setPickerMode('existing');
+                  setCustomItemName('');
+                  setCustomCheckpointName('');
+                }}
                 className="flex h-9 w-9 items-center justify-center rounded-full text-gray-500 transition hover:bg-black/[0.04] dark:text-gray-300 dark:hover:bg-white/[0.08]"
                 aria-label="Close elevation picker"
               >
@@ -531,6 +577,31 @@ export default function FacadeElevationViewer({
             </div>
 
             <div className="mt-4 space-y-3">
+              <div className="grid grid-cols-2 rounded-[1.1rem] bg-black/[0.04] p-1 dark:bg-white/[0.06]">
+                <button
+                  type="button"
+                  onClick={() => setPickerMode('existing')}
+                  className={`h-10 rounded-[0.85rem] text-sm font-semibold transition ${
+                    pickerMode === 'existing'
+                      ? 'bg-white text-gray-900 shadow-sm dark:bg-white/[0.12] dark:text-white'
+                      : 'text-gray-500 dark:text-gray-400'
+                  }`}
+                >
+                  Existing
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPickerMode('custom')}
+                  className={`h-10 rounded-[0.85rem] text-sm font-semibold transition ${
+                    pickerMode === 'custom'
+                      ? 'bg-white text-gray-900 shadow-sm dark:bg-white/[0.12] dark:text-white'
+                      : 'text-gray-500 dark:text-gray-400'
+                  }`}
+                >
+                  Custom
+                </button>
+              </div>
+
               <label className="block text-xs font-semibold uppercase tracking-widest text-gray-500 dark:text-gray-400">
                 Floor / Sub Area
                 <select
@@ -546,35 +617,59 @@ export default function FacadeElevationViewer({
                 </select>
               </label>
 
-              <label className="block text-xs font-semibold uppercase tracking-widest text-gray-500 dark:text-gray-400">
-                Item
-                <select
-                  value={picker.itemId}
-                  onChange={(event) => handleItemChange(event.target.value)}
-                  className="field-shell mt-1.5 h-11 text-sm normal-case tracking-normal"
-                >
-                  {selectedItems.map((item) => (
-                    <option key={item.id} value={item.id}>
-                      {item.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
+              {pickerMode === 'existing' ? (
+                <>
+                  <label className="block text-xs font-semibold uppercase tracking-widest text-gray-500 dark:text-gray-400">
+                    Item
+                    <select
+                      value={picker.itemId}
+                      onChange={(event) => handleItemChange(event.target.value)}
+                      className="field-shell mt-1.5 h-11 text-sm normal-case tracking-normal"
+                    >
+                      {selectedItems.map((item) => (
+                        <option key={item.id} value={item.id}>
+                          {item.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
 
-              <label className="block text-xs font-semibold uppercase tracking-widest text-gray-500 dark:text-gray-400">
-                Sub Item
-                <select
-                  value={picker.checkpointId}
-                  onChange={(event) => handleCheckpointChange(event.target.value)}
-                  className="field-shell mt-1.5 h-11 text-sm normal-case tracking-normal"
-                >
-                  {selectedCheckpoints.map((checkpoint) => (
-                    <option key={checkpoint.id} value={checkpoint.id}>
-                      {checkpoint.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
+                  <label className="block text-xs font-semibold uppercase tracking-widest text-gray-500 dark:text-gray-400">
+                    Sub Item
+                    <select
+                      value={picker.checkpointId}
+                      onChange={(event) => handleCheckpointChange(event.target.value)}
+                      className="field-shell mt-1.5 h-11 text-sm normal-case tracking-normal"
+                    >
+                      {selectedCheckpoints.map((checkpoint) => (
+                        <option key={checkpoint.id} value={checkpoint.id}>
+                          {checkpoint.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </>
+              ) : (
+                <>
+                  <label className="block text-xs font-semibold uppercase tracking-widest text-gray-500 dark:text-gray-400">
+                    Item
+                    <input
+                      value={customItemName}
+                      onChange={(event) => setCustomItemName(event.target.value)}
+                      className="field-shell mt-1.5 h-11 text-sm normal-case tracking-normal"
+                    />
+                  </label>
+
+                  <label className="block text-xs font-semibold uppercase tracking-widest text-gray-500 dark:text-gray-400">
+                    Sub Item
+                    <input
+                      value={customCheckpointName}
+                      onChange={(event) => setCustomCheckpointName(event.target.value)}
+                      className="field-shell mt-1.5 h-11 text-sm normal-case tracking-normal"
+                    />
+                  </label>
+                </>
+              )}
             </div>
 
             <div className="mt-5 flex gap-2">
@@ -584,6 +679,9 @@ export default function FacadeElevationViewer({
                   event.preventDefault();
                   event.stopPropagation();
                   setPicker(null);
+                  setPickerMode('existing');
+                  setCustomItemName('');
+                  setCustomCheckpointName('');
                 }}
                 className="flex h-11 flex-1 items-center justify-center rounded-full border border-black/5 bg-gray-100 text-sm font-semibold text-gray-700 transition hover:bg-gray-200 dark:border-white/10 dark:bg-white/[0.06] dark:text-gray-200 dark:hover:bg-white/[0.1]"
               >
@@ -596,7 +694,10 @@ export default function FacadeElevationViewer({
                   event.stopPropagation();
                   void openSelection();
                 }}
-                disabled={isOpeningSelection}
+                disabled={
+                  isOpeningSelection ||
+                  (pickerMode === 'custom' && (!customItemName.trim() || !customCheckpointName.trim()))
+                }
                 className="accent-tint accent-text hover:accent-tint-strong flex h-11 flex-1 items-center justify-center rounded-full text-sm font-semibold transition disabled:opacity-60"
               >
                 Mark Issue
