@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { createPortal } from 'react-dom';
 import { useMicrosoftAuth } from '@/contexts/MicrosoftAuthContext';
 import { useCollaborationAuth } from '@/contexts/CollaborationAuthContext';
 import { useSyncStatus } from '@/contexts/SyncStatusContext';
@@ -267,7 +268,7 @@ export default function PersistentTopBar() {
             >
               <MoreVertical className="h-5 w-5" />
             </button>
-            {showHomeMenu && (
+            {showHomeMenu && createPortal((
               <div
                 className="app-menu-drawer menu-surface fixed right-0 top-0 z-[120] flex h-[100dvh] flex-col overflow-hidden border-y-0 border-r-0 p-0"
                 role="dialog"
@@ -511,7 +512,7 @@ export default function PersistentTopBar() {
                 </div>
                 </div>
               </div>
-            )}
+            ), document.body)}
           </div>
         )}
         {!showAuth && !isProjectOverview && projectTitle && (

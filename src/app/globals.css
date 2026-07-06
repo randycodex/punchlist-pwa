@@ -136,9 +136,6 @@ html:not(.dark) {
     right: var(--app-menu-drawer-width);
   }
 
-  html[data-app-menu-open="true"] .app-menu-drawer {
-    right: calc(-1 * var(--app-menu-drawer-width));
-  }
 }
 
 .header-stable {
