@@ -125,14 +125,27 @@ function locationHasStoredMedia(location: Area['locations'][number]) {
   return location.items.some(itemHasStoredMedia);
 }
 
-function locationHasFacadeIssueInstance(location: Area['locations'][number], drawingId?: string) {
+function checkpointHasFacadeListContent(checkpoint: Checkpoint, drawingId?: string) {
+  const hasComments = checkpoint.comments.trim().length > 0;
+  const hasMedia = checkpoint.photos.length > 0 || (checkpoint.files?.length ?? 0) > 0;
+
+  if (checkpoint.isElevationIssue) {
+    const matchesDrawing = !drawingId || checkpoint.elevationMarker?.drawingId === drawingId;
+    return matchesDrawing && (checkpointHasIssue(checkpoint) || hasComments || hasMedia);
+  }
+
+  return (
+    checkpoint.status !== 'pending' ||
+    checkpointHasIssue(checkpoint) ||
+    hasComments ||
+    hasMedia ||
+    Boolean(checkpoint.elevationMarker)
+  );
+}
+
+function locationHasFacadeListContent(location: Area['locations'][number], drawingId?: string) {
   return location.items.some((item) =>
-    item.checkpoints.some(
-      (checkpoint) =>
-        checkpoint.isElevationIssue &&
-        checkpointHasIssue(checkpoint) &&
-        (!drawingId || checkpoint.elevationMarker?.drawingId === drawingId)
-    )
+    item.checkpoints.some((checkpoint) => checkpointHasFacadeListContent(checkpoint, drawingId))
   );
 }
 
@@ -596,17 +609,24 @@ export default function AreaDetailPage() {
 
   const filteredCustomItemsLocation = useMemo(() => {
     if (!customItemsLocation) return null;
+    if (area?.areaTypeKey === 'facade' && inspectionShowOnlyIssues) {
+      return locationHasFacadeListContent(customItemsLocation, area.elevationDrawingId)
+        ? customItemsLocation
+        : null;
+    }
     if (!inspectionShowOnlyIssues) return customItemsLocation;
     return (areaDerived?.locationMetrics.get(customItemsLocation.id)?.stats.issues ?? 0) > 0
       ? customItemsLocation
       : null;
-  }, [customItemsLocation, inspectionShowOnlyIssues, areaDerived]);
+  }, [area?.areaTypeKey, area?.elevationDrawingId, customItemsLocation, inspectionShowOnlyIssues, areaDerived]);
 
   const filteredStandardLocations = useMemo(
     () => {
       if (area?.areaTypeKey === 'facade') {
+        if (!inspectionShowOnlyIssues) return standardLocations;
+
         return standardLocations.filter((location) =>
-          locationHasFacadeIssueInstance(location, area.elevationDrawingId)
+          locationHasFacadeListContent(location, area.elevationDrawingId)
         );
       }
 
@@ -644,6 +664,16 @@ export default function AreaDetailPage() {
       return a.sortOrder - b.sortOrder;
     });
   }, [areaDerived, filteredStandardLocations, quickSort]);
+
+  const hasFacadeListContent = useMemo(
+    () =>
+      area?.areaTypeKey === 'facade'
+        ? visibleLocations.some((location) =>
+            locationHasFacadeListContent(location, area.elevationDrawingId)
+          )
+        : false,
+    [area?.areaTypeKey, area?.elevationDrawingId, visibleLocations]
+  );
 
   function findCheckpoint(locationId: string, itemId: string, checkpointId: string): Checkpoint | null {
     if (!area) return null;
@@ -1887,7 +1917,8 @@ export default function AreaDetailPage() {
           {!deleteMode &&
             area.areaTypeKey === 'facade' &&
             elevationDrawing &&
-            elevationMarkerRefsByCheckpoint.size === 0 && (
+            inspectionShowOnlyIssues &&
+            !hasFacadeListContent && (
               <div className="empty-state-card rounded-[1.4rem] px-4 py-4 text-sm font-medium text-gray-500 dark:text-gray-300">
                 No marked facade issues yet.
               </div>
@@ -1934,7 +1965,7 @@ export default function AreaDetailPage() {
                 locationMetric={areaDerived?.locationMetrics.get(location.id)}
                 itemMetrics={areaDerived?.itemMetrics ?? new Map()}
                 elevationMarkerRefsByCheckpoint={elevationMarkerRefsByCheckpoint}
-                showElevationIssueInstancesOnly={area.areaTypeKey === 'facade'}
+                showFacadeRelevantItemsOnly={area.areaTypeKey === 'facade' && inspectionShowOnlyIssues}
                 deleteMode={deleteMode}
                 isSelected={selectedLocationIds.has(location.id)}
                 onToggleSelection={toggleLocationSelection}
@@ -2129,7 +2160,7 @@ export default function AreaDetailPage() {
               locationMetric={areaDerived?.locationMetrics.get(filteredCustomItemsLocation.id)}
               itemMetrics={areaDerived?.itemMetrics ?? new Map()}
               elevationMarkerRefsByCheckpoint={elevationMarkerRefsByCheckpoint}
-              showElevationIssueInstancesOnly={area.areaTypeKey === 'facade'}
+              showFacadeRelevantItemsOnly={area.areaTypeKey === 'facade' && inspectionShowOnlyIssues}
               showOnlyIssues={inspectionShowOnlyIssues}
               expandedItems={expandedItems}
               isExpanded
