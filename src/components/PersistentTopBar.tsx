@@ -164,6 +164,19 @@ export default function PersistentTopBar() {
   }, [showHomeMenu]);
 
   useEffect(() => {
+    const root = document.documentElement;
+    if (showHomeMenu) {
+      root.dataset.appMenuOpen = 'true';
+    } else {
+      delete root.dataset.appMenuOpen;
+    }
+
+    return () => {
+      delete root.dataset.appMenuOpen;
+    };
+  }, [showHomeMenu]);
+
+  useEffect(() => {
     function handleHomeMenuState(event: Event) {
       const customEvent = event as CustomEvent<HomeMenuState>;
       if (customEvent.detail) {
@@ -256,7 +269,7 @@ export default function PersistentTopBar() {
             </button>
             {showHomeMenu && (
               <div
-                className="menu-surface fixed right-0 top-0 z-50 flex h-[100dvh] w-[min(88vw,24rem)] flex-col overflow-hidden rounded-l-[1.6rem] rounded-r-none border-y-0 border-r-0 p-0 shadow-2xl"
+                className="app-menu-drawer menu-surface fixed right-0 top-0 z-[120] flex h-[100dvh] flex-col overflow-hidden rounded-l-[1.6rem] rounded-r-none border-y-0 border-r-0 p-0 shadow-2xl"
                 role="dialog"
                 aria-modal="false"
                 aria-label="App menu"

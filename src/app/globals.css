@@ -21,6 +21,7 @@
   --accent-rgb: 239 78 36;
   --accent-soft: rgba(239, 78, 36, 0.08);
   --accent-soft-strong: rgba(239, 78, 36, 0.14);
+  --app-menu-drawer-width: min(88vw, 24rem);
 }
 
 .dark {
@@ -68,6 +69,7 @@ button,
   height: 100dvh;
   overflow: hidden;
   background-color: var(--background);
+  transition: padding-right 220ms ease;
 }
 
 .safe-top-shim {
@@ -80,6 +82,7 @@ button,
   z-index: 100;
   pointer-events: none;
   transform: translateZ(0);
+  transition: right 220ms ease;
 }
 
 html {
@@ -101,6 +104,29 @@ html:not(.dark) {
   border-color: var(--surface-border);
   backdrop-filter: blur(22px);
   -webkit-backdrop-filter: blur(22px);
+}
+
+.persistent-top-bar {
+  transition: right 220ms ease;
+}
+
+.app-menu-drawer {
+  width: var(--app-menu-drawer-width);
+}
+
+@media (min-width: 768px) {
+  html[data-app-menu-open="true"] .app-shell {
+    padding-right: var(--app-menu-drawer-width);
+  }
+
+  html[data-app-menu-open="true"] .persistent-top-bar,
+  html[data-app-menu-open="true"] .safe-top-shim {
+    right: var(--app-menu-drawer-width);
+  }
+
+  html[data-app-menu-open="true"] .app-menu-drawer {
+    right: calc(-1 * var(--app-menu-drawer-width));
+  }
 }
 
 .header-stable {
