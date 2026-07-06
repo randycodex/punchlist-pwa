@@ -251,6 +251,7 @@ html:not(.dark) {
 
 .app-menu-drawer.menu-surface {
   background: var(--surface-strong);
+  border: 0;
 }
 
 @media (max-width: 767px) {
