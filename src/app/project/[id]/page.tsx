@@ -1480,7 +1480,7 @@ export default function ProjectDetailPage() {
   return (
     <div className="app-page h-[calc(100dvh-env(safe-area-inset-top)-3.5rem)] flex flex-col overflow-hidden">
       <header className="header-stable shrink-0 border-b z-20">
-        <div className="mx-auto flex min-h-[4.9rem] w-full max-w-6xl items-center px-4 py-3 sm:px-5">
+        <div className="page-header-surface mx-auto flex min-h-[4.9rem] w-full max-w-6xl items-center px-4 py-3 sm:px-5">
           <div className="flex w-full items-center gap-3">
             <Link href="/" className="flex h-10 w-10 items-center justify-center rounded-[1rem] border border-black/5 bg-white/70 text-gray-600 transition hover:bg-white dark:border-white/10 dark:bg-white/[0.04] dark:text-gray-300 dark:hover:bg-white/[0.08]">
               <ArrowLeft className="w-5 h-5" />

@@ -107,7 +107,10 @@ html:not(.dark) {
 }
 
 .persistent-top-bar {
+  background-color: transparent !important;
   border-bottom: 0 !important;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
   transition: right 220ms ease;
 }
 
@@ -140,14 +143,26 @@ html:not(.dark) {
 }
 
 .header-stable {
-  background: var(--surface);
+  background: transparent;
   border-bottom: 0 !important;
   transform: translateZ(0);
   backface-visibility: hidden;
   will-change: transform;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: none;
+}
+
+.top-bar-surface,
+.page-header-surface {
+  background: var(--surface);
   backdrop-filter: blur(24px);
   -webkit-backdrop-filter: blur(24px);
-  box-shadow: none;
+}
+
+.page-header-surface {
+  border-bottom-left-radius: 1.6rem;
+  border-bottom-right-radius: 1.6rem;
 }
 
 .header-row {
@@ -422,20 +437,16 @@ select.field-shell option {
   }
 }
 
-/* In dark mode, force pinned top surfaces to match the page background tone. */
+/* In dark mode, force pinned utility surfaces to match the page background tone. */
 .dark .safe-top-shim,
-.dark .persistent-top-bar,
-.dark .header-stable,
 .dark .pinned-surface,
 .dark .sticky-surface {
   background-color: var(--surface-strong) !important;
   border-color: var(--surface-border) !important;
 }
 
-/* In light mode, keep these surfaces explicitly white. */
+/* In light mode, keep utility pinned surfaces explicitly white. */
 html:not(.dark) .safe-top-shim,
-html:not(.dark) .persistent-top-bar,
-html:not(.dark) .header-stable,
 html:not(.dark) .pinned-surface,
 html:not(.dark) .sticky-surface {
   background-color: #ffffff !important;
@@ -445,8 +456,6 @@ html:not(.dark) .sticky-surface {
 /* Avoid a white flash in system-dark mode before JS/theme class is fully applied. */
 @media (prefers-color-scheme: dark) {
   html:not(.dark) .safe-top-shim,
-  html:not(.dark) .persistent-top-bar,
-  html:not(.dark) .header-stable,
   html:not(.dark) .pinned-surface,
   html:not(.dark) .sticky-surface {
     background-color: #18181b !important;
