@@ -442,7 +442,7 @@ export default function FacadeElevationViewer({
         <button
           type="button"
           onClick={toggleCollapsed}
-          className="flex h-10 w-10 shrink-0 items-center justify-center text-gray-400 transition hover:text-gray-600 dark:hover:text-gray-200"
+          className="flex h-10 w-10 shrink-0 items-center justify-end text-gray-400 transition hover:text-gray-600 dark:hover:text-gray-200"
           aria-label={isCollapsed ? 'Expand elevation drawing' : 'Collapse elevation drawing'}
           title={isCollapsed ? 'Expand elevation drawing' : 'Collapse elevation drawing'}
         >
