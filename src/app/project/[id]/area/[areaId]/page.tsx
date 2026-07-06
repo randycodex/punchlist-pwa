@@ -6,6 +6,7 @@ import {
   Project,
   Area,
   Checkpoint,
+  getCheckpointIssueState,
   getReviewMetrics,
   checkpointHasIssue,
   isAreaInspectionComplete,
@@ -78,8 +79,9 @@ import InspectionLocationCard from '@/components/inspection/InspectionLocationCa
 import Link from 'next/link';
 import {
   ArrowLeft,
+  ChevronsDown,
+  ChevronsUp,
   MoreVertical,
-  RefreshCw,
   Trash2,
   UnlockKeyhole,
 } from 'lucide-react';
@@ -218,6 +220,7 @@ export default function AreaDetailPage() {
   const [loading, setLoading] = useState(() => !cachedArea);
   const [expandedLocations, setExpandedLocations] = useState<Set<string>>(new Set());
   const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set());
+  const [bulkExpansionMode, setBulkExpansionMode] = useState<'collapsed' | 'expanded'>('collapsed');
   const [expandedCheckpoint, setExpandedCheckpoint] = useState<{
     locationId: string;
     itemId: string;
@@ -276,7 +279,7 @@ export default function AreaDetailPage() {
   const headerMenuRef = useRef<HTMLDivElement | null>(null);
   const { ensureAccessToken } = useMicrosoftAuth();
   const collaborationAuth = useCollaborationAuth();
-  const { retryInSeconds, setRetryAt, setStatus: setSyncStatus } = useSyncStatus();
+  const { setRetryAt, setStatus: setSyncStatus } = useSyncStatus();
   const { inspectionShowOnlyIssues, setInspectionShowOnlyIssues, quickSort, markSyncedNow } = useAppSettings();
 
   useEffect(() => {
@@ -673,6 +676,26 @@ export default function AreaDetailPage() {
       return a.sortOrder - b.sortOrder;
     });
   }, [areaDerived, filteredStandardLocations, quickSort]);
+
+  const getBulkExpandableItems = useCallback((targetLocation: Area['locations'][number]) => {
+    const itemMetrics = areaDerived?.itemMetrics ?? new Map();
+    const showFacadeRelevantItemsOnly = area?.areaTypeKey === 'facade' && inspectionShowOnlyIssues;
+
+    function shouldShowCheckpoint(checkpoint: Checkpoint) {
+      if (showFacadeRelevantItemsOnly && !checkpointHasFacadeListContent(checkpoint, area?.elevationDrawingId)) {
+        return false;
+      }
+      return !inspectionShowOnlyIssues || getCheckpointIssueState(checkpoint) !== 'none';
+    }
+
+    if (showFacadeRelevantItemsOnly) {
+      return targetLocation.items.filter((item) => item.checkpoints.some(shouldShowCheckpoint));
+    }
+
+    return inspectionShowOnlyIssues
+      ? targetLocation.items.filter((item) => (itemMetrics.get(item.id)?.stats.issues ?? 0) > 0)
+      : targetLocation.items;
+  }, [area?.areaTypeKey, area?.elevationDrawingId, areaDerived?.itemMetrics, inspectionShowOnlyIssues]);
 
   const hasFacadeListContent = useMemo(
     () =>
@@ -1565,12 +1588,42 @@ export default function AreaDetailPage() {
   async function toggleLocation(locationId: string) {
     if (expandedLocations.has(locationId)) {
       await closeExpandedCheckpoint();
-      setExpandedLocations(new Set());
-      setExpandedItems(new Set());
+      if (bulkExpansionMode === 'expanded') {
+        const targetLocation = [
+          ...sortedStandardLocations,
+          ...(filteredCustomItemsLocation ? [filteredCustomItemsLocation] : []),
+        ].find((entry) => entry.id === locationId);
+        const targetItemIds = new Set((targetLocation ? getBulkExpandableItems(targetLocation) : []).map((item) => item.id));
+        setExpandedLocations((current) => {
+          const next = new Set(current);
+          next.delete(locationId);
+          return next;
+        });
+        setExpandedItems((current) => {
+          const next = new Set(current);
+          targetItemIds.forEach((itemId) => next.delete(itemId));
+          return next;
+        });
+      } else {
+        setExpandedLocations(new Set());
+        setExpandedItems(new Set());
+      }
     } else {
       await closeExpandedCheckpoint();
-      setExpandedLocations(new Set([locationId]));
-      setExpandedItems(new Set());
+      if (bulkExpansionMode === 'expanded') {
+        const targetLocation = [
+          ...sortedStandardLocations,
+          ...(filteredCustomItemsLocation ? [filteredCustomItemsLocation] : []),
+        ].find((entry) => entry.id === locationId);
+        setExpandedLocations((current) => new Set([...current, locationId]));
+        setExpandedItems((current) => new Set([
+          ...current,
+          ...(targetLocation ? getBulkExpandableItems(targetLocation).map((item) => item.id) : []),
+        ]));
+      } else {
+        setExpandedLocations(new Set([locationId]));
+        setExpandedItems(new Set());
+      }
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
           locationRefs.current.get(locationId)?.scrollIntoView({
@@ -1590,10 +1643,22 @@ export default function AreaDetailPage() {
 
     if (expandedItems.has(itemId)) {
       await closeExpandedCheckpoint();
-      setExpandedItems(new Set());
+      if (bulkExpansionMode === 'expanded') {
+        setExpandedItems((current) => {
+          const next = new Set(current);
+          next.delete(itemId);
+          return next;
+        });
+      } else {
+        setExpandedItems(new Set());
+      }
     } else {
       await closeExpandedCheckpoint();
-      setExpandedItems(new Set([itemId]));
+      if (bulkExpansionMode === 'expanded') {
+        setExpandedItems((current) => new Set([...current, itemId]));
+      } else {
+        setExpandedItems(new Set([itemId]));
+      }
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
           itemRefs.current.get(itemId)?.scrollIntoView({
@@ -1603,6 +1668,35 @@ export default function AreaDetailPage() {
         });
       });
     }
+  }
+
+  async function handleToggleBulkExpansion() {
+    setShowCustomCheckpointComposer(false);
+    setCustomCheckpointName('');
+    setCustomCheckpointTarget(null);
+    setEditingCustomCheckpoint(null);
+    await closeExpandedCheckpoint();
+
+    if (bulkExpansionMode === 'expanded') {
+      setExpandedLocations(new Set());
+      setExpandedItems(new Set());
+      setBulkExpansionMode('collapsed');
+      return;
+    }
+
+    const visibleExpandableLocations = [
+      ...sortedStandardLocations,
+      ...(filteredCustomItemsLocation ? [filteredCustomItemsLocation] : []),
+    ];
+    setExpandedLocations(new Set(sortedStandardLocations.map((location) => location.id)));
+    setExpandedItems(
+      new Set(
+        visibleExpandableLocations.flatMap((location) =>
+          getBulkExpandableItems(location).map((item) => item.id)
+        )
+      )
+    );
+    setBulkExpansionMode('expanded');
   }
 
   async function openElevationSelection({
@@ -1796,16 +1890,6 @@ export default function AreaDetailPage() {
               {showHeaderMenu && (
                 <div className="menu-surface absolute right-0 top-[calc(100%+0.6rem)] z-40 w-[14rem] rounded-[1.5rem] p-2">
                   <div className="space-y-1">
-                    <button
-                      onClick={() => {
-                        setShowHeaderMenu(false);
-                        void handleSync();
-                      }}
-                      className="flex w-full items-center gap-3 rounded-[1rem] px-3 py-2.5 text-left text-[0.98rem] text-gray-700 transition hover:bg-black/[0.04] dark:text-gray-200 dark:hover:bg-white/[0.06]"
-                    >
-                      <RefreshCw className="h-4 w-4" />
-                      {retryInSeconds > 0 ? `Sync in ${retryInSeconds}s` : 'Sync now'}
-                    </button>
                     {canReleaseAreaClaim && (
                       <button
                         onClick={() => {
@@ -1829,6 +1913,20 @@ export default function AreaDetailPage() {
                     >
                       <MoreVertical className="h-4 w-4" />
                       Edit area
+                    </button>
+                    <button
+                      onClick={() => {
+                        setShowHeaderMenu(false);
+                        void handleToggleBulkExpansion();
+                      }}
+                      className="flex w-full items-center gap-3 rounded-[1rem] px-3 py-2.5 text-left text-[0.98rem] text-gray-700 transition hover:bg-black/[0.04] dark:text-gray-200 dark:hover:bg-white/[0.06]"
+                    >
+                      {bulkExpansionMode === 'expanded' ? (
+                        <ChevronsUp className="h-4 w-4" />
+                      ) : (
+                        <ChevronsDown className="h-4 w-4" />
+                      )}
+                      {bulkExpansionMode === 'expanded' ? 'Collapse all' : 'Expand all'}
                     </button>
                   </div>
                 </div>
