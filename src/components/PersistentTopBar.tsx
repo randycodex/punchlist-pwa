@@ -274,17 +274,7 @@ export default function PersistentTopBar() {
                 aria-modal="false"
                 aria-label="App menu"
               >
-                <div className="flex shrink-0 items-center justify-between gap-3 border-b border-black/[0.05] px-4 pb-3 pt-[calc(env(safe-area-inset-top)+0.75rem)] dark:border-white/[0.06]">
-                  <div className="min-w-0">
-                    <div className="section-eyebrow">Menu</div>
-                    <div className="truncate text-sm font-semibold text-gray-900 dark:text-white">
-                      {homeMenuState.isSingleProject && homeMenuState.singleProjectName
-                        ? homeMenuState.singleProjectName
-                        : showAuth
-                          ? 'Projects'
-                          : 'Project tools'}
-                    </div>
-                  </div>
+                <div className="flex h-[calc(env(safe-area-inset-top)+3.5rem)] shrink-0 items-center justify-end border-b border-black/[0.05] px-4 pt-[env(safe-area-inset-top)] dark:border-white/[0.06]">
                   <button
                     type="button"
                     onClick={() => setShowHomeMenu(false)}
