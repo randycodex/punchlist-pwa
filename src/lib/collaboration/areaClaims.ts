@@ -61,6 +61,16 @@ function getStringFromJsonObject(value: Json, key: string) {
   return typeof entry === 'string' ? entry : null;
 }
 
+function isUniqueAreaClaimError(error: unknown) {
+  if (!error || typeof error !== 'object') return false;
+  const entry = error as { code?: string; message?: string };
+  return (
+    entry.code === '23505' &&
+    typeof entry.message === 'string' &&
+    entry.message.includes('area_claims_one_active_claim_idx')
+  );
+}
+
 export async function claimSharedProjectArea(sharedProjectId: string, areaId: string) {
   const supabase = getCollaborationSupabaseClient();
   if (!supabase) {
@@ -76,6 +86,35 @@ export async function claimSharedProjectArea(sharedProjectId: string, areaId: st
   });
 
   if (error) {
+    if (isUniqueAreaClaimError(error)) {
+      const { data: userData } = await supabase.auth.getUser();
+      const currentUserId = userData.user?.id;
+      const { data: existingClaim, error: existingClaimError } = await supabase
+        .from('area_claims')
+        .select('id, project_id, area_id, claimed_by_user_id, status, claimed_at, expires_at, released_at, transferred_to_user_id')
+        .eq('project_id', sharedProjectId)
+        .eq('area_id', areaId)
+        .eq('status', 'active')
+        .maybeSingle();
+
+      if (existingClaimError) {
+        throw existingClaimError;
+      }
+
+      if (existingClaim?.claimed_by_user_id && existingClaim.claimed_by_user_id === currentUserId) {
+        const revivedClaim = reviveAreaClaim(existingClaim);
+        return {
+          id: revivedClaim.id,
+          projectId: sharedProjectId,
+          areaId,
+          claimedByUserId: revivedClaim.claimedByUserId,
+          status: 'active' as const,
+          expiresAt: revivedClaim.expiresAt ?? expiresAt,
+        };
+      }
+
+      throw new Error('This area is currently claimed by another user.');
+    }
     throw error;
   }
 

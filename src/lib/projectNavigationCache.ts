@@ -27,7 +27,15 @@ export function cacheProjectPreview(project: Project) {
   projectPreviewCache.set(project.id, cloneProjectPreview(project));
 }
 
+export function cacheProjectPreviews(projects: Project[]) {
+  projects.forEach(cacheProjectPreview);
+}
+
 export function getCachedProjectPreview(projectId: string): Project | null {
   const project = projectPreviewCache.get(projectId);
   return project ? cloneProjectPreview(project) : null;
+}
+
+export function getCachedProjectPreviews(): Project[] {
+  return Array.from(projectPreviewCache.values()).map(cloneProjectPreview);
 }

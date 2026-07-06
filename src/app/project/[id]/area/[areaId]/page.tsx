@@ -23,7 +23,7 @@ import {
   createItem,
   createCheckpoint,
 } from '@/lib/db';
-import { getCachedProjectPreview } from '@/lib/projectNavigationCache';
+import { cacheProjectPreview, getCachedProjectPreview } from '@/lib/projectNavigationCache';
 import {
   formatMicrosoftManualRetryMessage,
   getMicrosoftErrorMessage,
@@ -285,6 +285,12 @@ export default function AreaDetailPage() {
     scheduleSyncRef.current = scheduleSync;
     loadDataRef.current = loadData;
   });
+
+  useEffect(() => {
+    if (project) {
+      cacheProjectPreview(project);
+    }
+  }, [project]);
 
   const persistGeneralNotes = useCallback(async (value: string) => {
     const currentProject = projectRef.current;

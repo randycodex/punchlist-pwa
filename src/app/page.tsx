@@ -63,7 +63,7 @@ import AppConfirmDialog from '@/components/AppConfirmDialog';
 import AppPromptDialog from '@/components/AppPromptDialog';
 import CollaborationHealthDialog from '@/components/CollaborationHealthDialog';
 import { applyTemplateToArea } from '@/lib/template';
-import { cacheProjectPreview } from '@/lib/projectNavigationCache';
+import { cacheProjectPreview, cacheProjectPreviews, getCachedProjectPreviews } from '@/lib/projectNavigationCache';
 import {
   buildAreaName,
   buildFacadeLevelOptions,
@@ -569,8 +569,9 @@ const HomeAreaCard = memo(function HomeAreaCard({
 
 export default function ProjectsPage() {
   const router = useRouter();
-  const [projects, setProjects] = useState<Project[]>([]);
-  const [loading, setLoading] = useState(true);
+  const cachedProjects = getCachedProjectPreviews();
+  const [projects, setProjects] = useState<Project[]>(() => cachedProjects);
+  const [loading, setLoading] = useState(() => cachedProjects.length === 0);
   const [showNewProject, setShowNewProject] = useState(false);
   const [newProjectName, setNewProjectName] = useState('');
   const [newProjectAddress, setNewProjectAddress] = useState('');
@@ -741,6 +742,7 @@ export default function ProjectsPage() {
       const nextProjects = collaborationAuth.isSignedIn
         ? await pullNewerSharedSnapshots(activeData)
         : activeData;
+      cacheProjectPreviews(nextProjects);
       setProjects(nextProjects);
     } catch (error) {
       console.error('Failed to load projects:', error);

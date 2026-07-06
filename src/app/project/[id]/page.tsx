@@ -4,7 +4,7 @@ import { memo, useState, useEffect, useMemo, useRef, useCallback, type TouchEven
 import { useRouter, useParams } from 'next/navigation';
 import { Area, Project, checkpointHasIssue, getReviewMetrics } from '@/types';
 import { getProject, getProjectMetadata, saveProject, saveProjectMetadataOnly, saveProjectPreserveTimestamps, createArea } from '@/lib/db';
-import { getCachedProjectPreview } from '@/lib/projectNavigationCache';
+import { cacheProjectPreview, getCachedProjectPreview } from '@/lib/projectNavigationCache';
 import {
   formatMicrosoftManualRetryMessage,
   getMicrosoftErrorMessage,
@@ -445,6 +445,12 @@ export default function ProjectDetailPage() {
     if (!collaborationAuth.isSignedIn || loading) return;
     void loadProjectRef.current();
   }, [collaborationAuth.isSignedIn, loading]);
+
+  useEffect(() => {
+    if (project) {
+      cacheProjectPreview(project);
+    }
+  }, [project]);
 
   function handleSortChange(option: SortOption) {
     setSortOption(option);
