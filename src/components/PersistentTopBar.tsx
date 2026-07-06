@@ -223,7 +223,7 @@ export default function PersistentTopBar() {
         title={label}
       >
         <SyncIcon className={`h-4 w-4 ${status === 'syncing' && retryInSeconds === 0 ? 'animate-spin' : ''}`} />
-        <span className="hidden text-xs font-bold leading-none tracking-normal sm:inline">{shortLabel}</span>
+        <span className="text-xs font-bold leading-none tracking-normal">{shortLabel}</span>
       </button>
     );
   }
