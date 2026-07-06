@@ -1672,14 +1672,6 @@ export default function AreaDetailPage() {
       } else {
         setExpandedItems(new Set([itemId]));
       }
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-          itemRefs.current.get(itemId)?.scrollIntoView({
-            block: 'start',
-            behavior: 'smooth',
-          });
-        });
-      });
     }
   }
 
