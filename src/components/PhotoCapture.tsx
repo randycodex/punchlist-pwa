@@ -39,6 +39,7 @@ export default function PhotoCapture({
   const [selectedPhoto, setSelectedPhoto] = useState<string | null>(null);
   const [viewerScale, setViewerScale] = useState(1);
   const [cameraOpen, setCameraOpen] = useState(false);
+  const [cameraStreamToken, setCameraStreamToken] = useState(0);
   const [capturedBatch, setCapturedBatch] = useState<Array<{ imageData: string; thumbnail?: string }>>([]);
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [videoReady, setVideoReady] = useState(false);
@@ -51,6 +52,7 @@ export default function PhotoCapture({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const cameraSessionRef = useRef(0);
   const maxImageSize = 1280;
   const thumbnailSize = 360;
 
@@ -101,51 +103,72 @@ export default function PhotoCapture({
   }
 
   function stopCameraStream() {
-    if (!streamRef.current) return;
-    streamRef.current.getTracks().forEach((track) => track.stop());
+    const stream = streamRef.current;
+    if (videoRef.current) {
+      videoRef.current.pause();
+      if (!stream || videoRef.current.srcObject === stream) {
+        videoRef.current.srcObject = null;
+      }
+    }
+    if (!stream) return;
+    stream.getTracks().forEach((track) => track.stop());
     streamRef.current = null;
   }
 
-  const requestCameraStream = useCallback(async () => {
-    let stream: MediaStream | null = null;
-    const constraintOptions: MediaStreamConstraints[] = [
-      {
-        video: { facingMode: 'environment' },
-        audio: false,
-      },
-      {
-        video: {
-          facingMode: { ideal: 'environment' },
-        },
-        audio: false,
-      },
-      { video: true, audio: false },
-    ];
-
-    for (const constraints of constraintOptions) {
-      try {
-        stream = await navigator.mediaDevices.getUserMedia(constraints);
-        break;
-      } catch {
-        stream = null;
-      }
+  const requestCameraStream = useCallback(() => {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      return Promise.reject(new Error('Camera unavailable'));
     }
-
-    if (!stream) throw new Error('Camera unavailable');
-
-    return stream;
+    return navigator.mediaDevices.getUserMedia({
+      video: {
+        facingMode: { ideal: 'environment' },
+      },
+      audio: false,
+    });
   }, []);
 
+  async function beginCameraStartup(sessionId: number) {
+    let requestTimer: number | null = window.setTimeout(() => {
+      if (cameraSessionRef.current === sessionId && !streamRef.current) {
+        setCameraError('Camera is taking too long to start. Try Device Camera or Library.');
+      }
+    }, 12_000);
+
+    try {
+      const stream = await requestCameraStream();
+      if (cameraSessionRef.current !== sessionId) {
+        stream.getTracks().forEach((track) => track.stop());
+        return;
+      }
+      streamRef.current = stream;
+      setCameraStreamToken((token) => token + 1);
+    } catch {
+      if (cameraSessionRef.current === sessionId) {
+        setVideoReady(false);
+        setCameraError('Could not access camera. Try Device Camera or Library.');
+      }
+    } finally {
+      if (requestTimer) {
+        window.clearTimeout(requestTimer);
+        requestTimer = null;
+      }
+    }
+  }
+
   function openCamera() {
+    const sessionId = cameraSessionRef.current + 1;
+    cameraSessionRef.current = sessionId;
     setCameraError(null);
     setShowPhotoSourceSheet(false);
     setVideoReady(false);
     setCapturedBatch([]);
     stopCameraStream();
     setCameraOpen(true);
+    void beginCameraStartup(sessionId);
   }
 
   function closeCamera(discard = false) {
+    cameraSessionRef.current += 1;
     stopCameraStream();
     setCameraOpen(false);
     setVideoReady(false);
@@ -155,6 +178,7 @@ export default function PhotoCapture({
   }
 
   function openDeviceCameraFallback() {
+    cameraSessionRef.current += 1;
     stopCameraStream();
     setCameraOpen(false);
     setVideoReady(false);
@@ -362,9 +386,10 @@ export default function PhotoCapture({
   useEffect(() => {
     if (!cameraOpen || !videoRef.current) return;
     const video = videoRef.current;
+    const stream = streamRef.current;
+    if (!stream) return;
     let cancelled = false;
     let ready = false;
-    let streamForCleanup: MediaStream | null = null;
     let readinessTimer: number | null = null;
     let startupTimer: number | null = window.setTimeout(() => {
       if (!cancelled && !ready) {
@@ -397,6 +422,9 @@ export default function PhotoCapture({
     video.playsInline = true;
     video.setAttribute('playsinline', 'true');
     video.setAttribute('webkit-playsinline', 'true');
+    if (video.srcObject !== stream) {
+      video.srcObject = stream;
+    }
     setVideoReady(false);
 
     async function playPreview() {
@@ -417,34 +445,11 @@ export default function PhotoCapture({
       markVideoReady();
     }
 
-    async function startCamera() {
-      try {
-        const stream = await requestCameraStream();
-        if (cancelled) {
-          stream.getTracks().forEach((track) => track.stop());
-          return;
-        }
-        streamForCleanup = stream;
-        streamRef.current = stream;
-        video.srcObject = stream;
-        video.load();
-        if (cancelled) return;
-        void playPreview();
-        readinessTimer = window.setInterval(markVideoReady, 200);
-      } catch {
-        clearStartupTimer();
-        clearReadinessTimer();
-        if (!cancelled) {
-          setVideoReady(false);
-          setCameraError('Could not access camera. Try Device Camera or Library.');
-        }
-      }
-    }
-
     video.addEventListener('loadedmetadata', handleVideoReady);
     video.addEventListener('loadeddata', handleVideoReady);
     video.addEventListener('canplay', handleVideoReady);
-    void startCamera();
+    void playPreview();
+    readinessTimer = window.setInterval(markVideoReady, 200);
 
     return () => {
       cancelled = true;
@@ -453,11 +458,8 @@ export default function PhotoCapture({
       video.removeEventListener('loadedmetadata', handleVideoReady);
       video.removeEventListener('loadeddata', handleVideoReady);
       video.removeEventListener('canplay', handleVideoReady);
-      if (streamForCleanup && video.srcObject === streamForCleanup) {
-        video.srcObject = null;
-      }
     };
-  }, [cameraOpen, requestCameraStream]);
+  }, [cameraOpen, cameraStreamToken]);
 
   useEffect(() => {
     return () => {
