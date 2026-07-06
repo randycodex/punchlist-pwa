@@ -281,7 +281,7 @@ export default function PersistentTopBar() {
                 aria-modal="false"
                 aria-label="App menu"
               >
-                <div className="flex h-[calc(env(safe-area-inset-top)+3.5rem)] shrink-0 items-center justify-between border-b border-[var(--surface-border)] bg-[var(--surface)] px-4 pt-[env(safe-area-inset-top)] md:hidden">
+                <div className="flex h-[calc(env(safe-area-inset-top)+3.5rem)] shrink-0 items-center justify-between bg-[var(--surface)] px-4 pt-[env(safe-area-inset-top)] md:hidden">
                   <Link
                     href="/"
                     aria-label="Go to projects"
