@@ -135,6 +135,7 @@ export default function FacadeElevationViewer({
   const [customCheckpointName, setCustomCheckpointName] = useState('');
   const [isOpeningSelection, setIsOpeningSelection] = useState(false);
   const [isCollapsed, setIsCollapsed] = useState(false);
+  const [lastSelection, setLastSelection] = useState<ChecklistSelection | null>(null);
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const mediaRef = useRef<HTMLImageElement | HTMLObjectElement | HTMLDivElement | null>(null);
   const dragRef = useRef<DragGesture | null>(null);
@@ -152,6 +153,17 @@ export default function FacadeElevationViewer({
     () => getFirstAvailableSelection(selectableLocations),
     [selectableLocations]
   );
+  const preferredSelection = useMemo(() => {
+    if (!lastSelection) return firstSelection;
+
+    const location = selectableLocations.find((entry) => entry.id === lastSelection.locationId);
+    const item = location?.items.find((entry) => entry.id === lastSelection.itemId && isExistingElevationItem(entry));
+    const checkpoint = item?.checkpoints.find(
+      (entry) => entry.id === lastSelection.checkpointId && isExistingElevationCheckpoint(entry)
+    );
+
+    return location && item && checkpoint ? lastSelection : firstSelection;
+  }, [firstSelection, lastSelection, selectableLocations]);
   const selectedLocation = picker
     ? selectableLocations.find((location) => location.id === picker.locationId) ?? null
     : null;
@@ -219,13 +231,13 @@ export default function FacadeElevationViewer({
   }
 
   function openPickerAtPoint(clientX: number, clientY: number) {
-    if (!firstSelection) return;
+    if (!preferredSelection) return;
     const tapPoint = getTapPoint(clientX, clientY);
     if (!tapPoint) return;
 
     setPicker({
       ...tapPoint,
-      ...firstSelection,
+      ...preferredSelection,
     });
     setPickerMode('existing');
     setCustomItemName('');
@@ -385,6 +397,11 @@ export default function FacadeElevationViewer({
         customItemName: pickerMode === 'custom' ? trimmedCustomItemName : undefined,
         customCheckpointName: pickerMode === 'custom' ? trimmedCustomCheckpointName : undefined,
       });
+      setLastSelection({
+        locationId: picker.locationId,
+        itemId: picker.itemId,
+        checkpointId: picker.checkpointId,
+      });
       setPicker(null);
       setPickerMode('existing');
       setCustomItemName('');
@@ -403,46 +420,10 @@ export default function FacadeElevationViewer({
             {drawing.name || drawing.fileName}
           </div>
         </div>
-        {!isCollapsed && (
-          <div className="flex shrink-0 items-center gap-1.5">
-            <button
-              type="button"
-              onClick={() => updateZoom(scale - ZOOM_STEP)}
-              className="flex h-10 w-10 items-center justify-center rounded-full border border-black/5 bg-white/75 text-gray-600 transition hover:bg-white disabled:opacity-40 dark:border-white/10 dark:bg-white/[0.06] dark:text-gray-300 dark:hover:bg-white/[0.1]"
-              disabled={scale <= MIN_ZOOM}
-              aria-label="Zoom out"
-              title="Zoom out"
-            >
-              <Minus className="h-4 w-4" />
-            </button>
-            <div className="min-w-14 text-center text-xs font-semibold text-gray-500 dark:text-gray-400">
-              {Math.round(scale * 100)}%
-            </div>
-            <button
-              type="button"
-              onClick={() => updateZoom(scale + ZOOM_STEP)}
-              className="flex h-10 w-10 items-center justify-center rounded-full border border-black/5 bg-white/75 text-gray-600 transition hover:bg-white disabled:opacity-40 dark:border-white/10 dark:bg-white/[0.06] dark:text-gray-300 dark:hover:bg-white/[0.1]"
-              disabled={scale >= MAX_ZOOM}
-              aria-label="Zoom in"
-              title="Zoom in"
-            >
-              <Plus className="h-4 w-4" />
-            </button>
-            <button
-              type="button"
-              onClick={resetZoom}
-              className="flex h-10 w-10 items-center justify-center rounded-full border border-black/5 bg-white/75 text-gray-600 transition hover:bg-white dark:border-white/10 dark:bg-white/[0.06] dark:text-gray-300 dark:hover:bg-white/[0.1]"
-              aria-label="Reset zoom"
-              title="Reset zoom"
-            >
-              <RotateCcw className="h-4 w-4" />
-            </button>
-          </div>
-        )}
         <button
           type="button"
           onClick={toggleCollapsed}
-          className="flex h-10 w-10 shrink-0 items-center justify-end text-gray-400 transition hover:text-gray-600 dark:hover:text-gray-200"
+          className="ml-auto flex h-10 w-10 shrink-0 items-center justify-center rounded-[1rem] text-gray-400 transition hover:bg-black/[0.04] hover:text-gray-600 dark:hover:bg-white/[0.06] dark:hover:text-gray-200"
           aria-label={isCollapsed ? 'Expand elevation drawing' : 'Collapse elevation drawing'}
           title={isCollapsed ? 'Expand elevation drawing' : 'Collapse elevation drawing'}
         >
@@ -451,91 +432,134 @@ export default function FacadeElevationViewer({
       </div>
 
       {!isCollapsed && (
-        <div
-          ref={viewportRef}
-          className={`relative flex h-[min(62vh,34rem)] min-h-[19rem] touch-none items-center justify-center overflow-hidden bg-zinc-950 ${
-            scale > 1 ? 'cursor-grab active:cursor-grabbing' : 'cursor-crosshair'
-          }`}
-          onClick={handleViewerClick}
-          onKeyDown={handleViewerKeyDown}
-          onPointerDown={handlePointerDown}
-          onPointerMove={handlePointerMove}
-          onPointerUp={handlePointerUp}
-          onPointerCancel={handlePointerUp}
-          onTouchStart={handleTouchStart}
-          onTouchMove={handleTouchMove}
-          onTouchEnd={handleTouchEnd}
-          onTouchCancel={handleTouchEnd}
-          role="button"
-          tabIndex={0}
-          aria-label="Select elevation point"
-        >
-          <div
-            className="relative inline-block max-h-full max-w-full will-change-transform"
-            style={{
-              transform: `translate(${offset.x}px, ${offset.y}px) scale(${scale})`,
-              transformOrigin: 'center center',
-            }}
-          >
-            {isImage ? (
-              <img
-                ref={(node) => {
-                  mediaRef.current = node;
-                }}
-                src={drawing.dataUrl}
-                alt={drawing.name || drawing.fileName}
-                draggable={false}
-                className="block max-h-[min(62vh,34rem)] max-w-full select-none object-contain"
-              />
-            ) : isPdf ? (
-              <object
-                ref={(node) => {
-                  mediaRef.current = node;
-                }}
-                data={drawing.dataUrl}
-                type={drawing.mimeType}
-                aria-label={drawing.name || drawing.fileName}
-                className="pointer-events-none block h-[min(62vh,34rem)] w-[min(calc(100vw-2rem),60rem)] max-w-full bg-white"
-              />
-            ) : (
-              <div
-                ref={(node) => {
-                  mediaRef.current = node;
-                }}
-                className="flex h-[19rem] w-[min(calc(100vw-2rem),42rem)] max-w-full items-center justify-center bg-white px-6 text-center text-sm text-gray-700"
+        <>
+          <div className="flex items-center justify-between gap-3 border-t border-black/[0.04] px-4 pb-3 pt-2 dark:border-white/[0.05]">
+            <div className="min-w-0 text-xs font-semibold text-gray-500 dark:text-gray-400">
+              {markers.length === 1 ? '1 marked issue' : `${markers.length} marked issues`}
+            </div>
+            <div className="flex shrink-0 items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => updateZoom(scale - ZOOM_STEP)}
+                className="flex h-9 w-9 items-center justify-center rounded-full border border-black/5 bg-white/75 text-gray-600 transition hover:bg-white disabled:opacity-40 dark:border-white/10 dark:bg-white/[0.06] dark:text-gray-300 dark:hover:bg-white/[0.1]"
+                disabled={scale <= MIN_ZOOM}
+                aria-label="Zoom out"
+                title="Zoom out"
               >
-                {drawing.fileName}
+                <Minus className="h-4 w-4" />
+              </button>
+              <div className="min-w-12 text-center text-xs font-semibold text-gray-500 dark:text-gray-400">
+                {Math.round(scale * 100)}%
               </div>
-            )}
-            {markers.map((marker) => (
-              <span
-                key={`${marker.checkpointId}-${marker.markerKey}`}
-                className="pointer-events-none absolute flex h-5 w-5 items-center justify-center rounded-full border border-white bg-[var(--accent)] text-[0.52rem] font-bold leading-none text-white shadow-md ring-1 ring-black/35"
-                style={{
-                  left: `${marker.xPercent}%`,
-                  top: `${marker.yPercent}%`,
-                  transform: `translate(-50%, -50%) scale(${1 / scale})`,
-                  transformOrigin: 'center center',
-                }}
+              <button
+                type="button"
+                onClick={() => updateZoom(scale + ZOOM_STEP)}
+                className="flex h-9 w-9 items-center justify-center rounded-full border border-black/5 bg-white/75 text-gray-600 transition hover:bg-white disabled:opacity-40 dark:border-white/10 dark:bg-white/[0.06] dark:text-gray-300 dark:hover:bg-white/[0.1]"
+                disabled={scale >= MAX_ZOOM}
+                aria-label="Zoom in"
+                title="Zoom in"
               >
-                {marker.markerKey.replace(/^E/, '')}
-              </span>
-            ))}
-            {picker && (
-              <span
-                className="pointer-events-none absolute flex h-5 w-5 items-center justify-center rounded-full border border-white bg-[var(--accent)] text-white shadow-md ring-1 ring-black/35"
-                style={{
-                  left: `${picker.xPercent}%`,
-                  top: `${picker.yPercent}%`,
-                  transform: `translate(-50%, -50%) scale(${1 / scale})`,
-                  transformOrigin: 'center center',
-                }}
+                <Plus className="h-4 w-4" />
+              </button>
+              <button
+                type="button"
+                onClick={resetZoom}
+                className="flex h-9 w-9 items-center justify-center rounded-full border border-black/5 bg-white/75 text-gray-600 transition hover:bg-white dark:border-white/10 dark:bg-white/[0.06] dark:text-gray-300 dark:hover:bg-white/[0.1]"
+                aria-label="Reset zoom"
+                title="Reset zoom"
               >
-                <MapPin className="h-2.5 w-2.5" />
-              </span>
-            )}
+                <RotateCcw className="h-4 w-4" />
+              </button>
+            </div>
           </div>
-        </div>
+
+          <div
+            ref={viewportRef}
+            className={`relative flex h-[min(68dvh,38rem)] min-h-[22rem] touch-none items-center justify-center overflow-hidden bg-zinc-950 sm:h-[min(70vh,42rem)] ${
+              scale > 1 ? 'cursor-grab active:cursor-grabbing' : 'cursor-crosshair'
+            }`}
+            onClick={handleViewerClick}
+            onKeyDown={handleViewerKeyDown}
+            onPointerDown={handlePointerDown}
+            onPointerMove={handlePointerMove}
+            onPointerUp={handlePointerUp}
+            onPointerCancel={handlePointerUp}
+            onTouchStart={handleTouchStart}
+            onTouchMove={handleTouchMove}
+            onTouchEnd={handleTouchEnd}
+            onTouchCancel={handleTouchEnd}
+            role="button"
+            tabIndex={0}
+            aria-label="Select elevation point"
+          >
+            <div
+              className="relative inline-block max-h-full max-w-full will-change-transform"
+              style={{
+                transform: `translate(${offset.x}px, ${offset.y}px) scale(${scale})`,
+                transformOrigin: 'center center',
+              }}
+            >
+              {isImage ? (
+                <img
+                  ref={(node) => {
+                    mediaRef.current = node;
+                  }}
+                  src={drawing.dataUrl}
+                  alt={drawing.name || drawing.fileName}
+                  draggable={false}
+                  className="block max-h-[min(68dvh,38rem)] max-w-full select-none object-contain sm:max-h-[min(70vh,42rem)]"
+                />
+              ) : isPdf ? (
+                <object
+                  ref={(node) => {
+                    mediaRef.current = node;
+                  }}
+                  data={drawing.dataUrl}
+                  type={drawing.mimeType}
+                  aria-label={drawing.name || drawing.fileName}
+                  className="pointer-events-none block h-[min(68dvh,38rem)] w-[min(calc(100vw-2rem),64rem)] max-w-full bg-white sm:h-[min(70vh,42rem)]"
+                />
+              ) : (
+                <div
+                  ref={(node) => {
+                    mediaRef.current = node;
+                  }}
+                  className="flex h-[22rem] w-[min(calc(100vw-2rem),42rem)] max-w-full items-center justify-center bg-white px-6 text-center text-sm text-gray-700"
+                >
+                  {drawing.fileName}
+                </div>
+              )}
+              {markers.map((marker) => (
+                <span
+                  key={`${marker.checkpointId}-${marker.markerKey}`}
+                  className="pointer-events-none absolute flex h-5 w-5 items-center justify-center rounded-full border border-white bg-[var(--accent)] text-[0.52rem] font-bold leading-none text-white shadow-md ring-1 ring-black/35"
+                  style={{
+                    left: `${marker.xPercent}%`,
+                    top: `${marker.yPercent}%`,
+                    transform: `translate(-50%, -50%) scale(${1 / scale})`,
+                    transformOrigin: 'center center',
+                  }}
+                  title={`${marker.markerKey}: ${marker.sectionName} / ${marker.itemName} / ${marker.checkpointName}`}
+                >
+                  {marker.markerKey.replace(/^E/, '')}
+                </span>
+              ))}
+              {picker && (
+                <span
+                  className="pointer-events-none absolute flex h-5 w-5 items-center justify-center rounded-full border border-white bg-[var(--accent)] text-white shadow-md ring-1 ring-black/35"
+                  style={{
+                    left: `${picker.xPercent}%`,
+                    top: `${picker.yPercent}%`,
+                    transform: `translate(-50%, -50%) scale(${1 / scale})`,
+                    transformOrigin: 'center center',
+                  }}
+                >
+                  <MapPin className="h-2.5 w-2.5" />
+                </span>
+              )}
+            </div>
+          </div>
+        </>
       )}
 
       {picker && (
@@ -553,7 +577,7 @@ export default function FacadeElevationViewer({
             role="dialog"
             aria-modal="true"
             aria-labelledby="elevation-picker-title"
-            className="w-full max-w-md rounded-[1.6rem] bg-white p-4 shadow-2xl dark:bg-zinc-900"
+            className="max-h-[calc(100dvh-1.5rem)] w-full max-w-md overflow-y-auto rounded-[1.6rem] bg-white p-4 shadow-2xl dark:bg-zinc-900"
             onPointerDown={(event) => event.stopPropagation()}
             onClick={(event) => event.stopPropagation()}
           >

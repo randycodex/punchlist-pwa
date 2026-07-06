@@ -9,7 +9,30 @@ import { useCollaborationAuth } from '@/contexts/CollaborationAuthContext';
 import { useSyncStatus } from '@/contexts/SyncStatusContext';
 import { useAppSettings } from '@/contexts/AppSettingsContext';
 import { getProject } from '@/lib/db';
-import { MoreVertical, LogOut, LogIn, ArrowDownAZ, Clock3, BarChart3, PlusSquare, FolderPlus, Trash2, Pencil, FileDown, Users, Share2, CheckCircle2, KeyRound, UserPlus, CloudUpload, CloudDownload, ArchiveRestore, Activity } from 'lucide-react';
+import {
+  Activity,
+  ArchiveRestore,
+  ArrowDownAZ,
+  BarChart3,
+  CheckCircle2,
+  Clock3,
+  CloudDownload,
+  CloudUpload,
+  FileDown,
+  FolderPlus,
+  KeyRound,
+  LogIn,
+  LogOut,
+  MoreVertical,
+  Pencil,
+  PlusSquare,
+  RefreshCw,
+  Share2,
+  Trash2,
+  UserPlus,
+  Users,
+  X,
+} from 'lucide-react';
 
 const projectTitleCache = new Map<string, string>();
 type SortOption = 'alphabetical' | 'issues' | 'progress';
@@ -75,6 +98,20 @@ export default function PersistentTopBar() {
     'needs-auth': 'Sign in required to finish syncing',
     error: 'Sync needs attention',
   } as const;
+  const syncButtonShortLabel = {
+    idle: 'Synced',
+    syncing: 'Syncing',
+    pending: 'Pending',
+    'needs-auth': 'Sign in',
+    error: 'Error',
+  } as const;
+  const syncButtonIcons = {
+    idle: CheckCircle2,
+    syncing: RefreshCw,
+    pending: CloudUpload,
+    'needs-auth': KeyRound,
+    error: Activity,
+  } as const;
 
   useEffect(() => {
     let cancelled = false;
@@ -115,15 +152,27 @@ export default function PersistentTopBar() {
 
   useEffect(() => {
     if (!showHomeMenu) return;
-    const handlePointerDown = (event: PointerEvent) => {
-      const target = event.target as Node | null;
-      if (target && !menuRef.current?.contains(target)) {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
         setShowHomeMenu(false);
       }
     };
-    document.addEventListener('pointerdown', handlePointerDown, true);
+    document.addEventListener('keydown', handleKeyDown);
     return () => {
-      document.removeEventListener('pointerdown', handlePointerDown, true);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [showHomeMenu]);
+
+  useEffect(() => {
+    const root = document.documentElement;
+    if (showHomeMenu) {
+      root.dataset.appMenuOpen = 'true';
+    } else {
+      delete root.dataset.appMenuOpen;
+    }
+
+    return () => {
+      delete root.dataset.appMenuOpen;
     };
   }, [showHomeMenu]);
 
@@ -153,23 +202,28 @@ export default function PersistentTopBar() {
     { value: 'progress', label: 'Progress' },
   ];
 
-  function dispatchHomeAction(action: string, sort?: SortOption) {
+  function dispatchHomeAction(action: string, sort?: SortOption, options?: { keepMenuOpen?: boolean }) {
     window.dispatchEvent(new CustomEvent('punchlist-home-menu-action', { detail: { action, sort } }));
-    setShowHomeMenu(false);
+    if (!options?.keepMenuOpen) {
+      setShowHomeMenu(false);
+    }
   }
 
   function renderSyncButton() {
     const label = retryInSeconds > 0 ? `Sync available in ${retryInSeconds} seconds` : syncButtonLabel[status];
+    const shortLabel = retryInSeconds > 0 ? `${retryInSeconds}s` : syncButtonShortLabel[status];
+    const SyncIcon = retryInSeconds > 0 ? CloudUpload : syncButtonIcons[status];
 
     return (
       <button
         type="button"
         onClick={() => dispatchHomeAction('sync-now')}
-        className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-[1rem] border transition ${syncButtonClasses[status]}`}
+        className={`flex h-10 min-w-10 shrink-0 items-center justify-center gap-2 rounded-[1rem] border px-2.5 transition ${syncButtonClasses[status]}`}
         aria-label={label}
         title={label}
       >
-        <span className="text-[10px] font-bold leading-none tracking-[0.06em]">SYNC</span>
+        <SyncIcon className={`h-4 w-4 ${status === 'syncing' && retryInSeconds === 0 ? 'animate-spin' : ''}`} />
+        <span className="hidden text-xs font-bold leading-none tracking-normal sm:inline">{shortLabel}</span>
       </button>
     );
   }
@@ -214,7 +268,33 @@ export default function PersistentTopBar() {
               <MoreVertical className="h-5 w-5" />
             </button>
             {showHomeMenu && (
-              <div className="menu-surface scrollbar-hidden absolute right-0 top-[calc(100%+0.65rem)] z-40 max-h-[calc(100dvh-7rem)] min-w-[15rem] overflow-x-hidden overflow-y-auto overscroll-contain rounded-[1.6rem] p-2">
+              <div
+                className="app-menu-drawer menu-surface fixed right-0 top-0 z-[120] flex h-[100dvh] flex-col overflow-hidden rounded-l-[1.6rem] rounded-r-none border-y-0 border-r-0 p-0 shadow-2xl"
+                role="dialog"
+                aria-modal="false"
+                aria-label="App menu"
+              >
+                <div className="flex shrink-0 items-center justify-between gap-3 border-b border-black/[0.05] px-4 pb-3 pt-[calc(env(safe-area-inset-top)+0.75rem)] dark:border-white/[0.06]">
+                  <div className="min-w-0">
+                    <div className="section-eyebrow">Menu</div>
+                    <div className="truncate text-sm font-semibold text-gray-900 dark:text-white">
+                      {homeMenuState.isSingleProject && homeMenuState.singleProjectName
+                        ? homeMenuState.singleProjectName
+                        : showAuth
+                          ? 'Projects'
+                          : 'Project tools'}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowHomeMenu(false)}
+                    className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[1rem] border border-black/5 bg-white/70 text-gray-500 transition hover:bg-white hover:text-gray-900 dark:border-white/10 dark:bg-white/[0.04] dark:text-gray-300 dark:hover:bg-white/[0.08] dark:hover:text-white"
+                    aria-label="Close app menu"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+                <div className="scrollbar-hidden min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain px-3 pb-[calc(env(safe-area-inset-bottom)+1rem)] pt-2">
                 {showAuth && (
                   <div className="px-1 py-1">
                     <div className="space-y-2 rounded-[1.25rem] bg-black/[0.03] p-2.5 dark:bg-white/[0.03]">
@@ -225,7 +305,7 @@ export default function PersistentTopBar() {
                         {quickSortOptions.map((option) => (
                           <button
                             key={option.value}
-                            onClick={() => dispatchHomeAction(`quick-sort:${option.value}`)}
+                            onClick={() => dispatchHomeAction(`quick-sort:${option.value}`, undefined, { keepMenuOpen: true })}
                             className={`rounded-full px-3 py-1.5 text-xs font-medium transition ${
                               quickSort === option.value
                                 ? 'bg-[var(--accent)] text-white'
@@ -249,7 +329,7 @@ export default function PersistentTopBar() {
                       {sortOptions.map(({ value, label, icon: Icon }) => (
                         <button
                           key={value}
-                          onClick={() => dispatchHomeAction('sort', value)}
+                          onClick={() => dispatchHomeAction('sort', value, { keepMenuOpen: true })}
                           className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm transition ${
                             homeMenuState.sortOption === value
                               ? 'bg-[var(--accent)] font-medium text-white'
@@ -438,6 +518,7 @@ export default function PersistentTopBar() {
                       </button>
                     )}
                   </div>
+                </div>
                 </div>
               </div>
             )}

@@ -32,7 +32,7 @@ type InspectionLocationCardProps = {
   locationMetric?: Metrics;
   itemMetrics: Map<string, Metrics>;
   elevationMarkerRefsByCheckpoint?: Map<string, { markerKey: string }>;
-  showElevationIssueInstancesOnly?: boolean;
+  showFacadeRelevantItemsOnly?: boolean;
   deleteMode?: boolean;
   isSelected?: boolean;
   onToggleSelection?: (locationId: string) => void;
@@ -90,12 +90,29 @@ type InspectionLocationCardProps = {
   renderCheckpointAddControl?: (locationId: string, itemId: string) => ReactNode;
 };
 
+function checkpointHasFacadeListContent(checkpoint: Checkpoint) {
+  const hasComments = checkpoint.comments.trim().length > 0;
+  const hasMedia = checkpoint.photos.length > 0 || (checkpoint.files?.length ?? 0) > 0;
+
+  if (checkpoint.isElevationIssue) {
+    return getCheckpointIssueState(checkpoint) !== 'none' || hasComments || hasMedia;
+  }
+
+  return (
+    checkpoint.status !== 'pending' ||
+    getCheckpointIssueState(checkpoint) !== 'none' ||
+    hasComments ||
+    hasMedia ||
+    Boolean(checkpoint.elevationMarker)
+  );
+}
+
 export default function InspectionLocationCard({
   location,
   locationMetric,
   itemMetrics,
   elevationMarkerRefsByCheckpoint,
-  showElevationIssueInstancesOnly = false,
+  showFacadeRelevantItemsOnly = false,
   deleteMode = false,
   isSelected = false,
   onToggleSelection,
@@ -151,19 +168,19 @@ export default function InspectionLocationCard({
   const activeCameraOnlyCheckpointId =
     expandedCheckpointId === cameraOnlyCheckpointId ? cameraOnlyCheckpointId : null;
   const shouldShowCheckpoint = useCallback((checkpoint: Checkpoint) => {
-    if (showElevationIssueInstancesOnly && !checkpoint.isElevationIssue) return false;
+    if (showFacadeRelevantItemsOnly && !checkpointHasFacadeListContent(checkpoint)) return false;
     return !showOnlyIssues || getCheckpointIssueState(checkpoint) !== 'none';
-  }, [showElevationIssueInstancesOnly, showOnlyIssues]);
+  }, [showFacadeRelevantItemsOnly, showOnlyIssues]);
   const visibleItems = useMemo(
     () => {
-      if (showElevationIssueInstancesOnly) {
+      if (showFacadeRelevantItemsOnly) {
         return location.items.filter((item) => item.checkpoints.some(shouldShowCheckpoint));
       }
       return showOnlyIssues
         ? location.items.filter((item) => (itemMetrics.get(item.id)?.stats.issues ?? 0) > 0)
         : location.items;
     },
-    [showElevationIssueInstancesOnly, showOnlyIssues, location.items, itemMetrics, shouldShowCheckpoint]
+    [showFacadeRelevantItemsOnly, showOnlyIssues, location.items, itemMetrics, shouldShowCheckpoint]
   );
 
   function getCheckpointRowLabel(checkpoint: Checkpoint, fallbackLabel?: string) {
@@ -241,7 +258,9 @@ export default function InspectionLocationCard({
       }
     >
       {!hideHeader && (
-        <button
+        <div
+          role="button"
+          tabIndex={0}
           onClick={() => {
             if (deleteMode) {
               onToggleSelection?.(location.id);
@@ -249,7 +268,17 @@ export default function InspectionLocationCard({
               void onToggleLocation(location.id);
             }
           }}
-          className={`w-full px-4 py-4 text-left transition ${
+          onKeyDown={(event) => {
+            if (event.target !== event.currentTarget) return;
+            if (event.key !== 'Enter' && event.key !== ' ') return;
+            event.preventDefault();
+            if (deleteMode) {
+              onToggleSelection?.(location.id);
+            } else if (!alwaysExpanded) {
+              void onToggleLocation(location.id);
+            }
+          }}
+          className={`w-full cursor-pointer px-4 py-4 text-left transition ${
             deleteMode ? '' : 'hover:bg-black/[0.02] dark:hover:bg-white/[0.04]'
           }`}
         >
@@ -322,7 +351,7 @@ export default function InspectionLocationCard({
               )}
             </div>
           </div>
-        </button>
+        </div>
       )}
 
       {(alwaysExpanded || isExpanded) && (
@@ -435,6 +464,15 @@ export default function InspectionLocationCard({
                       onAddFiles={onAddFiles}
                       onDeletePhoto={onDeletePhoto}
                       onDeleteFile={onDeleteFile}
+                      issueState={customIssueState}
+                      onToggleIssue={() =>
+                        void onUpdateCheckpointStatus(
+                          location.id,
+                          item.id,
+                          customCheckpoint.id,
+                          customIssueState === 'open' ? 'pending' : 'open'
+                        )
+                      }
                       showCommentEditor={activeCameraOnlyCheckpointId !== customCheckpoint.id}
                       onCloseEditor={() =>
                         openCheckpointComments(location.id, item.id, customCheckpoint.id, customCheckpoint.comments)
@@ -562,6 +600,15 @@ export default function InspectionLocationCard({
                             onAddFiles={onAddFiles}
                             onDeletePhoto={onDeletePhoto}
                             onDeleteFile={onDeleteFile}
+                            issueState={issueState}
+                            onToggleIssue={() =>
+                              void onUpdateCheckpointStatus(
+                                location.id,
+                                item.id,
+                                checkpoint.id,
+                                issueState === 'open' ? 'pending' : 'open'
+                              )
+                            }
                             showCommentEditor={activeCameraOnlyCheckpointId !== checkpoint.id}
                             onCloseEditor={() =>
                               openCheckpointComments(location.id, item.id, checkpoint.id, checkpoint.comments)
@@ -637,9 +684,17 @@ export default function InspectionLocationCard({
                     </div>
                   </div>
                 ) : (
-                  <button
+                  <div
+                    role="button"
+                    tabIndex={0}
                     onClick={() => void onToggleItem(item.id)}
-                    className={`w-full px-4 py-3 text-left transition ${
+                    onKeyDown={(event) => {
+                      if (event.target !== event.currentTarget) return;
+                      if (event.key !== 'Enter' && event.key !== ' ') return;
+                      event.preventDefault();
+                      void onToggleItem(item.id);
+                    }}
+                    className={`w-full cursor-pointer px-4 py-3 text-left transition ${
                       isItemExpanded
                         ? 'rounded-t-[1.4rem]'
                         : 'card-surface-subtle rounded-[1.3rem] dark:border-transparent hover:bg-[var(--surface-strong)] dark:hover:bg-white/[0.06]'
@@ -717,7 +772,7 @@ export default function InspectionLocationCard({
                         {isItemExpanded ? <ChevronDown className="w-4 h-4 text-gray-400" /> : <ChevronRight className="w-4 h-4 text-gray-400" />}
                       </div>
                     </div>
-                  </button>
+                  </div>
                 )}
 
                 {isItemExpanded && (
@@ -832,6 +887,15 @@ export default function InspectionLocationCard({
                               onAddFiles={onAddFiles}
                               onDeletePhoto={onDeletePhoto}
                               onDeleteFile={onDeleteFile}
+                              issueState={issueState}
+                              onToggleIssue={() =>
+                                void onUpdateCheckpointStatus(
+                                  location.id,
+                                  item.id,
+                                  checkpoint.id,
+                                  issueState === 'open' ? 'pending' : 'open'
+                                )
+                              }
                               showCommentEditor={activeCameraOnlyCheckpointId !== checkpoint.id}
                               onCloseEditor={() =>
                                 openCheckpointComments(location.id, item.id, checkpoint.id, checkpoint.comments)
