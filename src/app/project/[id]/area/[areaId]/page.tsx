@@ -1492,6 +1492,26 @@ export default function AreaDetailPage() {
     return (listRef.current?.scrollTop ?? 0) <= 8;
   }
 
+  function scrollLocationToListAnchor(locationId: string) {
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        const scroller = listRef.current;
+        const target = locationRefs.current.get(locationId);
+        if (!scroller || !target) return;
+
+        const scrollerRect = scroller.getBoundingClientRect();
+        const targetRect = target.getBoundingClientRect();
+        const scrollerPaddingTop = Number.parseFloat(window.getComputedStyle(scroller).paddingTop) || 0;
+        const targetTop = scrollerRect.top + scrollerPaddingTop;
+
+        scroller.scrollTo({
+          top: scroller.scrollTop + targetRect.top - targetTop,
+          behavior: 'smooth',
+        });
+      });
+    });
+  }
+
   function handlePullStart(e: TouchEvent<HTMLElement>) {
     if (e.touches.length !== 1) {
       pullStartYRef.current = null;
@@ -1624,14 +1644,7 @@ export default function AreaDetailPage() {
         setExpandedLocations(new Set([locationId]));
         setExpandedItems(new Set());
       }
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-          locationRefs.current.get(locationId)?.scrollIntoView({
-            block: 'start',
-            behavior: 'smooth',
-          });
-        });
-      });
+      scrollLocationToListAnchor(locationId);
     }
   }
 
@@ -1857,7 +1870,6 @@ export default function AreaDetailPage() {
               <ArrowLeft className="w-5 h-5" />
             </Link>
             <div className="min-w-0 flex flex-1 flex-col">
-              <div className="section-eyebrow">Inspection</div>
               <h1 className="truncate text-[1.12rem] font-semibold tracking-[-0.02em] text-gray-900 dark:text-white">
                 {areaTitle}
               </h1>
@@ -2003,7 +2015,7 @@ export default function AreaDetailPage() {
       {/* Inspection Items */}
       <main
         ref={listRef}
-        className="flex-1 min-h-0 overflow-y-scroll overscroll-y-contain touch-pan-y px-4 pt-4 pb-[calc(env(safe-area-inset-bottom)+3.5rem)] sm:px-5"
+        className="flex-1 min-h-0 overflow-y-scroll overscroll-y-contain touch-pan-y px-4 pt-5 pb-[calc(env(safe-area-inset-bottom)+3.5rem)] sm:px-5"
         onTouchStartCapture={handlePullStart}
         onTouchMoveCapture={handlePullMove}
         onTouchEndCapture={handlePullEnd}
