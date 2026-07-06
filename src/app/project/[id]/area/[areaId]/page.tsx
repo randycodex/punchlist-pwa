@@ -80,6 +80,7 @@ import {
   MoreVertical,
   RefreshCw,
   Trash2,
+  UnlockKeyhole,
 } from 'lucide-react';
 
 const RECENT_COMMENTS_STORAGE_KEY = 'punchlist-recent-comments';
@@ -212,6 +213,7 @@ export default function AreaDetailPage() {
   const [syncError, setSyncError] = useState<string | null>(null);
   const [areaClaimError, setAreaClaimError] = useState<string | null>(null);
   const [claimingArea, setClaimingArea] = useState(false);
+  const [releasingAreaClaim, setReleasingAreaClaim] = useState(false);
   const [areaClaimExpiresAt, setAreaClaimExpiresAt] = useState<Date | null>(null);
   const [claimBlockedMessage, setClaimBlockedMessage] = useState<string | null>(null);
   const [confirmDialog, setConfirmDialog] = useState<ConfirmDialogState | null>(null);
@@ -1334,6 +1336,26 @@ export default function AreaDetailPage() {
     }
   }
 
+  async function handleReleaseAreaClaim() {
+    if (!project?.sharedProjectId || !area || releasingAreaClaim) return;
+
+    setReleasingAreaClaim(true);
+    setSyncError(null);
+    try {
+      await closeExpandedCheckpoint();
+      await publishSharedProjectSilently(project.id);
+      await releaseSharedProjectArea(project.sharedProjectId, area.id);
+      setAreaClaimExpiresAt(null);
+      setAreaClaimError(null);
+      router.push(`/project/${project.id}`);
+    } catch (error) {
+      console.error('Failed to release shared area claim:', error);
+      setSyncError(getCollaborationErrorMessage(error, 'Failed to release this shared area lock.'));
+    } finally {
+      setReleasingAreaClaim(false);
+    }
+  }
+
   function handleGeneralNotesChange(value: string) {
     setGeneralNotes(value);
     notesDraftRef.current = value;
@@ -1620,9 +1642,12 @@ export default function AreaDetailPage() {
   const supportsGlobalCustomItems = !supportsInlineLocationCustomItems && !deleteMode;
   const flattenSingleStairsLocation =
     !deleteMode && !isApartmentArea(area) && sortedStandardLocations.length === 1;
+  const canReleaseAreaClaim = Boolean(project.sharedProjectId && areaClaimExpiresAt && !areaClaimError);
   const sharedAreaClaimLabel = areaClaimError
     ? 'Shared claim blocked'
-    : claimingArea
+    : releasingAreaClaim
+      ? 'Releasing shared lock...'
+      : claimingArea
       ? 'Claiming shared area...'
       : areaClaimExpiresAt
         ? `Locked to you until ${areaClaimExpiresAt.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`
@@ -1683,6 +1708,19 @@ export default function AreaDetailPage() {
                       <RefreshCw className="h-4 w-4" />
                       {retryInSeconds > 0 ? `Sync in ${retryInSeconds}s` : 'Sync now'}
                     </button>
+                    {canReleaseAreaClaim && (
+                      <button
+                        onClick={() => {
+                          setShowHeaderMenu(false);
+                          void handleReleaseAreaClaim();
+                        }}
+                        disabled={releasingAreaClaim}
+                        className="flex w-full items-center gap-3 rounded-[1rem] px-3 py-2.5 text-left text-[0.98rem] text-gray-700 transition hover:bg-black/[0.04] disabled:opacity-50 dark:text-gray-200 dark:hover:bg-white/[0.06]"
+                      >
+                        <UnlockKeyhole className="h-4 w-4" />
+                        {releasingAreaClaim ? 'Releasing lock...' : 'Release lock'}
+                      </button>
+                    )}
                     <button
                       onClick={() => {
                         setShowHeaderMenu(false);
