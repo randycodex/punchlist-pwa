@@ -281,7 +281,7 @@ export default function PersistentTopBar() {
                 aria-modal="false"
                 aria-label="App menu"
               >
-                <div className="flex h-[calc(env(safe-area-inset-top)+3.5rem)] shrink-0 items-center justify-end border-b border-black/[0.05] px-4 pt-[env(safe-area-inset-top)] dark:border-white/[0.06]">
+                <div className="flex h-[calc(env(safe-area-inset-top)+3.5rem)] shrink-0 items-center justify-end border-b border-black/[0.05] px-4 pt-[env(safe-area-inset-top)] dark:border-white/[0.06] md:hidden">
                   <button
                     type="button"
                     onClick={() => setShowHomeMenu(false)}
@@ -291,7 +291,7 @@ export default function PersistentTopBar() {
                     <PanelRightClose className="h-4 w-4" />
                   </button>
                 </div>
-                <div className="scrollbar-hidden min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain px-3 pb-[calc(env(safe-area-inset-bottom)+1rem)] pt-2">
+                <div className="scrollbar-hidden min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain px-3 pb-[calc(env(safe-area-inset-bottom)+1rem)] pt-2 md:pt-[calc(env(safe-area-inset-top)+0.5rem)]">
                 {showAuth && (
                   <div className="px-1 py-1">
                     <div className="space-y-2 rounded-[1.25rem] bg-black/[0.03] p-2.5 dark:bg-white/[0.03]">
