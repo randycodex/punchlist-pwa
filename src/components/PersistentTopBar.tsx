@@ -263,7 +263,7 @@ export default function PersistentTopBar() {
           )}
         </div>
         {showAppMenuControl && isReady && !homeMenuState.showTrash && (
-          <div ref={menuRef} className="relative flex items-center gap-2">
+          <div ref={menuRef} className="app-menu-top-actions relative flex items-center gap-2">
             {renderSyncButton()}
             <button
               onClick={() => setShowHomeMenu((current) => !current)}

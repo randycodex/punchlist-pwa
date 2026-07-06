@@ -107,7 +107,11 @@ html:not(.dark) {
 }
 
 .persistent-top-bar {
-  transition: right 220ms ease;
+  transition: none;
+}
+
+.app-menu-top-actions {
+  transition: transform 220ms ease;
 }
 
 .app-menu-drawer {
@@ -127,9 +131,8 @@ html:not(.dark) {
     padding-right: var(--app-menu-drawer-width);
   }
 
-  html[data-app-menu-open="true"] .persistent-top-bar,
-  html[data-app-menu-open="true"] .safe-top-shim {
-    right: var(--app-menu-drawer-width);
+  html[data-app-menu-open="true"] .app-menu-top-actions {
+    transform: translateX(calc(var(--app-menu-drawer-width) * -1));
   }
 
 }
