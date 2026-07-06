@@ -24,7 +24,8 @@ import {
   KeyRound,
   LogIn,
   LogOut,
-  MoreVertical,
+  PanelRightClose,
+  PanelRightOpen,
   Pencil,
   PlusSquare,
   RefreshCw,
@@ -32,7 +33,6 @@ import {
   Trash2,
   UserPlus,
   Users,
-  X,
 } from 'lucide-react';
 
 const projectTitleCache = new Map<string, string>();
@@ -62,8 +62,6 @@ export default function PersistentTopBar() {
   const { retryInSeconds, status } = useSyncStatus();
   const { quickSort } = useAppSettings();
   const showAuth = pathname === '/';
-  const isProjectOverview = /^\/project\/[^/]+$/.test(pathname);
-  const showTopMenu = showAuth || isProjectOverview;
   const [projectTitle, setProjectTitle] = useState('');
   const [showHomeMenu, setShowHomeMenu] = useState(false);
   const [homeMenuState, setHomeMenuState] = useState<HomeMenuState>({
@@ -83,6 +81,7 @@ export default function PersistentTopBar() {
     const segments = pathname.split('/').filter(Boolean);
     return segments[1] ?? '';
   }, [pathname]);
+  const showAppMenuControl = showAuth || Boolean(projectId) || showHomeMenu;
 
   const syncButtonClasses = {
     idle: 'border-green-200 bg-green-50 text-green-600 hover:bg-green-100 dark:border-green-400/25 dark:bg-green-400/10 dark:text-green-300 dark:hover:bg-green-400/15',
@@ -257,16 +256,23 @@ export default function PersistentTopBar() {
               priority
             />
           </Link>
+          {!showAuth && projectTitle && (
+            <div className="min-w-0 truncate text-sm font-semibold text-gray-900 dark:text-white">
+              {projectTitle}
+            </div>
+          )}
         </div>
-        {(showTopMenu || showHomeMenu) && isReady && !homeMenuState.showTrash && (
+        {showAppMenuControl && isReady && !homeMenuState.showTrash && (
           <div ref={menuRef} className="relative flex items-center gap-2">
             {renderSyncButton()}
             <button
               onClick={() => setShowHomeMenu((current) => !current)}
               className="flex h-10 w-10 items-center justify-center rounded-[1rem] border border-black/5 bg-white/70 text-gray-500 transition hover:bg-white hover:text-gray-900 dark:border-white/10 dark:bg-white/[0.04] dark:text-gray-300 dark:hover:bg-white/[0.08] dark:hover:text-white"
-              aria-label="Open app menu"
+              aria-label={showHomeMenu ? 'Close app menu' : 'Open app menu'}
+              aria-pressed={showHomeMenu}
+              title={showHomeMenu ? 'Close app menu' : 'Open app menu'}
             >
-              <MoreVertical className="h-5 w-5" />
+              {showHomeMenu ? <PanelRightClose className="h-5 w-5" /> : <PanelRightOpen className="h-5 w-5" />}
             </button>
             {showHomeMenu && createPortal((
               <div
@@ -282,7 +288,7 @@ export default function PersistentTopBar() {
                     className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[1rem] border border-black/5 bg-white/70 text-gray-500 transition hover:bg-white hover:text-gray-900 dark:border-white/10 dark:bg-white/[0.04] dark:text-gray-300 dark:hover:bg-white/[0.08] dark:hover:text-white"
                     aria-label="Close app menu"
                   >
-                    <X className="h-4 w-4" />
+                    <PanelRightClose className="h-4 w-4" />
                   </button>
                 </div>
                 <div className="scrollbar-hidden min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain px-3 pb-[calc(env(safe-area-inset-bottom)+1rem)] pt-2">
@@ -513,14 +519,6 @@ export default function PersistentTopBar() {
                 </div>
               </div>
             ), document.body)}
-          </div>
-        )}
-        {!showAuth && !isProjectOverview && projectTitle && !showHomeMenu && (
-          <div className="max-w-[65vw] flex items-center justify-end gap-2">
-            {renderSyncButton()}
-            <div className="truncate rounded-full border border-black/5 bg-white/60 px-3 py-1.5 text-right text-sm font-semibold tracking-[-0.01em] text-gray-700 dark:border-white/10 dark:bg-white/[0.04] dark:text-gray-200">
-              {projectTitle}
-            </div>
           </div>
         )}
       </div>
