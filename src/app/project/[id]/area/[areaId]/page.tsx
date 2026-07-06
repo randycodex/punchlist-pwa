@@ -1465,6 +1465,9 @@ export default function AreaDetailPage() {
       xPercent,
       yPercent,
     };
+    checkpoint.issueState = 'open';
+    checkpoint.status = 'needsReview';
+    checkpoint.fixStatus = 'pending';
     checkpoint.updatedAt = new Date();
     syncAreaCompletion(targetArea);
     await saveProjectMetadataOnly(project);

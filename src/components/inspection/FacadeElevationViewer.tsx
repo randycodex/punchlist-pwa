@@ -599,7 +599,7 @@ export default function FacadeElevationViewer({
                 disabled={isOpeningSelection}
                 className="accent-tint accent-text hover:accent-tint-strong flex h-11 flex-1 items-center justify-center rounded-full text-sm font-semibold transition disabled:opacity-60"
               >
-                Open Item
+                Mark Issue
               </button>
             </div>
           </div>
