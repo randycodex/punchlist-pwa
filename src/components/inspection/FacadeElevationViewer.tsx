@@ -20,6 +20,7 @@ import {
   type MouseEvent,
   type PointerEvent,
   type TouchEvent,
+  useCallback,
 } from 'react';
 import type { Area, FacadeElevationDrawing } from '@/types';
 import type { ElevationMarkerReference } from '@/lib/elevationMarkers';
@@ -65,6 +66,10 @@ type DragGesture = {
 type PinchGesture = {
   distance: number;
   scale: number;
+  offsetX: number;
+  offsetY: number;
+  centerX: number;
+  centerY: number;
 };
 
 type TouchPoint = {
@@ -90,6 +95,13 @@ function clampZoom(value: number) {
 
 function getTouchDistance(first: TouchPoint, second: TouchPoint) {
   return Math.hypot(first.clientX - second.clientX, first.clientY - second.clientY);
+}
+
+function getTouchCenter(first: TouchPoint, second: TouchPoint) {
+  return {
+    clientX: (first.clientX + second.clientX) / 2,
+    clientY: (first.clientY + second.clientY) / 2,
+  };
 }
 
 function isExistingElevationCheckpoint(checkpoint: ElevationCheckpoint) {
@@ -141,6 +153,8 @@ export default function FacadeElevationViewer({
   const dragRef = useRef<DragGesture | null>(null);
   const pinchRef = useRef<PinchGesture | null>(null);
   const suppressNextClickRef = useRef(false);
+  const scaleRef = useRef(scale);
+  const offsetRef = useRef(offset);
 
   const selectableLocations = useMemo(
     () =>
@@ -177,6 +191,45 @@ export default function FacadeElevationViewer({
   const isPdf = drawing.mimeType === 'application/pdf';
 
   useEffect(() => {
+    scaleRef.current = scale;
+  }, [scale]);
+
+  useEffect(() => {
+    offsetRef.current = offset;
+  }, [offset]);
+
+  const getAnchoredOffset = useCallback((
+    currentScale: number,
+    nextScale: number,
+    currentOffset: { x: number; y: number },
+    anchor: { clientX: number; clientY: number }
+  ) => {
+    const viewportRect = viewportRef.current?.getBoundingClientRect();
+    if (!viewportRect) return currentOffset;
+
+    const anchorX = anchor.clientX - (viewportRect.left + viewportRect.width / 2);
+    const anchorY = anchor.clientY - (viewportRect.top + viewportRect.height / 2);
+    const scaleRatio = nextScale / currentScale;
+
+    return {
+      x: anchorX - (anchorX - currentOffset.x) * scaleRatio,
+      y: anchorY - (anchorY - currentOffset.y) * scaleRatio,
+    };
+  }, []);
+
+  const updateZoom = useCallback((nextScale: number, anchor?: { clientX: number; clientY: number }) => {
+    const currentScale = scaleRef.current;
+    const currentOffset = offsetRef.current;
+    const clampedScale = clampZoom(nextScale);
+    setScale(clampedScale);
+    if (clampedScale <= MIN_ZOOM) {
+      setOffset({ x: 0, y: 0 });
+    } else if (anchor && currentScale > 0) {
+      setOffset(getAnchoredOffset(currentScale, clampedScale, currentOffset, anchor));
+    }
+  }, [getAnchoredOffset]);
+
+  useEffect(() => {
     const viewport = viewportRef.current;
     if (!viewport) return;
 
@@ -184,12 +237,9 @@ export default function FacadeElevationViewer({
       if (!event.ctrlKey && !event.metaKey) return;
       event.preventDefault();
       event.stopPropagation();
-      setScale((currentScale) => {
-        const nextScale = clampZoom(currentScale - event.deltaY * 0.004);
-        if (nextScale <= MIN_ZOOM) {
-          setOffset({ x: 0, y: 0 });
-        }
-        return nextScale;
+      updateZoom(scaleRef.current - event.deltaY * 0.004, {
+        clientX: event.clientX,
+        clientY: event.clientY,
       });
     };
 
@@ -197,15 +247,7 @@ export default function FacadeElevationViewer({
     return () => {
       viewport.removeEventListener('wheel', handleNativeWheel);
     };
-  }, []);
-
-  function updateZoom(nextScale: number) {
-    const clampedScale = clampZoom(nextScale);
-    setScale(clampedScale);
-    if (clampedScale <= MIN_ZOOM) {
-      setOffset({ x: 0, y: 0 });
-    }
-  }
+  }, [updateZoom]);
 
   function resetZoom() {
     setScale(1);
@@ -311,9 +353,14 @@ export default function FacadeElevationViewer({
     event.preventDefault();
     event.stopPropagation();
     dragRef.current = null;
+    const center = getTouchCenter(event.touches[0], event.touches[1]);
     pinchRef.current = {
       distance: getTouchDistance(event.touches[0], event.touches[1]),
       scale,
+      offsetX: offset.x,
+      offsetY: offset.y,
+      centerX: center.clientX,
+      centerY: center.clientY,
     };
   }
 
@@ -330,6 +377,19 @@ export default function FacadeElevationViewer({
     setScale(nextScale);
     if (nextScale <= MIN_ZOOM) {
       setOffset({ x: 0, y: 0 });
+    } else {
+      const currentCenter = getTouchCenter(event.touches[0], event.touches[1]);
+      const anchoredOffset = getAnchoredOffset(
+        gesture.scale,
+        nextScale,
+        { x: gesture.offsetX, y: gesture.offsetY },
+        { clientX: gesture.centerX, clientY: gesture.centerY }
+      );
+
+      setOffset({
+        x: anchoredOffset.x + currentCenter.clientX - gesture.centerX,
+        y: anchoredOffset.y + currentCenter.clientY - gesture.centerY,
+      });
     }
   }
 
