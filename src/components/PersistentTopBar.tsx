@@ -258,7 +258,7 @@ export default function PersistentTopBar() {
             />
           </Link>
         </div>
-        {showTopMenu && isReady && !homeMenuState.showTrash && (
+        {(showTopMenu || showHomeMenu) && isReady && !homeMenuState.showTrash && (
           <div ref={menuRef} className="relative flex items-center gap-2">
             {renderSyncButton()}
             <button
@@ -515,7 +515,7 @@ export default function PersistentTopBar() {
             ), document.body)}
           </div>
         )}
-        {!showAuth && !isProjectOverview && projectTitle && (
+        {!showAuth && !isProjectOverview && projectTitle && !showHomeMenu && (
           <div className="max-w-[65vw] flex items-center justify-end gap-2">
             {renderSyncButton()}
             <div className="truncate rounded-full border border-black/5 bg-white/60 px-3 py-1.5 text-right text-sm font-semibold tracking-[-0.01em] text-gray-700 dark:border-white/10 dark:bg-white/[0.04] dark:text-gray-200">
