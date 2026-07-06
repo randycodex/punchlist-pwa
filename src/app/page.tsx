@@ -2473,7 +2473,7 @@ export default function ProjectsPage() {
       </main>
 
       {!showTrash && !selectionMode && (
-        <div className="floating-action-rail pointer-events-none fixed bottom-[calc(env(safe-area-inset-bottom)+1.25rem)] z-20">
+        <div className="pointer-events-none fixed bottom-[calc(env(safe-area-inset-bottom)+1.25rem)] left-1/2 z-20 -translate-x-1/2">
           {singleProjectMainView ? (
             <button
               onClick={() => {
