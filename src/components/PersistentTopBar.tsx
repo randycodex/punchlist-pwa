@@ -288,7 +288,7 @@ export default function PersistentTopBar() {
                     className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[1rem] border border-black/5 bg-white/70 text-gray-500 transition hover:bg-white hover:text-gray-900 dark:border-white/10 dark:bg-white/[0.04] dark:text-gray-300 dark:hover:bg-white/[0.08] dark:hover:text-white"
                     aria-label="Close app menu"
                   >
-                    <PanelRightClose className="h-4 w-4" />
+                    <PanelRightClose className="h-5 w-5" />
                   </button>
                 </div>
                 <div className="scrollbar-hidden min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain px-3 pb-[calc(env(safe-area-inset-bottom)+1rem)] pt-2 md:pt-[calc(env(safe-area-inset-top)+0.5rem)]">
