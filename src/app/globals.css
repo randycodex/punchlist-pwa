@@ -256,6 +256,8 @@ html:not(.dark) {
 @media (max-width: 767px) {
   .app-menu-drawer.menu-surface {
     border-top: 0;
+    top: calc(env(safe-area-inset-top) + 3.5rem);
+    height: calc(100dvh - env(safe-area-inset-top) - 3.5rem);
   }
 }
 

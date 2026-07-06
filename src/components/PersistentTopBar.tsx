@@ -281,38 +281,6 @@ export default function PersistentTopBar() {
                 aria-modal="false"
                 aria-label="App menu"
               >
-                <div className="flex h-[calc(env(safe-area-inset-top)+3.5rem)] shrink-0 items-center justify-between bg-white px-4 pt-[env(safe-area-inset-top)] dark:bg-[var(--surface-strong)] md:hidden">
-                  <Link
-                    href="/"
-                    aria-label="Go to projects"
-                    className="flex shrink-0 items-center transition"
-                    onClick={() => {
-                      if (showAuth || homeMenuState.context === 'project') {
-                        window.dispatchEvent(new CustomEvent('punchlist-home-menu-action', { detail: { action: 'clear-trash' } }));
-                      }
-                    }}
-                  >
-                    <Image
-                      src="/uai-logo.png"
-                      alt="UAI Logo"
-                      width={40}
-                      height={40}
-                      className="object-contain"
-                      priority
-                    />
-                  </Link>
-                  <div className="flex items-center gap-2">
-                    {renderSyncButton()}
-                    <button
-                      type="button"
-                      onClick={() => setShowHomeMenu(false)}
-                      className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[1rem] border border-black/5 bg-white/70 text-gray-500 transition hover:bg-white hover:text-gray-900 dark:border-white/10 dark:bg-white/[0.04] dark:text-gray-300 dark:hover:bg-white/[0.08] dark:hover:text-white"
-                      aria-label="Close app menu"
-                    >
-                      <PanelRightClose className="h-5 w-5" />
-                    </button>
-                  </div>
-                </div>
                 <div className="scrollbar-hidden min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain px-3 pb-[calc(env(safe-area-inset-bottom)+1rem)] pt-2 md:pt-[calc(env(safe-area-inset-top)+0.5rem)]">
                 {showAuth && (
                   <div className="px-1 py-1">
