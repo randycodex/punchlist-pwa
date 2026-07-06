@@ -269,7 +269,7 @@ export default function PersistentTopBar() {
             </button>
             {showHomeMenu && (
               <div
-                className="app-menu-drawer menu-surface fixed right-0 top-0 z-[120] flex h-[100dvh] flex-col overflow-hidden rounded-l-[1.6rem] rounded-r-none border-y-0 border-r-0 p-0 shadow-2xl"
+                className="app-menu-drawer menu-surface fixed right-0 top-0 z-[120] flex h-[100dvh] flex-col overflow-hidden border-y-0 border-r-0 p-0"
                 role="dialog"
                 aria-modal="false"
                 aria-label="App menu"
