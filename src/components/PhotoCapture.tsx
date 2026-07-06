@@ -41,6 +41,7 @@ export default function PhotoCapture({
   const [cameraOpen, setCameraOpen] = useState(false);
   const [capturedBatch, setCapturedBatch] = useState<Array<{ imageData: string; thumbnail?: string }>>([]);
   const [cameraError, setCameraError] = useState<string | null>(null);
+  const [videoReady, setVideoReady] = useState(false);
   const [savingPhotos, setSavingPhotos] = useState(false);
   const [savingFiles, setSavingFiles] = useState(false);
   const [showPhotoSourceSheet, setShowPhotoSourceSheet] = useState(false);
@@ -138,15 +139,39 @@ export default function PhotoCapture({
   async function openCamera() {
     setCameraError(null);
     setShowPhotoSourceSheet(false);
+    setVideoReady(false);
+    stopCameraStream();
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: { ideal: 'environment' },
-          width: { ideal: 1920 },
-          height: { ideal: 1080 },
+      let stream: MediaStream | null = null;
+      const constraintOptions: MediaStreamConstraints[] = [
+        {
+          video: {
+            facingMode: { ideal: 'environment' },
+            width: { ideal: 1920 },
+            height: { ideal: 1080 },
+          },
+          audio: false,
         },
-        audio: false,
-      });
+        {
+          video: {
+            facingMode: { ideal: 'environment' },
+          },
+          audio: false,
+        },
+        { video: true, audio: false },
+      ];
+
+      for (const constraints of constraintOptions) {
+        try {
+          stream = await navigator.mediaDevices.getUserMedia(constraints);
+          break;
+        } catch {
+          stream = null;
+        }
+      }
+
+      if (!stream) throw new Error('Camera unavailable');
+
       await configureAutoFocus(stream);
       streamRef.current = stream;
       setCapturedBatch([]);
@@ -160,15 +185,22 @@ export default function PhotoCapture({
   function closeCamera(discard = false) {
     stopCameraStream();
     setCameraOpen(false);
+    setVideoReady(false);
     if (discard) {
       setCapturedBatch([]);
     }
   }
 
   function captureFromVideo() {
-    if (!videoRef.current) return;
+    if (!videoRef.current || !videoReady) {
+      setCameraError('Camera is still starting. Try again in a moment.');
+      return;
+    }
     const video = videoRef.current;
-    if (!video.videoWidth || !video.videoHeight) return;
+    if (!video.videoWidth || !video.videoHeight) {
+      setCameraError('Camera is still starting. Try again in a moment.');
+      return;
+    }
 
     const canvas = document.createElement('canvas');
     canvas.width = video.videoWidth;
@@ -356,10 +388,46 @@ export default function PhotoCapture({
 
   useEffect(() => {
     if (!cameraOpen || !videoRef.current || !streamRef.current) return;
-    videoRef.current.srcObject = streamRef.current;
-    videoRef.current.play().catch(() => {
-      setCameraError('Camera preview failed to start.');
-    });
+    const video = videoRef.current;
+    const stream = streamRef.current;
+    let cancelled = false;
+
+    video.srcObject = stream;
+    video.muted = true;
+    video.playsInline = true;
+    setVideoReady(false);
+
+    async function startPreview() {
+      if (cancelled) return;
+      try {
+        await video.play();
+        if (!cancelled) {
+          setCameraError(null);
+          setVideoReady(true);
+        }
+      } catch {
+        if (!cancelled) {
+          setVideoReady(false);
+          setCameraError('Camera preview failed to start. Try Device Camera or Library.');
+        }
+      }
+    }
+
+    if (video.readyState >= HTMLMediaElement.HAVE_METADATA) {
+      void startPreview();
+    } else {
+      video.onloadedmetadata = () => {
+        void startPreview();
+      };
+    }
+
+    return () => {
+      cancelled = true;
+      video.onloadedmetadata = null;
+      if (video.srcObject === stream) {
+        video.srcObject = null;
+      }
+    };
   }, [cameraOpen]);
 
   useEffect(() => {
@@ -524,7 +592,7 @@ export default function PhotoCapture({
 
       {cameraOpen && (
         <div className="fixed inset-0 z-50 overflow-hidden bg-black">
-          <video ref={videoRef} autoPlay playsInline className="absolute inset-0 h-full w-full object-cover" />
+          <video ref={videoRef} autoPlay muted playsInline className="absolute inset-0 h-full w-full object-cover" />
 
           <div className="absolute inset-x-0 top-0 flex items-center justify-between px-4 pb-4 pt-[calc(env(safe-area-inset-top)+0.75rem)]">
             <button
@@ -562,8 +630,8 @@ export default function PhotoCapture({
               <div className="flex items-center justify-center">
                 <button
                   onClick={captureFromVideo}
-                  disabled={savingPhotos}
-                  className="flex h-20 w-20 items-center justify-center rounded-full border-4 border-white bg-white/20 shadow-[0_0_0_1px_rgba(255,255,255,0.34)] backdrop-blur-sm transition active:scale-95"
+                  disabled={savingPhotos || !videoReady}
+                  className="flex h-20 w-20 items-center justify-center rounded-full border-4 border-white bg-white/20 shadow-[0_0_0_1px_rgba(255,255,255,0.34)] backdrop-blur-sm transition active:scale-95 disabled:opacity-55"
                   aria-label="Capture photo"
                 >
                   <span className="h-14 w-14 rounded-full bg-white shadow-[inset_0_0_0_1px_rgba(15,23,42,0.08)]" />
@@ -585,7 +653,11 @@ export default function PhotoCapture({
               </div>
             </div>
             <p className="mt-3 text-center text-xs text-white/65">
-              {capturedBatch.length > 0
+              {cameraError
+                ? cameraError
+                : !videoReady
+                ? 'Starting camera...'
+                : capturedBatch.length > 0
                 ? `${capturedBatch.length} photo${capturedBatch.length === 1 ? '' : 's'} ready`
                 : 'Take as many photos as needed, then tap Done.'}
             </p>
