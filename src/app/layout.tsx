@@ -37,10 +37,16 @@ export default function RootLayout({
             (function () {
               try {
                 var root = document.documentElement;
-                try { localStorage.removeItem('punchlist:theme-mode'); } catch (e) {}
-                var storedMode = 'system';
-                var useDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-                root.dataset.themeMode = storedMode;
+                var storedMode = null;
+                try { storedMode = localStorage.getItem('punchlist:theme-mode'); } catch (e) {}
+                var themeMode = storedMode === 'light' || storedMode === 'dark' || storedMode === 'system'
+                  ? storedMode
+                  : 'system';
+                var useDark = themeMode === 'dark' || (
+                  themeMode === 'system' &&
+                  window.matchMedia('(prefers-color-scheme: dark)').matches
+                );
+                root.dataset.themeMode = themeMode;
                 if (useDark) {
                   root.classList.add('dark');
                 } else {

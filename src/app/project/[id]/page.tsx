@@ -1635,10 +1635,12 @@ export default function ProjectDetailPage() {
         <div className="floating-action-rail pointer-events-none fixed bottom-[calc(env(safe-area-inset-bottom)+1.25rem)] z-20">
           <button
             onClick={() => setShowAddArea(true)}
-            className="floating-action pointer-events-auto inline-flex h-14 w-[10.75rem] items-center justify-center gap-2 rounded-full px-5 text-sm font-semibold transition hover:translate-y-[-1px]"
+            className="floating-action pointer-events-auto inline-flex h-14 w-[7.5rem] items-center justify-center gap-2 rounded-full px-5 text-sm font-semibold transition hover:translate-y-[-1px]"
+            aria-label="Add area"
+            title="Add area"
           >
             <Plus className="h-4 w-4" />
-            Add Area
+            Area
           </button>
         </div>
       )}
