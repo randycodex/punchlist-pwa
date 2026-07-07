@@ -8,6 +8,7 @@ import {
   ChevronRight,
   MessageSquare,
   MoreVertical,
+  Paperclip,
   Pencil,
   Trash2,
   X,
@@ -1072,6 +1073,7 @@ function InlineCheckpointEditor({
   openCameraSignal?: number;
 }) {
   const editorRef = useRef<HTMLDivElement | null>(null);
+  const [photoLibrarySignal, setPhotoLibrarySignal] = useState(0);
 
   useEffect(() => {
     function handleDocumentClick(event: MouseEvent) {
@@ -1104,17 +1106,34 @@ function InlineCheckpointEditor({
         onDeletePhoto={onDeletePhoto}
         onDeleteFile={onDeleteFile}
         hideCameraButton
+        hideLibraryButton
         openCameraSignal={openCameraSignal}
+        openLibrarySignal={photoLibrarySignal}
       />
       {showCommentEditor && (
         <>
-          <textarea
-            value={commentText}
-            onChange={(e) => onCommentChange(e.target.value)}
-            onBlur={(e) => void onCommentBlur(locationId, itemId, checkpoint.id, e.target.value)}
-            className="field-shell min-h-[96px] resize-none text-sm"
-            placeholder="Add inspection note"
-          />
+          <div className="relative">
+            <textarea
+              value={commentText}
+              onChange={(e) => onCommentChange(e.target.value)}
+              onBlur={(e) => void onCommentBlur(locationId, itemId, checkpoint.id, e.target.value)}
+              className="field-shell min-h-[96px] resize-none pr-16 text-sm"
+              placeholder="Add inspection note"
+            />
+            <button
+              type="button"
+              data-inspection-inline-action="true"
+              onClick={(event) => {
+                event.stopPropagation();
+                setPhotoLibrarySignal((token) => token + 1);
+              }}
+              className="absolute right-3 top-3 flex h-10 w-10 items-center justify-center rounded-[1rem] bg-gray-100 text-gray-700 transition hover:bg-gray-200 dark:bg-zinc-800 dark:text-gray-100 dark:hover:bg-zinc-700"
+              aria-label="Open photo library"
+              title="Open photo library"
+            >
+              <Paperclip className="h-4.5 w-4.5" />
+            </button>
+          </div>
           {recentComments.length > 0 && (
             <div className="mt-3 flex flex-wrap gap-2">
               {recentComments.map((comment) => (

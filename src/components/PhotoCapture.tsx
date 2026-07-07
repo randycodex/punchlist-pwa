@@ -98,7 +98,9 @@ interface PhotoCaptureProps {
   onDeleteFile: (fileId: string) => void;
   compactActions?: boolean;
   hideCameraButton?: boolean;
+  hideLibraryButton?: boolean;
   openCameraSignal?: number;
+  openLibrarySignal?: number;
 }
 
 export default function PhotoCapture({
@@ -110,7 +112,9 @@ export default function PhotoCapture({
   onDeleteFile,
   compactActions = false,
   hideCameraButton = false,
+  hideLibraryButton = false,
   openCameraSignal,
+  openLibrarySignal,
 }: PhotoCaptureProps) {
   const [selectedPhoto, setSelectedPhoto] = useState<string | null>(null);
   const [viewerScale, setViewerScale] = useState(1);
@@ -518,6 +522,11 @@ export default function PhotoCapture({
     void openCamera();
   }, [openCameraSignal, openCamera]);
 
+  useEffect(() => {
+    if (!openLibrarySignal) return;
+    openPhotoPicker();
+  }, [openLibrarySignal, openPhotoPicker]);
+
   return (
     <div className="space-y-3">
       {photos.length > 0 && (
@@ -600,16 +609,18 @@ export default function PhotoCapture({
             <Camera className={compactActions ? 'h-4 w-4' : 'h-4.5 w-4.5'} />
           </button>
         )}
-        <button
-          onClick={openPhotoPicker}
-          disabled={savingPhotos}
-          className={`flex items-center justify-center rounded-[1rem] bg-gray-100 text-gray-700 transition hover:bg-gray-200 dark:bg-zinc-800 dark:text-gray-100 dark:hover:bg-zinc-700 ${
-            compactActions ? 'h-10 w-10' : 'h-11 w-11'
-          }`}
-          aria-label="Open photo library"
-        >
-          <Paperclip className={compactActions ? 'h-4 w-4' : 'h-4.5 w-4.5'} />
-        </button>
+        {!hideLibraryButton && (
+          <button
+            onClick={openPhotoPicker}
+            disabled={savingPhotos}
+            className={`flex items-center justify-center rounded-[1rem] bg-gray-100 text-gray-700 transition hover:bg-gray-200 dark:bg-zinc-800 dark:text-gray-100 dark:hover:bg-zinc-700 ${
+              compactActions ? 'h-10 w-10' : 'h-11 w-11'
+            }`}
+            aria-label="Open photo library"
+          >
+            <Paperclip className={compactActions ? 'h-4 w-4' : 'h-4.5 w-4.5'} />
+          </button>
+        )}
         <input
           ref={cameraInputRef}
           type="file"
