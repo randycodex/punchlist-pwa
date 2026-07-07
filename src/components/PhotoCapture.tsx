@@ -172,6 +172,7 @@ export default function PhotoCapture({
     stopCameraStream();
     setCameraOpen(false);
     setVideoReady(false);
+    setCameraStreamToken((token) => token + 1);
     if (discard) {
       setCapturedBatch([]);
     }
@@ -182,6 +183,7 @@ export default function PhotoCapture({
     stopCameraStream();
     setCameraOpen(false);
     setVideoReady(false);
+    setCameraStreamToken((token) => token + 1);
     setCapturedBatch([]);
     setCameraError(null);
     setShowPhotoSourceSheet(false);
@@ -463,7 +465,32 @@ export default function PhotoCapture({
 
   useEffect(() => {
     return () => {
+      cameraSessionRef.current += 1;
       stopCameraStream();
+    };
+  }, []);
+
+  useEffect(() => {
+    function stopActiveCamera() {
+      cameraSessionRef.current += 1;
+      stopCameraStream();
+      setCameraOpen(false);
+      setVideoReady(false);
+      setCameraStreamToken((token) => token + 1);
+    }
+
+    function handleVisibilityChange() {
+      if (document.visibilityState === 'hidden') {
+        stopActiveCamera();
+      }
+    }
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('pagehide', stopActiveCamera);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('pagehide', stopActiveCamera);
     };
   }, []);
 
