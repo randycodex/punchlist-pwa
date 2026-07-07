@@ -3,13 +3,16 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
-import { Camera, Paperclip, X } from 'lucide-react';
+import { Camera, Paperclip, X, Zap, ZapOff } from 'lucide-react';
 import { PhotoAttachment, FileAttachment } from '@/types';
 
 const PHOTO_INPUT_ACCEPT = 'image/*,.heic,.heif,image/heic,image/heif';
 const HEIC_EXTENSIONS = new Set(['heic', 'heif']);
 const HEIC_MIME_TYPES = new Set(['image/heic', 'image/heif']);
 const MAX_SOURCE_PHOTO_SIZE = 25 * 1024 * 1024;
+
+type TorchCapabilities = MediaTrackCapabilities & { torch?: boolean | boolean[] };
+type TorchConstraintSet = MediaTrackConstraintSet & { torch?: boolean };
 
 function getCameraAccessErrorMessage(error: unknown) {
   const name = error instanceof DOMException ? error.name : error instanceof Error ? error.name : '';
@@ -31,6 +34,29 @@ function getCameraAccessErrorMessage(error: unknown) {
   }
 
   return 'Could not access camera. Try Photo Library.';
+}
+
+function getVideoTrack(stream: MediaStream | null) {
+  return stream?.getVideoTracks()[0] ?? null;
+}
+
+function supportsTorch(stream: MediaStream | null) {
+  const track = getVideoTrack(stream);
+  const capabilities =
+    typeof track?.getCapabilities === 'function' ? (track.getCapabilities() as TorchCapabilities) : null;
+  const torch = capabilities?.torch;
+
+  return Array.isArray(torch) ? torch.includes(true) && torch.includes(false) : torch === true;
+}
+
+async function setStreamTorch(stream: MediaStream | null, enabled: boolean) {
+  const track = getVideoTrack(stream);
+  if (!track || !supportsTorch(stream)) return false;
+
+  await track.applyConstraints({
+    advanced: [{ torch: enabled } as TorchConstraintSet],
+  });
+  return true;
 }
 
 async function configureAutoFocus(stream: MediaStream) {
@@ -92,6 +118,9 @@ export default function PhotoCapture({
   const [cameraStreamToken, setCameraStreamToken] = useState(0);
   const [capturedBatch, setCapturedBatch] = useState<Array<{ imageData: string; thumbnail?: string }>>([]);
   const [cameraError, setCameraError] = useState<string | null>(null);
+  const [torchSupported, setTorchSupported] = useState(false);
+  const [torchOn, setTorchOn] = useState(false);
+  const [torchChanging, setTorchChanging] = useState(false);
   const [videoReady, setVideoReady] = useState(false);
   const [savingPhotos, setSavingPhotos] = useState(false);
   const pinchDistanceRef = useRef<number | null>(null);
@@ -159,6 +188,9 @@ export default function PhotoCapture({
 
     flushSync(() => {
       setCameraError(null);
+      setTorchSupported(false);
+      setTorchOn(false);
+      setTorchChanging(false);
       setVideoReady(false);
       setCapturedBatch([]);
       setCameraOpen(true);
@@ -187,11 +219,15 @@ export default function PhotoCapture({
         return;
       }
       streamRef.current = stream;
+      setTorchSupported(supportsTorch(stream));
+      setTorchOn(false);
       setCameraStreamToken((token) => token + 1);
       void configureAutoFocus(stream);
     } catch (error) {
       if (cameraSessionRef.current === sessionId) {
         setVideoReady(false);
+        setTorchSupported(false);
+        setTorchOn(false);
         setCameraError(getCameraAccessErrorMessage(error));
       }
     } finally {
@@ -207,6 +243,9 @@ export default function PhotoCapture({
     stopCameraStream();
     setCameraOpen(false);
     setVideoReady(false);
+    setTorchSupported(false);
+    setTorchOn(false);
+    setTorchChanging(false);
     setCameraStreamToken((token) => token + 1);
     if (discard) {
       setCapturedBatch([]);
@@ -218,10 +257,37 @@ export default function PhotoCapture({
     stopCameraStream();
     setCameraOpen(false);
     setVideoReady(false);
+    setTorchSupported(false);
+    setTorchOn(false);
+    setTorchChanging(false);
     setCameraStreamToken((token) => token + 1);
     setCapturedBatch([]);
     setCameraError(null);
     cameraInputRef.current?.click();
+  }
+
+  async function toggleTorch() {
+    if (torchChanging) return;
+
+    const nextTorchState = !torchOn;
+    setTorchChanging(true);
+    try {
+      const changed = await setStreamTorch(streamRef.current, nextTorchState);
+      if (!changed) {
+        setTorchSupported(false);
+        setTorchOn(false);
+        setCameraError('Flash is not available on this camera.');
+        return;
+      }
+      setTorchOn(nextTorchState);
+      setCameraError(null);
+    } catch {
+      setTorchSupported(false);
+      setTorchOn(false);
+      setCameraError('Flash is not available on this camera.');
+    } finally {
+      setTorchChanging(false);
+    }
   }
 
   function captureFromVideo() {
@@ -572,7 +638,21 @@ export default function PhotoCapture({
             >
               <X className="h-5 w-5" />
             </button>
-            <div className="h-10 w-10" />
+            {torchSupported ? (
+              <button
+                onClick={() => void toggleTorch()}
+                disabled={torchChanging}
+                className={`flex h-10 w-10 items-center justify-center rounded-full backdrop-blur-sm transition disabled:opacity-55 ${
+                  torchOn ? 'bg-white text-gray-950' : 'bg-black/40 text-white'
+                }`}
+                aria-label={torchOn ? 'Turn flash off' : 'Turn flash on'}
+                title={torchOn ? 'Turn flash off' : 'Turn flash on'}
+              >
+                {torchOn ? <ZapOff className="h-5 w-5" /> : <Zap className="h-5 w-5" />}
+              </button>
+            ) : (
+              <div className="h-10 w-10" />
+            )}
           </div>
 
           <div className="absolute inset-x-0 bottom-0 px-4 pb-[calc(env(safe-area-inset-bottom)+1rem)] pt-6">
