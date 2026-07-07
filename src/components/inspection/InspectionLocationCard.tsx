@@ -532,7 +532,7 @@ export default function InspectionLocationCard({
                                     event.stopPropagation();
                                     setOpenCustomItemMenuId((current) => (current === checkpoint.id ? null : checkpoint.id));
                                   }}
-                                  className="flex h-10 w-10 items-center justify-center rounded-[1rem] bg-black/[0.05] text-gray-500 transition hover:bg-black/[0.08] hover:text-gray-700 dark:bg-white/[0.08] dark:text-gray-300 dark:hover:bg-white/[0.12] dark:hover:text-white"
+                                  className="flex h-8 w-8 items-center justify-center rounded-[0.8rem] bg-black/[0.05] text-gray-500 transition hover:bg-black/[0.08] hover:text-gray-700 dark:bg-white/[0.08] dark:text-gray-300 dark:hover:bg-white/[0.12] dark:hover:text-white"
                                   aria-label={`More actions for ${checkpoint.name}`}
                                 >
                                   <MoreVertical className="h-4 w-4" />
@@ -810,7 +810,7 @@ export default function InspectionLocationCard({
                                       event.stopPropagation();
                                       setOpenCustomItemMenuId((current) => (current === checkpoint.id ? null : checkpoint.id));
                                     }}
-                                    className="flex h-10 w-10 items-center justify-center rounded-[1rem] bg-black/[0.05] text-gray-500 transition hover:bg-black/[0.08] hover:text-gray-700 dark:bg-white/[0.08] dark:text-gray-300 dark:hover:bg-white/[0.12] dark:hover:text-white"
+                                    className="flex h-8 w-8 items-center justify-center rounded-[0.8rem] bg-black/[0.05] text-gray-500 transition hover:bg-black/[0.08] hover:text-gray-700 dark:bg-white/[0.08] dark:text-gray-300 dark:hover:bg-white/[0.12] dark:hover:text-white"
                                     aria-label={`More actions for ${checkpoint.name}`}
                                   >
                                     <MoreVertical className="h-4 w-4" />
@@ -931,7 +931,7 @@ function CheckpointRow({
   return (
     <div
       ref={editableLabel ? editContainerRef : undefined}
-      className={`rounded-[1.35rem] px-3.5 py-2.5 transition ${
+      className={`rounded-[1.15rem] px-3.5 py-2 transition ${
         !editableLabel ? 'cursor-pointer' : ''
       } ${
         issueState === 'open'
@@ -973,7 +973,7 @@ function CheckpointRow({
               <button
                 type="button"
                 onClick={() => void onSaveEdit?.()}
-                className="flex h-9 w-9 items-center justify-center rounded-[0.9rem] bg-white text-gray-700 transition dark:bg-white/[0.09] dark:text-white"
+                className="flex h-8 w-8 items-center justify-center rounded-[0.8rem] bg-white text-gray-700 transition dark:bg-white/[0.09] dark:text-white"
                 aria-label={`Save ${label ?? checkpoint.name}`}
               >
                 <Check className="h-4 w-4" />
@@ -981,7 +981,7 @@ function CheckpointRow({
               <button
                 type="button"
                 onClick={onCancelEdit}
-                className="flex h-9 w-9 items-center justify-center rounded-[0.9rem] text-gray-400 transition hover:bg-white/70 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-white/[0.08] dark:hover:text-gray-100"
+                className="flex h-8 w-8 items-center justify-center rounded-[0.8rem] text-gray-400 transition hover:bg-white/70 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-white/[0.08] dark:hover:text-gray-100"
                 aria-label={`Cancel editing ${label ?? checkpoint.name}`}
               >
                 <X className="h-4 w-4" />
@@ -993,7 +993,7 @@ function CheckpointRow({
                 <span
                   data-inspection-inline-action="true"
                   onClick={(event) => event.stopPropagation()}
-                  className="flex h-9 w-9 items-center justify-center rounded-[0.9rem] border border-black/5 bg-white/70 text-gray-500 dark:border-white/10 dark:bg-white/[0.04] dark:text-gray-300"
+                  className="flex h-8 w-8 items-center justify-center rounded-[0.8rem] border border-black/5 bg-white/70 text-gray-500 dark:border-white/10 dark:bg-white/[0.04] dark:text-gray-300"
                   title="Has note"
                   aria-label={`Has note for ${checkpoint.name}`}
                 >
@@ -1006,7 +1006,7 @@ function CheckpointRow({
                   event.stopPropagation();
                   onOpenCamera();
                 }}
-                className={`flex h-9 w-9 items-center justify-center rounded-[0.9rem] transition ${
+                className={`flex h-8 w-8 items-center justify-center rounded-[0.8rem] transition ${
                   photoCount > 0
                     ? 'accent-bg text-white'
                     : 'border border-black/5 bg-white/70 text-gray-400 hover:bg-white hover:text-gray-700 dark:border-white/10 dark:bg-white/[0.04] dark:text-gray-400 dark:hover:bg-white/[0.08] dark:hover:text-gray-100'
@@ -1021,7 +1021,7 @@ function CheckpointRow({
                   event.stopPropagation();
                   onToggleIssue();
                 }}
-                className={`flex h-9 w-9 items-center justify-center rounded-[0.9rem] transition ${
+                className={`flex h-8 w-8 items-center justify-center rounded-[0.8rem] transition ${
                   issueState === 'open'
                     ? 'accent-bg text-white'
                     : 'border border-black/5 bg-white/70 text-gray-400 hover:bg-white hover:text-[var(--accent)] dark:border-white/10 dark:bg-white/[0.04] dark:text-gray-400 dark:hover:bg-white/[0.08]'
