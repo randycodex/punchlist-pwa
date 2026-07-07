@@ -270,6 +270,16 @@ html:not(.dark) {
   border: 1px solid var(--surface-border);
 }
 
+.inspection-item-expanded-surface {
+  background: rgba(248, 250, 252, 0.78);
+  border: 1px solid var(--surface-border);
+}
+
+.dark .inspection-item-expanded-surface {
+  background: #15191e;
+  border-color: rgba(255, 255, 255, 0.055);
+}
+
 .menu-surface {
   background: var(--surface-elevated);
   border: 1px solid var(--surface-border);

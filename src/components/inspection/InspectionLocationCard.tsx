@@ -612,7 +612,7 @@ export default function InspectionLocationCard({
               <div
                 key={item.id}
                 ref={(node) => registerItemRef(item.id, node)}
-                className={isItemExpanded ? 'card-surface-subtle rounded-[1.5rem]' : ''}
+                className={isItemExpanded ? 'inspection-item-expanded-surface rounded-[1.5rem]' : ''}
               >
                 {isEditingCustomItem ? (
                   <div
