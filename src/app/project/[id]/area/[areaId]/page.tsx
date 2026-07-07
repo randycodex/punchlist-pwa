@@ -1977,17 +1977,6 @@ export default function AreaDetailPage() {
         />
       )}
 
-      {confirmDialog && (
-        <AppConfirmDialog
-          title={confirmDialog.title}
-          message={confirmDialog.message}
-          confirmLabel={confirmDialog.confirmLabel}
-          danger={confirmDialog.danger}
-          onCancel={() => setConfirmDialog(null)}
-          onConfirm={() => void confirmDialog.onConfirm()}
-        />
-      )}
-
       {promptDialog && (
         <AppPromptDialog
           title={promptDialog.title}
@@ -2399,6 +2388,16 @@ export default function AreaDetailPage() {
         onSubmit={() => void saveAreaChanges()}
         submitLabel="Save"
       />
+      {confirmDialog && (
+        <AppConfirmDialog
+          title={confirmDialog.title}
+          message={confirmDialog.message}
+          confirmLabel={confirmDialog.confirmLabel}
+          danger={confirmDialog.danger}
+          onCancel={() => setConfirmDialog(null)}
+          onConfirm={() => void confirmDialog.onConfirm()}
+        />
+      )}
     </div>
   );
 }
