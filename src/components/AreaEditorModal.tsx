@@ -206,7 +206,11 @@ export default function AreaEditorModal({
                     customAreaName: nextAreaType === 'custom' ? value.customAreaName : '',
                     areaNumber: keepsFacadeFields ? value.areaNumber : '',
                     facadeLevel: keepsFacadeFields ? value.facadeLevel : '',
-                    facadeLevelMode: keepsFacadeFields ? value.facadeLevelMode : '',
+                    facadeLevelMode: keepsFacadeFields
+                      ? enableFacadeLevelBatch
+                        ? 'yes'
+                        : value.facadeLevelMode
+                      : '',
                     elevationDrawingId: keepsElevationDrawing ? value.elevationDrawingId : '',
                     pendingElevationDrawing: keepsElevationDrawing ? value.pendingElevationDrawing ?? null : null,
                   });
@@ -293,25 +297,8 @@ export default function AreaEditorModal({
               <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
                 Levels
               </label>
-              <select
-                value={value.facadeLevelMode}
-                onChange={(e) =>
-                  onChange({
-                    ...value,
-                    facadeLevelMode: e.target.value as AreaFormValue['facadeLevelMode'],
-                    facadeLevel: e.target.value === 'yes' ? value.facadeLevel : '',
-                  })
-                }
-                className="field-shell"
-              >
-                <option value="">Select levels</option>
-                <option value="yes" disabled={facadeLevelOptions.length === 0}>
-                  Pick floors
-                </option>
-                <option value="no">No levels</option>
-              </select>
-              {value.facadeLevelMode === 'yes' && facadeLevelOptions.length > 0 && (
-                <div className="mt-2 grid grid-cols-2 gap-2 rounded-[1rem] border border-[var(--surface-border)] bg-white/70 p-3 dark:bg-white/[0.05]">
+              {facadeLevelOptions.length > 0 ? (
+                <div className="grid grid-cols-2 gap-2 rounded-[1rem] border border-[var(--surface-border)] bg-white/70 p-3 dark:bg-white/[0.05]">
                   {facadeLevelOptions.map((level) => {
                     const selected = selectedFacadeLevelSet.has(level);
                     return (
@@ -323,7 +310,7 @@ export default function AreaEditorModal({
                             const next = selected
                               ? selectedFacadeLevels.filter((entry) => entry !== level)
                               : [...selectedFacadeLevels, level];
-                            onChange({ ...value, facadeLevel: next.join(',') });
+                            onChange({ ...value, facadeLevelMode: 'yes', facadeLevel: next.join(',') });
                           }}
                           className="h-4 w-4 accent-[var(--accent)]"
                         />
@@ -332,13 +319,12 @@ export default function AreaEditorModal({
                     );
                   })}
                 </div>
-              )}
-              {facadeLevelOptions.length === 0 && (
+              ) : (
                 <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
                   Set a project level range first to create facade levels.
                 </p>
               )}
-              {value.facadeLevelMode === 'yes' && facadeLevelOptions.length > 0 && selectedFacadeLevels.length === 0 && (
+              {facadeLevelOptions.length > 0 && selectedFacadeLevels.length === 0 && (
                 <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
                   Pick at least one floor for this facade inspection.
                 </p>
@@ -586,9 +572,7 @@ export default function AreaEditorModal({
               (selectedDefinition.requiresOrientation && !value.unitType) ||
               (selectedDefinition.requiresOrientation &&
                 enableFacadeLevelBatch &&
-                (!value.facadeLevelMode ||
-                  (value.facadeLevelMode === 'yes' &&
-                    (facadeLevelOptions.length === 0 || selectedFacadeLevels.length === 0)))) ||
+                (facadeLevelOptions.length === 0 || selectedFacadeLevels.length === 0)) ||
               (selectedDefinition.requiresOrientation &&
                 !enableFacadeLevelBatch &&
                 !value.facadeLevel.trim()) ||
