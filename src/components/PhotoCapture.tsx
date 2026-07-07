@@ -39,7 +39,6 @@ export default function PhotoCapture({
   const [selectedPhoto, setSelectedPhoto] = useState<string | null>(null);
   const [viewerScale, setViewerScale] = useState(1);
   const [cameraOpen, setCameraOpen] = useState(false);
-  const [cameraStartupToken, setCameraStartupToken] = useState(0);
   const [cameraStreamToken, setCameraStreamToken] = useState(0);
   const [capturedBatch, setCapturedBatch] = useState<Array<{ imageData: string; thumbnail?: string }>>([]);
   const [cameraError, setCameraError] = useState<string | null>(null);
@@ -76,6 +75,35 @@ export default function PhotoCapture({
     }
     setShowPhotoSourceSheet(true);
   }, [openPhotoPicker]);
+
+  async function configureAutoFocus(stream: MediaStream) {
+    type FocusCapabilities = MediaTrackCapabilities & { focusMode?: string[] };
+    type FocusConstraintSet = MediaTrackConstraintSet & { focusMode?: string };
+
+    const [track] = stream.getVideoTracks();
+    if (!track) return;
+
+    const capabilities =
+      typeof track.getCapabilities === 'function' ? (track.getCapabilities() as FocusCapabilities) : null;
+    if (!capabilities) return;
+
+    const focusMode = capabilities.focusMode;
+    const advanced: FocusConstraintSet[] = [];
+
+    if (Array.isArray(focusMode) && focusMode.includes('continuous')) {
+      advanced.push({ focusMode: 'continuous' });
+    } else if (Array.isArray(focusMode) && focusMode.includes('single-shot')) {
+      advanced.push({ focusMode: 'single-shot' });
+    }
+
+    if (advanced.length === 0) return;
+
+    try {
+      await track.applyConstraints({ advanced });
+    } catch {
+      // Some mobile browsers expose focus capabilities but reject the constraint at runtime.
+    }
+  }
 
   function createScaledImageData(img: HTMLImageElement, maxSize: number, quality: number) {
     const scale = Math.min(1, maxSize / Math.max(img.width, img.height));
@@ -116,56 +144,39 @@ export default function PhotoCapture({
     streamRef.current = null;
   }
 
-  const requestCameraStream = useCallback(() => {
-    if (!navigator.mediaDevices?.getUserMedia) {
-      return Promise.reject(new Error('Camera unavailable'));
-    }
-    return navigator.mediaDevices.getUserMedia({
-      video: {
-        facingMode: { ideal: 'environment' },
-      },
-      audio: false,
-    });
-  }, []);
-
-  const beginCameraStartup = useCallback(async (sessionId: number) => {
-    let requestTimer: number | null = window.setTimeout(() => {
-      if (cameraSessionRef.current === sessionId && !streamRef.current) {
-        setCameraError('Camera is taking too long to start. Try Device Camera or Library.');
-      }
-    }, 12_000);
-
-    try {
-      const stream = await requestCameraStream();
-      if (cameraSessionRef.current !== sessionId) {
-        stream.getTracks().forEach((track) => track.stop());
-        return;
-      }
-      streamRef.current = stream;
-      setCameraStreamToken((token) => token + 1);
-    } catch {
-      if (cameraSessionRef.current === sessionId) {
-        setVideoReady(false);
-        setCameraError('Could not access camera. Try Device Camera or Library.');
-      }
-    } finally {
-      if (requestTimer) {
-        window.clearTimeout(requestTimer);
-        requestTimer = null;
-      }
-    }
-  }, [requestCameraStream]);
-
-  function openCamera() {
+  async function openCamera() {
     const sessionId = cameraSessionRef.current + 1;
     cameraSessionRef.current = sessionId;
     setCameraError(null);
     setShowPhotoSourceSheet(false);
     setVideoReady(false);
-    setCapturedBatch([]);
     stopCameraStream();
-    setCameraOpen(true);
-    setCameraStartupToken((token) => token + 1);
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: { ideal: 'environment' },
+          width: { ideal: 1920 },
+          height: { ideal: 1080 },
+        },
+        audio: false,
+      });
+      if (cameraSessionRef.current !== sessionId) {
+        stream.getTracks().forEach((track) => track.stop());
+        return;
+      }
+      streamRef.current = stream;
+      setCapturedBatch([]);
+      setCameraOpen(true);
+      setCameraStreamToken((token) => token + 1);
+      void configureAutoFocus(stream);
+    } catch {
+      if (cameraSessionRef.current === sessionId) {
+        setVideoReady(false);
+        setCameraError('Could not access camera. Opening device camera fallback.');
+        cameraInputRef.current?.click();
+      }
+    }
   }
 
   function closeCamera(discard = false) {
@@ -463,23 +474,6 @@ export default function PhotoCapture({
       video.removeEventListener('canplay', handleVideoReady);
     };
   }, [cameraOpen, cameraStreamToken]);
-
-  useEffect(() => {
-    if (!cameraOpen || streamRef.current) return;
-    const sessionId = cameraSessionRef.current;
-    let frameId: number | null = window.requestAnimationFrame(() => {
-      frameId = window.requestAnimationFrame(() => {
-        frameId = null;
-        void beginCameraStartup(sessionId);
-      });
-    });
-
-    return () => {
-      if (frameId !== null) {
-        window.cancelAnimationFrame(frameId);
-      }
-    };
-  }, [beginCameraStartup, cameraOpen, cameraStartupToken]);
 
   useEffect(() => {
     return () => {
