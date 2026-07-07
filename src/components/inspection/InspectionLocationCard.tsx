@@ -1135,16 +1135,18 @@ function InlineCheckpointEditor({
             </button>
           </div>
           {recentComments.length > 0 && (
-            <div className="mt-3 flex flex-wrap gap-2">
-              {recentComments.map((comment) => (
-                <button
-                  key={comment}
-                  onClick={() => onCommentChange(comment)}
-                  className="segmented-chip px-3 py-1.5 text-left text-xs transition hover:bg-white hover:text-gray-900 dark:hover:bg-white/[0.1] dark:hover:text-white"
-                >
-                  {comment}
-                </button>
-              ))}
+            <div className="-mx-1 mt-3 overflow-x-auto pb-1">
+              <div className="flex w-max min-w-full gap-2 px-1">
+                {recentComments.map((comment) => (
+                  <button
+                    key={comment}
+                    onClick={() => onCommentChange(comment)}
+                    className="segmented-chip shrink-0 whitespace-nowrap px-3 py-1.5 text-left text-xs transition hover:bg-white hover:text-gray-900 dark:hover:bg-white/[0.1] dark:hover:text-white"
+                  >
+                    {comment}
+                  </button>
+                ))}
+              </div>
             </div>
           )}
         </>
