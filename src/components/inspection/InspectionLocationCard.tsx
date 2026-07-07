@@ -464,15 +464,6 @@ export default function InspectionLocationCard({
                       onAddFiles={onAddFiles}
                       onDeletePhoto={onDeletePhoto}
                       onDeleteFile={onDeleteFile}
-                      issueState={customIssueState}
-                      onToggleIssue={() =>
-                        void onUpdateCheckpointStatus(
-                          location.id,
-                          item.id,
-                          customCheckpoint.id,
-                          customIssueState === 'open' ? 'pending' : 'open'
-                        )
-                      }
                       showCommentEditor={activeCameraOnlyCheckpointId !== customCheckpoint.id}
                       onCloseEditor={() =>
                         openCheckpointComments(location.id, item.id, customCheckpoint.id, customCheckpoint.comments)
@@ -600,15 +591,6 @@ export default function InspectionLocationCard({
                             onAddFiles={onAddFiles}
                             onDeletePhoto={onDeletePhoto}
                             onDeleteFile={onDeleteFile}
-                            issueState={issueState}
-                            onToggleIssue={() =>
-                              void onUpdateCheckpointStatus(
-                                location.id,
-                                item.id,
-                                checkpoint.id,
-                                issueState === 'open' ? 'pending' : 'open'
-                              )
-                            }
                             showCommentEditor={activeCameraOnlyCheckpointId !== checkpoint.id}
                             onCloseEditor={() =>
                               openCheckpointComments(location.id, item.id, checkpoint.id, checkpoint.comments)
@@ -887,15 +869,6 @@ export default function InspectionLocationCard({
                               onAddFiles={onAddFiles}
                               onDeletePhoto={onDeletePhoto}
                               onDeleteFile={onDeleteFile}
-                              issueState={issueState}
-                              onToggleIssue={() =>
-                                void onUpdateCheckpointStatus(
-                                  location.id,
-                                  item.id,
-                                  checkpoint.id,
-                                  issueState === 'open' ? 'pending' : 'open'
-                                )
-                              }
                               showCommentEditor={activeCameraOnlyCheckpointId !== checkpoint.id}
                               onCloseEditor={() =>
                                 openCheckpointComments(location.id, item.id, checkpoint.id, checkpoint.comments)
@@ -1081,8 +1054,6 @@ function InlineCheckpointEditor({
   showCommentEditor = true,
   onCloseEditor,
   openCameraSignal,
-  issueState,
-  onToggleIssue,
 }: {
   checkpoint: Checkpoint;
   locationId: string;
@@ -1099,8 +1070,6 @@ function InlineCheckpointEditor({
   showCommentEditor?: boolean;
   onCloseEditor?: () => void;
   openCameraSignal?: number;
-  issueState?: IssueState;
-  onToggleIssue?: () => void;
 }) {
   const editorRef = useRef<HTMLDivElement | null>(null);
 
@@ -1126,23 +1095,6 @@ function InlineCheckpointEditor({
 
   return (
     <div ref={editorRef} className="space-y-2.5 px-1 pb-1 pt-1">
-      {onToggleIssue && (
-        <div className="flex items-center justify-end gap-2">
-          {onToggleIssue && (
-            <button
-              onClick={onToggleIssue}
-              className={`flex h-9 w-9 items-center justify-center rounded-[0.95rem] transition ${
-                issueState === 'open'
-                  ? 'accent-bg text-white'
-                  : 'border border-black/5 bg-white/70 text-gray-400 hover:bg-white hover:text-[var(--accent)] dark:border-white/10 dark:bg-white/[0.04] dark:text-gray-400 dark:hover:bg-white/[0.08]'
-              }`}
-              aria-label={`Flag issue for ${checkpoint.name}`}
-            >
-              <AlertTriangle className="h-4 w-4" />
-            </button>
-          )}
-        </div>
-      )}
       <PhotoCapture
         photos={checkpoint.photos}
         files={checkpoint.files ?? []}
