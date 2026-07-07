@@ -221,6 +221,7 @@ export default function AreaDetailPage() {
   const [expandedLocations, setExpandedLocations] = useState<Set<string>>(new Set());
   const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set());
   const [bulkExpansionMode, setBulkExpansionMode] = useState<'collapsed' | 'expanded'>('collapsed');
+  const [generalNotesExpanded, setGeneralNotesExpanded] = useState(false);
   const [expandedCheckpoint, setExpandedCheckpoint] = useState<{
     locationId: string;
     itemId: string;
@@ -1643,9 +1644,24 @@ export default function AreaDetailPage() {
       } else {
         setExpandedLocations(new Set([locationId]));
         setExpandedItems(new Set());
+        setGeneralNotesExpanded(false);
       }
       scrollLocationToListAnchor(locationId);
     }
+  }
+
+  async function toggleGeneralNotes() {
+    if (generalNotesExpanded) {
+      setGeneralNotesExpanded(false);
+      return;
+    }
+
+    await closeExpandedCheckpoint();
+    if (bulkExpansionMode !== 'expanded') {
+      setExpandedLocations(new Set());
+      setExpandedItems(new Set());
+    }
+    setGeneralNotesExpanded(true);
   }
 
   async function toggleItem(itemId: string) {
@@ -1685,6 +1701,7 @@ export default function AreaDetailPage() {
     if (bulkExpansionMode === 'expanded') {
       setExpandedLocations(new Set());
       setExpandedItems(new Set());
+      setGeneralNotesExpanded(false);
       setBulkExpansionMode('collapsed');
       return;
     }
@@ -1701,6 +1718,7 @@ export default function AreaDetailPage() {
         )
       )
     );
+    setGeneralNotesExpanded(true);
     setBulkExpansionMode('expanded');
   }
 
@@ -2358,6 +2376,8 @@ export default function AreaDetailPage() {
           {!deleteMode && (
             <AreaNotesCard
               value={generalNotes}
+              isExpanded={generalNotesExpanded}
+              onToggle={() => void toggleGeneralNotes()}
               onChange={handleGeneralNotesChange}
               onBlur={(value) => {
                 if (notesTimerRef.current) {
