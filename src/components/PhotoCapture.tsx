@@ -2,6 +2,7 @@
 /* eslint-disable @next/next/no-img-element */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { flushSync } from 'react-dom';
 import { Camera, Paperclip, X } from 'lucide-react';
 import { PhotoAttachment, FileAttachment } from '@/types';
 
@@ -147,10 +148,21 @@ export default function PhotoCapture({
   async function openCamera() {
     const sessionId = cameraSessionRef.current + 1;
     cameraSessionRef.current = sessionId;
-    setCameraError(null);
-    setShowPhotoSourceSheet(false);
-    setVideoReady(false);
     stopCameraStream();
+
+    flushSync(() => {
+      setCameraError(null);
+      setShowPhotoSourceSheet(false);
+      setVideoReady(false);
+      setCapturedBatch([]);
+      setCameraOpen(true);
+    });
+
+    let requestTimer: number | null = window.setTimeout(() => {
+      if (cameraSessionRef.current === sessionId && !streamRef.current) {
+        setCameraError('Camera is taking too long to start. Try Device Camera or Library.');
+      }
+    }, 12_000);
 
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -166,15 +178,17 @@ export default function PhotoCapture({
         return;
       }
       streamRef.current = stream;
-      setCapturedBatch([]);
-      setCameraOpen(true);
       setCameraStreamToken((token) => token + 1);
       void configureAutoFocus(stream);
     } catch {
       if (cameraSessionRef.current === sessionId) {
         setVideoReady(false);
-        setCameraError('Could not access camera. Opening device camera fallback.');
-        cameraInputRef.current?.click();
+        setCameraError('Could not access camera. Try Device Camera or Library.');
+      }
+    } finally {
+      if (requestTimer) {
+        window.clearTimeout(requestTimer);
+        requestTimer = null;
       }
     }
   }
