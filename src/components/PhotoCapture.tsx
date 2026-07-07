@@ -6,6 +6,7 @@ import { Camera, Paperclip, X } from 'lucide-react';
 import { PhotoAttachment, FileAttachment } from '@/types';
 
 const PHOTO_INPUT_ACCEPT = 'image/*,.heic,.heif,image/heic,image/heif';
+const NATIVE_CAMERA_ACCEPT = 'image/*';
 const HEIC_EXTENSIONS = new Set(['heic', 'heif']);
 const HEIC_MIME_TYPES = new Set(['image/heic', 'image/heif']);
 const MAX_SOURCE_PHOTO_SIZE = 25 * 1024 * 1024;
@@ -48,6 +49,7 @@ export default function PhotoCapture({
   const [showPhotoSourceSheet, setShowPhotoSourceSheet] = useState(false);
   const pinchDistanceRef = useRef<number | null>(null);
   const pinchScaleRef = useRef(1);
+  const nativeCameraInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -60,6 +62,19 @@ export default function PhotoCapture({
     const extension = file.name.split('.').pop()?.toLowerCase() ?? '';
     return HEIC_MIME_TYPES.has(file.type.toLowerCase()) || HEIC_EXTENSIONS.has(extension);
   }
+
+  function shouldUseNativeCamera() {
+    const userAgent = navigator.userAgent || '';
+    const platform = navigator.platform || '';
+    const isTouchMac = platform === 'MacIntel' && navigator.maxTouchPoints > 1;
+    return /iPad|iPhone|iPod/.test(userAgent) || isTouchMac;
+  }
+
+  const openNativeCamera = useCallback(() => {
+    setCameraError(null);
+    setShowPhotoSourceSheet(false);
+    nativeCameraInputRef.current?.click();
+  }, []);
 
   const openPhotoPicker = useCallback(() => {
     setCameraError(null);
@@ -156,6 +171,11 @@ export default function PhotoCapture({
   }
 
   function openCamera() {
+    if (shouldUseNativeCamera()) {
+      openNativeCamera();
+      return;
+    }
+
     const sessionId = cameraSessionRef.current + 1;
     cameraSessionRef.current = sessionId;
     setCameraError(null);
@@ -567,6 +587,15 @@ export default function PhotoCapture({
           </button>
         )}
         {cameraError && <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">{cameraError}</p>}
+        <input
+          ref={nativeCameraInputRef}
+          type="file"
+          accept={NATIVE_CAMERA_ACCEPT}
+          capture="environment"
+          onChange={handlePhotoSelect}
+          disabled={savingPhotos}
+          className="hidden"
+        />
         <input
           ref={cameraInputRef}
           type="file"
