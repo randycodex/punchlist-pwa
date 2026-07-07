@@ -10,7 +10,6 @@ const PHOTO_INPUT_ACCEPT = 'image/*,.heic,.heif,image/heic,image/heif';
 const HEIC_EXTENSIONS = new Set(['heic', 'heif']);
 const HEIC_MIME_TYPES = new Set(['image/heic', 'image/heif']);
 const MAX_SOURCE_PHOTO_SIZE = 25 * 1024 * 1024;
-const MAX_FILE_ATTACHMENT_SIZE = 25 * 1024 * 1024;
 
 function getCameraAccessErrorMessage(error: unknown) {
   const name = error instanceof DOMException ? error.name : error instanceof Error ? error.name : '';
@@ -19,7 +18,7 @@ function getCameraAccessErrorMessage(error: unknown) {
     return 'Camera permission was blocked. Allow camera access in the browser settings, then try again.';
   }
   if (name === 'NotFoundError' || name === 'DevicesNotFoundError') {
-    return 'No camera was found. Try Device Camera or Library.';
+    return 'No camera was found. Try Photo Library.';
   }
   if (name === 'NotReadableError' || name === 'TrackStartError') {
     return 'The camera is already in use or could not start. Close other camera apps, refresh, then try again.';
@@ -28,10 +27,39 @@ function getCameraAccessErrorMessage(error: unknown) {
     return 'The camera stopped before it could start. Refresh, then try again.';
   }
   if (name === 'OverconstrainedError' || name === 'ConstraintNotSatisfiedError') {
-    return 'The requested camera settings are not available. Try Device Camera or Library.';
+    return 'The requested camera settings are not available. Try Photo Library.';
   }
 
-  return 'Could not access camera. Try Device Camera or Library.';
+  return 'Could not access camera. Try Photo Library.';
+}
+
+async function configureAutoFocus(stream: MediaStream) {
+  type FocusCapabilities = MediaTrackCapabilities & { focusMode?: string[] };
+  type FocusConstraintSet = MediaTrackConstraintSet & { focusMode?: string };
+
+  const [track] = stream.getVideoTracks();
+  if (!track) return;
+
+  const capabilities =
+    typeof track.getCapabilities === 'function' ? (track.getCapabilities() as FocusCapabilities) : null;
+  if (!capabilities) return;
+
+  const focusMode = capabilities.focusMode;
+  const advanced: FocusConstraintSet[] = [];
+
+  if (Array.isArray(focusMode) && focusMode.includes('continuous')) {
+    advanced.push({ focusMode: 'continuous' });
+  } else if (Array.isArray(focusMode) && focusMode.includes('single-shot')) {
+    advanced.push({ focusMode: 'single-shot' });
+  }
+
+  if (advanced.length === 0) return;
+
+  try {
+    await track.applyConstraints({ advanced });
+  } catch {
+    // Some mobile browsers expose focus capabilities but reject the constraint at runtime.
+  }
 }
 
 interface PhotoCaptureProps {
@@ -52,7 +80,6 @@ export default function PhotoCapture({
   files,
   onAddPhoto,
   onAddPhotos,
-  onAddFiles,
   onDeletePhoto,
   onDeleteFile,
   compactActions = false,
@@ -67,12 +94,9 @@ export default function PhotoCapture({
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [videoReady, setVideoReady] = useState(false);
   const [savingPhotos, setSavingPhotos] = useState(false);
-  const [savingFiles, setSavingFiles] = useState(false);
-  const [showPhotoSourceSheet, setShowPhotoSourceSheet] = useState(false);
   const pinchDistanceRef = useRef<number | null>(null);
   const pinchScaleRef = useRef(1);
   const cameraInputRef = useRef<HTMLInputElement>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const cameraSessionRef = useRef(0);
@@ -86,47 +110,8 @@ export default function PhotoCapture({
 
   const openPhotoPicker = useCallback(() => {
     setCameraError(null);
-    setShowPhotoSourceSheet(false);
     cameraInputRef.current?.click();
   }, []);
-
-  const openPhotoOptions = useCallback(() => {
-    setCameraError(null);
-    if (!navigator.mediaDevices?.getUserMedia) {
-      openPhotoPicker();
-      return;
-    }
-    setShowPhotoSourceSheet(true);
-  }, [openPhotoPicker]);
-
-  async function configureAutoFocus(stream: MediaStream) {
-    type FocusCapabilities = MediaTrackCapabilities & { focusMode?: string[] };
-    type FocusConstraintSet = MediaTrackConstraintSet & { focusMode?: string };
-
-    const [track] = stream.getVideoTracks();
-    if (!track) return;
-
-    const capabilities =
-      typeof track.getCapabilities === 'function' ? (track.getCapabilities() as FocusCapabilities) : null;
-    if (!capabilities) return;
-
-    const focusMode = capabilities.focusMode;
-    const advanced: FocusConstraintSet[] = [];
-
-    if (Array.isArray(focusMode) && focusMode.includes('continuous')) {
-      advanced.push({ focusMode: 'continuous' });
-    } else if (Array.isArray(focusMode) && focusMode.includes('single-shot')) {
-      advanced.push({ focusMode: 'single-shot' });
-    }
-
-    if (advanced.length === 0) return;
-
-    try {
-      await track.applyConstraints({ advanced });
-    } catch {
-      // Some mobile browsers expose focus capabilities but reject the constraint at runtime.
-    }
-  }
 
   function createScaledImageData(img: HTMLImageElement, maxSize: number, quality: number) {
     const scale = Math.min(1, maxSize / Math.max(img.width, img.height));
@@ -154,7 +139,7 @@ export default function PhotoCapture({
     });
   }
 
-  function stopCameraStream() {
+  const stopCameraStream = useCallback(() => {
     const stream = streamRef.current;
     if (videoRef.current) {
       videoRef.current.pause();
@@ -165,16 +150,15 @@ export default function PhotoCapture({
     if (!stream) return;
     stream.getTracks().forEach((track) => track.stop());
     streamRef.current = null;
-  }
+  }, []);
 
-  async function openCamera() {
+  const openCamera = useCallback(async () => {
     const sessionId = cameraSessionRef.current + 1;
     cameraSessionRef.current = sessionId;
     stopCameraStream();
 
     flushSync(() => {
       setCameraError(null);
-      setShowPhotoSourceSheet(false);
       setVideoReady(false);
       setCapturedBatch([]);
       setCameraOpen(true);
@@ -182,11 +166,14 @@ export default function PhotoCapture({
 
     let requestTimer: number | null = window.setTimeout(() => {
       if (cameraSessionRef.current === sessionId && !streamRef.current) {
-        setCameraError('Camera is taking too long to start. Try Device Camera or Library.');
+        setCameraError('Camera is taking too long to start. Try Photo Library.');
       }
     }, 12_000);
 
     try {
+      if (!navigator.mediaDevices?.getUserMedia) {
+        throw new DOMException('Camera API is not available.', 'NotFoundError');
+      }
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
           facingMode: { ideal: 'environment' },
@@ -213,7 +200,7 @@ export default function PhotoCapture({
         requestTimer = null;
       }
     }
-  }
+  }, [stopCameraStream]);
 
   function closeCamera(discard = false) {
     cameraSessionRef.current += 1;
@@ -234,7 +221,6 @@ export default function PhotoCapture({
     setCameraStreamToken((token) => token + 1);
     setCapturedBatch([]);
     setCameraError(null);
-    setShowPhotoSourceSheet(false);
     cameraInputRef.current?.click();
   }
 
@@ -333,27 +319,6 @@ export default function PhotoCapture({
     });
   }
 
-  function fileToAttachmentPayload(file: File): Promise<{ data: string; name: string; mimeType: string; size: number } | null> {
-    return new Promise((resolve) => {
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        const data = event.target?.result;
-        if (typeof data !== 'string') {
-          resolve(null);
-          return;
-        }
-        resolve({
-          data,
-          name: file.name,
-          mimeType: file.type || 'application/octet-stream',
-          size: file.size,
-        });
-      };
-      reader.onerror = () => resolve(null);
-      reader.readAsDataURL(file);
-    });
-  }
-
   async function handlePhotoSelect(e: React.ChangeEvent<HTMLInputElement>) {
     const selectedFiles = Array.from(e.target.files ?? []);
     if (selectedFiles.length === 0) return;
@@ -397,42 +362,6 @@ export default function PhotoCapture({
     }
   }
 
-  async function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
-    if (!onAddFiles) return;
-    const selectedFiles = Array.from(e.target.files ?? []);
-    if (selectedFiles.length === 0) return;
-    const selected = selectedFiles.filter((file) => file.size <= MAX_FILE_ATTACHMENT_SIZE);
-    const oversizedCount = selectedFiles.length - selected.length;
-
-    setCameraError(null);
-    setSavingFiles(true);
-    const processed: Array<{ data: string; name: string; mimeType: string; size: number } | null> = [];
-    for (const file of selected) {
-      processed.push(await fileToAttachmentPayload(file));
-    }
-    const readyFiles = processed.filter(
-      (file): file is { data: string; name: string; mimeType: string; size: number } => file !== null
-    );
-    try {
-      if (readyFiles.length > 0) {
-        await onAddFiles(readyFiles);
-      }
-      const errors: string[] = [];
-      if (oversizedCount > 0) {
-        errors.push('Use files under 25 MB.');
-      }
-      if (readyFiles.length < selected.length) {
-        errors.push('Could not read one or more selected files.');
-      }
-      if (errors.length > 0) {
-        setCameraError(errors.join(' '));
-      }
-    } finally {
-      setSavingFiles(false);
-      if (fileInputRef.current) fileInputRef.current.value = '';
-    }
-  }
-
   useEffect(() => {
     if (!cameraOpen || !videoRef.current) return;
     const video = videoRef.current;
@@ -443,7 +372,7 @@ export default function PhotoCapture({
     let readinessTimer: number | null = null;
     let startupTimer: number | null = window.setTimeout(() => {
       if (!cancelled && !ready) {
-        setCameraError('Camera is taking too long to start. Try Device Camera or Library.');
+        setCameraError('Camera is taking too long to start. Try Photo Library.');
       }
     }, 12_000);
 
@@ -486,7 +415,7 @@ export default function PhotoCapture({
         clearStartupTimer();
         if (!cancelled) {
           setVideoReady(false);
-          setCameraError('Camera preview failed to start. Try Device Camera or Library.');
+          setCameraError('Camera preview failed to start. Try Photo Library.');
         }
       }
     }
@@ -516,12 +445,12 @@ export default function PhotoCapture({
       cameraSessionRef.current += 1;
       stopCameraStream();
     };
-  }, []);
+  }, [stopCameraStream]);
 
   useEffect(() => {
     if (!openCameraSignal) return;
-    openPhotoOptions();
-  }, [openCameraSignal, openPhotoOptions]);
+    void openCamera();
+  }, [openCameraSignal, openCamera]);
 
   return (
     <div className="space-y-3">
@@ -595,28 +524,26 @@ export default function PhotoCapture({
       <div className="flex items-center gap-3">
         {!hideCameraButton && (
           <button
-            onClick={openPhotoOptions}
-            disabled={savingPhotos || savingFiles}
+            onClick={() => void openCamera()}
+            disabled={savingPhotos}
             className={`flex items-center justify-center rounded-[1rem] bg-gray-100 text-gray-700 transition hover:bg-gray-200 dark:bg-zinc-800 dark:text-gray-100 dark:hover:bg-zinc-700 ${
               compactActions ? 'h-10 w-10' : 'h-11 w-11'
             }`}
-            aria-label="Add photos"
+            aria-label="Take multiple photos"
           >
             <Camera className={compactActions ? 'h-4 w-4' : 'h-4.5 w-4.5'} />
           </button>
         )}
-        {onAddFiles && (
-          <button
-            onClick={() => fileInputRef.current?.click()}
-            disabled={savingPhotos || savingFiles}
-            className={`flex items-center justify-center rounded-[1rem] bg-gray-100 text-gray-700 transition hover:bg-gray-200 dark:bg-zinc-800 dark:text-gray-100 dark:hover:bg-zinc-700 ${
-              compactActions ? 'h-10 w-10' : 'h-11 w-11'
-            }`}
-            aria-label="Attach files"
-          >
-            <Paperclip className={compactActions ? 'h-4 w-4' : 'h-4.5 w-4.5'} />
-          </button>
-        )}
+        <button
+          onClick={openPhotoPicker}
+          disabled={savingPhotos}
+          className={`flex items-center justify-center rounded-[1rem] bg-gray-100 text-gray-700 transition hover:bg-gray-200 dark:bg-zinc-800 dark:text-gray-100 dark:hover:bg-zinc-700 ${
+            compactActions ? 'h-10 w-10' : 'h-11 w-11'
+          }`}
+          aria-label="Open photo library"
+        >
+          <Paperclip className={compactActions ? 'h-4 w-4' : 'h-4.5 w-4.5'} />
+        </button>
         {cameraError && <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">{cameraError}</p>}
         <input
           ref={cameraInputRef}
@@ -627,57 +554,7 @@ export default function PhotoCapture({
           disabled={savingPhotos}
           className="hidden"
         />
-        {onAddFiles && (
-          <input
-            ref={fileInputRef}
-            type="file"
-            multiple
-            onChange={handleFileSelect}
-            disabled={savingFiles}
-            className="hidden"
-          />
-        )}
       </div>
-
-      {showPhotoSourceSheet && (
-        <div
-          data-inspection-inline-action="true"
-          className="modal-overlay fixed inset-0 z-50 flex items-center justify-center p-4"
-          onClick={(event) => event.stopPropagation()}
-        >
-          <div className="w-full max-w-md">
-            <div className="modal-panel overflow-hidden rounded-[1.8rem] p-2">
-              <div className="px-4 pb-2 pt-3 text-center">
-                <div className="text-sm font-semibold text-gray-900 dark:text-white">Add Photos</div>
-                <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                  Use multi-photo mode for a batch, or device camera/library if focus is better there.
-                </div>
-              </div>
-              <button
-                data-inspection-inline-action="true"
-                onClick={() => void openCamera()}
-                className="w-full rounded-[1.1rem] px-4 py-3 text-center text-[17px] font-medium text-gray-900 transition hover:bg-black/[0.04] dark:text-white dark:hover:bg-white/[0.05]"
-              >
-                Take Multiple Photos
-              </button>
-              <button
-                data-inspection-inline-action="true"
-                onClick={openPhotoPicker}
-                className="w-full rounded-[1.1rem] px-4 py-3 text-center text-[17px] text-gray-900 transition hover:bg-black/[0.04] dark:text-white dark:hover:bg-white/[0.05]"
-              >
-                Device Camera or Library
-              </button>
-              <button
-                data-inspection-inline-action="true"
-                onClick={() => setShowPhotoSourceSheet(false)}
-                className="mt-1 w-full rounded-[1.1rem] px-4 py-3 text-center text-[17px] text-gray-900 transition hover:bg-black/[0.04] dark:text-white dark:hover:bg-white/[0.05]"
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {cameraOpen && (
         <div
@@ -760,7 +637,7 @@ export default function PhotoCapture({
                   onClick={openDeviceCameraFallback}
                   className="rounded-full bg-white px-4 py-2 text-sm font-medium text-gray-900"
                 >
-                  Device Camera or Library
+                  Photo Library
                 </button>
               </div>
             )}
