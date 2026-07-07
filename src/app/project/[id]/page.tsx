@@ -257,7 +257,7 @@ const AreaCard = memo(function AreaCard({
           onToggleSelection(area.id);
         }
       }}
-      className={`card-surface block rounded-[1.65rem] p-4 transition-all ${
+      className={`card-surface block rounded-[1.65rem] p-4 transition-all sm:p-5 ${
         isSelected
           ? 'bg-gray-100 border-gray-400 dark:bg-white/[0.08] dark:border-gray-500'
           : 'hover:-translate-y-px hover:border-black/10 dark:hover:bg-white/[0.07] dark:hover:border-white/[0.08]'
@@ -1581,7 +1581,7 @@ export default function ProjectDetailPage() {
                 return (
                   <div
                     key={area.id}
-                    className="card-surface-subtle rounded-[1.5rem] p-4"
+                    className="card-surface-subtle rounded-[1.5rem] p-4 sm:p-5"
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0 flex-1">
