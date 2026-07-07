@@ -521,7 +521,7 @@ export default function PhotoCapture({
         </div>
       )}
 
-      <div className="flex items-center gap-3">
+      <div className={`flex items-center gap-3 ${hideCameraButton ? 'justify-end' : ''}`}>
         {!hideCameraButton && (
           <button
             onClick={() => void openCamera()}
@@ -544,7 +544,6 @@ export default function PhotoCapture({
         >
           <Paperclip className={compactActions ? 'h-4 w-4' : 'h-4.5 w-4.5'} />
         </button>
-        {cameraError && <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">{cameraError}</p>}
         <input
           ref={cameraInputRef}
           type="file"
@@ -555,6 +554,7 @@ export default function PhotoCapture({
           className="hidden"
         />
       </div>
+      {cameraError && <p className="text-xs text-gray-500 dark:text-gray-400">{cameraError}</p>}
 
       {cameraOpen && (
         <div
