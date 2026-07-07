@@ -35,7 +35,8 @@ export default function CustomItemComposer({
   const composerRef = useRef<HTMLDivElement | null>(null);
   const requiresSecondaryValue = typeof secondaryValue === 'string' && typeof onSecondaryChange === 'function';
   const canSubmit = value.trim().length > 0;
-  const triggerWidthClass = triggerLabel === '+ Item' ? 'mx-auto block w-1/2' : 'w-full';
+  const compactTriggerLabels = new Set(['+ Item', '+ Sub Area']);
+  const triggerWidthClass = compactTriggerLabels.has(triggerLabel) ? 'mx-auto block w-1/2' : 'w-full';
 
   useEffect(() => {
     if (!open) return;
