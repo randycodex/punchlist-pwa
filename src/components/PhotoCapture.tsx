@@ -39,6 +39,7 @@ export default function PhotoCapture({
   const [selectedPhoto, setSelectedPhoto] = useState<string | null>(null);
   const [viewerScale, setViewerScale] = useState(1);
   const [cameraOpen, setCameraOpen] = useState(false);
+  const [cameraStartupToken, setCameraStartupToken] = useState(0);
   const [cameraStreamToken, setCameraStreamToken] = useState(0);
   const [capturedBatch, setCapturedBatch] = useState<Array<{ imageData: string; thumbnail?: string }>>([]);
   const [cameraError, setCameraError] = useState<string | null>(null);
@@ -127,7 +128,7 @@ export default function PhotoCapture({
     });
   }, []);
 
-  async function beginCameraStartup(sessionId: number) {
+  const beginCameraStartup = useCallback(async (sessionId: number) => {
     let requestTimer: number | null = window.setTimeout(() => {
       if (cameraSessionRef.current === sessionId && !streamRef.current) {
         setCameraError('Camera is taking too long to start. Try Device Camera or Library.');
@@ -153,7 +154,7 @@ export default function PhotoCapture({
         requestTimer = null;
       }
     }
-  }
+  }, [requestCameraStream]);
 
   function openCamera() {
     const sessionId = cameraSessionRef.current + 1;
@@ -164,7 +165,7 @@ export default function PhotoCapture({
     setCapturedBatch([]);
     stopCameraStream();
     setCameraOpen(true);
-    void beginCameraStartup(sessionId);
+    setCameraStartupToken((token) => token + 1);
   }
 
   function closeCamera(discard = false) {
@@ -464,33 +465,26 @@ export default function PhotoCapture({
   }, [cameraOpen, cameraStreamToken]);
 
   useEffect(() => {
+    if (!cameraOpen || streamRef.current) return;
+    const sessionId = cameraSessionRef.current;
+    let frameId: number | null = window.requestAnimationFrame(() => {
+      frameId = window.requestAnimationFrame(() => {
+        frameId = null;
+        void beginCameraStartup(sessionId);
+      });
+    });
+
     return () => {
-      cameraSessionRef.current += 1;
-      stopCameraStream();
+      if (frameId !== null) {
+        window.cancelAnimationFrame(frameId);
+      }
     };
-  }, []);
+  }, [beginCameraStartup, cameraOpen, cameraStartupToken]);
 
   useEffect(() => {
-    function stopActiveCamera() {
+    return () => {
       cameraSessionRef.current += 1;
       stopCameraStream();
-      setCameraOpen(false);
-      setVideoReady(false);
-      setCameraStreamToken((token) => token + 1);
-    }
-
-    function handleVisibilityChange() {
-      if (document.visibilityState === 'hidden') {
-        stopActiveCamera();
-      }
-    }
-
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-    window.addEventListener('pagehide', stopActiveCamera);
-
-    return () => {
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-      window.removeEventListener('pagehide', stopActiveCamera);
     };
   }, []);
 
