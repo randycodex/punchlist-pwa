@@ -252,7 +252,7 @@ export async function transferSharedProjectOwnership(
 
   const email = newOwnerEmail.trim().toLowerCase();
   if (!email) {
-    throw new Error('Enter the UAI email for the new owner.');
+    throw new Error('Enter the email for the new owner.');
   }
 
   const { data, error } = await supabase.rpc('transfer_shared_project_ownership', {

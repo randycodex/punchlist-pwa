@@ -1,5 +1,5 @@
 import type { Json } from './database';
-import { getCollaborationRuntimeConfig } from './config';
+import { getAllowedCollaborationEmailDescription, getCollaborationRuntimeConfig } from './config';
 import { getCollaborationSupabaseClient } from './supabaseClient';
 
 export type CollaborationHealthStatus = 'ok' | 'warning' | 'error';
@@ -99,9 +99,9 @@ export async function runCollaborationHealthCheck(): Promise<CollaborationHealth
 
   checks.push(ok('config', 'Runtime config', `Using ${config.supabaseUrl}.`));
   checks.push(
-    config.uaiEmailDomain
-      ? ok('domain', 'UAI email domain', `Allowed domain is ${config.uaiEmailDomain}.`)
-      : warning('domain', 'UAI email domain', 'No allowed UAI email domain is configured.')
+    config.uaiEmailDomain || config.allowedEmails.length > 0
+      ? ok('email-access', 'Allowed email access', `Allowed: ${getAllowedCollaborationEmailDescription(config)}.`)
+      : warning('email-access', 'Allowed email access', 'No allowed email domain or test email is configured.')
   );
 
   const { data: sessionData, error: sessionError } = await supabase.auth.getSession();

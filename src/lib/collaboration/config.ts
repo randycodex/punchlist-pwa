@@ -5,6 +5,7 @@ export interface CollaborationRuntimeConfig {
   supabaseUrl: string;
   supabaseAnonKey: string;
   uaiEmailDomain: string | null;
+  allowedEmails: string[];
   joinCodeTtlMs: number;
   areaClaimTimeoutMs: number;
 }
@@ -32,6 +33,13 @@ function normalizeEmailDomain(value: string | undefined) {
   return trimmed || null;
 }
 
+function normalizeEmailList(value: string | undefined) {
+  return (value ?? '')
+    .split(',')
+    .map((entry) => entry.trim().toLowerCase())
+    .filter((entry) => entry.includes('@'));
+}
+
 function readPositiveIntegerEnv(value: string | undefined, fallback: number) {
   const parsed = Number.parseInt(value ?? '', 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
@@ -49,6 +57,7 @@ export function getCollaborationRuntimeConfig(): CollaborationRuntimeConfig | nu
     supabaseUrl,
     supabaseAnonKey,
     uaiEmailDomain: normalizeEmailDomain(process.env.NEXT_PUBLIC_UAI_EMAIL_DOMAIN),
+    allowedEmails: normalizeEmailList(process.env.NEXT_PUBLIC_COLLABORATION_ALLOWED_EMAILS),
     joinCodeTtlMs: readPositiveIntegerEnv(
       process.env.NEXT_PUBLIC_COLLABORATION_JOIN_CODE_TTL_MS,
       DEFAULT_JOIN_CODE_TTL_MS
@@ -64,12 +73,27 @@ export function isCollaborationConfigured() {
   return getCollaborationRuntimeConfig() !== null;
 }
 
-export function isAllowedCollaborationEmail(email: string) {
-  const domain = getCollaborationRuntimeConfig()?.uaiEmailDomain;
-  if (!domain) return false;
+export function getAllowedCollaborationEmailDescription(config = getCollaborationRuntimeConfig()) {
+  if (!config) return 'configured collaboration accounts';
 
-  const [, emailDomain] = email.trim().toLowerCase().split('@');
-  return emailDomain === domain;
+  const allowed = [
+    config.uaiEmailDomain ? `${config.uaiEmailDomain} accounts` : null,
+    ...config.allowedEmails,
+  ].filter((entry): entry is string => !!entry);
+
+  return allowed.length > 0 ? allowed.join(' or ') : 'configured collaboration accounts';
+}
+
+export function isAllowedCollaborationEmail(email: string) {
+  const config = getCollaborationRuntimeConfig();
+  if (!config) return false;
+
+  const normalizedEmail = email.trim().toLowerCase();
+  const emailDomain = normalizedEmail.slice(normalizedEmail.lastIndexOf('@') + 1);
+  return (
+    (!!config.uaiEmailDomain && emailDomain === config.uaiEmailDomain) ||
+    config.allowedEmails.includes(normalizedEmail)
+  );
 }
 
 export function getCollaborationEmailAccess(email: string | null | undefined): CollaborationEmailAccess {
@@ -82,11 +106,11 @@ export function getCollaborationEmailAccess(email: string | null | undefined): C
     };
   }
 
-  if (!config.uaiEmailDomain) {
+  if (!config.uaiEmailDomain && config.allowedEmails.length === 0) {
     return {
       isConfigured: true,
       isAllowed: false,
-      message: 'Collaboration requires an allowed UAI email domain.',
+      message: 'Collaboration requires an allowed email domain or test email.',
     };
   }
 
@@ -94,7 +118,7 @@ export function getCollaborationEmailAccess(email: string | null | undefined): C
     return {
       isConfigured: true,
       isAllowed: false,
-      message: `Sign in with a ${config.uaiEmailDomain} account to use shared projects.`,
+      message: `Sign in with ${getAllowedCollaborationEmailDescription(config)} to use shared projects.`,
     };
   }
 
@@ -102,7 +126,7 @@ export function getCollaborationEmailAccess(email: string | null | undefined): C
     return {
       isConfigured: true,
       isAllowed: false,
-      message: `Shared projects are limited to ${config.uaiEmailDomain} accounts.`,
+      message: `Shared projects are limited to ${getAllowedCollaborationEmailDescription(config)}.`,
     };
   }
 

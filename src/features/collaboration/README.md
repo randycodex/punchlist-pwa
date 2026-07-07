@@ -12,8 +12,8 @@ The first release should not be a full live-editing system. It should be shared 
 
 - A shared project has one server-owned `projectId`.
 - A UAI user creates the project and becomes the initial owner.
-- Ownership can be transferred to another UAI project member.
-- Users join through UAI email invitations or a project join code that only works after Microsoft sign-in with a UAI account.
+- Ownership can be transferred to another allowed project member.
+- Users join through invitations or a project join code that only works after Microsoft sign-in with an allowed collaboration account.
 - Every accepted member can inspect and edit; do not expose roles in the first UI.
 - IndexedDB remains the offline cache for projects and queued local edits.
 - The backend is authoritative for shared projects.
@@ -78,7 +78,7 @@ Start simple: no visible roles for the first release.
 ## Backend responsibilities
 
 - Authenticate users with the existing Microsoft sign-in identity.
-- Enforce UAI-only access.
+- Enforce UAI production access, plus temporary exact-email allowlist entries for testing.
 - Create and validate project join codes.
 - Store project membership.
 - Store project ownership and ownership transfer history.
@@ -104,7 +104,7 @@ Start simple: no visible roles for the first release.
 - Add backend choice and environment configuration.
 - Add shared project and membership schema.
 - Map Microsoft account identity to backend user records.
-- Add UAI-only invitation and join-code flow.
+- Add allowed-email invitation and join-code flow.
 - Add transferable project ownership.
 - Keep existing local project screens while introducing shared project metadata.
 
@@ -141,7 +141,8 @@ Start simple: no visible roles for the first release.
 
 - Backend platform: Supabase/Firebase/Convex/custom Next.js API plus Postgres.
 - Shared media storage: Supabase Storage/Azure Blob/Vercel Blob/S3/SharePoint.
-- UAI email domain or tenant ID that should be accepted.
+- UAI email domain or tenant ID that should be accepted for production.
+- Temporary exact-email test allowlist entries, if non-UAI testers need access before the production identity model is widened.
 - Join-code lifetime and whether join requests require approval.
 - Area claim timeout duration.
 - Whether first release can use latest-wins comments or needs append-only comments immediately.
@@ -154,11 +155,12 @@ Local and deployed environments need these public settings:
 NEXT_PUBLIC_SUPABASE_URL=https://your-project-ref.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_publishable_key
 NEXT_PUBLIC_UAI_EMAIL_DOMAIN=uai-ny.com
+NEXT_PUBLIC_COLLABORATION_ALLOWED_EMAILS=tester@gmail.com
 NEXT_PUBLIC_COLLABORATION_JOIN_CODE_TTL_MS=604800000
 NEXT_PUBLIC_COLLABORATION_AREA_CLAIM_TIMEOUT_MS=14400000
 ```
 
-The join-code and area-claim values are optional. Defaults are 7 days for join codes and 4 hours for area claims.
+The join-code, area-claim, and exact-email allowlist values are optional. Defaults are 7 days for join codes and 4 hours for area claims. Keep `NEXT_PUBLIC_COLLABORATION_ALLOWED_EMAILS` to temporary test accounts only; it does not replace a production arbitrary-email identity model.
 
 ## Client package
 

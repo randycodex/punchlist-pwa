@@ -2622,8 +2622,8 @@ export default function ProjectsPage() {
         <AppPromptDialog
           title="Transfer Ownership"
           message={ownershipTransferProject.projectName}
-          label="New owner UAI email"
-          placeholder="name@uai-ny.com"
+          label="New owner email"
+          placeholder="name@example.com"
           inputMode="email"
           confirmLabel="Transfer"
           onCancel={() => setOwnershipTransferProject(null)}
