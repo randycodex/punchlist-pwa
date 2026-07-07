@@ -54,6 +54,17 @@ body {
   -webkit-tap-highlight-color: transparent;
 }
 
+* {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+*::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
 a,
 button,
 [role="button"] {
@@ -281,10 +292,13 @@ html:not(.dark) {
 
 .scrollbar-hidden {
   scrollbar-width: none;
+  -ms-overflow-style: none;
 }
 
 .scrollbar-hidden::-webkit-scrollbar {
   display: none;
+  width: 0;
+  height: 0;
 }
 
 .metric-line {
