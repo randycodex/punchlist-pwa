@@ -12,6 +12,28 @@ const HEIC_MIME_TYPES = new Set(['image/heic', 'image/heif']);
 const MAX_SOURCE_PHOTO_SIZE = 25 * 1024 * 1024;
 const MAX_FILE_ATTACHMENT_SIZE = 25 * 1024 * 1024;
 
+function getCameraAccessErrorMessage(error: unknown) {
+  const name = error instanceof DOMException ? error.name : error instanceof Error ? error.name : '';
+
+  if (name === 'NotAllowedError' || name === 'PermissionDeniedError') {
+    return 'Camera permission was blocked. Allow camera access in the browser settings, then try again.';
+  }
+  if (name === 'NotFoundError' || name === 'DevicesNotFoundError') {
+    return 'No camera was found. Try Device Camera or Library.';
+  }
+  if (name === 'NotReadableError' || name === 'TrackStartError') {
+    return 'The camera is already in use or could not start. Close other camera apps, refresh, then try again.';
+  }
+  if (name === 'AbortError') {
+    return 'The camera stopped before it could start. Refresh, then try again.';
+  }
+  if (name === 'OverconstrainedError' || name === 'ConstraintNotSatisfiedError') {
+    return 'The requested camera settings are not available. Try Device Camera or Library.';
+  }
+
+  return 'Could not access camera. Try Device Camera or Library.';
+}
+
 interface PhotoCaptureProps {
   photos: PhotoAttachment[];
   files: FileAttachment[];
@@ -180,10 +202,10 @@ export default function PhotoCapture({
       streamRef.current = stream;
       setCameraStreamToken((token) => token + 1);
       void configureAutoFocus(stream);
-    } catch {
+    } catch (error) {
       if (cameraSessionRef.current === sessionId) {
         setVideoReady(false);
-        setCameraError('Could not access camera. Try Device Camera or Library.');
+        setCameraError(getCameraAccessErrorMessage(error));
       }
     } finally {
       if (requestTimer) {
@@ -618,7 +640,11 @@ export default function PhotoCapture({
       </div>
 
       {showPhotoSourceSheet && (
-        <div className="modal-overlay fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div
+          data-inspection-inline-action="true"
+          className="modal-overlay fixed inset-0 z-50 flex items-center justify-center p-4"
+          onClick={(event) => event.stopPropagation()}
+        >
           <div className="w-full max-w-md">
             <div className="modal-panel overflow-hidden rounded-[1.8rem] p-2">
               <div className="px-4 pb-2 pt-3 text-center">
@@ -628,18 +654,21 @@ export default function PhotoCapture({
                 </div>
               </div>
               <button
+                data-inspection-inline-action="true"
                 onClick={() => void openCamera()}
                 className="w-full rounded-[1.1rem] px-4 py-3 text-center text-[17px] font-medium text-gray-900 transition hover:bg-black/[0.04] dark:text-white dark:hover:bg-white/[0.05]"
               >
                 Take Multiple Photos
               </button>
               <button
+                data-inspection-inline-action="true"
                 onClick={openPhotoPicker}
                 className="w-full rounded-[1.1rem] px-4 py-3 text-center text-[17px] text-gray-900 transition hover:bg-black/[0.04] dark:text-white dark:hover:bg-white/[0.05]"
               >
                 Device Camera or Library
               </button>
               <button
+                data-inspection-inline-action="true"
                 onClick={() => setShowPhotoSourceSheet(false)}
                 className="mt-1 w-full rounded-[1.1rem] px-4 py-3 text-center text-[17px] text-gray-900 transition hover:bg-black/[0.04] dark:text-white dark:hover:bg-white/[0.05]"
               >
@@ -651,7 +680,11 @@ export default function PhotoCapture({
       )}
 
       {cameraOpen && (
-        <div className="fixed inset-0 z-50 overflow-hidden bg-black">
+        <div
+          data-inspection-inline-action="true"
+          className="fixed inset-0 z-50 overflow-hidden bg-black"
+          onClick={(event) => event.stopPropagation()}
+        >
           <video ref={videoRef} autoPlay muted playsInline className="absolute inset-0 h-full w-full object-cover" />
 
           <div className="absolute inset-x-0 top-0 flex items-center justify-between px-4 pb-4 pt-[calc(env(safe-area-inset-top)+0.75rem)]">
