@@ -2380,6 +2380,7 @@ export default function AreaDetailPage() {
         facadeLevelOptions={buildFacadeLevelOptions(project)}
         facadeElevationDrawings={project.facadeElevationDrawings ?? []}
         enableFacadeLevelBatch
+        lockAreaType
         onChange={setAreaForm}
         onClose={() => {
           setAreaForm(getAreaFormValue(area));

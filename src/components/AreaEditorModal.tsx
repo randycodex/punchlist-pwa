@@ -62,6 +62,7 @@ type AreaEditorModalProps = {
   facadeLevelOptions?: string[];
   facadeElevationDrawings?: FacadeElevationDrawing[];
   enableFacadeLevelBatch?: boolean;
+  lockAreaType?: boolean;
   onChange: (value: AreaFormValue) => void;
   onClose: () => void;
   onSubmit: () => void;
@@ -76,6 +77,7 @@ export default function AreaEditorModal({
   facadeLevelOptions = [],
   facadeElevationDrawings = [],
   enableFacadeLevelBatch = false,
+  lockAreaType = false,
   onChange,
   onClose,
   onSubmit,
@@ -171,50 +173,66 @@ export default function AreaEditorModal({
     <div className="modal-overlay fixed inset-0 z-50 flex items-start justify-center overflow-y-auto p-4">
       <div className="modal-panel my-4 w-full max-w-md rounded-[1.9rem] p-6">
         <h2 className="mb-1 text-xl font-semibold tracking-[-0.02em] text-gray-900 dark:text-white">{title}</h2>
-        <p className="mb-5 text-sm text-gray-500 dark:text-gray-400">Choose the area type and label details.</p>
+        <p className="mb-5 text-sm text-gray-500 dark:text-gray-400">
+          {lockAreaType ? 'Update the label details for this area.' : 'Choose the area type and label details.'}
+        </p>
 
         <div className="space-y-4">
-          <div>
-            <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
-              Area
-            </label>
-            <select
-              value={value.areaTypeKey}
-              onChange={(e) => {
-                const nextAreaType = e.target.value as AreaTypeKey;
-                const keepsFacadeFields = nextAreaType === 'facade';
-                const nextUnitType =
-                  nextAreaType === 'apartment_unit'
-                    ? APARTMENT_UNIT_TYPES.includes(value.unitType as ApartmentUnitType)
-                      ? value.unitType
-                      : ''
-                    : keepsFacadeFields && FACADE_ORIENTATIONS.includes(value.unitType as FacadeOrientation)
-                      ? value.unitType
-                      : '';
-                const keepsElevationDrawing = keepsFacadeFields && Boolean(nextUnitType);
-                setLevelMode('');
-                setElevationError('');
-                onChange({
-                  ...value,
-                  areaTypeKey: nextAreaType,
-                  unitType: nextUnitType,
-                  customAreaName: nextAreaType === 'custom' ? value.customAreaName : '',
-                  areaNumber: keepsFacadeFields ? value.areaNumber : '',
-                  facadeLevel: keepsFacadeFields ? value.facadeLevel : '',
-                  facadeLevelMode: keepsFacadeFields ? value.facadeLevelMode : '',
-                  elevationDrawingId: keepsElevationDrawing ? value.elevationDrawingId : '',
-                  pendingElevationDrawing: keepsElevationDrawing ? value.pendingElevationDrawing ?? null : null,
-                });
-              }}
-              className="field-shell"
-            >
-              {orderedAreaTypes.map((definition) => (
-                <option key={definition.key} value={definition.key}>
-                  {definition.label}
-                </option>
-              ))}
-            </select>
-          </div>
+          {!lockAreaType ? (
+            <div>
+              <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                Area
+              </label>
+              <select
+                value={value.areaTypeKey}
+                onChange={(e) => {
+                  const nextAreaType = e.target.value as AreaTypeKey;
+                  const keepsFacadeFields = nextAreaType === 'facade';
+                  const nextUnitType =
+                    nextAreaType === 'apartment_unit'
+                      ? APARTMENT_UNIT_TYPES.includes(value.unitType as ApartmentUnitType)
+                        ? value.unitType
+                        : ''
+                      : keepsFacadeFields && FACADE_ORIENTATIONS.includes(value.unitType as FacadeOrientation)
+                        ? value.unitType
+                        : '';
+                  const keepsElevationDrawing = keepsFacadeFields && Boolean(nextUnitType);
+                  setLevelMode('');
+                  setElevationError('');
+                  onChange({
+                    ...value,
+                    areaTypeKey: nextAreaType,
+                    unitType: nextUnitType,
+                    customAreaName: nextAreaType === 'custom' ? value.customAreaName : '',
+                    areaNumber: keepsFacadeFields ? value.areaNumber : '',
+                    facadeLevel: keepsFacadeFields ? value.facadeLevel : '',
+                    facadeLevelMode: keepsFacadeFields ? value.facadeLevelMode : '',
+                    elevationDrawingId: keepsElevationDrawing ? value.elevationDrawingId : '',
+                    pendingElevationDrawing: keepsElevationDrawing ? value.pendingElevationDrawing ?? null : null,
+                  });
+                }}
+                className="field-shell"
+              >
+                {orderedAreaTypes.map((definition) => (
+                  <option key={definition.key} value={definition.key}>
+                    {definition.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ) : (
+            <div>
+              <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                Area
+              </label>
+              <div className="field-shell flex items-center justify-between gap-3">
+                <span>{selectedDefinition.label}</span>
+                <span className="rounded-full bg-black/[0.04] px-2.5 py-1 text-[11px] font-semibold text-gray-500 dark:bg-white/[0.08] dark:text-gray-400">
+                  Locked
+                </span>
+              </div>
+            </div>
+          )}
 
           {selectedDefinition.requiresUnitType && (
             <div>
@@ -293,7 +311,7 @@ export default function AreaEditorModal({
                 <option value="no">No levels</option>
               </select>
               {value.facadeLevelMode === 'yes' && facadeLevelOptions.length > 0 && (
-                <div className="mt-2 grid max-h-44 grid-cols-2 gap-2 overflow-y-auto rounded-[1rem] border border-[var(--surface-border)] bg-white/70 p-3 dark:bg-white/[0.05]">
+                <div className="mt-2 grid grid-cols-2 gap-2 rounded-[1rem] border border-[var(--surface-border)] bg-white/70 p-3 dark:bg-white/[0.05]">
                   {facadeLevelOptions.map((level) => {
                     const selected = selectedFacadeLevelSet.has(level);
                     return (

@@ -1586,6 +1586,9 @@ export default function ProjectDetailPage() {
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0 flex-1">
                         <div className="font-medium text-gray-900 dark:text-white truncate">{area.name}</div>
+                        <div className="mt-1 text-xs font-medium uppercase tracking-[0.16em] text-gray-500 dark:text-gray-400">
+                          Project: {project.projectName}
+                        </div>
                         <div className="mt-1 text-sm text-gray-600 dark:text-gray-300">
                           Deleted {deletedAt.toLocaleDateString()}
                         </div>

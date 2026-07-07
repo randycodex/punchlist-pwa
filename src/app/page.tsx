@@ -199,6 +199,12 @@ type AreaClaimDisplay = {
   expiresAt?: Date;
 };
 
+type TrashedAreaEntry = {
+  project: Project;
+  area: Area;
+  deletedAt: Date;
+};
+
 type ProjectCardProps = {
   project: Project;
   metric?: ProjectMetrics;
@@ -935,6 +941,23 @@ export default function ProjectsPage() {
     [projects]
   );
 
+  const trashedAreaEntries = useMemo<TrashedAreaEntry[]>(
+    () =>
+      projects
+        .flatMap((project) => {
+          if (project.deletedAt) return [];
+          return project.areas
+            .filter((area) => area.deletedAt)
+            .map((area) => ({
+              project,
+              area,
+              deletedAt: area.deletedAt ?? new Date(0),
+            }));
+        })
+        .sort((a, b) => b.deletedAt.getTime() - a.deletedAt.getTime()),
+    [projects]
+  );
+
   const sortedProjects = useMemo(() => {
     return [...activeProjects].sort((a, b) => {
       if (sortOption === 'alphabetical') {
@@ -1327,6 +1350,19 @@ export default function ProjectsPage() {
     unmarkProjectDeleted(project.id);
     await saveProjectMetadataOnly(project);
     scheduleSync(project.id, { fullSync: true });
+    setProjects((prev) =>
+      prev.map((entry) => (entry.id === project.id ? { ...project, areas: [...project.areas] } : entry))
+    );
+  }
+
+  async function handleRestoreArea(projectId: string, areaId: string) {
+    const project = projects.find((entry) => entry.id === projectId);
+    const area = project?.areas.find((entry) => entry.id === areaId);
+    if (!project || !area) return;
+
+    delete area.deletedAt;
+    await saveProjectMetadataOnly(project);
+    scheduleSync(project.id);
     setProjects((prev) =>
       prev.map((entry) => (entry.id === project.id ? { ...project, areas: [...project.areas] } : entry))
     );
@@ -2319,14 +2355,19 @@ export default function ProjectsPage() {
         onTouchCancel={handlePullEnd}
       >
         {showTrash ? (
-          trashedProjects.length === 0 ? (
-          <div className="empty-state-card mx-auto max-w-md rounded-[2rem] p-10 text-center">
-            <Trash2 className="mx-auto mb-4 h-14 w-14 text-gray-300 dark:text-gray-600" />
-            <h2 className="mb-2 text-lg font-medium text-gray-900 dark:text-white">Trash Is Empty</h2>
-            <p className="text-gray-500 dark:text-gray-400">Deleted projects stay here for 30 days before permanent removal.</p>
-          </div>
+          trashedProjects.length === 0 && trashedAreaEntries.length === 0 ? (
+            <div className="empty-state-card mx-auto max-w-md rounded-[2rem] p-10 text-center">
+              <Trash2 className="mx-auto mb-4 h-14 w-14 text-gray-300 dark:text-gray-600" />
+              <h2 className="mb-2 text-lg font-medium text-gray-900 dark:text-white">Trash Is Empty</h2>
+              <p className="text-gray-500 dark:text-gray-400">Deleted projects and areas stay here so they can be restored.</p>
+            </div>
           ) : (
             <div className="list-stack mx-auto w-full max-w-6xl">
+              {trashedProjects.length > 0 && (
+                <div className="px-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-gray-500 dark:text-gray-400">
+                  Deleted Projects
+                </div>
+              )}
               {trashedProjects.map((project) => {
                 const deletedAt = project.deletedAt ?? new Date();
                 const expiresAt = new Date(deletedAt.getTime() + TRASH_RETENTION_MS);
@@ -2384,21 +2425,65 @@ export default function ProjectsPage() {
                       </div>
                       {!deleteMode && (
                         <div className="flex items-center gap-2 shrink-0">
-                        <button
-                          onClick={() => void handleRestoreProject(project.id)}
-                          onContextMenu={(event) => event.preventDefault()}
-                          onPointerDown={(event) => event.stopPropagation()}
-                          className="segmented-chip px-3 py-2 text-sm"
-                        >
-                          <RotateCcw className="w-3.5 h-3.5" />
-                          Restore
-                        </button>
+                          <button
+                            onClick={() => void handleRestoreProject(project.id)}
+                            onContextMenu={(event) => event.preventDefault()}
+                            onPointerDown={(event) => event.stopPropagation()}
+                            className="segmented-chip px-3 py-2 text-sm"
+                          >
+                            <RotateCcw className="w-3.5 h-3.5" />
+                            Restore
+                          </button>
                         </div>
                       )}
                     </div>
                   </div>
                 );
               })}
+              {trashedAreaEntries.length > 0 && (
+                <div className={`${trashedProjects.length > 0 ? 'pt-2' : ''} px-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-gray-500 dark:text-gray-400`}>
+                  Deleted Areas
+                </div>
+              )}
+              {trashedAreaEntries.map(({ project, area, deletedAt }) => (
+                <div
+                  key={`${project.id}:${area.id}`}
+                  className="card-surface-subtle rounded-[1.5rem] p-4 transition-all sm:p-5"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex min-w-0 items-center gap-2">
+                        <div className="truncate font-medium text-gray-900 dark:text-white">{area.name}</div>
+                        <span className="shrink-0 rounded-full bg-black/[0.04] px-2.5 py-1 text-[11px] font-semibold text-gray-500 dark:bg-white/[0.08] dark:text-gray-400">
+                          Area
+                        </span>
+                      </div>
+                      <div className="mt-1 truncate text-sm font-medium text-gray-700 dark:text-gray-200">
+                        Project: {project.projectName}
+                      </div>
+                      {project.address && (
+                        <div className="mt-0.5 truncate text-xs text-gray-500 dark:text-gray-400">
+                          {project.address}
+                        </div>
+                      )}
+                      <div className="mt-1 text-sm text-gray-600 dark:text-gray-300">
+                        Deleted {deletedAt.toLocaleDateString()}
+                      </div>
+                    </div>
+                    {!deleteMode && (
+                      <button
+                        onClick={() => void handleRestoreArea(project.id, area.id)}
+                        onContextMenu={(event) => event.preventDefault()}
+                        onPointerDown={(event) => event.stopPropagation()}
+                        className="segmented-chip shrink-0 px-3 py-2 text-sm"
+                      >
+                        <RotateCcw className="w-3.5 h-3.5" />
+                        Restore
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
             </div>
           )
         ) : singleProjectMainView ? (
