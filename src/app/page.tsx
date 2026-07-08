@@ -21,6 +21,7 @@ import {
 } from '@/lib/oneDriveSync';
 import {
   clearPendingSyncState,
+  getPendingSyncWaitMs,
   loadPendingSyncState,
   queuePendingSync,
   recordPendingSyncRetry,
@@ -98,6 +99,7 @@ const TRASH_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 const LONG_PRESS_MS = 500;
 const AREA_CARD_LONG_PRESS_MOVE_THRESHOLD = 12;
 const SHARED_AREA_CLAIM_REFRESH_MS = 15 * 1000;
+const AUTO_SYNC_DELAY_MS = 2_500;
 
 function sanitizeOneDriveProjectFolderPart(value: string | undefined, fallback: string) {
   const cleaned = (value ?? '')
@@ -828,16 +830,35 @@ export default function ProjectsPage() {
     }
   }
 
-  async function handleSync() {
+  function scheduleOneDriveSync(delayMs = AUTO_SYNC_DELAY_MS) {
+    if (!isSignedIn) return;
+    if (syncTimerRef.current) {
+      clearTimeout(syncTimerRef.current);
+    }
+
+    const waitMs = Math.max(delayMs, getPendingSyncWaitMs());
+    syncTimerRef.current = setTimeout(() => {
+      syncTimerRef.current = null;
+      void handleSync({ quiet: true });
+    }, waitMs);
+  }
+
+  async function handleSync(options: { quiet?: boolean } = {}) {
     if (syncing) return;
     setSyncing(true);
-    setSyncError(null);
+    if (!options.quiet) {
+      setSyncError(null);
+    }
     setSyncStatus('syncing');
     try {
-      const token = await ensureAccessToken();
+      const token = await ensureAccessToken({ interactive: options.quiet ? false : true });
       if (!token) {
-        setSyncError('Please sign in to sync.');
-        setSyncStatus('needs-auth');
+        if (options.quiet) {
+          setSyncStatus('pending');
+        } else {
+          setSyncError('Please sign in to sync.');
+          setSyncStatus('needs-auth');
+        }
         return;
       }
       const pendingSyncState = loadPendingSyncState();
@@ -862,15 +883,25 @@ export default function ProjectsPage() {
       if (retryDelayMs) {
         const retry = recordPendingSyncRetry(retryDelayMs);
         setRetryAt(retry.retryAt);
-        setSyncError(formatMicrosoftManualRetryMessage(Math.ceil(retry.delayMs / 1000)));
+        if (!options.quiet) {
+          setSyncError(formatMicrosoftManualRetryMessage(Math.ceil(retry.delayMs / 1000)));
+        }
         setSyncStatus('pending');
+        scheduleOneDriveSync(retry.delayMs);
         return;
       }
       const message = getMicrosoftErrorMessage(error, 'Sync failed.');
       if (message.startsWith('Saved locally.')) {
         const retry = recordPendingSyncRetry(60_000);
         setRetryAt(retry.retryAt);
-        setSyncError(formatMicrosoftManualRetryMessage(Math.ceil(retry.delayMs / 1000)));
+        if (!options.quiet) {
+          setSyncError(formatMicrosoftManualRetryMessage(Math.ceil(retry.delayMs / 1000)));
+        }
+        setSyncStatus('pending');
+        scheduleOneDriveSync(retry.delayMs);
+        return;
+      }
+      if (options.quiet) {
         setSyncStatus('pending');
         return;
       }
@@ -890,7 +921,7 @@ export default function ProjectsPage() {
     if (syncTimerRef.current) {
       clearTimeout(syncTimerRef.current);
     }
-    syncTimerRef.current = null;
+    scheduleOneDriveSync();
   }
 
   async function pullNewerSharedSnapshots(projectsToCheck: Project[]) {

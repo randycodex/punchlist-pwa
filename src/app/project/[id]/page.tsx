@@ -29,6 +29,7 @@ import { applyTemplateToArea } from '@/lib/template';
 import { hydrateProjectMediaFromOneDrive, syncProjectsWithOneDrive } from '@/lib/oneDriveSync';
 import {
   clearPendingSyncState,
+  getPendingSyncWaitMs,
   loadPendingSyncState,
   queuePendingSync,
   recordPendingSyncRetry,
@@ -79,6 +80,7 @@ const RECENT_AREA_TYPES_STORAGE_KEY = 'punchlist-recent-area-types';
 const SHARED_AREA_CLAIM_REFRESH_MS = 15 * 1000;
 const AREA_CARD_LONG_PRESS_MS = 550;
 const AREA_CARD_LONG_PRESS_MOVE_THRESHOLD = 12;
+const AUTO_SYNC_DELAY_MS = 2_500;
 
 function sanitizeOneDriveProjectFolderPart(value: string | undefined, fallback: string) {
   const cleaned = (value ?? '')
@@ -404,7 +406,7 @@ export default function ProjectDetailPage() {
   const listRef = useRef<HTMLElement | null>(null);
   const topMenuActionHandlerRef = useRef<((event: Event) => void) | null>(null);
   const loadProjectRef = useRef<() => Promise<void>>(() => Promise.resolve());
-  const { ensureAccessToken, signIn, accountEmail, accountName } = useMicrosoftAuth();
+  const { ensureAccessToken, signIn, isSignedIn, accountEmail, accountName } = useMicrosoftAuth();
   const collaborationAuth = useCollaborationAuth();
   const { setRetryAt, setStatus: setSyncStatus } = useSyncStatus();
   const { quickSort, markSyncedNow } = useAppSettings();
@@ -906,16 +908,35 @@ export default function ProjectDetailPage() {
     setProject({ ...project, areas: [...project.areas] });
   }
 
-  async function handleSync() {
+  function scheduleOneDriveSync(delayMs = AUTO_SYNC_DELAY_MS) {
+    if (!isSignedIn) return;
+    if (syncTimerRef.current) {
+      clearTimeout(syncTimerRef.current);
+    }
+
+    const waitMs = Math.max(delayMs, getPendingSyncWaitMs());
+    syncTimerRef.current = setTimeout(() => {
+      syncTimerRef.current = null;
+      void handleSync({ interactive: false, quiet: true });
+    }, waitMs);
+  }
+
+  async function handleSync(options: { interactive?: boolean; quiet?: boolean } = {}) {
     if (syncing) return;
     setSyncing(true);
-    setSyncError(null);
+    if (!options.quiet) {
+      setSyncError(null);
+    }
     setSyncStatus('syncing');
     try {
-      const token = await ensureAccessToken({ interactive: true });
+      const token = await ensureAccessToken({ interactive: options.interactive ?? true });
       if (!token) {
-        setSyncError('Please sign in to sync.');
-        setSyncStatus('needs-auth');
+        if (options.quiet) {
+          setSyncStatus('pending');
+        } else {
+          setSyncError('Please sign in to sync.');
+          setSyncStatus('needs-auth');
+        }
         return;
       }
       const pendingSyncState = loadPendingSyncState();
@@ -939,15 +960,25 @@ export default function ProjectDetailPage() {
       if (retryDelayMs) {
         const retry = recordPendingSyncRetry(retryDelayMs);
         setRetryAt(retry.retryAt);
-        setSyncError(formatMicrosoftManualRetryMessage(Math.ceil(retry.delayMs / 1000)));
+        if (!options.quiet) {
+          setSyncError(formatMicrosoftManualRetryMessage(Math.ceil(retry.delayMs / 1000)));
+        }
         setSyncStatus('pending');
+        scheduleOneDriveSync(retry.delayMs);
         return;
       }
       const message = getMicrosoftErrorMessage(error, 'Sync failed.');
       if (message.startsWith('Saved locally.')) {
         const retry = recordPendingSyncRetry(60_000);
         setRetryAt(retry.retryAt);
-        setSyncError(formatMicrosoftManualRetryMessage(Math.ceil(retry.delayMs / 1000)));
+        if (!options.quiet) {
+          setSyncError(formatMicrosoftManualRetryMessage(Math.ceil(retry.delayMs / 1000)));
+        }
+        setSyncStatus('pending');
+        scheduleOneDriveSync(retry.delayMs);
+        return;
+      }
+      if (options.quiet) {
         setSyncStatus('pending');
         return;
       }
@@ -967,7 +998,7 @@ export default function ProjectDetailPage() {
     if (syncTimerRef.current) {
       clearTimeout(syncTimerRef.current);
     }
-    syncTimerRef.current = null;
+    scheduleOneDriveSync();
   }
 
   function scheduleSharedPublish(projectId: string) {
