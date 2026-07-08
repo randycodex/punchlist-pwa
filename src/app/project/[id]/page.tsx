@@ -32,7 +32,6 @@ import {
   formatSyncConflictReviewMessage,
   syncProjectsWithOneDriveRecovery,
 } from '@/lib/oneDriveSyncRecovery';
-import { reserveLaunchOneDriveSync, resetLaunchOneDriveSyncReservations } from '@/lib/autoOneDriveSync';
 import { queueBackgroundProjectMediaHydration, resetBackgroundMediaHydration } from '@/lib/backgroundMediaHydration';
 import {
   queueBackgroundSharedProjectPublish,
@@ -41,9 +40,7 @@ import {
 } from '@/lib/backgroundSharedPublish';
 import {
   clearPendingSyncState,
-  getPendingSyncWaitMs,
   hasPendingSyncState,
-  isPendingSyncAutoRetryPaused,
   loadPendingSyncState,
   pausePendingSyncAutoRetry,
   queuePendingSync,
@@ -99,7 +96,6 @@ const RECENT_AREA_TYPES_STORAGE_KEY = 'punchlist-recent-area-types';
 const SHARED_AREA_CLAIM_REFRESH_MS = 15 * 1000;
 const AREA_CARD_LONG_PRESS_MS = 550;
 const AREA_CARD_LONG_PRESS_MOVE_THRESHOLD = 12;
-const AUTO_SYNC_DELAY_MS = 2_500;
 
 function sanitizeOneDriveProjectFolderPart(value: string | undefined, fallback: string) {
   const cleaned = (value ?? '')
@@ -433,7 +429,6 @@ export default function ProjectDetailPage() {
   const [transferringSharedProject, setTransferringSharedProject] = useState(false);
   const [disconnectSharedProjectConfirm, setDisconnectSharedProjectConfirm] = useState<Project | null>(null);
   const [disconnectingSharedProject, setDisconnectingSharedProject] = useState(false);
-  const syncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const backgroundAreaClaimKeysRef = useRef(new Set<string>());
   const pullStartYRef = useRef<number | null>(null);
   const pullDistanceRef = useRef(0);
@@ -441,14 +436,12 @@ export default function ProjectDetailPage() {
   const listRef = useRef<HTMLElement | null>(null);
   const topMenuActionHandlerRef = useRef<((event: Event) => void) | null>(null);
   const loadProjectRef = useRef<() => Promise<void>>(() => Promise.resolve());
-  const scheduleOneDriveSyncRef = useRef<(delayMs?: number, options?: { silentStatus?: boolean }) => void>(() => {});
   const { ensureAccessToken, signIn, isReady, isSignedIn, accountEmail, accountName } = useMicrosoftAuth();
   const ensureAccessTokenRef = useRef(ensureAccessToken);
   const collaborationAuth = useCollaborationAuth();
   const { setRetryAt, setStatus: setSyncStatus } = useSyncStatus();
   const { quickSort, markSyncedNow } = useAppSettings();
   loadProjectRef.current = loadProject;
-  scheduleOneDriveSyncRef.current = scheduleOneDriveSync;
   ensureAccessTokenRef.current = ensureAccessToken;
 
   const showMessage = useCallback((message: string, title = 'Punchlist') => {
@@ -506,14 +499,6 @@ export default function ProjectDetailPage() {
   }, [id, router]);
 
   useEffect(() => {
-    return () => {
-      if (syncTimerRef.current) {
-        clearTimeout(syncTimerRef.current);
-      }
-    };
-  }, []);
-
-  useEffect(() => {
     if (!collaborationAuth.isSignedIn) {
       resetBackgroundSharedProjectPublish();
       return;
@@ -525,24 +510,15 @@ export default function ProjectDetailPage() {
   useEffect(() => {
     if (!isReady || loading) return;
     if (!isSignedIn) {
-      resetLaunchOneDriveSyncReservations();
       resetBackgroundMediaHydration();
+      setRetryAt(null);
+      setSyncStatus('idle');
       return;
     }
 
-    const accountKey = accountEmail ?? accountName ?? 'signed-in';
-    if (!hasPendingSyncState()) {
-      setRetryAt(null);
-      setSyncStatus('idle');
-    }
-    if (isPendingSyncAutoRetryPaused()) {
-      setRetryAt(null);
-      setSyncStatus(hasPendingSyncState() ? 'pending' : 'idle');
-      return;
-    }
-    if (!reserveLaunchOneDriveSync(accountKey)) return;
-    scheduleOneDriveSyncRef.current(0, { silentStatus: true });
-  }, [accountEmail, accountName, isReady, isSignedIn, loading, setRetryAt, setSyncStatus]);
+    setRetryAt(null);
+    setSyncStatus(hasPendingSyncState() ? 'pending' : 'idle');
+  }, [isReady, isSignedIn, loading, setRetryAt, setSyncStatus]);
 
   useEffect(() => {
     if (!isReady || loading || !isSignedIn || !project) return;
@@ -1072,23 +1048,6 @@ export default function ProjectDetailPage() {
     setProject({ ...project, areas: [...project.areas] });
   }
 
-  function scheduleOneDriveSync(delayMs = AUTO_SYNC_DELAY_MS, options?: { silentStatus?: boolean }) {
-    if (!isSignedIn) return;
-    if (isPendingSyncAutoRetryPaused()) {
-      pauseAutoSyncRetry();
-      return;
-    }
-    if (syncTimerRef.current) {
-      clearTimeout(syncTimerRef.current);
-    }
-
-    const waitMs = Math.max(delayMs, getPendingSyncWaitMs());
-    syncTimerRef.current = setTimeout(() => {
-      syncTimerRef.current = null;
-      void handleSync({ interactive: false, quiet: true, silentStatus: options?.silentStatus });
-    }, waitMs);
-  }
-
   async function handleSync(options: { interactive?: boolean; quiet?: boolean; silentStatus?: boolean } = {}) {
     if (syncing) return;
     if (!options.quiet) {
@@ -1174,10 +1133,6 @@ export default function ProjectDetailPage() {
     if (projectId) {
       scheduleSharedPublish(projectId);
     }
-    if (syncTimerRef.current) {
-      clearTimeout(syncTimerRef.current);
-    }
-    scheduleOneDriveSync();
   }
 
   function scheduleSharedPublish(projectId: string) {
