@@ -81,8 +81,10 @@ import {
   getCollaborationRuntimeConfig,
   getAreaClaimExpiry,
   getSharedProjectSnapshot,
+  hasNewerLocalChangesThanSharedSnapshot,
   isSharedSnapshotNewer,
   releaseSharedProjectArea,
+  subscribeToSharedProjectSnapshotChanges,
 } from '@/lib/collaboration';
 import AreaNotesCard from '@/components/inspection/AreaNotesCard';
 import CustomItemComposer from '@/components/inspection/CustomItemComposer';
@@ -283,6 +285,9 @@ export default function AreaDetailPage() {
   const notesDraftRef = useRef('');
   const projectRef = useRef<Project | null>(null);
   const areaRef = useRef<Area | null>(null);
+  const liveSharedRefreshBlockedRef = useRef(false);
+  const pendingLiveSharedRefreshRef = useRef(false);
+  const retryLiveSharedRefreshRef = useRef<() => void>(() => {});
   const scheduleSyncRef = useRef<(projectId?: string, options?: ScheduleSyncOptions) => void>(() => {});
   const scheduleOneDriveSyncRef = useRef<(delayMs?: number, options?: { silentStatus?: boolean }) => void>(() => {});
   const loadDataRef = useRef<() => Promise<void>>(() => Promise.resolve());
@@ -314,6 +319,59 @@ export default function AreaDetailPage() {
       cacheProjectPreview(project);
     }
   }, [project]);
+
+  useEffect(() => {
+    const expandedComment = expandedCheckpoint && area
+      ? area.locations
+          .find((location) => location.id === expandedCheckpoint.locationId)
+          ?.items.find((item) => item.id === expandedCheckpoint.itemId)
+          ?.checkpoints.find((checkpoint) => checkpoint.id === expandedCheckpoint.checkpointId)
+      : null;
+    const hasUnsavedCheckpointComment = expandedComment
+      ? (expandedComment.comments ?? '') !== commentText
+      : false;
+    const hasUnsavedGeneralNotes = (area?.notes ?? '') !== notesDraftRef.current;
+    const hasComposerDraft =
+      customItemName.trim().length > 0 ||
+      customSubareaName.trim().length > 0 ||
+      customCheckpointName.trim().length > 0;
+    const blocked =
+      hasUnsavedGeneralNotes ||
+      hasUnsavedCheckpointComment ||
+      hasComposerDraft ||
+      showEditArea ||
+      deleteMode ||
+      showCustomItemComposer ||
+      showCustomSubareaComposer ||
+      showCustomCheckpointComposer ||
+      Boolean(editingCustomItem) ||
+      Boolean(editingCustomCheckpoint) ||
+      Boolean(promptDialog) ||
+      Boolean(confirmDialog);
+
+    liveSharedRefreshBlockedRef.current = blocked;
+    if (!blocked && pendingLiveSharedRefreshRef.current) {
+      pendingLiveSharedRefreshRef.current = false;
+      retryLiveSharedRefreshRef.current();
+    }
+  }, [
+    area,
+    commentText,
+    confirmDialog,
+    customCheckpointName,
+    customItemName,
+    customSubareaName,
+    deleteMode,
+    editingCustomCheckpoint,
+    editingCustomItem,
+    expandedCheckpoint,
+    generalNotes,
+    promptDialog,
+    showCustomCheckpointComposer,
+    showCustomItemComposer,
+    showCustomSubareaComposer,
+    showEditArea,
+  ]);
 
   const persistGeneralNotes = useCallback(async (value: string) => {
     const currentProject = projectRef.current;
@@ -448,6 +506,84 @@ export default function AreaDetailPage() {
   useEffect(() => {
     setAreaForm(getAreaFormValue(area));
   }, [area]);
+
+  useEffect(() => {
+    if (!collaborationAuth.isSignedIn || !project?.sharedProjectId || !area?.id) {
+      retryLiveSharedRefreshRef.current = () => {};
+      pendingLiveSharedRefreshRef.current = false;
+      return;
+    }
+
+    const localProjectId = project.id;
+    const activeAreaId = area.id;
+    const activeSharedProjectId = project.sharedProjectId;
+    let cancelled = false;
+    let refreshing = false;
+
+    async function pullSafeSharedSnapshot() {
+      if (refreshing) return;
+      refreshing = true;
+      try {
+        const localProject = await getProject(localProjectId);
+        if (cancelled || !localProject?.sharedProjectId) return;
+
+        const snapshot = await getSharedProjectSnapshot(localProject);
+        if (cancelled) return;
+        if (!isSharedSnapshotNewer(localProject, snapshot.publishedAt)) {
+          pendingLiveSharedRefreshRef.current = false;
+          return;
+        }
+
+        if (hasNewerLocalChangesThanSharedSnapshot(localProject, snapshot.publishedAt)) {
+          pendingLiveSharedRefreshRef.current = false;
+          setSyncError('Shared update available. Your local edits are newer, so review it from the project page when ready.');
+          return;
+        }
+
+        if (liveSharedRefreshBlockedRef.current) {
+          pendingLiveSharedRefreshRef.current = true;
+          setSyncError('Shared update available. Finish this edit to apply it safely.');
+          return;
+        }
+
+        const snapshotArea = snapshot.project.areas.find((entry) => entry.id === activeAreaId);
+        await saveProjectPreserveTimestamps(snapshot.project);
+        if (cancelled) return;
+        cacheProjectPreview(snapshot.project);
+        if (!snapshotArea || snapshotArea.deletedAt) {
+          router.push(`/project/${localProject.id}`);
+          return;
+        }
+        pendingLiveSharedRefreshRef.current = false;
+        setSyncError(null);
+        setProject(snapshot.project);
+        setArea(snapshotArea);
+      } catch (error) {
+        if (!cancelled) {
+          console.info('Live shared area refresh skipped:', error);
+        }
+      } finally {
+        refreshing = false;
+      }
+    }
+
+    retryLiveSharedRefreshRef.current = () => {
+      void pullSafeSharedSnapshot();
+    };
+
+    const unsubscribeSnapshotChanges = subscribeToSharedProjectSnapshotChanges(
+      activeSharedProjectId,
+      () => {
+        void pullSafeSharedSnapshot();
+      }
+    );
+
+    return () => {
+      cancelled = true;
+      retryLiveSharedRefreshRef.current = () => {};
+      unsubscribeSnapshotChanges();
+    };
+  }, [area?.id, collaborationAuth.isSignedIn, project?.id, project?.sharedProjectId, router]);
 
   useEffect(() => {
     const sharedProjectId = project?.sharedProjectId;
