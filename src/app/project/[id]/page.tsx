@@ -34,7 +34,11 @@ import {
 } from '@/lib/oneDriveSyncRecovery';
 import { reserveLaunchOneDriveSync, resetLaunchOneDriveSyncReservations } from '@/lib/autoOneDriveSync';
 import { queueBackgroundProjectMediaHydration, resetBackgroundMediaHydration } from '@/lib/backgroundMediaHydration';
-import { queueBackgroundSharedProjectPublish, resetBackgroundSharedProjectPublish } from '@/lib/backgroundSharedPublish';
+import {
+  queueBackgroundSharedProjectPublish,
+  queueStaleBackgroundSharedProjectPublishes,
+  resetBackgroundSharedProjectPublish,
+} from '@/lib/backgroundSharedPublish';
 import {
   clearPendingSyncState,
   getPendingSyncWaitMs,
@@ -629,6 +633,12 @@ export default function ProjectDetailPage() {
           } catch (error) {
             console.info('Shared snapshot pull skipped:', error);
           }
+        }
+        if (collaborationAuth.user?.id) {
+          queueStaleBackgroundSharedProjectPublishes({
+            projects: [nextProject],
+            userId: collaborationAuth.user.id,
+          });
         }
         setProject(nextProject);
       } else {

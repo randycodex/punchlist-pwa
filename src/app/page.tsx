@@ -35,7 +35,11 @@ import type { PdfExportMode } from '@/lib/pdfExport';
 import { uploadPdfToOneDrive, getNextOneDriveExportFilename } from '@/lib/oneDrive';
 import { reserveLaunchOneDriveSync, resetLaunchOneDriveSyncReservations } from '@/lib/autoOneDriveSync';
 import { queueBackgroundProjectMediaHydration, resetBackgroundMediaHydration } from '@/lib/backgroundMediaHydration';
-import { queueBackgroundSharedProjectPublish, resetBackgroundSharedProjectPublish } from '@/lib/backgroundSharedPublish';
+import {
+  queueBackgroundSharedProjectPublish,
+  queueStaleBackgroundSharedProjectPublishes,
+  resetBackgroundSharedProjectPublish,
+} from '@/lib/backgroundSharedPublish';
 import {
   formatMicrosoftManualRetryMessage,
   getMicrosoftErrorMessage,
@@ -859,6 +863,12 @@ export default function ProjectsPage() {
       const nextProjects = collaborationAuth.isSignedIn
         ? await pullNewerSharedSnapshots(activeData)
         : activeData;
+      if (collaborationAuth.user?.id) {
+        queueStaleBackgroundSharedProjectPublishes({
+          projects: nextProjects,
+          userId: collaborationAuth.user.id,
+        });
+      }
       cacheProjectPreviews(nextProjects);
       setProjects(nextProjects);
     } catch (error) {

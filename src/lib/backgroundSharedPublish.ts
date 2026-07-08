@@ -1,14 +1,18 @@
 import { getProject, saveProjectMetadataOnly } from '@/lib/db';
 import { publishSharedProjectSnapshot } from '@/lib/collaboration';
+import type { Project } from '@/types';
 
 type PublishItem = {
   projectId: string;
   userId: string;
 };
 
+type PublishCandidate = Pick<Project, 'id' | 'sharedProjectId' | 'sharedSnapshotPublishedAt' | 'updatedAt' | 'deletedAt'>;
+
 const INITIAL_PUBLISH_DELAY_MS = 1_200;
 const RETRY_BASE_DELAY_MS = 5_000;
 const RETRY_MAX_DELAY_MS = 60_000;
+const SHARED_PUBLISH_CLOCK_SKEW_MS = 2_000;
 
 const timers = new Map<string, ReturnType<typeof setTimeout>>();
 const pendingItems = new Map<string, PublishItem>();
@@ -29,6 +33,21 @@ function schedulePublish(projectId: string, delayMs: number) {
     void publishProject(projectId);
   }, delayMs);
   timers.set(projectId, timer);
+}
+
+function sharedProjectNeedsPublish(project: PublishCandidate) {
+  if (!project.sharedProjectId || project.deletedAt) return false;
+
+  const updatedMs = new Date(project.updatedAt).getTime();
+  if (!Number.isFinite(updatedMs)) return false;
+
+  const publishedAt = project.sharedSnapshotPublishedAt;
+  if (!publishedAt) return true;
+
+  const publishedMs = new Date(publishedAt).getTime();
+  if (!Number.isFinite(publishedMs)) return true;
+
+  return updatedMs > publishedMs + SHARED_PUBLISH_CLOCK_SKEW_MS;
 }
 
 async function publishProject(projectId: string) {
@@ -67,6 +86,21 @@ export function queueBackgroundSharedProjectPublish(options: {
   });
   retryCounts.delete(options.projectId);
   schedulePublish(options.projectId, options.delayMs ?? INITIAL_PUBLISH_DELAY_MS);
+}
+
+export function queueStaleBackgroundSharedProjectPublishes(options: {
+  projects: PublishCandidate[];
+  userId: string;
+  delayMs?: number;
+}) {
+  for (const project of options.projects) {
+    if (!sharedProjectNeedsPublish(project)) continue;
+    queueBackgroundSharedProjectPublish({
+      projectId: project.id,
+      userId: options.userId,
+      delayMs: options.delayMs,
+    });
+  }
 }
 
 export function resetBackgroundSharedProjectPublish() {
