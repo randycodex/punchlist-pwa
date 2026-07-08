@@ -317,7 +317,7 @@ export default function AreaDetailPage() {
   const locationRefs = useRef(new Map<string, HTMLDivElement | null>());
   const headerMenuRef = useRef<HTMLDivElement | null>(null);
   const topMenuActionHandlerRef = useRef<((event: Event) => void) | null>(null);
-  const { ensureAccessToken, isReady, isSignedIn, accountEmail, accountName } = useMicrosoftAuth();
+  const { ensureAccessToken, signIn, isReady, isSignedIn, accountEmail, accountName } = useMicrosoftAuth();
   const ensureAccessTokenRef = useRef(ensureAccessToken);
   const collaborationAuth = useCollaborationAuth();
   const { setRetryAt, setStatus: setSyncStatus } = useSyncStatus();
@@ -1728,6 +1728,7 @@ export default function AreaDetailPage() {
         } else {
           setSyncError('Please sign in to sync.');
           setSyncStatus('needs-auth');
+          await signIn({ selectAccount: true });
         }
         return;
       }

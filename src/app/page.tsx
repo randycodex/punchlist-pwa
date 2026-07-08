@@ -919,6 +919,7 @@ export default function ProjectsPage() {
         } else {
           setSyncError('Please sign in to sync.');
           setSyncStatus('needs-auth');
+          await signIn({ selectAccount: true });
         }
         return;
       }

@@ -1069,6 +1069,7 @@ export default function ProjectDetailPage() {
         } else {
           setSyncError('Please sign in to sync.');
           setSyncStatus('needs-auth');
+          await signIn({ selectAccount: true });
         }
         return;
       }
