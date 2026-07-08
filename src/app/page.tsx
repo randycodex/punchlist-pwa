@@ -13,12 +13,16 @@ import {
   createArea,
 } from '@/lib/db';
 import {
-  syncProjectsWithOneDrive,
   SyncConflict,
   markProjectDeleted,
   unmarkProjectDeleted,
   hydrateProjectMediaFromOneDrive,
 } from '@/lib/oneDriveSync';
+import {
+  formatSyncConflictReviewMessage,
+  SYNC_CONFLICT_RETRY_MS,
+  syncProjectsWithOneDriveRecovery,
+} from '@/lib/oneDriveSyncRecovery';
 import {
   clearPendingSyncState,
   getPendingSyncWaitMs,
@@ -899,13 +903,18 @@ export default function ProjectsPage() {
         return;
       }
       const pendingSyncState = loadPendingSyncState();
-      const result = await syncProjectsWithOneDrive(token, {
+      const result = await syncProjectsWithOneDriveRecovery(token, {
         pushProjectIds: pendingSyncState.projectIds,
       });
       setSyncConflicts(result.conflicts);
       if (result.conflicts.length > 0) {
-        setSyncError('Saved locally. OneDrive changed on another device. Tap Sync again to use the latest version.');
+        const retry = recordPendingSyncRetry(SYNC_CONFLICT_RETRY_MS);
+        setRetryAt(retry.retryAt);
+        if (!options.quiet) {
+          setSyncError(formatSyncConflictReviewMessage(result.conflicts));
+        }
         setSyncStatus('pending');
+        scheduleOneDriveSync(retry.delayMs);
         return;
       }
       clearPendingSyncState();
@@ -2489,7 +2498,7 @@ export default function ProjectsPage() {
       )}
       {syncConflicts.length > 0 && (
         <div className="shrink-0 border-b border-gray-200/80 bg-white/70 px-4 py-3 text-sm dark:border-zinc-700 dark:bg-white/[0.03]">
-          <div className="text-gray-700 dark:text-gray-200">Conflicts detected:</div>
+          <div className="text-gray-700 dark:text-gray-200">Sync needs review:</div>
           <div className="mt-2 flex flex-wrap gap-2">
             {syncConflicts.map((conflict) => (
               <span

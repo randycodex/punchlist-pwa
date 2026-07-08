@@ -51,7 +51,11 @@ import {
   buildElevationMarkerReferences,
 } from '@/lib/elevationMarkers';
 import { applyTemplateToArea } from '@/lib/template';
-import { syncProjectsWithOneDrive } from '@/lib/oneDriveSync';
+import {
+  formatSyncConflictReviewMessage,
+  SYNC_CONFLICT_RETRY_MS,
+  syncProjectsWithOneDriveRecovery,
+} from '@/lib/oneDriveSyncRecovery';
 import { reserveLaunchOneDriveSync, resetLaunchOneDriveSyncReservations } from '@/lib/autoOneDriveSync';
 import { queueBackgroundProjectMediaHydration, resetBackgroundMediaHydration } from '@/lib/backgroundMediaHydration';
 import {
@@ -1496,12 +1500,17 @@ export default function AreaDetailPage() {
         return;
       }
       const pendingSyncState = loadPendingSyncState();
-      const result = await syncProjectsWithOneDrive(token, {
+      const result = await syncProjectsWithOneDriveRecovery(token, {
         pushProjectIds: pendingSyncState.projectIds,
       });
       if (result.conflicts.length > 0) {
-        setSyncError('Saved locally. OneDrive changed on another device. Tap Sync again to use the latest version.');
+        const retry = recordPendingSyncRetry(SYNC_CONFLICT_RETRY_MS);
+        setRetryAt(retry.retryAt);
+        if (!options.quiet) {
+          setSyncError(formatSyncConflictReviewMessage(result.conflicts));
+        }
         setSyncStatus('pending');
+        scheduleOneDriveSync(retry.delayMs);
         return;
       }
       clearPendingSyncState();
