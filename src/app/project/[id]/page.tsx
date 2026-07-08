@@ -28,6 +28,7 @@ import {
 import { applyTemplateToArea } from '@/lib/template';
 import { hydrateProjectMediaFromOneDrive, syncProjectsWithOneDrive } from '@/lib/oneDriveSync';
 import { reserveLaunchOneDriveSync, resetLaunchOneDriveSyncReservations } from '@/lib/autoOneDriveSync';
+import { queueBackgroundProjectMediaHydration, resetBackgroundMediaHydration } from '@/lib/backgroundMediaHydration';
 import {
   clearPendingSyncState,
   getPendingSyncWaitMs,
@@ -410,11 +411,13 @@ export default function ProjectDetailPage() {
   const loadProjectRef = useRef<() => Promise<void>>(() => Promise.resolve());
   const scheduleOneDriveSyncRef = useRef<(delayMs?: number, options?: { silentStatus?: boolean }) => void>(() => {});
   const { ensureAccessToken, signIn, isReady, isSignedIn, accountEmail, accountName } = useMicrosoftAuth();
+  const ensureAccessTokenRef = useRef(ensureAccessToken);
   const collaborationAuth = useCollaborationAuth();
   const { setRetryAt, setStatus: setSyncStatus } = useSyncStatus();
   const { quickSort, markSyncedNow } = useAppSettings();
   loadProjectRef.current = loadProject;
   scheduleOneDriveSyncRef.current = scheduleOneDriveSync;
+  ensureAccessTokenRef.current = ensureAccessToken;
 
   const showMessage = useCallback((message: string, title = 'Punchlist') => {
     setMessageDialog({ title, message });
@@ -484,6 +487,7 @@ export default function ProjectDetailPage() {
     if (!isReady || loading) return;
     if (!isSignedIn) {
       resetLaunchOneDriveSyncReservations();
+      resetBackgroundMediaHydration();
       return;
     }
 
@@ -495,6 +499,17 @@ export default function ProjectDetailPage() {
     if (!reserveLaunchOneDriveSync(accountKey)) return;
     scheduleOneDriveSyncRef.current(0, { silentStatus: true });
   }, [accountEmail, accountName, isReady, isSignedIn, loading, setRetryAt, setSyncStatus]);
+
+  useEffect(() => {
+    if (!isReady || loading || !isSignedIn || !project) return;
+    const accountKey = accountEmail ?? accountName ?? 'signed-in';
+    queueBackgroundProjectMediaHydration({
+      accountKey,
+      projects: [project],
+      getAccessToken: () => ensureAccessTokenRef.current({ interactive: false }),
+      onProjectHydrated: cacheProjectPreview,
+    });
+  }, [accountEmail, accountName, isReady, isSignedIn, loading, project]);
 
   useEffect(() => {
     if (project) {

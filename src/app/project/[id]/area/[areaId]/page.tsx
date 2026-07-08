@@ -53,6 +53,7 @@ import {
 import { applyTemplateToArea } from '@/lib/template';
 import { syncProjectsWithOneDrive } from '@/lib/oneDriveSync';
 import { reserveLaunchOneDriveSync, resetLaunchOneDriveSyncReservations } from '@/lib/autoOneDriveSync';
+import { queueBackgroundProjectMediaHydration, resetBackgroundMediaHydration } from '@/lib/backgroundMediaHydration';
 import {
   clearPendingSyncState,
   getPendingSyncWaitMs,
@@ -286,6 +287,7 @@ export default function AreaDetailPage() {
   const locationRefs = useRef(new Map<string, HTMLDivElement | null>());
   const headerMenuRef = useRef<HTMLDivElement | null>(null);
   const { ensureAccessToken, isReady, isSignedIn, accountEmail, accountName } = useMicrosoftAuth();
+  const ensureAccessTokenRef = useRef(ensureAccessToken);
   const collaborationAuth = useCollaborationAuth();
   const { setRetryAt, setStatus: setSyncStatus } = useSyncStatus();
   const { inspectionShowOnlyIssues, setInspectionShowOnlyIssues, quickSort, markSyncedNow } = useAppSettings();
@@ -295,6 +297,7 @@ export default function AreaDetailPage() {
     areaRef.current = area;
     scheduleSyncRef.current = scheduleSync;
     scheduleOneDriveSyncRef.current = scheduleOneDriveSync;
+    ensureAccessTokenRef.current = ensureAccessToken;
     loadDataRef.current = loadData;
   });
 
@@ -364,6 +367,7 @@ export default function AreaDetailPage() {
     if (!isReady || loading) return;
     if (!isSignedIn) {
       resetLaunchOneDriveSyncReservations();
+      resetBackgroundMediaHydration();
       return;
     }
 
@@ -375,6 +379,28 @@ export default function AreaDetailPage() {
     if (!reserveLaunchOneDriveSync(accountKey)) return;
     scheduleOneDriveSyncRef.current(0, { silentStatus: true });
   }, [accountEmail, accountName, isReady, isSignedIn, loading, setRetryAt, setSyncStatus]);
+
+  useEffect(() => {
+    if (!isReady || loading || !isSignedIn || !project) return;
+    let active = true;
+    const accountKey = accountEmail ?? accountName ?? 'signed-in';
+    queueBackgroundProjectMediaHydration({
+      accountKey,
+      projects: [project],
+      getAccessToken: () => ensureAccessTokenRef.current({ interactive: false }),
+      onProjectHydrated: (hydratedProject) => {
+        if (!active || hydratedProject.id !== projectRef.current?.id) return;
+        const hydratedArea = hydratedProject.areas.find((entry) => entry.id === areaRef.current?.id);
+        if (!hydratedArea || hydratedArea.deletedAt) return;
+        cacheProjectPreview(hydratedProject);
+        setProject(hydratedProject);
+        setArea(hydratedArea);
+      },
+    });
+    return () => {
+      active = false;
+    };
+  }, [accountEmail, accountName, isReady, isSignedIn, loading, project]);
 
   useEffect(() => {
     if (!showHeaderMenu) return;

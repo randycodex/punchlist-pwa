@@ -30,6 +30,7 @@ import {
 import type { PdfExportMode } from '@/lib/pdfExport';
 import { uploadPdfToOneDrive, getNextOneDriveExportFilename } from '@/lib/oneDrive';
 import { reserveLaunchOneDriveSync, resetLaunchOneDriveSyncReservations } from '@/lib/autoOneDriveSync';
+import { queueBackgroundProjectMediaHydration, resetBackgroundMediaHydration } from '@/lib/backgroundMediaHydration';
 import {
   formatMicrosoftManualRetryMessage,
   getMicrosoftErrorMessage,
@@ -664,11 +665,13 @@ export default function ProjectsPage() {
   const scheduleSyncRef = useRef<(projectId?: string, options?: { fullSync?: boolean }) => void>(() => {});
   const scheduleOneDriveSyncRef = useRef<(delayMs?: number, options?: { silentStatus?: boolean }) => void>(() => {});
   const { signIn, signOut, isReady, isSignedIn, ensureAccessToken, accountEmail, accountName } = useMicrosoftAuth();
+  const ensureAccessTokenRef = useRef(ensureAccessToken);
   const collaborationAuth = useCollaborationAuth();
   const { setRetryAt, setStatus: setSyncStatus } = useSyncStatus();
   const { quickSort, setQuickSort, markSyncedNow } = useAppSettings();
   const selectionMode = deleteMode || exportMode;
   loadProjectsRef.current = loadProjects;
+  ensureAccessTokenRef.current = ensureAccessToken;
 
   const showMessage = useCallback((message: string, title = 'Punchlist') => {
     setMessageDialog({ title, message });
@@ -723,6 +726,7 @@ export default function ProjectsPage() {
     if (!isReady || loading) return;
     if (!isSignedIn) {
       resetLaunchOneDriveSyncReservations();
+      resetBackgroundMediaHydration();
       return;
     }
 
@@ -734,6 +738,17 @@ export default function ProjectsPage() {
     if (!reserveLaunchOneDriveSync(accountKey)) return;
     scheduleOneDriveSyncRef.current(0, { silentStatus: true });
   }, [accountEmail, accountName, isReady, isSignedIn, loading, setRetryAt, setSyncStatus]);
+
+  useEffect(() => {
+    if (!isReady || loading || !isSignedIn || projects.length === 0) return;
+    const accountKey = accountEmail ?? accountName ?? 'signed-in';
+    queueBackgroundProjectMediaHydration({
+      accountKey,
+      projects,
+      getAccessToken: () => ensureAccessTokenRef.current({ interactive: false }),
+      onProjectHydrated: cacheProjectPreview,
+    });
+  }, [accountEmail, accountName, isReady, isSignedIn, loading, projects]);
 
   function handleSortChange(option: SortOption) {
     setSortOption(option);
