@@ -52,9 +52,11 @@ import {
 } from '@/lib/elevationMarkers';
 import { applyTemplateToArea } from '@/lib/template';
 import { syncProjectsWithOneDrive } from '@/lib/oneDriveSync';
+import { reserveLaunchOneDriveSync, resetLaunchOneDriveSyncReservations } from '@/lib/autoOneDriveSync';
 import {
   clearPendingSyncState,
   getPendingSyncWaitMs,
+  hasPendingSyncState,
   loadPendingSyncState,
   queuePendingSync,
   recordPendingSyncRetry,
@@ -274,6 +276,7 @@ export default function AreaDetailPage() {
   const projectRef = useRef<Project | null>(null);
   const areaRef = useRef<Area | null>(null);
   const scheduleSyncRef = useRef<(projectId?: string, options?: ScheduleSyncOptions) => void>(() => {});
+  const scheduleOneDriveSyncRef = useRef<(delayMs?: number, options?: { silentStatus?: boolean }) => void>(() => {});
   const loadDataRef = useRef<() => Promise<void>>(() => Promise.resolve());
   const pullStartYRef = useRef<number | null>(null);
   const pullDistanceRef = useRef(0);
@@ -282,7 +285,7 @@ export default function AreaDetailPage() {
   const itemRefs = useRef(new Map<string, HTMLDivElement | null>());
   const locationRefs = useRef(new Map<string, HTMLDivElement | null>());
   const headerMenuRef = useRef<HTMLDivElement | null>(null);
-  const { ensureAccessToken, isSignedIn } = useMicrosoftAuth();
+  const { ensureAccessToken, isReady, isSignedIn, accountEmail, accountName } = useMicrosoftAuth();
   const collaborationAuth = useCollaborationAuth();
   const { setRetryAt, setStatus: setSyncStatus } = useSyncStatus();
   const { inspectionShowOnlyIssues, setInspectionShowOnlyIssues, quickSort, markSyncedNow } = useAppSettings();
@@ -291,6 +294,7 @@ export default function AreaDetailPage() {
     projectRef.current = project;
     areaRef.current = area;
     scheduleSyncRef.current = scheduleSync;
+    scheduleOneDriveSyncRef.current = scheduleOneDriveSync;
     loadDataRef.current = loadData;
   });
 
@@ -355,6 +359,22 @@ export default function AreaDetailPage() {
       }
     };
   }, [persistGeneralNotes]);
+
+  useEffect(() => {
+    if (!isReady || loading) return;
+    if (!isSignedIn) {
+      resetLaunchOneDriveSyncReservations();
+      return;
+    }
+
+    const accountKey = accountEmail ?? accountName ?? 'signed-in';
+    if (!hasPendingSyncState()) {
+      setRetryAt(null);
+      setSyncStatus('idle');
+    }
+    if (!reserveLaunchOneDriveSync(accountKey)) return;
+    scheduleOneDriveSyncRef.current(0, { silentStatus: true });
+  }, [accountEmail, accountName, isReady, isSignedIn, loading, setRetryAt, setSyncStatus]);
 
   useEffect(() => {
     if (!showHeaderMenu) return;
@@ -1416,7 +1436,7 @@ export default function AreaDetailPage() {
     setArea({ ...area });
   }
 
-  function scheduleOneDriveSync(delayMs = AUTO_SYNC_DELAY_MS) {
+  function scheduleOneDriveSync(delayMs = AUTO_SYNC_DELAY_MS, options?: { silentStatus?: boolean }) {
     if (!isSignedIn) return;
     if (syncTimerRef.current) {
       clearTimeout(syncTimerRef.current);
@@ -1425,22 +1445,24 @@ export default function AreaDetailPage() {
     const waitMs = Math.max(delayMs, getPendingSyncWaitMs());
     syncTimerRef.current = setTimeout(() => {
       syncTimerRef.current = null;
-      void handleSync({ interactive: false, quiet: true });
+      void handleSync({ interactive: false, quiet: true, silentStatus: options?.silentStatus });
     }, waitMs);
   }
 
-  async function handleSync(options: { interactive?: boolean; quiet?: boolean } = {}) {
+  async function handleSync(options: { interactive?: boolean; quiet?: boolean; silentStatus?: boolean } = {}) {
     if (syncing) return;
     setSyncing(true);
     if (!options.quiet) {
       setSyncError(null);
     }
-    setSyncStatus('syncing');
+    if (!options.silentStatus) {
+      setSyncStatus('syncing');
+    }
     try {
       const token = await ensureAccessToken({ interactive: options.interactive ?? true });
       if (!token) {
         if (options.quiet) {
-          setSyncStatus('pending');
+          setSyncStatus(hasPendingSyncState() ? 'pending' : 'idle');
         } else {
           setSyncError('Please sign in to sync.');
           setSyncStatus('needs-auth');
@@ -1464,30 +1486,41 @@ export default function AreaDetailPage() {
       await loadData();
     } catch (error) {
       console.error('Sync failed:', error);
+      const hasQueuedSync = hasPendingSyncState();
       const retryDelayMs = getMicrosoftRetryDelayMs(error);
       if (retryDelayMs) {
+        if (options.quiet && !hasQueuedSync) {
+          setRetryAt(null);
+          setSyncStatus('idle');
+          return;
+        }
         const retry = recordPendingSyncRetry(retryDelayMs);
         setRetryAt(retry.retryAt);
         if (!options.quiet) {
           setSyncError(formatMicrosoftManualRetryMessage(Math.ceil(retry.delayMs / 1000)));
         }
-        setSyncStatus('pending');
+        setSyncStatus(options.quiet && !hasQueuedSync ? 'idle' : 'pending');
         scheduleOneDriveSync(retry.delayMs);
         return;
       }
       const message = getMicrosoftErrorMessage(error, 'Sync failed.');
       if (message.startsWith('Saved locally.')) {
+        if (options.quiet && !hasQueuedSync) {
+          setRetryAt(null);
+          setSyncStatus('idle');
+          return;
+        }
         const retry = recordPendingSyncRetry(60_000);
         setRetryAt(retry.retryAt);
         if (!options.quiet) {
           setSyncError(formatMicrosoftManualRetryMessage(Math.ceil(retry.delayMs / 1000)));
         }
-        setSyncStatus('pending');
+        setSyncStatus(options.quiet && !hasQueuedSync ? 'idle' : 'pending');
         scheduleOneDriveSync(retry.delayMs);
         return;
       }
       if (options.quiet) {
-        setSyncStatus('pending');
+        setSyncStatus(hasQueuedSync ? 'pending' : 'idle');
         return;
       }
       setSyncError(message);

@@ -22,12 +22,14 @@ import {
 import {
   clearPendingSyncState,
   getPendingSyncWaitMs,
+  hasPendingSyncState,
   loadPendingSyncState,
   queuePendingSync,
   recordPendingSyncRetry,
 } from '@/lib/pendingSync';
 import type { PdfExportMode } from '@/lib/pdfExport';
 import { uploadPdfToOneDrive, getNextOneDriveExportFilename } from '@/lib/oneDrive';
+import { reserveLaunchOneDriveSync, resetLaunchOneDriveSyncReservations } from '@/lib/autoOneDriveSync';
 import {
   formatMicrosoftManualRetryMessage,
   getMicrosoftErrorMessage,
@@ -660,7 +662,8 @@ export default function ProjectsPage() {
   const homeMenuActionHandlerRef = useRef<((event: Event) => void) | null>(null);
   const loadProjectsRef = useRef<() => Promise<void>>(() => Promise.resolve());
   const scheduleSyncRef = useRef<(projectId?: string, options?: { fullSync?: boolean }) => void>(() => {});
-  const { signIn, signOut, isSignedIn, ensureAccessToken, accountEmail, accountName } = useMicrosoftAuth();
+  const scheduleOneDriveSyncRef = useRef<(delayMs?: number, options?: { silentStatus?: boolean }) => void>(() => {});
+  const { signIn, signOut, isReady, isSignedIn, ensureAccessToken, accountEmail, accountName } = useMicrosoftAuth();
   const collaborationAuth = useCollaborationAuth();
   const { setRetryAt, setStatus: setSyncStatus } = useSyncStatus();
   const { quickSort, setQuickSort, markSyncedNow } = useAppSettings();
@@ -671,6 +674,7 @@ export default function ProjectsPage() {
     setMessageDialog({ title, message });
   }, []);
   scheduleSyncRef.current = scheduleSync;
+  scheduleOneDriveSyncRef.current = scheduleOneDriveSync;
 
   useEffect(() => {
     const savedSort = localStorage.getItem(SORT_STORAGE_KEY);
@@ -714,6 +718,22 @@ export default function ProjectsPage() {
     if (!collaborationAuth.isSignedIn || loading) return;
     void loadProjectsRef.current();
   }, [collaborationAuth.isSignedIn, loading]);
+
+  useEffect(() => {
+    if (!isReady || loading) return;
+    if (!isSignedIn) {
+      resetLaunchOneDriveSyncReservations();
+      return;
+    }
+
+    const accountKey = accountEmail ?? accountName ?? 'signed-in';
+    if (!hasPendingSyncState()) {
+      setRetryAt(null);
+      setSyncStatus('idle');
+    }
+    if (!reserveLaunchOneDriveSync(accountKey)) return;
+    scheduleOneDriveSyncRef.current(0, { silentStatus: true });
+  }, [accountEmail, accountName, isReady, isSignedIn, loading, setRetryAt, setSyncStatus]);
 
   function handleSortChange(option: SortOption) {
     setSortOption(option);
@@ -830,7 +850,7 @@ export default function ProjectsPage() {
     }
   }
 
-  function scheduleOneDriveSync(delayMs = AUTO_SYNC_DELAY_MS) {
+  function scheduleOneDriveSync(delayMs = AUTO_SYNC_DELAY_MS, options?: { silentStatus?: boolean }) {
     if (!isSignedIn) return;
     if (syncTimerRef.current) {
       clearTimeout(syncTimerRef.current);
@@ -839,22 +859,24 @@ export default function ProjectsPage() {
     const waitMs = Math.max(delayMs, getPendingSyncWaitMs());
     syncTimerRef.current = setTimeout(() => {
       syncTimerRef.current = null;
-      void handleSync({ quiet: true });
+      void handleSync({ quiet: true, silentStatus: options?.silentStatus });
     }, waitMs);
   }
 
-  async function handleSync(options: { quiet?: boolean } = {}) {
+  async function handleSync(options: { quiet?: boolean; silentStatus?: boolean } = {}) {
     if (syncing) return;
     setSyncing(true);
     if (!options.quiet) {
       setSyncError(null);
     }
-    setSyncStatus('syncing');
+    if (!options.silentStatus) {
+      setSyncStatus('syncing');
+    }
     try {
       const token = await ensureAccessToken({ interactive: options.quiet ? false : true });
       if (!token) {
         if (options.quiet) {
-          setSyncStatus('pending');
+          setSyncStatus(hasPendingSyncState() ? 'pending' : 'idle');
         } else {
           setSyncError('Please sign in to sync.');
           setSyncStatus('needs-auth');
@@ -879,30 +901,41 @@ export default function ProjectsPage() {
       await loadProjects();
     } catch (error) {
       console.error('Sync failed:', error);
+      const hasQueuedSync = hasPendingSyncState();
       const retryDelayMs = getMicrosoftRetryDelayMs(error);
       if (retryDelayMs) {
+        if (options.quiet && !hasQueuedSync) {
+          setRetryAt(null);
+          setSyncStatus('idle');
+          return;
+        }
         const retry = recordPendingSyncRetry(retryDelayMs);
         setRetryAt(retry.retryAt);
         if (!options.quiet) {
           setSyncError(formatMicrosoftManualRetryMessage(Math.ceil(retry.delayMs / 1000)));
         }
-        setSyncStatus('pending');
+        setSyncStatus(options.quiet && !hasQueuedSync ? 'idle' : 'pending');
         scheduleOneDriveSync(retry.delayMs);
         return;
       }
       const message = getMicrosoftErrorMessage(error, 'Sync failed.');
       if (message.startsWith('Saved locally.')) {
+        if (options.quiet && !hasQueuedSync) {
+          setRetryAt(null);
+          setSyncStatus('idle');
+          return;
+        }
         const retry = recordPendingSyncRetry(60_000);
         setRetryAt(retry.retryAt);
         if (!options.quiet) {
           setSyncError(formatMicrosoftManualRetryMessage(Math.ceil(retry.delayMs / 1000)));
         }
-        setSyncStatus('pending');
+        setSyncStatus(options.quiet && !hasQueuedSync ? 'idle' : 'pending');
         scheduleOneDriveSync(retry.delayMs);
         return;
       }
       if (options.quiet) {
-        setSyncStatus('pending');
+        setSyncStatus(hasQueuedSync ? 'pending' : 'idle');
         return;
       }
       setSyncError(message);

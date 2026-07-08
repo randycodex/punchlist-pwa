@@ -10,6 +10,7 @@ import { useCollaborationAuth } from '@/contexts/CollaborationAuthContext';
 import { useSyncStatus } from '@/contexts/SyncStatusContext';
 import { useAppSettings } from '@/contexts/AppSettingsContext';
 import { getProject } from '@/lib/db';
+import { hasPendingSyncState } from '@/lib/pendingSync';
 import {
   Activity,
   ArchiveRestore,
@@ -61,6 +62,9 @@ export default function PersistentTopBar() {
   const collaborationAuth = useCollaborationAuth();
   const { retryInSeconds, status } = useSyncStatus();
   const { quickSort } = useAppSettings();
+  const hasQueuedSync = status === 'pending' && hasPendingSyncState();
+  const displayStatus = status === 'pending' && !hasQueuedSync ? 'idle' : status;
+  const displayRetryInSeconds = hasQueuedSync ? retryInSeconds : 0;
   const showAuth = pathname === '/';
   const [projectTitle, setProjectTitle] = useState('');
   const [showHomeMenu, setShowHomeMenu] = useState(false);
@@ -210,19 +214,23 @@ export default function PersistentTopBar() {
   }
 
   function renderSyncButton() {
-    const label = retryInSeconds > 0 ? `Sync available in ${retryInSeconds} seconds` : syncButtonLabel[status];
-    const shortLabel = retryInSeconds > 0 ? `${retryInSeconds}s` : syncButtonShortLabel[status];
-    const SyncIcon = retryInSeconds > 0 ? CloudUpload : syncButtonIcons[status];
+    const label = displayRetryInSeconds > 0
+      ? `Sync available in ${displayRetryInSeconds} seconds`
+      : syncButtonLabel[displayStatus];
+    const shortLabel = displayRetryInSeconds > 0
+      ? `${displayRetryInSeconds}s`
+      : syncButtonShortLabel[displayStatus];
+    const SyncIcon = displayRetryInSeconds > 0 ? CloudUpload : syncButtonIcons[displayStatus];
 
     return (
       <button
         type="button"
         onClick={() => dispatchHomeAction('sync-now')}
-        className={`flex h-10 min-w-10 shrink-0 items-center justify-center gap-2 rounded-[1rem] border px-2.5 transition ${syncButtonClasses[status]}`}
+        className={`flex h-10 min-w-10 shrink-0 items-center justify-center gap-2 rounded-[1rem] border px-2.5 transition ${syncButtonClasses[displayStatus]}`}
         aria-label={label}
         title={label}
       >
-        <SyncIcon className={`h-4 w-4 ${status === 'syncing' && retryInSeconds === 0 ? 'animate-spin' : ''}`} />
+        <SyncIcon className={`h-4 w-4 ${displayStatus === 'syncing' && displayRetryInSeconds === 0 ? 'animate-spin' : ''}`} />
         <span className="text-xs font-bold leading-none tracking-normal">{shortLabel}</span>
       </button>
     );
