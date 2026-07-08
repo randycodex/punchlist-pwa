@@ -417,7 +417,7 @@ type HomeAreaCardProps = {
   isSelected: boolean;
   onToggleSelection: (areaId: string) => void;
   onLongPressSelect: (areaId: string) => void;
-  onBlockedByClaim: () => void;
+  onBlockedByClaim: (message: string) => void;
   onPrimeOpen: (project: Project, areaId: string) => void;
   onOpenArea: (project: Project, areaId: string) => void;
 };
@@ -445,9 +445,12 @@ const HomeAreaCard = memo(function HomeAreaCard({
   const blockedByClaim = claimStatus?.ownership === 'other';
   const claimLabel = claimStatus
     ? claimStatus.ownership === 'mine'
-      ? 'Locked by you'
-      : `Locked by ${claimStatus.label}`
+      ? 'In use by you'
+      : `In use by ${claimStatus.label}`
     : null;
+  const blockedClaimMessage = claimStatus?.ownership === 'other'
+    ? `${claimStatus.label} is working in this area. Try again when they leave.`
+    : 'This shared area is currently in use.';
   const clearLongPressTimer = () => {
     if (longPressTimerRef.current) {
       clearTimeout(longPressTimerRef.current);
@@ -527,7 +530,7 @@ const HomeAreaCard = memo(function HomeAreaCard({
             if (deleteMode || blockedByClaim) {
               event.preventDefault();
               if (blockedByClaim) {
-                onBlockedByClaim();
+                onBlockedByClaim(blockedClaimMessage);
               }
               return;
             }
@@ -565,7 +568,7 @@ const HomeAreaCard = memo(function HomeAreaCard({
             if (deleteMode || blockedByClaim) {
               event.preventDefault();
               if (blockedByClaim) {
-                onBlockedByClaim();
+                onBlockedByClaim(blockedClaimMessage);
               }
               return;
             }
@@ -2834,7 +2837,7 @@ export default function ProjectsPage() {
                     isSelected={isSelected}
                     onToggleSelection={toggleAreaSelection}
                     onLongPressSelect={enterAreaSelectionMode}
-                    onBlockedByClaim={() => showMessage('This shared area is currently locked by another user.')}
+                    onBlockedByClaim={(message) => showMessage(message, 'Area in use')}
                     onPrimeOpen={primeAreaOpen}
                     onOpenArea={claimAreaOpenInBackground}
                   />

@@ -31,7 +31,6 @@ import {
   getMicrosoftRetryDelayMs,
 } from '@/lib/microsoftErrors';
 import AreaEditorModal from '@/components/AreaEditorModal';
-import AppMessageDialog from '@/components/AppMessageDialog';
 import AppConfirmDialog from '@/components/AppConfirmDialog';
 import AppPromptDialog from '@/components/AppPromptDialog';
 import {
@@ -228,10 +227,23 @@ type LiveSharedUpdateState =
   | { kind: 'waiting-for-draft'; message: string }
   | { kind: 'local-newer'; message: string }
   | null;
+type SharedAreaLockProblem =
+  | { kind: 'blocked'; message: string }
+  | { kind: 'lost'; message: string }
+  | null;
 
 const LIVE_SHARED_WAITING_MESSAGE = 'Shared update ready. It will apply automatically when this edit is finished.';
 const LIVE_SHARED_LOCAL_NEWER_MESSAGE =
   'Shared update ready. Review it from the project page to keep your local edits safe.';
+const SHARED_AREA_LOCK_BLOCKED_MESSAGE =
+  'This shared area is in use by someone else. Try again when they leave, or return to the project.';
+const SHARED_AREA_LOCK_LOST_MESSAGE =
+  'Shared area lock lost. Try again before editing so your changes do not conflict.';
+
+function isSharedAreaClaimBlockedMessage(message: string) {
+  const normalized = message.toLowerCase();
+  return normalized.includes('claimed by another user') || normalized.includes('currently claimed');
+}
 
 export default function AreaDetailPage() {
   const params = useParams<{ id: string; areaId: string }>();
@@ -284,7 +296,8 @@ export default function AreaDetailPage() {
   const [claimingArea, setClaimingArea] = useState(false);
   const [releasingAreaClaim, setReleasingAreaClaim] = useState(false);
   const [areaClaimExpiresAt, setAreaClaimExpiresAt] = useState<Date | null>(null);
-  const [claimBlockedMessage, setClaimBlockedMessage] = useState<string | null>(null);
+  const [areaClaimProblem, setAreaClaimProblem] = useState<SharedAreaLockProblem>(null);
+  const [areaClaimRetryNonce, setAreaClaimRetryNonce] = useState(0);
   const [confirmDialog, setConfirmDialog] = useState<ConfirmDialogState | null>(null);
   const [promptDialog, setPromptDialog] = useState<PromptDialogState | null>(null);
   const [generalNotes, setGeneralNotes] = useState('');
@@ -294,6 +307,7 @@ export default function AreaDetailPage() {
   const notesDraftRef = useRef('');
   const projectRef = useRef<Project | null>(null);
   const areaRef = useRef<Area | null>(null);
+  const areaClaimProblemRef = useRef<SharedAreaLockProblem>(null);
   const liveSharedRefreshBlockedRef = useRef(false);
   const pendingLiveSharedRefreshRef = useRef(false);
   const retryLiveSharedRefreshRef = useRef<() => void>(() => {});
@@ -317,11 +331,32 @@ export default function AreaDetailPage() {
   useEffect(() => {
     projectRef.current = project;
     areaRef.current = area;
+    areaClaimProblemRef.current = areaClaimProblem;
     scheduleSyncRef.current = scheduleSync;
     scheduleOneDriveSyncRef.current = scheduleOneDriveSync;
     ensureAccessTokenRef.current = ensureAccessToken;
     loadDataRef.current = loadData;
   });
+
+  function sharedAreaEditsAreBlocked() {
+    return Boolean(projectRef.current?.sharedProjectId && areaClaimProblemRef.current);
+  }
+
+  function canEditSharedArea() {
+    return !sharedAreaEditsAreBlocked();
+  }
+
+  function retrySharedAreaClaim() {
+    setAreaClaimProblem(null);
+    setAreaClaimError(null);
+    setClaimingArea(true);
+    setAreaClaimRetryNonce((value) => value + 1);
+  }
+
+  function returnToProjectFromSharedLock() {
+    const currentProjectId = projectRef.current?.id ?? id;
+    router.push(`/project/${currentProjectId}`);
+  }
 
   useEffect(() => {
     if (project) {
@@ -385,6 +420,7 @@ export default function AreaDetailPage() {
   const persistGeneralNotes = useCallback(async (value: string) => {
     const currentProject = projectRef.current;
     const currentArea = areaRef.current;
+    if (currentProject?.sharedProjectId && areaClaimProblemRef.current) return;
     if (!currentProject || !currentArea) return;
     const targetArea = currentProject.areas.find((entry) => entry.id === currentArea.id);
     if (!targetArea) return;
@@ -600,6 +636,7 @@ export default function AreaDetailPage() {
     const currentAreaId = area?.id;
     if (!sharedProjectId || !currentAreaId) {
       setAreaClaimError(null);
+      setAreaClaimProblem(null);
       setAreaClaimExpiresAt(null);
       setClaimingArea(false);
       return;
@@ -607,6 +644,7 @@ export default function AreaDetailPage() {
 
     if (!collaborationAuth.isSignedIn) {
       setAreaClaimError('Enable shared projects before working in this shared area.');
+      setAreaClaimProblem({ kind: 'lost', message: 'Enable shared projects before editing this shared area.' });
       setAreaClaimExpiresAt(null);
       setClaimingArea(false);
       return;
@@ -618,6 +656,7 @@ export default function AreaDetailPage() {
     const optimisticExpiresAt = getAreaClaimExpiry(config?.areaClaimTimeoutMs ?? 4 * 60 * 60 * 1000);
     setClaimingArea(true);
     setAreaClaimError(null);
+    setAreaClaimProblem(null);
     setAreaClaimExpiresAt(optimisticExpiresAt);
 
     const releaseClaim = () => {
@@ -630,18 +669,27 @@ export default function AreaDetailPage() {
       .then((claim) => {
         if (!cancelled) {
           setAreaClaimError(null);
+          setAreaClaimProblem(null);
           setAreaClaimExpiresAt(claim.expiresAt ?? null);
           claimRenewTimer = setInterval(() => {
             void claimSharedProjectArea(sharedProjectId, currentAreaId)
               .then((renewedClaim) => {
                 if (cancelled) return;
                 setAreaClaimError(null);
+                setAreaClaimProblem(null);
                 setAreaClaimExpiresAt(renewedClaim.expiresAt ?? null);
               })
               .catch((error) => {
                 if (cancelled) return;
                 const message = getCollaborationErrorMessage(error, 'Could not renew this shared area claim.');
                 setAreaClaimError(message);
+                setAreaClaimExpiresAt(null);
+                setAreaClaimProblem({
+                  kind: isSharedAreaClaimBlockedMessage(message) ? 'blocked' : 'lost',
+                  message: isSharedAreaClaimBlockedMessage(message)
+                    ? SHARED_AREA_LOCK_BLOCKED_MESSAGE
+                    : SHARED_AREA_LOCK_LOST_MESSAGE,
+                });
               });
           }, 2 * 60 * 1000);
         }
@@ -651,9 +699,12 @@ export default function AreaDetailPage() {
         const message = getCollaborationErrorMessage(error, 'Could not claim this shared area.');
         setAreaClaimError(message);
         setAreaClaimExpiresAt(null);
-        if (message.toLowerCase().includes('claimed by another user')) {
-          setClaimBlockedMessage(message);
-        }
+        setAreaClaimProblem({
+          kind: isSharedAreaClaimBlockedMessage(message) ? 'blocked' : 'lost',
+          message: isSharedAreaClaimBlockedMessage(message)
+            ? SHARED_AREA_LOCK_BLOCKED_MESSAGE
+            : SHARED_AREA_LOCK_LOST_MESSAGE,
+        });
       })
       .finally(() => {
         if (!cancelled) {
@@ -672,7 +723,15 @@ export default function AreaDetailPage() {
       window.removeEventListener('pagehide', releaseClaim);
       releaseClaim();
     };
-  }, [area?.id, collaborationAuth.isSignedIn, id, project?.sharedProjectId, router]);
+  }, [area?.id, areaClaimRetryNonce, collaborationAuth.isSignedIn, id, project?.sharedProjectId, router]);
+
+  useEffect(() => {
+    if (!areaClaimProblem) return;
+    const activeElement = document.activeElement;
+    if (activeElement instanceof HTMLElement) {
+      activeElement.blur();
+    }
+  }, [areaClaimProblem]);
 
   const visibleLocations = useMemo(
     () =>
@@ -958,6 +1017,7 @@ export default function AreaDetailPage() {
     checkpointId: string,
     nextState: CheckpointReviewState | 'pending'
   ) {
+    if (!canEditSharedArea()) return;
     if (!project || !area) return;
 
     const checkpoint = findCheckpoint(locationId, itemId, checkpointId);
@@ -991,6 +1051,7 @@ export default function AreaDetailPage() {
     checkpointId: string,
     value: string
   ) {
+    if (!canEditSharedArea()) return;
     if (!project || !area) return;
 
     const checkpoint = findCheckpoint(locationId, itemId, checkpointId);
@@ -1017,6 +1078,7 @@ export default function AreaDetailPage() {
   }
 
   async function saveAreaChanges(options: { skipResetConfirm?: boolean; skipFacadeConfirm?: boolean } = {}) {
+    if (!canEditSharedArea()) return;
     if (!project || !area) return;
 
     const targetArea = project.areas.find((entry) => entry.id === area.id);
@@ -1135,6 +1197,7 @@ export default function AreaDetailPage() {
   }
 
   async function handleSubmitCustomItem() {
+    if (!canEditSharedArea()) return;
     if (!project || !area || !customItemName.trim()) return;
 
     const targetArea = project.areas.find((entry) => entry.id === area.id);
@@ -1198,6 +1261,7 @@ export default function AreaDetailPage() {
   }
 
   async function handleSubmitCustomSubarea() {
+    if (!canEditSharedArea()) return;
     if (!project || !area || !customSubareaName.trim()) return;
 
     const targetArea = project.areas.find((entry) => entry.id === area.id);
@@ -1224,6 +1288,7 @@ export default function AreaDetailPage() {
   }
 
   async function handleEditCustomItem(locationId: string, itemId: string, currentName: string) {
+    if (!canEditSharedArea()) return;
     void project;
     void area;
     setEditingCustomItem({ locationId, itemId });
@@ -1239,6 +1304,7 @@ export default function AreaDetailPage() {
   }
 
   async function handleSubmitCustomCheckpoint() {
+    if (!canEditSharedArea()) return;
     if (!project || !area || !customCheckpointTarget || !customCheckpointName.trim()) return;
 
     const targetArea = project.areas.find((entry) => entry.id === area.id);
@@ -1298,6 +1364,7 @@ export default function AreaDetailPage() {
     checkpointId: string,
     currentName: string
   ) {
+    if (!canEditSharedArea()) return;
     setCustomCheckpointTarget({ locationId, itemId });
     setCustomCheckpointName(currentName);
     setEditingCustomCheckpoint({ locationId, itemId, checkpointId });
@@ -1311,6 +1378,7 @@ export default function AreaDetailPage() {
   }
 
   async function handleDeleteCustomCheckpoint(locationId: string, itemId: string, checkpointId: string) {
+    if (!canEditSharedArea()) return;
     if (!project || !area) return;
 
     const targetArea = project.areas.find((entry) => entry.id === area.id);
@@ -1371,6 +1439,7 @@ export default function AreaDetailPage() {
   }
 
   async function handleDeleteCustomItem(locationId: string, itemId: string) {
+    if (!canEditSharedArea()) return;
     if (!project || !area) return;
 
     const targetArea = project.areas.find((entry) => entry.id === area.id);
@@ -1412,6 +1481,7 @@ export default function AreaDetailPage() {
   }
 
   async function handleEditCustomLocation(locationId: string, currentName: string) {
+    if (!canEditSharedArea()) return;
     if (!project || !area) return;
 
     setPromptDialog({
@@ -1427,6 +1497,7 @@ export default function AreaDetailPage() {
   }
 
   async function renameCustomLocation(locationId: string, currentName: string, value: string) {
+    if (!canEditSharedArea()) return;
     if (!project || !area) return;
 
     const nextName = value.trim();
@@ -1447,6 +1518,7 @@ export default function AreaDetailPage() {
   }
 
   async function handleDeleteCustomLocation(locationId: string) {
+    if (!canEditSharedArea()) return;
     if (!project || !area) return;
 
     const targetArea = project.areas.find((entry) => entry.id === area.id);
@@ -1496,6 +1568,7 @@ export default function AreaDetailPage() {
   }
 
   async function handleDeleteSelectedLocations() {
+    if (!canEditSharedArea()) return;
     if (!project || !area) return;
     if (selectedLocationIds.size === 0) {
       cancelSelectionMode();
@@ -1531,6 +1604,7 @@ export default function AreaDetailPage() {
     imageData: string,
     thumbnail?: string
   ) {
+    if (!canEditSharedArea()) return;
     if (!project || !area) return;
 
     const checkpoint = findCheckpoint(locationId, itemId, checkpointId);
@@ -1551,6 +1625,7 @@ export default function AreaDetailPage() {
     checkpointId: string,
     photos: Array<{ imageData: string; thumbnail?: string }>
   ) {
+    if (!canEditSharedArea()) return;
     if (!project || !area || photos.length === 0) return;
 
     const checkpoint = findCheckpoint(locationId, itemId, checkpointId);
@@ -1574,6 +1649,7 @@ export default function AreaDetailPage() {
     checkpointId: string,
     photoId: string
   ) {
+    if (!canEditSharedArea()) return;
     if (!project || !area) return;
 
     const checkpoint = findCheckpoint(locationId, itemId, checkpointId);
@@ -1593,6 +1669,7 @@ export default function AreaDetailPage() {
     checkpointId: string,
     files: Array<{ data: string; name: string; mimeType: string; size: number }>
   ) {
+    if (!canEditSharedArea()) return;
     if (!project || !area || files.length === 0) return;
 
     const checkpoint = findCheckpoint(locationId, itemId, checkpointId);
@@ -1623,6 +1700,7 @@ export default function AreaDetailPage() {
     checkpointId: string,
     fileId: string
   ) {
+    if (!canEditSharedArea()) return;
     if (!project || !area) return;
 
     const checkpoint = findCheckpoint(locationId, itemId, checkpointId);
@@ -1766,6 +1844,7 @@ export default function AreaDetailPage() {
   }
 
   function handleGeneralNotesChange(value: string) {
+    if (!canEditSharedArea()) return;
     setGeneralNotes(value);
     notesDraftRef.current = value;
     if (notesTimerRef.current) {
@@ -1857,6 +1936,7 @@ export default function AreaDetailPage() {
   }
 
   async function closeExpandedCheckpoint() {
+    if (!canEditSharedArea()) return;
     if (!expandedCheckpoint) return;
     await persistCheckpointComment(
       expandedCheckpoint.locationId,
@@ -1993,6 +2073,7 @@ export default function AreaDetailPage() {
     customItemName,
     customCheckpointName,
   }: FacadeElevationSelection) {
+    if (!canEditSharedArea()) return;
     if (!project || !area?.elevationDrawingId) return;
 
     setShowCustomCheckpointComposer(false);
@@ -2114,15 +2195,21 @@ export default function AreaDetailPage() {
     ? project.facadeElevationDrawings?.find((drawing) => drawing.id === area.elevationDrawingId) ?? null
     : null;
 
+  const visibleAreaClaimProblem = project.sharedProjectId ? areaClaimProblem : null;
+  const areaEditingLocked = Boolean(visibleAreaClaimProblem);
   const supportsInlineLocationCustomItems = true;
-  const supportsCustomSubareas = isApartmentArea(area) && !deleteMode;
-  const supportsGlobalCustomItems = !supportsInlineLocationCustomItems && !deleteMode;
+  const supportsCustomSubareas = isApartmentArea(area) && !deleteMode && !areaEditingLocked;
+  const supportsGlobalCustomItems = !supportsInlineLocationCustomItems && !deleteMode && !areaEditingLocked;
   const flattenSingleStairsLocation =
     !deleteMode && !isApartmentArea(area) && sortedStandardLocations.length === 1;
-  const canReleaseAreaClaim = Boolean(project.sharedProjectId && areaClaimExpiresAt && !areaClaimError);
+  const canReleaseAreaClaim = Boolean(project.sharedProjectId && areaClaimExpiresAt && !areaClaimError && !areaClaimProblem);
   const visibleLiveSharedUpdate = collaborationAuth.isSignedIn && project.sharedProjectId ? liveSharedUpdate : null;
-  const sharedAreaClaimLabel = areaClaimError
-    ? 'Shared claim blocked'
+  const sharedAreaClaimLabel = visibleAreaClaimProblem
+    ? visibleAreaClaimProblem.kind === 'blocked'
+      ? 'Area in use by someone else'
+      : 'Shared lock needs attention'
+    : areaClaimError
+    ? 'Shared claim needs attention'
     : releasingAreaClaim
       ? 'Releasing shared lock...'
       : areaClaimExpiresAt
@@ -2191,10 +2278,12 @@ export default function AreaDetailPage() {
                     <button
                       onClick={() => {
                         setShowHeaderMenu(false);
+                        if (areaEditingLocked) return;
                         setAreaForm(getAreaFormValue(area));
                         setShowEditArea(true);
                       }}
-                      className="flex w-full items-center gap-3 rounded-[1rem] px-3 py-2.5 text-left text-[0.98rem] text-gray-700 transition hover:bg-black/[0.04] dark:text-gray-200 dark:hover:bg-white/[0.06]"
+                      disabled={areaEditingLocked}
+                      className="flex w-full items-center gap-3 rounded-[1rem] px-3 py-2.5 text-left text-[0.98rem] text-gray-700 transition hover:bg-black/[0.04] disabled:opacity-50 dark:text-gray-200 dark:hover:bg-white/[0.06]"
                     >
                       <MoreVertical className="h-4 w-4" />
                       Edit area
@@ -2230,7 +2319,7 @@ export default function AreaDetailPage() {
               </button>
               <button
                 onClick={() => void handleDeleteSelectedLocations()}
-                disabled={selectedLocationIds.size === 0}
+                disabled={selectedLocationIds.size === 0 || areaEditingLocked}
                 className="accent-text accent-tint hover:accent-tint-strong flex h-10 w-10 items-center justify-center rounded-full transition disabled:opacity-40"
                 aria-label="Delete selected sub-areas"
               >
@@ -2241,21 +2330,37 @@ export default function AreaDetailPage() {
         )}
       </header>
 
-      {areaClaimError && (
+      {areaClaimError && !visibleAreaClaimProblem && (
         <div className="shrink-0 border-b border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900 dark:border-amber-400/20 dark:bg-amber-400/10 dark:text-amber-100">
           {areaClaimError}
         </div>
       )}
 
-      {claimBlockedMessage && (
-        <AppMessageDialog
-          title="Area Locked"
-          message={claimBlockedMessage}
-          onClose={() => {
-            setClaimBlockedMessage(null);
-            router.push(`/project/${id}`);
-          }}
-        />
+      {visibleAreaClaimProblem && (
+        <div
+          className="shrink-0 border-b border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-950 dark:border-amber-300/20 dark:bg-amber-400/10 dark:text-amber-100"
+          aria-live="assertive"
+        >
+          <div className="mx-auto flex w-full max-w-6xl flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <p className="min-w-0 flex-1 font-medium">{visibleAreaClaimProblem.message}</p>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={retrySharedAreaClaim}
+                className="inline-flex h-9 items-center justify-center rounded-full bg-amber-700 px-3 text-xs font-semibold text-white transition hover:bg-amber-800 dark:bg-amber-200 dark:text-amber-950 dark:hover:bg-amber-100"
+              >
+                Try again
+              </button>
+              <button
+                type="button"
+                onClick={returnToProjectFromSharedLock}
+                className="inline-flex h-9 items-center justify-center rounded-full border border-amber-300 bg-white/70 px-3 text-xs font-semibold text-amber-950 transition hover:bg-white dark:border-amber-200/30 dark:bg-white/[0.06] dark:text-amber-100 dark:hover:bg-white/[0.1]"
+              >
+                Back to project
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {promptDialog && (
@@ -2303,7 +2408,12 @@ export default function AreaDetailPage() {
         onTouchEndCapture={handlePullEnd}
         onTouchCancelCapture={handlePullEnd}
       >
-        <div className="list-stack mx-auto min-h-[calc(100%+1px)] w-full max-w-6xl">
+        <div
+          className={`list-stack mx-auto min-h-[calc(100%+1px)] w-full max-w-6xl transition-opacity ${
+            areaEditingLocked ? 'pointer-events-none opacity-60' : ''
+          }`}
+          aria-disabled={areaEditingLocked}
+        >
           {!deleteMode && area.areaTypeKey === 'facade' && elevationDrawing && (
             <FacadeElevationViewer
               drawing={elevationDrawing}
@@ -2676,7 +2786,7 @@ export default function AreaDetailPage() {
       </main>
 
       <AreaEditorModal
-        open={showEditArea}
+        open={showEditArea && !areaEditingLocked}
         title="Edit Area"
         value={areaForm}
         recentAreaTypeKeys={recentAreaTypeKeys}
