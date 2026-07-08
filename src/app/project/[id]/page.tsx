@@ -460,7 +460,7 @@ export default function ProjectDetailPage() {
   const pauseAutoSyncRetry = useCallback(() => {
     pausePendingSyncAutoRetry();
     setRetryAt(null);
-    setSyncStatus(hasPendingSyncState() ? 'error' : 'idle');
+    setSyncStatus(hasPendingSyncState() ? 'pending' : 'idle');
   }, [setRetryAt, setSyncStatus]);
 
   async function handleRunCollaborationHealthCheck() {
@@ -539,7 +539,7 @@ export default function ProjectDetailPage() {
     }
     if (isPendingSyncAutoRetryPaused()) {
       setRetryAt(null);
-      setSyncStatus(hasPendingSyncState() ? 'error' : 'idle');
+      setSyncStatus(hasPendingSyncState() ? 'pending' : 'idle');
       return;
     }
     if (!reserveLaunchOneDriveSync(accountKey)) return;

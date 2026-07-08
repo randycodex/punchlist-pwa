@@ -344,7 +344,7 @@ export default function AreaDetailPage() {
   const pauseAutoSyncRetry = useCallback(() => {
     pausePendingSyncAutoRetry();
     setRetryAt(null);
-    setSyncStatus(hasPendingSyncState() ? 'error' : 'idle');
+    setSyncStatus(hasPendingSyncState() ? 'pending' : 'idle');
   }, [setRetryAt, setSyncStatus]);
 
   function sharedAreaEditsAreBlocked() {
@@ -501,7 +501,7 @@ export default function AreaDetailPage() {
     }
     if (isPendingSyncAutoRetryPaused()) {
       setRetryAt(null);
-      setSyncStatus(hasPendingSyncState() ? 'error' : 'idle');
+      setSyncStatus(hasPendingSyncState() ? 'pending' : 'idle');
       return;
     }
     if (!reserveLaunchOneDriveSync(accountKey)) return;

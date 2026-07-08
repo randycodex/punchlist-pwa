@@ -719,7 +719,7 @@ export default function ProjectsPage() {
   const pauseAutoSyncRetry = useCallback(() => {
     pausePendingSyncAutoRetry();
     setRetryAt(null);
-    setSyncStatus(hasPendingSyncState() ? 'error' : 'idle');
+    setSyncStatus(hasPendingSyncState() ? 'pending' : 'idle');
   }, [setRetryAt, setSyncStatus]);
   scheduleSyncRef.current = scheduleSync;
   scheduleOneDriveSyncRef.current = scheduleOneDriveSync;
@@ -785,7 +785,7 @@ export default function ProjectsPage() {
     }
     if (isPendingSyncAutoRetryPaused()) {
       setRetryAt(null);
-      setSyncStatus(hasPendingSyncState() ? 'error' : 'idle');
+      setSyncStatus(hasPendingSyncState() ? 'pending' : 'idle');
       return;
     }
     if (!reserveLaunchOneDriveSync(accountKey)) return;
