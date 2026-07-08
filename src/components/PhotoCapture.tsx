@@ -126,6 +126,7 @@ export default function PhotoCapture({
   const [torchOn, setTorchOn] = useState(false);
   const [torchChanging, setTorchChanging] = useState(false);
   const [videoReady, setVideoReady] = useState(false);
+  const [capturePending, setCapturePending] = useState(false);
   const [savingPhotos, setSavingPhotos] = useState(false);
   const pinchDistanceRef = useRef<number | null>(null);
   const pinchScaleRef = useRef(1);
@@ -133,6 +134,7 @@ export default function PhotoCapture({
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const cameraSessionRef = useRef(0);
+  const pendingCaptureRef = useRef(false);
   const maxImageSize = 1280;
   const thumbnailSize = 360;
 
@@ -146,7 +148,7 @@ export default function PhotoCapture({
     cameraInputRef.current?.click();
   }, []);
 
-  function createScaledImageData(img: HTMLImageElement, maxSize: number, quality: number) {
+  const createScaledImageData = useCallback((img: HTMLImageElement, maxSize: number, quality: number) => {
     const scale = Math.min(1, maxSize / Math.max(img.width, img.height));
     const width = Math.max(1, Math.round(img.width * scale));
     const height = Math.max(1, Math.round(img.height * scale));
@@ -157,9 +159,9 @@ export default function PhotoCapture({
     if (!ctx) return img.src;
     ctx.drawImage(img, 0, 0, width, height);
     return canvas.toDataURL('image/jpeg', quality);
-  }
+  }, []);
 
-  function getPhotoPayloadFromDataUrl(sourceData: string): Promise<{ imageData: string; thumbnail?: string } | null> {
+  const getPhotoPayloadFromDataUrl = useCallback((sourceData: string): Promise<{ imageData: string; thumbnail?: string } | null> => {
     return new Promise((resolve) => {
       const img = new window.Image();
       img.onload = () => {
@@ -170,7 +172,7 @@ export default function PhotoCapture({
       img.onerror = () => resolve(null);
       img.src = sourceData;
     });
-  }
+  }, [createScaledImageData]);
 
   const stopCameraStream = useCallback(() => {
     const stream = streamRef.current;
@@ -196,9 +198,11 @@ export default function PhotoCapture({
       setTorchOn(false);
       setTorchChanging(false);
       setVideoReady(false);
+      setCapturePending(false);
       setCapturedBatch([]);
       setCameraOpen(true);
     });
+    pendingCaptureRef.current = false;
 
     let requestTimer: number | null = window.setTimeout(() => {
       if (cameraSessionRef.current === sessionId && !streamRef.current) {
@@ -247,10 +251,12 @@ export default function PhotoCapture({
     stopCameraStream();
     setCameraOpen(false);
     setVideoReady(false);
+    setCapturePending(false);
     setTorchSupported(false);
     setTorchOn(false);
     setTorchChanging(false);
     setCameraStreamToken((token) => token + 1);
+    pendingCaptureRef.current = false;
     if (discard) {
       setCapturedBatch([]);
     }
@@ -261,10 +267,12 @@ export default function PhotoCapture({
     stopCameraStream();
     setCameraOpen(false);
     setVideoReady(false);
+    setCapturePending(false);
     setTorchSupported(false);
     setTorchOn(false);
     setTorchChanging(false);
     setCameraStreamToken((token) => token + 1);
+    pendingCaptureRef.current = false;
     setCapturedBatch([]);
     setCameraError(null);
     cameraInputRef.current?.click();
@@ -294,29 +302,36 @@ export default function PhotoCapture({
     }
   }
 
-  function captureFromVideo() {
-    if (!videoRef.current || !videoReady) {
-      setCameraError('Camera is still starting. Try again in a moment.');
-      return;
-    }
-    const video = videoRef.current;
+  const captureFrameFromVideo = useCallback((video: HTMLVideoElement) => {
     if (!video.videoWidth || !video.videoHeight) {
-      setCameraError('Camera is still starting. Try again in a moment.');
-      return;
+      return false;
     }
 
     const canvas = document.createElement('canvas');
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
     const ctx = canvas.getContext('2d');
-    if (!ctx) return;
+    if (!ctx) return false;
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
+    pendingCaptureRef.current = false;
+    setCapturePending(false);
+    setCameraError(null);
     const frameData = canvas.toDataURL('image/jpeg', 0.92);
     void getPhotoPayloadFromDataUrl(frameData).then((payload) => {
       if (!payload) return;
       setCapturedBatch((prev) => [...prev, payload]);
     });
+    return true;
+  }, [getPhotoPayloadFromDataUrl]);
+
+  function captureFromVideo() {
+    const video = videoRef.current;
+    if (!video || !videoReady || !captureFrameFromVideo(video)) {
+      pendingCaptureRef.current = true;
+      setCapturePending(true);
+      setCameraError(null);
+    }
   }
 
   function resetViewer() {
@@ -465,6 +480,9 @@ export default function PhotoCapture({
       clearReadinessTimer();
       setCameraError(null);
       setVideoReady(true);
+      if (pendingCaptureRef.current) {
+        captureFrameFromVideo(video);
+      }
     }
 
     video.muted = true;
@@ -508,11 +526,12 @@ export default function PhotoCapture({
       video.removeEventListener('loadeddata', handleVideoReady);
       video.removeEventListener('canplay', handleVideoReady);
     };
-  }, [cameraOpen, cameraStreamToken]);
+  }, [cameraOpen, cameraStreamToken, captureFrameFromVideo]);
 
   useEffect(() => {
     return () => {
       cameraSessionRef.current += 1;
+      pendingCaptureRef.current = false;
       stopCameraStream();
     };
   }, [stopCameraStream]);
@@ -691,7 +710,7 @@ export default function PhotoCapture({
               <div className="flex items-center justify-center">
                 <button
                   onClick={captureFromVideo}
-                  disabled={savingPhotos || !videoReady}
+                  disabled={savingPhotos || capturePending}
                   className="flex h-20 w-20 items-center justify-center rounded-full border-4 border-white bg-white/20 shadow-[0_0_0_1px_rgba(255,255,255,0.34)] backdrop-blur-sm transition active:scale-95 disabled:opacity-55"
                   aria-label="Capture photo"
                 >
@@ -716,6 +735,8 @@ export default function PhotoCapture({
             <p className="mt-3 text-center text-xs text-white/65">
               {cameraError
                 ? cameraError
+                : capturePending
+                ? 'Capturing as soon as the camera is ready...'
                 : !videoReady
                 ? 'Starting camera...'
                 : capturedBatch.length > 0
