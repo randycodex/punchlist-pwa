@@ -86,6 +86,10 @@ export default function PersistentTopBar() {
     const segments = pathname.split('/').filter(Boolean);
     return segments[1] ?? '';
   }, [pathname]);
+  const isAreaRoute = useMemo(() => {
+    const segments = pathname.split('/').filter(Boolean);
+    return segments[0] === 'project' && segments[2] === 'area';
+  }, [pathname]);
   const showAppMenuControl = showAuth || Boolean(projectId) || showHomeMenu;
   const currentProjectTitle =
     homeMenuState.context === 'project' && homeMenuState.singleProjectName
@@ -283,17 +287,19 @@ export default function PersistentTopBar() {
         {showAppMenuControl && isReady && !homeMenuState.showTrash && (
           <div ref={menuRef} className="app-menu-top-actions relative flex items-center gap-2">
             {renderSyncButton()}
-            <button
-              type="button"
-              onClick={() => setShowHomeMenu((current) => !current)}
-              className="flex h-10 w-10 items-center justify-center rounded-[1rem] border border-black/5 bg-white/70 text-gray-500 transition hover:bg-white hover:text-gray-900 dark:border-white/10 dark:bg-white/[0.04] dark:text-gray-300 dark:hover:bg-white/[0.08] dark:hover:text-white"
-              aria-label={showHomeMenu ? 'Close app menu' : 'Open app menu'}
-              aria-pressed={showHomeMenu}
-              title={showHomeMenu ? 'Close app menu' : 'Open app menu'}
-            >
-              {showHomeMenu ? <PanelRightClose className="h-5 w-5" /> : <PanelRightOpen className="h-5 w-5" />}
-            </button>
-            {showHomeMenu && createPortal((
+            {!isAreaRoute && (
+              <button
+                type="button"
+                onClick={() => setShowHomeMenu((current) => !current)}
+                className="flex h-10 w-10 items-center justify-center rounded-[1rem] border border-black/5 bg-white/70 text-gray-500 transition hover:bg-white hover:text-gray-900 dark:border-white/10 dark:bg-white/[0.04] dark:text-gray-300 dark:hover:bg-white/[0.08] dark:hover:text-white"
+                aria-label={showHomeMenu ? 'Close app menu' : 'Open app menu'}
+                aria-pressed={showHomeMenu}
+                title={showHomeMenu ? 'Close app menu' : 'Open app menu'}
+              >
+                {showHomeMenu ? <PanelRightClose className="h-5 w-5" /> : <PanelRightOpen className="h-5 w-5" />}
+              </button>
+            )}
+            {!isAreaRoute && showHomeMenu && createPortal((
               <div
                 className="app-menu-drawer menu-surface fixed right-0 top-0 z-[120] flex h-[100dvh] flex-col overflow-hidden border-y-0 border-r-0 p-0"
                 role="dialog"

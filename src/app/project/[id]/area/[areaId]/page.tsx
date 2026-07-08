@@ -293,6 +293,7 @@ export default function AreaDetailPage() {
   const itemRefs = useRef(new Map<string, HTMLDivElement | null>());
   const locationRefs = useRef(new Map<string, HTMLDivElement | null>());
   const headerMenuRef = useRef<HTMLDivElement | null>(null);
+  const topMenuActionHandlerRef = useRef<((event: Event) => void) | null>(null);
   const { ensureAccessToken, isReady, isSignedIn, accountEmail, accountName } = useMicrosoftAuth();
   const ensureAccessTokenRef = useRef(ensureAccessToken);
   const collaborationAuth = useCollaborationAuth();
@@ -432,6 +433,17 @@ export default function AreaDetailPage() {
     setGeneralNotes(value);
     notesDraftRef.current = value;
   }, [area?.id, area?.notes]);
+
+  useEffect(() => {
+    function handleTopMenuAction(event: Event) {
+      topMenuActionHandlerRef.current?.(event);
+    }
+
+    window.addEventListener('punchlist-home-menu-action', handleTopMenuAction as EventListener);
+    return () => {
+      window.removeEventListener('punchlist-home-menu-action', handleTopMenuAction as EventListener);
+    };
+  }, []);
 
   useEffect(() => {
     setAreaForm(getAreaFormValue(area));
@@ -1576,6 +1588,16 @@ export default function AreaDetailPage() {
       setSyncing(false);
     }
   }
+
+  topMenuActionHandlerRef.current = (event: Event) => {
+    const customEvent = event as CustomEvent<{ action: string }>;
+    const detail = customEvent.detail;
+    if (!detail) return;
+
+    if (detail.action === 'sync-now') {
+      void handleSync();
+    }
+  };
 
   async function handleReleaseAreaClaim() {
     if (!project?.sharedProjectId || !area || releasingAreaClaim) return;
