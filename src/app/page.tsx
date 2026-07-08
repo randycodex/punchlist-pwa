@@ -68,6 +68,7 @@ import {
   publishSharedProjectSnapshot,
   runCollaborationHealthCheck,
   subscribeToSharedProjectAreaClaimChanges,
+  subscribeToSharedProjectSnapshotChanges,
   transferSharedProjectOwnership,
 } from '@/lib/collaboration';
 import type { CollaborationHealthReport, CollaborationProjectMember, CollaborationSharedProjectDirectoryEntry, CollaborationSnapshotBackup } from '@/lib/collaboration';
@@ -1113,6 +1114,59 @@ export default function ProjectsPage() {
     [activeProjects]
   );
   const singleProjectMainView = !!singleProject && !showTrash;
+
+  useEffect(() => {
+    if (!collaborationAuth.isSignedIn || !singleProject?.sharedProjectId) return;
+
+    const localProjectId = singleProject.id;
+    const activeSharedProjectId = singleProject.sharedProjectId;
+    let cancelled = false;
+    let refreshing = false;
+
+    async function pullSafeSharedSnapshot() {
+      if (refreshing) return;
+      refreshing = true;
+      try {
+        const localProject = await getProject(localProjectId);
+        if (cancelled || !localProject?.sharedProjectId) return;
+
+        const snapshot = await getSharedProjectSnapshot(localProject);
+        if (cancelled) return;
+        if (hasNewerLocalChangesThanSharedSnapshot(localProject, snapshot.publishedAt)) return;
+        if (!isSharedSnapshotNewer(localProject, snapshot.publishedAt)) return;
+
+        await saveProjectPreserveTimestamps(snapshot.project);
+        if (cancelled) return;
+        cacheProjectPreview(snapshot.project);
+        setProjects((prev) =>
+          prev.map((entry) =>
+            entry.id === localProject.id
+              ? { ...snapshot.project, areas: [...snapshot.project.areas] }
+              : entry
+          )
+        );
+      } catch (error) {
+        if (!cancelled) {
+          console.info('Live shared snapshot refresh skipped:', error);
+        }
+      } finally {
+        refreshing = false;
+      }
+    }
+
+    const unsubscribeSnapshotChanges = subscribeToSharedProjectSnapshotChanges(
+      activeSharedProjectId,
+      () => {
+        void pullSafeSharedSnapshot();
+      }
+    );
+
+    return () => {
+      cancelled = true;
+      unsubscribeSnapshotChanges();
+    };
+  }, [collaborationAuth.isSignedIn, singleProject?.id, singleProject?.sharedProjectId]);
+
   const areaTargetProject =
     projects.find((project) => project.id === areaTargetProjectId && !project.deletedAt) ??
     singleProject;

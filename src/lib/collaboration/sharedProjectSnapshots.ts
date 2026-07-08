@@ -302,3 +302,33 @@ export function hasNewerLocalChangesThanSharedSnapshot(localProject: Project, pu
   if (!Number.isFinite(publishedMs) || !Number.isFinite(localUpdatedMs)) return true;
   return localUpdatedMs > publishedMs + SHARED_SNAPSHOT_CLOCK_SKEW_MS;
 }
+
+export function subscribeToSharedProjectSnapshotChanges(
+  sharedProjectId: string,
+  onChange: () => void
+) {
+  const supabase = getCollaborationSupabaseClient();
+  if (!supabase) {
+    return () => {};
+  }
+
+  const channel = supabase
+    .channel(`shared-project-snapshot:${sharedProjectId}`)
+    .on(
+      'postgres_changes',
+      {
+        event: '*',
+        schema: 'public',
+        table: 'shared_project_snapshots',
+        filter: `project_id=eq.${sharedProjectId}`,
+      },
+      () => {
+        onChange();
+      }
+    )
+    .subscribe();
+
+  return () => {
+    void supabase.removeChannel(channel);
+  };
+}

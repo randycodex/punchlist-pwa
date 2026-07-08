@@ -68,6 +68,7 @@ import {
   publishSharedProjectSnapshot,
   runCollaborationHealthCheck,
   subscribeToSharedProjectAreaClaimChanges,
+  subscribeToSharedProjectSnapshotChanges,
   transferSharedProjectOwnership,
 } from '@/lib/collaboration';
 import type { CollaborationHealthReport, CollaborationSnapshotBackup } from '@/lib/collaboration';
@@ -667,6 +668,52 @@ export default function ProjectDetailPage() {
         : [],
     [project]
   );
+
+  useEffect(() => {
+    if (!collaborationAuth.isSignedIn || !project?.sharedProjectId) return;
+
+    const localProjectId = project.id;
+    const activeSharedProjectId = project.sharedProjectId;
+    let cancelled = false;
+    let refreshing = false;
+
+    async function pullSafeSharedSnapshot() {
+      if (refreshing) return;
+      refreshing = true;
+      try {
+        const localProject = await getProject(localProjectId);
+        if (cancelled || !localProject?.sharedProjectId) return;
+
+        const snapshot = await getSharedProjectSnapshot(localProject);
+        if (cancelled) return;
+        if (hasNewerLocalChangesThanSharedSnapshot(localProject, snapshot.publishedAt)) return;
+        if (!isSharedSnapshotNewer(localProject, snapshot.publishedAt)) return;
+
+        await saveProjectPreserveTimestamps(snapshot.project);
+        if (cancelled) return;
+        cacheProjectPreview(snapshot.project);
+        setProject({ ...snapshot.project, areas: [...snapshot.project.areas] });
+      } catch (error) {
+        if (!cancelled) {
+          console.info('Live shared snapshot refresh skipped:', error);
+        }
+      } finally {
+        refreshing = false;
+      }
+    }
+
+    const unsubscribeSnapshotChanges = subscribeToSharedProjectSnapshotChanges(
+      activeSharedProjectId,
+      () => {
+        void pullSafeSharedSnapshot();
+      }
+    );
+
+    return () => {
+      cancelled = true;
+      unsubscribeSnapshotChanges();
+    };
+  }, [collaborationAuth.isSignedIn, project?.id, project?.sharedProjectId]);
 
   useEffect(() => {
     const sharedProjectId = project?.sharedProjectId;
