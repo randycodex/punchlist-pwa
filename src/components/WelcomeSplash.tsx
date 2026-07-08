@@ -34,8 +34,8 @@ export default function WelcomeSplash({ children }: { children: ReactNode }) {
         <Image
           src="/uai-logo.png"
           alt="UAI Logo"
-          width={220}
-          height={120}
+          width={337}
+          height={184}
           priority
           className="h-20 w-auto object-contain"
         />
