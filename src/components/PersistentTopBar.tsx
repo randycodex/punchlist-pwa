@@ -105,14 +105,14 @@ export default function PersistentTopBar() {
   } as const;
 
   const syncButtonLabel = {
-    idle: 'Synced',
+    idle: 'Sync with OneDrive',
     syncing: 'Syncing now',
     pending: 'Sync pending',
     'needs-auth': 'Sign in required to finish syncing',
     error: 'Sync needs attention',
   } as const;
   const syncButtonShortLabel = {
-    idle: 'Synced',
+    idle: 'Sync',
     syncing: 'Syncing',
     pending: 'Pending',
     'needs-auth': 'Sign in',
