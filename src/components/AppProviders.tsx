@@ -6,7 +6,6 @@ import { MicrosoftAuthProvider } from '@/contexts/MicrosoftAuthContext';
 import { CollaborationAuthProvider } from '@/contexts/CollaborationAuthContext';
 import { SyncStatusProvider } from '@/contexts/SyncStatusContext';
 import { AppSettingsProvider } from '@/contexts/AppSettingsContext';
-import WelcomeSplash from '@/components/WelcomeSplash';
 
 export default function AppProviders({ children }: { children: ReactNode }) {
   return (
@@ -15,7 +14,7 @@ export default function AppProviders({ children }: { children: ReactNode }) {
         <SyncStatusProvider>
           <AppSettingsProvider>
             <ThemeProvider>
-              <WelcomeSplash>{children}</WelcomeSplash>
+              {children}
             </ThemeProvider>
           </AppSettingsProvider>
         </SyncStatusProvider>
