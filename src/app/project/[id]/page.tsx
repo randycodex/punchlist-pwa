@@ -39,6 +39,7 @@ import { useSyncStatus } from '@/contexts/SyncStatusContext';
 import { useAppSettings } from '@/contexts/AppSettingsContext';
 import {
   captureSharedProjectBackup,
+  claimSharedProjectArea,
   createSharedProjectFromLocalProject,
   disconnectSharedProject,
   generateSharedProjectJoinCode,
@@ -51,6 +52,7 @@ import {
   listSharedProjectBackups,
   publishSharedProjectSnapshot,
   runCollaborationHealthCheck,
+  subscribeToSharedProjectAreaClaimChanges,
   transferSharedProjectOwnership,
 } from '@/lib/collaboration';
 import type { CollaborationHealthReport, CollaborationSnapshotBackup } from '@/lib/collaboration';
@@ -74,7 +76,7 @@ type ExportScope = 'project' | 'selected-areas';
 
 const SORT_STORAGE_KEY = 'punchlist-areas-sort';
 const RECENT_AREA_TYPES_STORAGE_KEY = 'punchlist-recent-area-types';
-const SHARED_AREA_CLAIM_REFRESH_MS = 60 * 1000;
+const SHARED_AREA_CLAIM_REFRESH_MS = 15 * 1000;
 const AREA_CARD_LONG_PRESS_MS = 550;
 const AREA_CARD_LONG_PRESS_MOVE_THRESHOLD = 12;
 
@@ -172,6 +174,8 @@ type AreaCardProps = {
   onToggleSelection: (areaId: string) => void;
   onLongPressSelect: (areaId: string) => void;
   onBlockedByClaim: () => void;
+  onPrimeOpen: (areaId: string) => void;
+  onOpenArea: (areaId: string) => void;
 };
 
 const AreaCard = memo(function AreaCard({
@@ -184,6 +188,8 @@ const AreaCard = memo(function AreaCard({
   onToggleSelection,
   onLongPressSelect,
   onBlockedByClaim,
+  onPrimeOpen,
+  onOpenArea,
 }: AreaCardProps) {
   const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const longPressStartRef = useRef<{ x: number; y: number } | null>(null);
@@ -218,6 +224,7 @@ const AreaCard = memo(function AreaCard({
         if (deleteMode || blockedByClaim) return;
         if (event.pointerType === 'mouse' && event.button !== 0) return;
 
+        onPrimeOpen(area.id);
         clearLongPressTimer();
         longPressStartRef.current = { x: event.clientX, y: event.clientY };
         suppressClickRef.current = false;
@@ -237,6 +244,11 @@ const AreaCard = memo(function AreaCard({
       onPointerUp={clearLongPressTimer}
       onPointerCancel={clearLongPressTimer}
       onPointerLeave={clearLongPressTimer}
+      onMouseEnter={() => {
+        if (!deleteMode && !blockedByClaim) {
+          onPrimeOpen(area.id);
+        }
+      }}
       onContextMenu={(event) => {
         if (!deleteMode) {
           event.preventDefault();
@@ -272,7 +284,9 @@ const AreaCard = memo(function AreaCard({
               if (blockedByClaim) {
                 onBlockedByClaim();
               }
+              return;
             }
+            onOpenArea(area.id);
           }}
           onContextMenu={(event) => {
             if (!deleteMode) {
@@ -307,11 +321,24 @@ const AreaCard = memo(function AreaCard({
               if (blockedByClaim) {
                 onBlockedByClaim();
               }
+              return;
             }
+            onOpenArea(area.id);
           }}
           onContextMenu={(event) => {
             if (!deleteMode) {
               event.preventDefault();
+            }
+          }}
+          onPointerDown={(event) => {
+            event.stopPropagation();
+            if (!deleteMode && !blockedByClaim) {
+              onPrimeOpen(area.id);
+            }
+          }}
+          onMouseEnter={() => {
+            if (!deleteMode && !blockedByClaim) {
+              onPrimeOpen(area.id);
             }
           }}
           className="mt-1 flex h-10 w-10 items-center justify-center rounded-[1rem] border border-black/5 bg-white/70 text-gray-500 transition hover:bg-white hover:text-gray-700 dark:border-white/10 dark:bg-white/[0.04] dark:text-gray-300 dark:hover:bg-white/[0.12] dark:hover:text-white"
@@ -370,6 +397,7 @@ export default function ProjectDetailPage() {
   const [disconnectingSharedProject, setDisconnectingSharedProject] = useState(false);
   const syncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const sharedPublishTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const backgroundAreaClaimKeysRef = useRef(new Set<string>());
   const pullStartYRef = useRef<number | null>(null);
   const pullDistanceRef = useRef(0);
   const pullArmedRef = useRef(false);
@@ -452,6 +480,78 @@ export default function ProjectDetailPage() {
     }
   }, [project]);
 
+  const primeAreaOpen = useCallback(
+    (areaId: string) => {
+      if (!project) return;
+      cacheProjectPreview(project);
+      router.prefetch(`/project/${project.id}/area/${areaId}`);
+    },
+    [project, router]
+  );
+
+  const markAreaClaimedByCurrentUser = useCallback((areaId: string, expiresAt?: Date) => {
+    setSharedAreaClaims((current) => {
+      const existing = current.get(areaId);
+      if (
+        existing?.ownership === 'mine' &&
+        existing.expiresAt?.getTime() === expiresAt?.getTime()
+      ) {
+        return current;
+      }
+
+      const next = new Map(current);
+      next.set(areaId, {
+        ownership: 'mine',
+        label: 'you',
+        expiresAt,
+      });
+      return next;
+    });
+  }, []);
+
+  const clearOptimisticAreaClaim = useCallback((areaId: string) => {
+    setSharedAreaClaims((current) => {
+      const existing = current.get(areaId);
+      if (existing?.ownership !== 'mine') return current;
+      const next = new Map(current);
+      next.delete(areaId);
+      return next;
+    });
+  }, []);
+
+  const claimAreaOpenInBackground = useCallback(
+    (areaId: string) => {
+      const sharedProjectId = project?.sharedProjectId;
+      const userId = collaborationAuth.user?.id;
+      if (!sharedProjectId || !collaborationAuth.isSignedIn || !userId) return;
+
+      const claimKey = `${sharedProjectId}:${areaId}`;
+      if (backgroundAreaClaimKeysRef.current.has(claimKey)) return;
+
+      backgroundAreaClaimKeysRef.current.add(claimKey);
+      markAreaClaimedByCurrentUser(areaId);
+
+      void claimSharedProjectArea(sharedProjectId, areaId)
+        .then((claim) => {
+          markAreaClaimedByCurrentUser(areaId, claim.expiresAt);
+        })
+        .catch((error) => {
+          clearOptimisticAreaClaim(areaId);
+          console.info('Background shared area claim failed:', error);
+        })
+        .finally(() => {
+          backgroundAreaClaimKeysRef.current.delete(claimKey);
+        });
+    },
+    [
+      clearOptimisticAreaClaim,
+      collaborationAuth.isSignedIn,
+      collaborationAuth.user?.id,
+      markAreaClaimedByCurrentUser,
+      project?.sharedProjectId,
+    ]
+  );
+
   function handleSortChange(option: SortOption) {
     setSortOption(option);
     localStorage.setItem(SORT_STORAGE_KEY, option);
@@ -525,6 +625,7 @@ export default function ProjectDetailPage() {
     const activeSharedProjectId = sharedProjectId;
     const activeUserId = userId;
     let cancelled = false;
+
     async function refreshSharedAreaClaims() {
       try {
         const claims = await getActiveSharedProjectAreaClaimSummaries(activeSharedProjectId);
@@ -552,12 +653,19 @@ export default function ProjectDetailPage() {
     }
 
     void refreshSharedAreaClaims();
+    const unsubscribeAreaClaimChanges = subscribeToSharedProjectAreaClaimChanges(
+      activeSharedProjectId,
+      () => {
+        void refreshSharedAreaClaims();
+      }
+    );
     const refreshTimer = setInterval(() => {
       void refreshSharedAreaClaims();
     }, SHARED_AREA_CLAIM_REFRESH_MS);
 
     return () => {
       cancelled = true;
+      unsubscribeAreaClaimChanges();
       clearInterval(refreshTimer);
     };
   }, [collaborationAuth.isSignedIn, collaborationAuth.user?.id, project?.sharedProjectId]);
@@ -1623,6 +1731,8 @@ export default function ProjectDetailPage() {
                     onToggleSelection={toggleAreaSelection}
                     onLongPressSelect={enterAreaSelectionMode}
                     onBlockedByClaim={() => showMessage('This shared area is currently locked by another user.')}
+                    onPrimeOpen={primeAreaOpen}
+                    onOpenArea={claimAreaOpenInBackground}
                   />
                 );
               })}

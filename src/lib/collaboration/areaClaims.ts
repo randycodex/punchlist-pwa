@@ -222,3 +222,33 @@ export async function releaseSharedProjectArea(sharedProjectId: string, areaId: 
     throw error;
   }
 }
+
+export function subscribeToSharedProjectAreaClaimChanges(
+  sharedProjectId: string,
+  onChange: () => void
+) {
+  const supabase = getCollaborationSupabaseClient();
+  if (!supabase) {
+    return () => {};
+  }
+
+  const channel = supabase
+    .channel(`shared-project-area-claims:${sharedProjectId}`)
+    .on(
+      'postgres_changes',
+      {
+        event: '*',
+        schema: 'public',
+        table: 'area_claims',
+        filter: `project_id=eq.${sharedProjectId}`,
+      },
+      () => {
+        onChange();
+      }
+    )
+    .subscribe();
+
+  return () => {
+    void supabase.removeChannel(channel);
+  };
+}

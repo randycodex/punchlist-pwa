@@ -65,6 +65,8 @@ import { useAppSettings } from '@/contexts/AppSettingsContext';
 import {
   claimSharedProjectArea,
   getCollaborationErrorMessage,
+  getCollaborationRuntimeConfig,
+  getAreaClaimExpiry,
   getSharedProjectSnapshot,
   isSharedSnapshotNewer,
   publishSharedProjectSnapshot,
@@ -383,19 +385,24 @@ export default function AreaDetailPage() {
     if (!sharedProjectId || !currentAreaId) {
       setAreaClaimError(null);
       setAreaClaimExpiresAt(null);
+      setClaimingArea(false);
       return;
     }
 
     if (!collaborationAuth.isSignedIn) {
       setAreaClaimError('Enable shared projects before working in this shared area.');
       setAreaClaimExpiresAt(null);
+      setClaimingArea(false);
       return;
     }
 
     let cancelled = false;
     let claimRenewTimer: ReturnType<typeof setInterval> | null = null;
+    const config = getCollaborationRuntimeConfig();
+    const optimisticExpiresAt = getAreaClaimExpiry(config?.areaClaimTimeoutMs ?? 4 * 60 * 60 * 1000);
     setClaimingArea(true);
     setAreaClaimError(null);
+    setAreaClaimExpiresAt(optimisticExpiresAt);
 
     const releaseClaim = () => {
       void releaseSharedProjectArea(sharedProjectId, currentAreaId).catch((error) => {
@@ -427,6 +434,7 @@ export default function AreaDetailPage() {
         if (cancelled) return;
         const message = getCollaborationErrorMessage(error, 'Could not claim this shared area.');
         setAreaClaimError(message);
+        setAreaClaimExpiresAt(null);
         if (message.toLowerCase().includes('claimed by another user')) {
           setClaimBlockedMessage(message);
         }
@@ -1862,10 +1870,10 @@ export default function AreaDetailPage() {
     ? 'Shared claim blocked'
     : releasingAreaClaim
       ? 'Releasing shared lock...'
-      : claimingArea
-      ? 'Claiming shared area...'
       : areaClaimExpiresAt
         ? `Locked to you until ${areaClaimExpiresAt.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`
+        : claimingArea
+        ? 'Claiming shared area...'
         : 'Shared area claimed';
 
   return (

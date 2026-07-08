@@ -39,6 +39,7 @@ import { useAppSettings } from '@/contexts/AppSettingsContext';
 import {
   createSharedProjectFromLocalProject,
   captureSharedProjectBackup,
+  claimSharedProjectArea,
   disconnectSharedProject,
   generateSharedProjectJoinCode,
   getActiveSharedProjectAreaClaimSummaries,
@@ -52,6 +53,7 @@ import {
   listSharedProjectBackups,
   publishSharedProjectSnapshot,
   runCollaborationHealthCheck,
+  subscribeToSharedProjectAreaClaimChanges,
   transferSharedProjectOwnership,
 } from '@/lib/collaboration';
 import type { CollaborationHealthReport, CollaborationProjectMember, CollaborationSharedProjectDirectoryEntry, CollaborationSnapshotBackup } from '@/lib/collaboration';
@@ -95,7 +97,7 @@ const RECENT_AREA_TYPES_STORAGE_KEY = 'punchlist-recent-area-types';
 const TRASH_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 const LONG_PRESS_MS = 500;
 const AREA_CARD_LONG_PRESS_MOVE_THRESHOLD = 12;
-const SHARED_AREA_CLAIM_REFRESH_MS = 60 * 1000;
+const SHARED_AREA_CLAIM_REFRESH_MS = 15 * 1000;
 
 function sanitizeOneDriveProjectFolderPart(value: string | undefined, fallback: string) {
   const cleaned = (value ?? '')
@@ -400,6 +402,7 @@ type HomeAreaCardProps = {
   onLongPressSelect: (areaId: string) => void;
   onBlockedByClaim: () => void;
   onPrimeOpen: (project: Project, areaId: string) => void;
+  onOpenArea: (project: Project, areaId: string) => void;
 };
 
 const HomeAreaCard = memo(function HomeAreaCard({
@@ -413,6 +416,7 @@ const HomeAreaCard = memo(function HomeAreaCard({
   onLongPressSelect,
   onBlockedByClaim,
   onPrimeOpen,
+  onOpenArea,
 }: HomeAreaCardProps) {
   const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const longPressStartRef = useRef<{ x: number; y: number } | null>(null);
@@ -508,7 +512,9 @@ const HomeAreaCard = memo(function HomeAreaCard({
               if (blockedByClaim) {
                 onBlockedByClaim();
               }
+              return;
             }
+            onOpenArea(project, area.id);
           }}
           onContextMenu={(event) => {
             if (!deleteMode) {
@@ -544,7 +550,9 @@ const HomeAreaCard = memo(function HomeAreaCard({
               if (blockedByClaim) {
                 onBlockedByClaim();
               }
+              return;
             }
+            onOpenArea(project, area.id);
           }}
           onContextMenu={(event) => {
             if (!deleteMode) {
@@ -643,6 +651,7 @@ export default function ProjectsPage() {
   const [messageDialog, setMessageDialog] = useState<MessageDialogState | null>(null);
   const syncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const sharedPublishTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+  const backgroundAreaClaimKeysRef = useRef(new Set<string>());
   const pullStartYRef = useRef<number | null>(null);
   const pullArmedRef = useRef(false);
   const listRef = useRef<HTMLElement | null>(null);
@@ -723,6 +732,68 @@ export default function ProjectsPage() {
       router.prefetch(`/project/${project.id}/area/${areaId}`);
     },
     [router]
+  );
+
+  const markAreaClaimedByCurrentUser = useCallback((areaId: string, expiresAt?: Date) => {
+    setSharedAreaClaims((current) => {
+      const existing = current.get(areaId);
+      if (
+        existing?.ownership === 'mine' &&
+        existing.expiresAt?.getTime() === expiresAt?.getTime()
+      ) {
+        return current;
+      }
+
+      const next = new Map(current);
+      next.set(areaId, {
+        ownership: 'mine',
+        label: 'you',
+        expiresAt,
+      });
+      return next;
+    });
+  }, []);
+
+  const clearOptimisticAreaClaim = useCallback((areaId: string) => {
+    setSharedAreaClaims((current) => {
+      const existing = current.get(areaId);
+      if (existing?.ownership !== 'mine') return current;
+      const next = new Map(current);
+      next.delete(areaId);
+      return next;
+    });
+  }, []);
+
+  const claimAreaOpenInBackground = useCallback(
+    (project: Project, areaId: string) => {
+      const sharedProjectId = project.sharedProjectId;
+      const userId = collaborationAuth.user?.id;
+      if (!sharedProjectId || !collaborationAuth.isSignedIn || !userId) return;
+
+      const claimKey = `${sharedProjectId}:${areaId}`;
+      if (backgroundAreaClaimKeysRef.current.has(claimKey)) return;
+
+      backgroundAreaClaimKeysRef.current.add(claimKey);
+      markAreaClaimedByCurrentUser(areaId);
+
+      void claimSharedProjectArea(sharedProjectId, areaId)
+        .then((claim) => {
+          markAreaClaimedByCurrentUser(areaId, claim.expiresAt);
+        })
+        .catch((error) => {
+          clearOptimisticAreaClaim(areaId);
+          console.info('Background shared area claim failed:', error);
+        })
+        .finally(() => {
+          backgroundAreaClaimKeysRef.current.delete(claimKey);
+        });
+    },
+    [
+      clearOptimisticAreaClaim,
+      collaborationAuth.isSignedIn,
+      collaborationAuth.user?.id,
+      markAreaClaimedByCurrentUser,
+    ]
   );
 
   async function loadProjects() {
@@ -1000,6 +1071,7 @@ export default function ProjectsPage() {
     const activeSharedProjectId = sharedProjectId;
     const activeUserId = userId;
     let cancelled = false;
+
     async function refreshSharedAreaClaims() {
       try {
         const claims = await getActiveSharedProjectAreaClaimSummaries(activeSharedProjectId);
@@ -1027,12 +1099,19 @@ export default function ProjectsPage() {
     }
 
     void refreshSharedAreaClaims();
+    const unsubscribeAreaClaimChanges = subscribeToSharedProjectAreaClaimChanges(
+      activeSharedProjectId,
+      () => {
+        void refreshSharedAreaClaims();
+      }
+    );
     const refreshTimer = setInterval(() => {
       void refreshSharedAreaClaims();
     }, SHARED_AREA_CLAIM_REFRESH_MS);
 
     return () => {
       cancelled = true;
+      unsubscribeAreaClaimChanges();
       clearInterval(refreshTimer);
     };
   }, [collaborationAuth.isSignedIn, collaborationAuth.user?.id, singleProject?.sharedProjectId]);
@@ -2514,6 +2593,7 @@ export default function ProjectsPage() {
                     onLongPressSelect={enterAreaSelectionMode}
                     onBlockedByClaim={() => showMessage('This shared area is currently locked by another user.')}
                     onPrimeOpen={primeAreaOpen}
+                    onOpenArea={claimAreaOpenInBackground}
                   />
                 );
               })
