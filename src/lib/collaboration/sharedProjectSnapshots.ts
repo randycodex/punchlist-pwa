@@ -295,3 +295,10 @@ export function isSharedSnapshotNewer(localProject: Project, publishedAt: string
   if (!Number.isFinite(localUpdatedMs)) return true;
   return publishedMs > localUpdatedMs + SHARED_SNAPSHOT_CLOCK_SKEW_MS;
 }
+
+export function hasNewerLocalChangesThanSharedSnapshot(localProject: Project, publishedAt: string) {
+  const publishedMs = new Date(publishedAt).getTime();
+  const localUpdatedMs = new Date(localProject.updatedAt).getTime();
+  if (!Number.isFinite(publishedMs) || !Number.isFinite(localUpdatedMs)) return true;
+  return localUpdatedMs > publishedMs + SHARED_SNAPSHOT_CLOCK_SKEW_MS;
+}

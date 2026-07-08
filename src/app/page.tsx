@@ -59,6 +59,7 @@ import {
   getSharedProjectMembers,
   getSharedProjectBackupSnapshot,
   getSharedProjectSnapshot,
+  hasNewerLocalChangesThanSharedSnapshot,
   getCollaborationErrorMessage,
   isSharedSnapshotNewer,
   joinSharedProjectByCode,
@@ -1870,18 +1871,33 @@ export default function ProjectsPage() {
 
       fullProject.sharedProjectId = project.sharedProjectId;
       fullProject.sharedProjectLinkedAt = project.sharedProjectLinkedAt;
-      const result = await getSharedProjectSnapshot(project);
-      const localUpdatedMs = new Date(fullProject.updatedAt).getTime();
-      const sharedPublishedMs = new Date(result.publishedAt).getTime();
-      setPendingPull({
-        localProject: fullProject,
-        sharedProject: result.project,
-        publishedAt: result.publishedAt,
-        hasNewerLocalChanges:
-          Number.isFinite(localUpdatedMs) &&
-          Number.isFinite(sharedPublishedMs) &&
-          localUpdatedMs > sharedPublishedMs + 2_000,
-      });
+      const result = await getSharedProjectSnapshot(fullProject);
+      const hasNewerLocalChanges = hasNewerLocalChangesThanSharedSnapshot(fullProject, result.publishedAt);
+      if (hasNewerLocalChanges) {
+        setPendingPull({
+          localProject: fullProject,
+          sharedProject: result.project,
+          publishedAt: result.publishedAt,
+          hasNewerLocalChanges,
+        });
+        return;
+      }
+
+      if (!isSharedSnapshotNewer(fullProject, result.publishedAt)) {
+        showMessage('Shared data is already up to date.');
+        return;
+      }
+
+      await saveProjectPreserveTimestamps(result.project);
+      cacheProjectPreview(result.project);
+      setProjects((prev) =>
+        prev.map((entry) =>
+          entry.id === fullProject.id
+            ? { ...result.project, areas: [...result.project.areas] }
+            : entry
+        )
+      );
+      showMessage(`Shared data pulled from ${new Date(result.publishedAt).toLocaleString()}.`);
     } catch (error) {
       console.error('Failed to pull shared project:', error);
       showMessage(getCollaborationErrorMessage(error, 'Failed to pull shared data. Please try again.'));
