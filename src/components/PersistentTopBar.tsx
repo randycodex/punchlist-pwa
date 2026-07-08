@@ -487,7 +487,7 @@ export default function PersistentTopBar() {
                       <Trash2 className="h-4 w-4" />
                       {homeMenuState.showTrash ? 'Hide trash' : 'Trash'}
                     </button>
-                    {isSignedIn && collaborationAuth.canUseCollaboration && (
+                    {isSignedIn && (
                       <button
                         onClick={() => {
                           if (collaborationAuth.isSignedIn) {
@@ -503,7 +503,7 @@ export default function PersistentTopBar() {
                         {collaborationAuth.isSignedIn ? 'Leave shared projects' : 'Enable shared projects'}
                       </button>
                     )}
-                    {isSignedIn && collaborationAuth.canUseCollaboration && (
+                    {isSignedIn && (
                       <button onClick={() => dispatchHomeAction('collaboration-health')} className={menuItemClass}>
                         <Activity className="h-4 w-4" />
                         Collaboration health

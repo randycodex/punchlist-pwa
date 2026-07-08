@@ -65,11 +65,6 @@ export function CollaborationAuthProvider({ children }: { children: ReactNode })
       return;
     }
 
-    if (!microsoftAuth.canUseCollaboration) {
-      setErrorMessage(microsoftAuth.collaborationAccess.message);
-      return;
-    }
-
     setIsSigningIn(true);
     const redirectTo = typeof window !== 'undefined' ? window.location.href : undefined;
     const { error } = await supabase.auth.signInWithOAuth({
