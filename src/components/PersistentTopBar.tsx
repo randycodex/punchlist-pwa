@@ -284,7 +284,7 @@ export default function PersistentTopBar() {
             </div>
           )}
         </div>
-        {showAppMenuControl && isReady && !homeMenuState.showTrash && (
+        {showAppMenuControl && isReady && (!homeMenuState.showTrash || isAreaRoute) && (
           <div ref={menuRef} className="app-menu-top-actions relative flex items-center gap-2">
             {renderSyncButton()}
             {!isAreaRoute && (
