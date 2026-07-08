@@ -412,10 +412,7 @@ export default function PhotoCapture({
 
     setCameraError(null);
     setSavingPhotos(true);
-    const processed: Array<{ imageData: string; thumbnail?: string } | null> = [];
-    for (const file of selected) {
-      processed.push(await fileToPhotoPayload(file));
-    }
+    const processed = await Promise.all(selected.map((file) => fileToPhotoPayload(file)));
     const readyPhotos = processed.filter((photo): photo is { imageData: string; thumbnail?: string } => photo !== null);
     const failedHeicCount = selected.filter((file, index) => processed[index] === null && isHeicFile(file)).length;
     const failedOtherCount = processed.length - readyPhotos.length - failedHeicCount;
