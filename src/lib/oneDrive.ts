@@ -4,8 +4,12 @@ const TRASH_BIN_ROOT = `${PUNCHLIST_ROOT}/Trash Bin`;
 const SHARED_EXPORTS_PATH = `${PUNCHLIST_ROOT}/exports`;
 const LEGACY_PROJECTS_PATH = `${PUNCHLIST_ROOT}/projects`;
 const LEGACY_PHOTOS_PATH = `${PUNCHLIST_ROOT}/photos`;
+const SYNC_LOCK_PATH = `${PUNCHLIST_ROOT}/sync-lock.json`;
 const RESERVED_PUNCHLIST_FOLDER_NAMES = new Set(['exports', 'projects', 'photos', 'Trash Bin']);
 const ENSURED_FOLDER_CACHE_MS = 5 * 60 * 1000;
+const SYNC_LEASE_DURATION_MS = 45_000;
+const SYNC_LEASE_RENEW_MS = 15_000;
+const SYNC_LEASE_MAX_WAIT_MS = 2 * 60_000;
 const ensuredFolderCache = new Map<string, number>();
 
 export type DriveItem = {
@@ -20,6 +24,13 @@ export type DriveItem = {
 type DriveChildrenResponse = {
   value: DriveItem[];
   '@odata.nextLink'?: string;
+};
+
+type SyncLeaseFile = {
+  ownerId: string;
+  leaseId: string;
+  acquiredAt: string;
+  expiresAt: string;
 };
 
 function getTokenCacheKey(token: string) {
@@ -143,6 +154,30 @@ async function graphFetchAbsolute<T>(token: string, url: string, options?: Reque
   return response.json() as Promise<T>;
 }
 
+function getGraphErrorStatus(error: unknown) {
+  return error instanceof Error && 'status' in error && typeof error.status === 'number'
+    ? error.status
+    : undefined;
+}
+
+function isGraphConflictError(error: unknown) {
+  const status = getGraphErrorStatus(error);
+  if (status === 409 || status === 412) return true;
+  if (!(error instanceof Error)) return false;
+  const message = error.message.toLowerCase();
+  return (
+    message.includes('precondition failed') ||
+    message.includes('etag mismatch') ||
+    message.includes('name already exists') ||
+    message.includes('already exists') ||
+    message.includes('resource has changed')
+  );
+}
+
+function wait(ms: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
 async function getItemByPath(token: string, path: string): Promise<DriveItem | null> {
   try {
     const item = await graphFetch<DriveItem>(
@@ -156,6 +191,44 @@ async function getItemByPath(token: string, path: string): Promise<DriveItem | n
     }
     throw error;
   }
+}
+
+async function downloadTextFileByPath(token: string, path: string): Promise<string | null> {
+  try {
+    const response = await fetch(`${GRAPH_API}/me/drive/root:/${encodeURI(path)}:/content`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+    if (!response.ok) {
+      if (isGraphItemNotFoundError(buildGraphError(response, await getGraphErrorMessage(response)))) {
+        return null;
+      }
+      throw buildGraphError(response, await getGraphErrorMessage(response));
+    }
+    return response.text();
+  } catch (error) {
+    if (isGraphItemNotFoundError(error)) {
+      return null;
+    }
+    throw error;
+  }
+}
+
+async function uploadTextFileByPath(
+  token: string,
+  path: string,
+  content: string,
+  headers?: Record<string, string>
+) {
+  return graphFetch<DriveItem>(token, `/me/drive/root:/${encodeURI(path)}:/content`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(headers ?? {}),
+    },
+    body: content,
+  });
 }
 
 async function createFolder(
@@ -674,9 +747,164 @@ export async function uploadDeletionLog(
   });
 }
 
+function getSyncLeaseOwnerId() {
+  const key = 'punchlist-sync-lease-owner-id';
+  const createId = () =>
+    typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
+  try {
+    const existing = localStorage.getItem(key);
+    if (existing) return existing;
+    const ownerId = createId();
+    localStorage.setItem(key, ownerId);
+    return ownerId;
+  } catch {
+    return createId();
+  }
+}
+
+function createSyncLease(ownerId: string, leaseId: string): SyncLeaseFile {
+  const now = new Date();
+  return {
+    ownerId,
+    leaseId,
+    acquiredAt: now.toISOString(),
+    expiresAt: new Date(now.getTime() + SYNC_LEASE_DURATION_MS).toISOString(),
+  };
+}
+
+function parseSyncLease(raw: string | null): SyncLeaseFile | null {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as Partial<SyncLeaseFile>;
+    if (
+      typeof parsed.ownerId !== 'string' ||
+      typeof parsed.leaseId !== 'string' ||
+      typeof parsed.acquiredAt !== 'string' ||
+      typeof parsed.expiresAt !== 'string'
+    ) {
+      return null;
+    }
+    return {
+      ownerId: parsed.ownerId,
+      leaseId: parsed.leaseId,
+      acquiredAt: parsed.acquiredAt,
+      expiresAt: parsed.expiresAt,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function syncLeaseExpiresAtMs(lease: SyncLeaseFile | null) {
+  if (!lease) return 0;
+  const ms = new Date(lease.expiresAt).getTime();
+  return Number.isFinite(ms) ? ms : 0;
+}
+
+async function readSyncLease(token: string) {
+  const metadata = await getItemByPath(token, SYNC_LOCK_PATH);
+  if (!metadata) {
+    return { metadata: null, lease: null };
+  }
+  return {
+    metadata,
+    lease: parseSyncLease(await downloadTextFileByPath(token, SYNC_LOCK_PATH)),
+  };
+}
+
+async function releaseSyncLeaseFile(token: string, leaseId: string) {
+  const { metadata, lease } = await readSyncLease(token);
+  if (!metadata?.id || lease?.leaseId !== leaseId) {
+    return;
+  }
+  await deleteDriveItemIfExists(token, metadata.id);
+}
+
 export async function acquireSyncLease(token: string): Promise<() => Promise<void>> {
   await ensurePunchListFolders(token);
-  return async () => {};
+  const ownerId = getSyncLeaseOwnerId();
+  const leaseId =
+    typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const waitDeadline = Date.now() + SYNC_LEASE_MAX_WAIT_MS;
+  let activeLease: SyncLeaseFile = createSyncLease(ownerId, leaseId);
+  let activeEtag: string | undefined;
+
+  while (true) {
+    const { metadata, lease } = await readSyncLease(token);
+    const expiresAtMs = syncLeaseExpiresAtMs(lease);
+    const now = Date.now();
+    if (lease && lease.leaseId !== leaseId && expiresAtMs > now) {
+      if (now >= waitDeadline) {
+        throw new Error('Another OneDrive sync is still running. Try Sync again after it finishes.');
+      }
+      await wait(Math.min(Math.max(expiresAtMs - now + 250, 1_000), 3_000, waitDeadline - now));
+      continue;
+    }
+
+    activeLease = createSyncLease(ownerId, leaseId);
+    try {
+      const uploaded = await uploadTextFileByPath(
+        token,
+        SYNC_LOCK_PATH,
+        JSON.stringify(activeLease),
+        metadata?.eTag ? { 'If-Match': metadata.eTag } : { 'If-None-Match': '*' }
+      );
+      activeEtag = uploaded.eTag ?? (await getItemByPath(token, SYNC_LOCK_PATH))?.eTag;
+      break;
+    } catch (error) {
+      if (!isGraphConflictError(error)) {
+        throw error;
+      }
+      if (Date.now() >= waitDeadline) {
+        throw new Error('Another OneDrive sync is still running. Try Sync again after it finishes.');
+      }
+      await wait(1_000);
+    }
+  }
+
+  let released = false;
+  const renewTimer = window.setInterval(() => {
+    activeLease = createSyncLease(ownerId, leaseId);
+    void (async () => {
+      let renewalEtag = activeEtag;
+      if (!renewalEtag) {
+        const { metadata, lease } = await readSyncLease(token);
+        if (lease?.leaseId !== leaseId || !metadata?.eTag) {
+          return;
+        }
+        renewalEtag = metadata.eTag;
+      }
+
+      return uploadTextFileByPath(
+        token,
+        SYNC_LOCK_PATH,
+        JSON.stringify(activeLease),
+        { 'If-Match': renewalEtag }
+      );
+    })()
+      .then((uploaded) => {
+        activeEtag = uploaded?.eTag;
+      })
+      .catch((error) => {
+        console.info('OneDrive sync lease renewal skipped:', error);
+      });
+  }, SYNC_LEASE_RENEW_MS);
+
+  return async () => {
+    if (released) return;
+    released = true;
+    window.clearInterval(renewTimer);
+    try {
+      await releaseSyncLeaseFile(token, leaseId);
+    } catch (error) {
+      console.info('OneDrive sync lease release skipped:', error);
+    }
+  };
 }
 
 export async function cleanupLegacyPunchListFolders(token: string): Promise<void> {

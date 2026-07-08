@@ -14,8 +14,15 @@ function cloneProjectPreview(project: Project): Project {
           ...item,
           checkpoints: item.checkpoints.map((checkpoint) => ({
             ...checkpoint,
-            photos: checkpoint.photos.map((photo) => ({ ...photo })),
-            files: (checkpoint.files ?? []).map((file) => ({ ...file })),
+            photos: checkpoint.photos.map((photo) => ({
+              ...photo,
+              imageData: '',
+              thumbnail: undefined,
+            })),
+            files: (checkpoint.files ?? []).map((file) => ({
+              ...file,
+              data: '',
+            })),
           })),
         })),
       })),
@@ -29,6 +36,15 @@ export function cacheProjectPreview(project: Project) {
 
 export function cacheProjectPreviews(projects: Project[]) {
   projects.forEach(cacheProjectPreview);
+}
+
+export function replaceProjectPreviewCache(projects: Project[]) {
+  projectPreviewCache.clear();
+  cacheProjectPreviews(projects);
+}
+
+export function removeCachedProjectPreview(projectId: string) {
+  projectPreviewCache.delete(projectId);
 }
 
 export function getCachedProjectPreview(projectId: string): Project | null {

@@ -81,7 +81,12 @@ import AppConfirmDialog from '@/components/AppConfirmDialog';
 import AppPromptDialog from '@/components/AppPromptDialog';
 import CollaborationHealthDialog from '@/components/CollaborationHealthDialog';
 import { applyTemplateToArea } from '@/lib/template';
-import { cacheProjectPreview, cacheProjectPreviews, getCachedProjectPreviews } from '@/lib/projectNavigationCache';
+import {
+  cacheProjectPreview,
+  getCachedProjectPreviews,
+  removeCachedProjectPreview,
+  replaceProjectPreviewCache,
+} from '@/lib/projectNavigationCache';
 import {
   buildAreaName,
   buildFacadeLevelOptions,
@@ -874,6 +879,7 @@ export default function ProjectsPage() {
         for (const project of expiredProjects) {
           markProjectDeleted(project.id);
           await deleteProject(project.id);
+          removeCachedProjectPreview(project.id);
         }
         scheduleSync(undefined, { fullSync: true });
       }
@@ -889,7 +895,7 @@ export default function ProjectsPage() {
           userId: collaborationAuth.user.id,
         });
       }
-      cacheProjectPreviews(nextProjects);
+      replaceProjectPreviewCache(nextProjects);
       setProjects(nextProjects);
     } catch (error) {
       console.error('Failed to load projects:', error);
@@ -1569,6 +1575,7 @@ export default function ProjectsPage() {
       for (const project of projectsToDelete) {
         markProjectDeleted(project.id);
         await deleteProject(project.id);
+        removeCachedProjectPreview(project.id);
       }
       scheduleSync(undefined, { fullSync: true });
       setProjects((prev) => prev.filter((project) => !selectedProjectIds.has(project.id)));
@@ -1616,6 +1623,7 @@ export default function ProjectsPage() {
     singleProject.areas.forEach((area) => {
       if (selectedAreaIds.has(area.id)) {
         area.deletedAt = now;
+        area.updatedAt = now;
       }
     });
     await saveProjectMetadataOnly(singleProject);
@@ -1691,6 +1699,7 @@ export default function ProjectsPage() {
     if (!project || !area) return;
 
     delete area.deletedAt;
+    area.updatedAt = new Date();
     await saveProjectMetadataOnly(project);
     scheduleSync(project.id);
     setProjects((prev) =>

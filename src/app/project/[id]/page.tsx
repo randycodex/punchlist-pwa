@@ -945,6 +945,7 @@ export default function ProjectDetailPage() {
     project.areas.forEach((area) => {
       if (selectedAreaIds.has(area.id)) {
         area.deletedAt = now;
+        area.updatedAt = now;
       }
     });
     await saveProjectMetadataOnly(project);
@@ -1043,6 +1044,7 @@ export default function ProjectDetailPage() {
     const area = project.areas.find((entry) => entry.id === areaId);
     if (!area) return;
     delete area.deletedAt;
+    area.updatedAt = new Date();
     await saveProjectMetadataOnly(project);
     scheduleSync(project.id);
     setProject({ ...project, areas: [...project.areas] });

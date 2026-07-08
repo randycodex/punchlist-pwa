@@ -24,6 +24,7 @@ import {
   uploadDeletionLog,
   acquireSyncLease,
   cleanupLegacyPunchListFolders,
+  type DriveItem,
 } from '@/lib/oneDrive';
 
 export type SyncConflict = { id: string; name: string };
@@ -54,6 +55,10 @@ type ProjectSyncState = {
 };
 
 type ProjectSyncStateMap = Record<string, ProjectSyncState>;
+
+type OneDriveSyncRemoteIndex = {
+  photoProjectFolders?: DriveItem[];
+};
 
 const STORAGE_KEY = 'punchlist-onedrive-last-sync';
 const DELETIONS_KEY = 'punchlist-onedrive-deletions';
@@ -537,16 +542,31 @@ function normalizeProjectPhotos(project: Project): Project {
   };
 }
 
+async function getPhotoProjectFoldersForSync(
+  token: string,
+  remoteIndex?: OneDriveSyncRemoteIndex
+) {
+  if (remoteIndex?.photoProjectFolders) {
+    return remoteIndex.photoProjectFolders;
+  }
+  const folders = await listPhotoProjectFolders(token);
+  if (remoteIndex) {
+    remoteIndex.photoProjectFolders = folders;
+  }
+  return folders;
+}
+
 async function hydrateProjectPhotosFromOneDrive(
   token: string,
   project: Project,
-  preferredFolderName?: string
+  preferredFolderName?: string,
+  remoteIndex?: OneDriveSyncRemoteIndex
 ): Promise<Project> {
   const normalizedProject = withProjectFolderName(
     normalizeProjectPhotos(project),
     preferredFolderName
   );
-  const remoteFolders = await listPhotoProjectFolders(token);
+  const remoteFolders = await getPhotoProjectFoldersForSync(token, remoteIndex);
   const candidateFolderNames = [
     projectFolderName(normalizedProject),
     ...getLegacyProjectFolderNames(normalizedProject),
@@ -632,7 +652,8 @@ async function dataUrlToBlob(dataUrl: string): Promise<Blob> {
 async function syncProjectPhotosToOneDrive(
   token: string,
   project: Project,
-  targetFolderName = projectFolderName(project)
+  targetFolderName = projectFolderName(project),
+  remoteIndex?: OneDriveSyncRemoteIndex
 ): Promise<void> {
   const localPhotos = getProjectPhotos(project);
   const trashed = isProjectInTrash(project);
@@ -640,7 +661,7 @@ async function syncProjectPhotosToOneDrive(
     localPhotos.map((photo, index) => projectPhotoFilename(project, photo, index))
   );
   const expectedPhotoIds = new Set(localPhotos.map((photo) => photo.id));
-  const remoteFolders = await listPhotoProjectFolders(token);
+  const remoteFolders = await getPhotoProjectFoldersForSync(token, remoteIndex);
   const matchingFolder = remoteFolders.find(
     (folder) => folder.name === targetFolderName && isRemoteProjectFolderInTrash(folder) === trashed
   );
@@ -712,7 +733,8 @@ async function syncProjectStorageToOneDriveState(
   token: string,
   project: Project,
   remoteEntries: RemoteProjectFile[],
-  targetFolderName: string
+  targetFolderName: string,
+  remoteIndex?: OneDriveSyncRemoteIndex
 ) {
   const trashed = isProjectInTrash(project);
   const sourceFolderNames = getProjectFolderCleanupNames(project, remoteEntries, targetFolderName);
@@ -720,7 +742,7 @@ async function syncProjectStorageToOneDriveState(
   await migrateLegacyProjectPhotos(token, project, targetFolderName, sourceFolderNames);
   await migrateCrossStateProjectExports(token, sourceFolderNames, targetFolderName, trashed);
   await migrateLegacyProjectExports(token, remoteEntries, targetFolderName, trashed);
-  await syncProjectPhotosToOneDrive(token, project, targetFolderName);
+  await syncProjectPhotosToOneDrive(token, project, targetFolderName, remoteIndex);
   await deleteProjectFoldersFromState(token, sourceFolderNames, !trashed, project.id);
 }
 
@@ -835,11 +857,15 @@ function maxDate(left: Date | undefined, right: Date | undefined) {
   return left.getTime() >= right.getTime() ? left : right;
 }
 
+function entityChangedAt(value: { updatedAt?: Date; deletedAt?: Date }) {
+  return Math.max(timestampMs(value.updatedAt), timestampMs(value.deletedAt));
+}
+
 function isRightNewer(
-  left: { updatedAt?: Date },
-  right: { updatedAt?: Date }
+  left: { updatedAt?: Date; deletedAt?: Date },
+  right: { updatedAt?: Date; deletedAt?: Date }
 ) {
-  return timestampMs(right.updatedAt) > timestampMs(left.updatedAt) + CLOCK_SKEW_TOLERANCE_MS;
+  return entityChangedAt(right) > entityChangedAt(left) + CLOCK_SKEW_TOLERANCE_MS;
 }
 
 function sortBySortOrder<T extends { sortOrder: number }>(items: T[]) {
@@ -948,8 +974,39 @@ function mergeProjects(localProject: Project, remoteProject: Project): Project {
   };
 }
 
+function stripProjectMediaPayload(project: Project): Project {
+  return {
+    ...project,
+    facadeElevationDrawings: project.facadeElevationDrawings?.map((drawing) => ({
+      ...drawing,
+      dataUrl: '',
+    })),
+    areas: (project.areas ?? []).map((area) => ({
+      ...area,
+      locations: (area.locations ?? []).map((location) => ({
+        ...location,
+        items: (location.items ?? []).map((item) => ({
+          ...item,
+          checkpoints: (item.checkpoints ?? []).map((checkpoint) => ({
+            ...checkpoint,
+            photos: (checkpoint.photos ?? []).map((photo) => ({
+              ...photo,
+              imageData: '',
+              thumbnail: undefined,
+            })),
+            files: (checkpoint.files ?? []).map((file) => ({
+              ...file,
+              data: '',
+            })),
+          })),
+        })),
+      })),
+    })),
+  };
+}
+
 function projectsEqual(left: Project, right: Project) {
-  return JSON.stringify(left) === JSON.stringify(right);
+  return JSON.stringify(stripProjectMediaPayload(left)) === JSON.stringify(stripProjectMediaPayload(right));
 }
 
 function mergeSyncStates(
@@ -1141,6 +1198,7 @@ export async function syncProjectsWithOneDrive(token: string, options: SyncOptio
     const localSyncStates = getLocalSyncStates();
     const localProjectMap = new Map(localProjects.map((project) => [project.id, project]));
     const remoteFilesById = buildRemoteProjectFileIndex(remoteFiles);
+    const remoteIndex: OneDriveSyncRemoteIndex = {};
     const requestedPushProjectIds = new Set(options.pushProjectIds ?? []);
     const mergedProjectIdsToPush = new Set<string>();
     const remoteSyncStates = normalizeSyncStateMap(remoteDeletions);
@@ -1220,7 +1278,8 @@ export async function syncProjectsWithOneDrive(token: string, options: SyncOptio
       hydrateProjectPhotosFromOneDrive(
         token,
         remoteProjectWithFolder,
-        remoteFolderName ?? undefined
+        remoteFolderName ?? undefined,
+        remoteIndex
       );
 
     if (!localProject) {
@@ -1249,7 +1308,8 @@ export async function syncProjectsWithOneDrive(token: string, options: SyncOptio
       const hydratedMergedProject = await hydrateProjectPhotosFromOneDrive(
         token,
         mergedProject,
-        remoteFolderName ?? undefined
+        remoteFolderName ?? undefined,
+        remoteIndex
       );
       await saveProjectPreserveTimestamps(hydratedMergedProject);
       localProjectMap.set(projectId, hydratedMergedProject);
@@ -1299,7 +1359,7 @@ export async function syncProjectsWithOneDrive(token: string, options: SyncOptio
       remoteEntries.length > 0 && (!canonicalRemote || remoteEntries.some((entry) => entry.id !== canonicalRemote.id));
     const freshnessComparison = compareTimestampsWithTolerance(localUpdatedAt, remoteUpdatedAt);
     if (freshnessComparison <= 0 && !needsProjectFileMigration && !remoteNeedsMergedLocalChanges) {
-      await syncProjectStorageToOneDriveState(token, fullProject, remoteEntries, targetFolderName);
+      await syncProjectStorageToOneDriveState(token, fullProject, remoteEntries, targetFolderName, remoteIndex);
       return;
     }
 
@@ -1308,7 +1368,7 @@ export async function syncProjectsWithOneDrive(token: string, options: SyncOptio
         token,
         targetFolderName,
         filename,
-        JSON.stringify(fullProject),
+        JSON.stringify(stripProjectMediaPayload(fullProject)),
         isProjectInTrash(fullProject),
         canonicalRemote?.eTag
       );
@@ -1320,7 +1380,7 @@ export async function syncProjectsWithOneDrive(token: string, options: SyncOptio
         targetFolderName,
         uploadedRemote.id
       );
-      await syncProjectStorageToOneDriveState(token, fullProject, remoteEntries, targetFolderName);
+      await syncProjectStorageToOneDriveState(token, fullProject, remoteEntries, targetFolderName, remoteIndex);
     } catch (error) {
       if (isConflictError(error)) {
         addConflict(project.id, project.projectName);
@@ -1351,6 +1411,7 @@ export async function pushProjectsToOneDrive(token: string, projectIds: string[]
     const uniqueProjectIds = [...new Set(projectIds)];
     const conflictsById = new Map<string, SyncConflict>();
     const remoteFilesById = buildRemoteProjectFileIndex(await listProjectFiles(token));
+    const remoteIndex: OneDriveSyncRemoteIndex = {};
 
     await runWithConcurrency(uniqueProjectIds, 2, async (projectId) => {
     const syncState = syncStates[projectId];
@@ -1379,7 +1440,7 @@ export async function pushProjectsToOneDrive(token: string, projectIds: string[]
     await saveProjectPreserveTimestamps(localProjectWithFolder);
 
     if (freshnessComparison === 0) {
-      await syncProjectStorageToOneDriveState(token, localProjectWithFolder, remoteEntries, targetFolderName);
+      await syncProjectStorageToOneDriveState(token, localProjectWithFolder, remoteEntries, targetFolderName, remoteIndex);
       return;
     }
 
@@ -1388,7 +1449,7 @@ export async function pushProjectsToOneDrive(token: string, projectIds: string[]
         token,
         targetFolderName,
         filename,
-        JSON.stringify(localProjectWithFolder),
+        JSON.stringify(stripProjectMediaPayload(localProjectWithFolder)),
         isProjectInTrash(localProjectWithFolder),
         canonicalRemote?.eTag
       );
@@ -1400,7 +1461,7 @@ export async function pushProjectsToOneDrive(token: string, projectIds: string[]
         targetFolderName,
         uploadedRemote.id
       );
-      await syncProjectStorageToOneDriveState(token, localProjectWithFolder, remoteEntries, targetFolderName);
+      await syncProjectStorageToOneDriveState(token, localProjectWithFolder, remoteEntries, targetFolderName, remoteIndex);
     } catch (error) {
       // Background push should not interrupt the editing flow; full sync can resolve conflicts.
       if (isConflictError(error)) {
