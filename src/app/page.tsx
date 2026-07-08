@@ -1606,7 +1606,7 @@ export default function ProjectsPage() {
     }
 
     if (!accountEmail) {
-      showMessage('Sign in with your UAI Microsoft account before sharing this project.');
+      showMessage('Sign in with an allowed Microsoft account before sharing this project.');
       return;
     }
 
@@ -1727,7 +1727,7 @@ export default function ProjectsPage() {
     }
 
     if (!accountEmail) {
-      showMessage('Sign in with your UAI Microsoft account before joining a shared project.');
+      showMessage('Sign in with an allowed Microsoft account before joining a shared project.');
       return;
     }
 

@@ -1075,7 +1075,7 @@ export default function ProjectDetailPage() {
     }
 
     if (!accountEmail) {
-      showMessage('Sign in with your UAI Microsoft account before sharing this project.');
+      showMessage('Sign in with an allowed Microsoft account before sharing this project.');
       return;
     }
 
