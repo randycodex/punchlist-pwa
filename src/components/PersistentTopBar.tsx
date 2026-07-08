@@ -9,7 +9,6 @@ import { useMicrosoftAuth } from '@/contexts/MicrosoftAuthContext';
 import { useCollaborationAuth } from '@/contexts/CollaborationAuthContext';
 import { useSyncStatus } from '@/contexts/SyncStatusContext';
 import { useAppSettings } from '@/contexts/AppSettingsContext';
-import { useTheme } from '@/contexts/ThemeContext';
 import { getProject } from '@/lib/db';
 import {
   Activity,
@@ -25,14 +24,12 @@ import {
   KeyRound,
   LogIn,
   LogOut,
-  Moon,
   PanelRightClose,
   PanelRightOpen,
   Pencil,
   PlusSquare,
   RefreshCw,
   Share2,
-  Sun,
   Trash2,
   UserPlus,
   Users,
@@ -64,7 +61,6 @@ export default function PersistentTopBar() {
   const collaborationAuth = useCollaborationAuth();
   const { retryInSeconds, status } = useSyncStatus();
   const { quickSort } = useAppSettings();
-  const { theme, toggleTheme } = useTheme();
   const showAuth = pathname === '/';
   const [projectTitle, setProjectTitle] = useState('');
   const [showHomeMenu, setShowHomeMenu] = useState(false);
@@ -86,8 +82,6 @@ export default function PersistentTopBar() {
     return segments[1] ?? '';
   }, [pathname]);
   const showAppMenuControl = showAuth || Boolean(projectId) || showHomeMenu;
-  const ThemeIcon = theme === 'dark' ? Sun : Moon;
-  const themeToggleLabel = theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode';
 
   const syncButtonClasses = {
     idle: 'border-green-200 bg-green-50 text-green-600 hover:bg-green-100 dark:border-green-400/25 dark:bg-green-400/10 dark:text-green-300 dark:hover:bg-green-400/15',
@@ -271,15 +265,6 @@ export default function PersistentTopBar() {
         {showAppMenuControl && isReady && !homeMenuState.showTrash && (
           <div ref={menuRef} className="app-menu-top-actions relative flex items-center gap-2">
             {renderSyncButton()}
-            <button
-              type="button"
-              onClick={toggleTheme}
-              className="flex h-10 w-10 items-center justify-center rounded-[1rem] border border-black/5 bg-white/70 text-gray-500 transition hover:bg-white hover:text-gray-900 dark:border-white/10 dark:bg-white/[0.04] dark:text-gray-300 dark:hover:bg-white/[0.08] dark:hover:text-white"
-              aria-label={themeToggleLabel}
-              title={themeToggleLabel}
-            >
-              <ThemeIcon className="h-4 w-4" />
-            </button>
             <button
               type="button"
               onClick={() => setShowHomeMenu((current) => !current)}

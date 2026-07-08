@@ -20,7 +20,10 @@ export const viewport: Viewport = {
   initialScale: 1,
   maximumScale: 1,
   userScalable: false,
-  themeColor: "#191c1f",
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#f7f7f5" },
+    { media: "(prefers-color-scheme: dark)", color: "#191c1f" },
+  ],
 };
 
 export default function RootLayout({
@@ -37,21 +40,14 @@ export default function RootLayout({
             (function () {
               try {
                 var root = document.documentElement;
-                var storedMode = null;
-                try { storedMode = localStorage.getItem('punchlist:theme-mode'); } catch (e) {}
-                var themeMode = storedMode === 'light' || storedMode === 'dark' || storedMode === 'system'
-                  ? storedMode
-                  : 'system';
-                var useDark = themeMode === 'dark' || (
-                  themeMode === 'system' &&
-                  window.matchMedia('(prefers-color-scheme: dark)').matches
-                );
-                root.dataset.themeMode = themeMode;
+                var useDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+                root.dataset.themeMode = 'system';
                 if (useDark) {
                   root.classList.add('dark');
                 } else {
                   root.classList.remove('dark');
                 }
+                try { localStorage.removeItem('punchlist:theme-mode'); } catch (e) {}
               } catch (e) {}
             })();
           `}
