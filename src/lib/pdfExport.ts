@@ -63,6 +63,8 @@ type SummaryArea = {
   }>;
 };
 
+let logoAssetsPromise: Promise<LogoAssets> | null = null;
+
 async function loadLogoBase64(): Promise<string | null> {
   try {
     const response = await fetch('/uai-logo.png');
@@ -87,7 +89,7 @@ function getImageDimensions(base64: string): Promise<ImageSize> {
   });
 }
 
-async function loadLogoAssets(): Promise<LogoAssets> {
+async function loadLogoAssetsUncached(): Promise<LogoAssets> {
   const base64 = await loadLogoBase64();
   let width = 30;
   let height = 30;
@@ -105,6 +107,11 @@ async function loadLogoAssets(): Promise<LogoAssets> {
   }
 
   return { base64, width, height };
+}
+
+function loadLogoAssets(): Promise<LogoAssets> {
+  logoAssetsPromise ??= loadLogoAssetsUncached();
+  return logoAssetsPromise;
 }
 
 function createLayout(pdf: jsPDF): LayoutMetrics {
