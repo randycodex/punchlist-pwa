@@ -981,28 +981,23 @@ export default function ProjectsPage() {
   }
 
   async function pullNewerSharedSnapshots(projectsToCheck: Project[]) {
-    const pulledProjects: Project[] = [];
-    for (const project of projectsToCheck) {
+    return Promise.all(projectsToCheck.map(async (project) => {
       if (!project.sharedProjectId) {
-        pulledProjects.push(project);
-        continue;
+        return project;
       }
 
       try {
         const snapshot = await getSharedProjectSnapshot(project);
         if (isSharedSnapshotNewer(project, snapshot.publishedAt)) {
           await saveProjectPreserveTimestamps(snapshot.project);
-          pulledProjects.push(snapshot.project);
-        } else {
-          pulledProjects.push(project);
+          return snapshot.project;
         }
+        return project;
       } catch (error) {
         console.info('Shared snapshot pull skipped:', error);
-        pulledProjects.push(project);
+        return project;
       }
-    }
-
-    return pulledProjects;
+    }));
   }
 
   function scheduleSharedPublish(projectId: string) {
