@@ -11,6 +11,7 @@ import { useSyncStatus } from '@/contexts/SyncStatusContext';
 import { useAppSettings } from '@/contexts/AppSettingsContext';
 import { getProject } from '@/lib/db';
 import { hasPendingSyncState } from '@/lib/pendingSync';
+import { getCachedProjectPreview } from '@/lib/projectNavigationCache';
 import {
   Activity,
   ArchiveRestore,
@@ -86,6 +87,10 @@ export default function PersistentTopBar() {
     return segments[1] ?? '';
   }, [pathname]);
   const showAppMenuControl = showAuth || Boolean(projectId) || showHomeMenu;
+  const currentProjectTitle =
+    homeMenuState.context === 'project' && homeMenuState.singleProjectName
+      ? homeMenuState.singleProjectName
+      : projectTitle;
 
   const syncButtonClasses = {
     idle: 'border-green-200 bg-green-50 text-green-600 hover:bg-green-100 dark:border-green-400/25 dark:bg-green-400/10 dark:text-green-300 dark:hover:bg-green-400/15',
@@ -126,12 +131,11 @@ export default function PersistentTopBar() {
         return;
       }
 
-      const cachedTitle = projectTitleCache.get(projectId);
+      const cachedTitle = getCachedProjectPreview(projectId)?.projectName ?? projectTitleCache.get(projectId);
       if (cachedTitle !== undefined) {
         if (!cancelled) {
           setProjectTitle(cachedTitle);
         }
-        return;
       }
 
       try {
@@ -153,6 +157,12 @@ export default function PersistentTopBar() {
       cancelled = true;
     };
   }, [projectId]);
+
+  useEffect(() => {
+    if (projectId && homeMenuState.context === 'project' && homeMenuState.singleProjectName) {
+      projectTitleCache.set(projectId, homeMenuState.singleProjectName);
+    }
+  }, [homeMenuState.context, homeMenuState.singleProjectName, projectId]);
 
   useEffect(() => {
     if (!showHomeMenu) return;
@@ -264,9 +274,9 @@ export default function PersistentTopBar() {
               priority
             />
           </Link>
-          {!showAuth && projectTitle && (
+          {!showAuth && currentProjectTitle && (
             <div className="min-w-0 truncate text-sm font-semibold text-gray-900 dark:text-white">
-              {projectTitle}
+              {currentProjectTitle}
             </div>
           )}
         </div>
