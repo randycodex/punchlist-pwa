@@ -1294,10 +1294,11 @@ export async function syncProjectsWithOneDrive(token: string, options: SyncOptio
       remote,
       remoteProjectUpdatedAtByItemId
     );
+    const remoteNeedsMergedLocalChanges = mergedProjectIdsToPush.has(project.id);
     const needsProjectFileMigration =
       remoteEntries.length > 0 && (!canonicalRemote || remoteEntries.some((entry) => entry.id !== canonicalRemote.id));
     const freshnessComparison = compareTimestampsWithTolerance(localUpdatedAt, remoteUpdatedAt);
-    if (freshnessComparison <= 0 && !needsProjectFileMigration) {
+    if (freshnessComparison <= 0 && !needsProjectFileMigration && !remoteNeedsMergedLocalChanges) {
       await syncProjectStorageToOneDriveState(token, fullProject, remoteEntries, targetFolderName);
       return;
     }
