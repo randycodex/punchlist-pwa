@@ -30,9 +30,7 @@ import {
   loadPendingSyncState,
   pausePendingSyncAutoRetry,
   queuePendingSync,
-  recordPendingSyncRetry,
   resumePendingSyncAutoRetry,
-  shouldPausePendingSyncAutoRetry,
 } from '@/lib/pendingSync';
 import type { PdfExportMode } from '@/lib/pdfExport';
 import { uploadPdfToOneDrive, getNextOneDriveExportFilename } from '@/lib/oneDrive';
@@ -988,42 +986,26 @@ export default function ProjectsPage() {
       const hasQueuedSync = hasPendingSyncState();
       const retryDelayMs = getMicrosoftRetryDelayMs(error);
       if (retryDelayMs) {
-        if (options.quiet && !hasQueuedSync) {
-          setRetryAt(null);
-          setSyncStatus('idle');
-          return;
+        if (!hasQueuedSync) {
+          queuePendingSync(undefined, { fullSync: true });
         }
-        if (options.quiet && shouldPausePendingSyncAutoRetry()) {
-          pauseAutoSyncRetry();
-          return;
-        }
-        const retry = recordPendingSyncRetry(retryDelayMs);
-        setRetryAt(retry.retryAt);
+        setRetryAt(null);
         if (!options.quiet) {
-          setSyncError(formatMicrosoftManualRetryMessage(Math.ceil(retry.delayMs / 1000)));
+          setSyncError(formatMicrosoftManualRetryMessage(Math.ceil(retryDelayMs / 1000)));
         }
-        setSyncStatus(options.quiet && !hasQueuedSync ? 'idle' : 'pending');
-        scheduleOneDriveSync(retry.delayMs);
+        pauseAutoSyncRetry();
         return;
       }
       const message = getMicrosoftErrorMessage(error, 'Sync failed.');
       if (message.startsWith('Saved locally.')) {
-        if (options.quiet && !hasQueuedSync) {
-          setRetryAt(null);
-          setSyncStatus('idle');
-          return;
+        if (!hasQueuedSync) {
+          queuePendingSync(undefined, { fullSync: true });
         }
-        if (options.quiet && shouldPausePendingSyncAutoRetry()) {
-          pauseAutoSyncRetry();
-          return;
-        }
-        const retry = recordPendingSyncRetry(60_000);
-        setRetryAt(retry.retryAt);
+        setRetryAt(null);
         if (!options.quiet) {
-          setSyncError(formatMicrosoftManualRetryMessage(Math.ceil(retry.delayMs / 1000)));
+          setSyncError(formatMicrosoftManualRetryMessage());
         }
-        setSyncStatus(options.quiet && !hasQueuedSync ? 'idle' : 'pending');
-        scheduleOneDriveSync(retry.delayMs);
+        pauseAutoSyncRetry();
         return;
       }
       if (options.quiet) {

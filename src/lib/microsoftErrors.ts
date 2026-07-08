@@ -102,7 +102,7 @@ export function formatMicrosoftRetryMessage(delayMs: number) {
 
 export function formatMicrosoftManualRetryMessage(retryInSeconds?: number) {
   if (retryInSeconds && retryInSeconds > 0) {
-    return `Saved locally. OneDrive is still catching up. Sync will retry in ${retryInSeconds} seconds.`;
+    return `Saved locally. OneDrive is still catching up. Tap Sync to try again in about ${retryInSeconds} seconds.`;
   }
-  return 'Saved locally. OneDrive is ready. Sync will retry automatically.';
+  return 'Saved locally. OneDrive needs a manual retry. Tap Sync when you are ready.';
 }
