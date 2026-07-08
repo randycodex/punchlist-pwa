@@ -224,6 +224,14 @@ type LocationMetrics = {
 
 type CheckpointReviewState = 'pending' | 'ok' | 'open' | 'resolved' | 'verified';
 type ScheduleSyncOptions = { fullSync?: boolean };
+type LiveSharedUpdateState =
+  | { kind: 'waiting-for-draft'; message: string }
+  | { kind: 'local-newer'; message: string }
+  | null;
+
+const LIVE_SHARED_WAITING_MESSAGE = 'Shared update ready. It will apply automatically when this edit is finished.';
+const LIVE_SHARED_LOCAL_NEWER_MESSAGE =
+  'Shared update ready. Review it from the project page to keep your local edits safe.';
 
 export default function AreaDetailPage() {
   const params = useParams<{ id: string; areaId: string }>();
@@ -271,6 +279,7 @@ export default function AreaDetailPage() {
   } | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
+  const [liveSharedUpdate, setLiveSharedUpdate] = useState<LiveSharedUpdateState>(null);
   const [areaClaimError, setAreaClaimError] = useState<string | null>(null);
   const [claimingArea, setClaimingArea] = useState(false);
   const [releasingAreaClaim, setReleasingAreaClaim] = useState(false);
@@ -531,18 +540,19 @@ export default function AreaDetailPage() {
         if (cancelled) return;
         if (!isSharedSnapshotNewer(localProject, snapshot.publishedAt)) {
           pendingLiveSharedRefreshRef.current = false;
+          setLiveSharedUpdate(null);
           return;
         }
 
         if (hasNewerLocalChangesThanSharedSnapshot(localProject, snapshot.publishedAt)) {
           pendingLiveSharedRefreshRef.current = false;
-          setSyncError('Shared update available. Your local edits are newer, so review it from the project page when ready.');
+          setLiveSharedUpdate({ kind: 'local-newer', message: LIVE_SHARED_LOCAL_NEWER_MESSAGE });
           return;
         }
 
         if (liveSharedRefreshBlockedRef.current) {
           pendingLiveSharedRefreshRef.current = true;
-          setSyncError('Shared update available. Finish this edit to apply it safely.');
+          setLiveSharedUpdate({ kind: 'waiting-for-draft', message: LIVE_SHARED_WAITING_MESSAGE });
           return;
         }
 
@@ -555,7 +565,7 @@ export default function AreaDetailPage() {
           return;
         }
         pendingLiveSharedRefreshRef.current = false;
-        setSyncError(null);
+        setLiveSharedUpdate(null);
         setProject(snapshot.project);
         setArea(snapshotArea);
       } catch (error) {
@@ -2110,6 +2120,7 @@ export default function AreaDetailPage() {
   const flattenSingleStairsLocation =
     !deleteMode && !isApartmentArea(area) && sortedStandardLocations.length === 1;
   const canReleaseAreaClaim = Boolean(project.sharedProjectId && areaClaimExpiresAt && !areaClaimError);
+  const visibleLiveSharedUpdate = collaborationAuth.isSignedIn && project.sharedProjectId ? liveSharedUpdate : null;
   const sharedAreaClaimLabel = areaClaimError
     ? 'Shared claim blocked'
     : releasingAreaClaim
@@ -2261,6 +2272,26 @@ export default function AreaDetailPage() {
       {syncError && (
         <div className="shrink-0 border-b border-gray-200/80 bg-white/70 px-4 py-2 text-sm text-gray-700 dark:border-zinc-700 dark:bg-white/[0.03] dark:text-gray-200">
           {syncError}
+        </div>
+      )}
+
+      {visibleLiveSharedUpdate && (
+        <div
+          className="shrink-0 border-b border-sky-200 bg-sky-50 px-4 py-2 text-sm text-sky-950 dark:border-sky-300/20 dark:bg-sky-400/10 dark:text-sky-100"
+          aria-live="polite"
+        >
+          <div className="mx-auto flex w-full max-w-6xl flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <p className="min-w-0 flex-1 font-medium">{visibleLiveSharedUpdate.message}</p>
+            {visibleLiveSharedUpdate.kind === 'local-newer' && (
+              <button
+                type="button"
+                onClick={() => router.push(`/project/${project.id}`)}
+                className="inline-flex h-9 w-fit items-center justify-center rounded-full bg-sky-700 px-3 text-xs font-semibold text-white transition hover:bg-sky-800 dark:bg-sky-200 dark:text-sky-950 dark:hover:bg-sky-100"
+              >
+                Review
+              </button>
+            )}
+          </div>
         </div>
       )}
       {/* Inspection Items */}
