@@ -34,6 +34,7 @@ import {
 } from '@/lib/oneDriveSyncRecovery';
 import { reserveLaunchOneDriveSync, resetLaunchOneDriveSyncReservations } from '@/lib/autoOneDriveSync';
 import { queueBackgroundProjectMediaHydration, resetBackgroundMediaHydration } from '@/lib/backgroundMediaHydration';
+import { queueBackgroundSharedProjectPublish, resetBackgroundSharedProjectPublish } from '@/lib/backgroundSharedPublish';
 import {
   clearPendingSyncState,
   getPendingSyncWaitMs,
@@ -406,7 +407,6 @@ export default function ProjectDetailPage() {
   const [disconnectSharedProjectConfirm, setDisconnectSharedProjectConfirm] = useState<Project | null>(null);
   const [disconnectingSharedProject, setDisconnectingSharedProject] = useState(false);
   const syncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const sharedPublishTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const backgroundAreaClaimKeysRef = useRef(new Set<string>());
   const pullStartYRef = useRef<number | null>(null);
   const pullDistanceRef = useRef(0);
@@ -477,14 +477,15 @@ export default function ProjectDetailPage() {
       if (syncTimerRef.current) {
         clearTimeout(syncTimerRef.current);
       }
-      if (sharedPublishTimerRef.current) {
-        clearTimeout(sharedPublishTimerRef.current);
-      }
     };
   }, []);
 
   useEffect(() => {
-    if (!collaborationAuth.isSignedIn || loading) return;
+    if (!collaborationAuth.isSignedIn) {
+      resetBackgroundSharedProjectPublish();
+      return;
+    }
+    if (loading) return;
     void loadProjectRef.current();
   }, [collaborationAuth.isSignedIn, loading]);
 
@@ -1060,34 +1061,9 @@ export default function ProjectDetailPage() {
   }
 
   function scheduleSharedPublish(projectId: string) {
-    if (!collaborationAuth.isSignedIn || !collaborationAuth.user) return;
-    if (sharedPublishTimerRef.current) {
-      clearTimeout(sharedPublishTimerRef.current);
-    }
-    sharedPublishTimerRef.current = setTimeout(() => {
-      sharedPublishTimerRef.current = null;
-      void publishSharedProjectSilently(projectId);
-    }, 1_200);
-  }
-
-  async function publishSharedProjectSilently(projectId: string) {
     const userId = collaborationAuth.user?.id;
     if (!userId) return;
-
-    try {
-      const fullProject = await getProject(projectId);
-      if (!fullProject?.sharedProjectId) return;
-      await publishSharedProjectSnapshot(fullProject, userId);
-      await saveProjectMetadataOnly(fullProject, { touch: false });
-      setProject((currentProject) =>
-        currentProject?.id === fullProject.id
-          ? { ...currentProject, sharedSnapshotPublishedAt: fullProject.sharedSnapshotPublishedAt }
-          : currentProject
-      );
-    } catch (error) {
-      console.error('Automatic shared publish failed:', error);
-      setSyncError(getCollaborationErrorMessage(error, 'Shared data was saved locally but could not be published.'));
-    }
+    queueBackgroundSharedProjectPublish({ projectId, userId });
   }
 
   const handleShareProject = useCallback(async () => {

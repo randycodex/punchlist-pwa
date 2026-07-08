@@ -58,6 +58,7 @@ import {
 } from '@/lib/oneDriveSyncRecovery';
 import { reserveLaunchOneDriveSync, resetLaunchOneDriveSyncReservations } from '@/lib/autoOneDriveSync';
 import { queueBackgroundProjectMediaHydration, resetBackgroundMediaHydration } from '@/lib/backgroundMediaHydration';
+import { queueBackgroundSharedProjectPublish, resetBackgroundSharedProjectPublish } from '@/lib/backgroundSharedPublish';
 import {
   clearPendingSyncState,
   getPendingSyncWaitMs,
@@ -77,7 +78,6 @@ import {
   getAreaClaimExpiry,
   getSharedProjectSnapshot,
   isSharedSnapshotNewer,
-  publishSharedProjectSnapshot,
   releaseSharedProjectArea,
 } from '@/lib/collaboration';
 import AreaNotesCard from '@/components/inspection/AreaNotesCard';
@@ -275,7 +275,6 @@ export default function AreaDetailPage() {
   const [generalNotes, setGeneralNotes] = useState('');
   const [returnToHome, setReturnToHome] = useState(false);
   const syncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const sharedPublishTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const notesTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const notesDraftRef = useRef('');
   const projectRef = useRef<Project | null>(null);
@@ -357,15 +356,18 @@ export default function AreaDetailPage() {
       if (syncTimerRef.current) {
         clearTimeout(syncTimerRef.current);
       }
-      if (sharedPublishTimerRef.current) {
-        clearTimeout(sharedPublishTimerRef.current);
-      }
       if (notesTimerRef.current) {
         clearTimeout(notesTimerRef.current);
         void persistGeneralNotes(notesDraftRef.current);
       }
     };
   }, [persistGeneralNotes]);
+
+  useEffect(() => {
+    if (!collaborationAuth.isSignedIn) {
+      resetBackgroundSharedProjectPublish();
+    }
+  }, [collaborationAuth.isSignedIn]);
 
   useEffect(() => {
     if (!isReady || loading) return;
@@ -1572,7 +1574,7 @@ export default function AreaDetailPage() {
     setSyncError(null);
     try {
       await closeExpandedCheckpoint();
-      await publishSharedProjectSilently(project.id);
+      scheduleSharedPublish(project.id);
       await releaseSharedProjectArea(project.sharedProjectId, area.id);
       setAreaClaimExpiresAt(null);
       setAreaClaimError(null);
@@ -1671,34 +1673,9 @@ export default function AreaDetailPage() {
   }
 
   function scheduleSharedPublish(projectId: string) {
-    if (!collaborationAuth.isSignedIn || !collaborationAuth.user) return;
-    if (sharedPublishTimerRef.current) {
-      clearTimeout(sharedPublishTimerRef.current);
-    }
-    sharedPublishTimerRef.current = setTimeout(() => {
-      sharedPublishTimerRef.current = null;
-      void publishSharedProjectSilently(projectId);
-    }, 1_200);
-  }
-
-  async function publishSharedProjectSilently(projectId: string) {
     const userId = collaborationAuth.user?.id;
     if (!userId) return;
-
-    try {
-      const fullProject = await getProject(projectId);
-      if (!fullProject?.sharedProjectId) return;
-      await publishSharedProjectSnapshot(fullProject, userId);
-      await saveProjectMetadataOnly(fullProject, { touch: false });
-      setProject((currentProject) =>
-        currentProject?.id === fullProject.id
-          ? { ...currentProject, sharedSnapshotPublishedAt: fullProject.sharedSnapshotPublishedAt }
-          : currentProject
-      );
-    } catch (error) {
-      console.error('Automatic shared publish failed:', error);
-      setSyncError(getCollaborationErrorMessage(error, 'Shared data was saved locally but could not be published.'));
-    }
+    queueBackgroundSharedProjectPublish({ projectId, userId });
   }
 
   async function closeExpandedCheckpoint() {

@@ -35,6 +35,7 @@ import type { PdfExportMode } from '@/lib/pdfExport';
 import { uploadPdfToOneDrive, getNextOneDriveExportFilename } from '@/lib/oneDrive';
 import { reserveLaunchOneDriveSync, resetLaunchOneDriveSyncReservations } from '@/lib/autoOneDriveSync';
 import { queueBackgroundProjectMediaHydration, resetBackgroundMediaHydration } from '@/lib/backgroundMediaHydration';
+import { queueBackgroundSharedProjectPublish, resetBackgroundSharedProjectPublish } from '@/lib/backgroundSharedPublish';
 import {
   formatMicrosoftManualRetryMessage,
   getMicrosoftErrorMessage,
@@ -659,7 +660,6 @@ export default function ProjectsPage() {
   const [sharedAreaClaims, setSharedAreaClaims] = useState<Map<string, AreaClaimDisplay>>(new Map());
   const [messageDialog, setMessageDialog] = useState<MessageDialogState | null>(null);
   const syncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const sharedPublishTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   const backgroundAreaClaimKeysRef = useRef(new Set<string>());
   const pullStartYRef = useRef<number | null>(null);
   const pullArmedRef = useRef(false);
@@ -709,20 +709,19 @@ export default function ProjectsPage() {
   }, []);
 
   useEffect(() => {
-    const sharedPublishTimers = sharedPublishTimersRef.current;
     return () => {
       if (syncTimerRef.current) {
         clearTimeout(syncTimerRef.current);
       }
-      for (const timer of sharedPublishTimers.values()) {
-        clearTimeout(timer);
-      }
-      sharedPublishTimers.clear();
     };
   }, []);
 
   useEffect(() => {
-    if (!collaborationAuth.isSignedIn || loading) return;
+    if (!collaborationAuth.isSignedIn) {
+      resetBackgroundSharedProjectPublish();
+      return;
+    }
+    if (loading) return;
     void loadProjectsRef.current();
   }, [collaborationAuth.isSignedIn, loading]);
 
@@ -1007,40 +1006,9 @@ export default function ProjectsPage() {
   }
 
   function scheduleSharedPublish(projectId: string) {
-    if (!collaborationAuth.isSignedIn || !collaborationAuth.user) return;
-
-    const existingTimer = sharedPublishTimersRef.current.get(projectId);
-    if (existingTimer) {
-      clearTimeout(existingTimer);
-    }
-
-    const timer = setTimeout(() => {
-      sharedPublishTimersRef.current.delete(projectId);
-      void publishSharedProjectSilently(projectId);
-    }, 1_200);
-    sharedPublishTimersRef.current.set(projectId, timer);
-  }
-
-  async function publishSharedProjectSilently(projectId: string) {
     const userId = collaborationAuth.user?.id;
     if (!userId) return;
-
-    try {
-      const fullProject = await getProject(projectId);
-      if (!fullProject?.sharedProjectId) return;
-      await publishSharedProjectSnapshot(fullProject, userId);
-      await saveProjectMetadataOnly(fullProject, { touch: false });
-      setProjects((prev) =>
-        prev.map((project) =>
-          project.id === fullProject.id
-            ? { ...project, sharedSnapshotPublishedAt: fullProject.sharedSnapshotPublishedAt }
-            : project
-        )
-      );
-    } catch (error) {
-      console.error('Automatic shared publish failed:', error);
-      setSyncError(getCollaborationErrorMessage(error, 'Shared data was saved locally but could not be published.'));
-    }
+    queueBackgroundSharedProjectPublish({ projectId, userId });
   }
 
   const projectMetrics = useMemo(() => {
