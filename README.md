@@ -70,15 +70,10 @@ Vercel notes:
 - The Microsoft Entra app registration must include each deployed redirect URI exactly, including trailing slash if used.
 - This repository currently ships without an active service worker. Old PWA caches are cleaned up once on first load after deploy so stale offline assets do not persist across releases.
 
-## Self-hosted Inter font
+## Fonts
 
-Add the Inter variable font file at:
-
-```
-public/fonts/Inter-Variable.woff2
-```
-
-This avoids fetching Google Fonts during build.
+The app uses the browser's system font stack, so it does not fetch external fonts during build or
+request a missing local font at runtime.
 
 ## Learn More
 
