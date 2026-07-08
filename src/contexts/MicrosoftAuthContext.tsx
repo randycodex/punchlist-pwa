@@ -82,8 +82,59 @@ function getResolvedAccount(pca: PublicClientApplication): AccountInfo | null {
   return null;
 }
 
+function decodeExternalGuestEmail(value: string) {
+  const normalized = value.trim().toLowerCase();
+  const extMarkerIndex = normalized.indexOf('#ext#@');
+  if (extMarkerIndex === -1) return null;
+
+  const encodedEmail = normalized.slice(0, extMarkerIndex);
+  const domainSeparatorIndex = encodedEmail.lastIndexOf('_');
+  if (domainSeparatorIndex <= 0 || domainSeparatorIndex >= encodedEmail.length - 1) {
+    return null;
+  }
+
+  return `${encodedEmail.slice(0, domainSeparatorIndex)}@${encodedEmail.slice(domainSeparatorIndex + 1)}`;
+}
+
+function normalizeAccountEmailCandidate(value: unknown) {
+  if (typeof value !== 'string') return null;
+
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+
+  return decodeExternalGuestEmail(trimmed) ?? trimmed.toLowerCase();
+}
+
 function getAccountEmail(account: AccountInfo | null) {
-  return account?.username?.trim() || null;
+  if (!account) return null;
+
+  const claims = account.idTokenClaims as Record<string, unknown> | undefined;
+  const emailCandidates = [
+    claims?.email,
+    claims?.preferred_username,
+    claims?.upn,
+    claims?.unique_name,
+    account.username,
+  ];
+
+  for (const candidate of emailCandidates) {
+    const normalizedEmail = normalizeAccountEmailCandidate(candidate);
+    if (normalizedEmail?.includes('@')) {
+      return normalizedEmail;
+    }
+  }
+
+  const emailsClaim = claims?.emails;
+  if (Array.isArray(emailsClaim)) {
+    for (const candidate of emailsClaim) {
+      const normalizedEmail = normalizeAccountEmailCandidate(candidate);
+      if (normalizedEmail?.includes('@')) {
+        return normalizedEmail;
+      }
+    }
+  }
+
+  return null;
 }
 
 export function MicrosoftAuthProvider({ children }: { children: ReactNode }) {
