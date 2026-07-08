@@ -8,6 +8,14 @@ type SnapshotResult = {
   publishedAt: string;
 };
 
+type SnapshotMetadata = {
+  publishedAt: string;
+};
+
+type SnapshotChange = {
+  publishedAt?: string;
+};
+
 const SHARED_SNAPSHOT_CLOCK_SKEW_MS = 2_000;
 
 function toJson(value: unknown): Json {
@@ -211,6 +219,25 @@ export async function getSharedProjectSnapshot(localProject: Project): Promise<S
   };
 }
 
+export async function getSharedProjectSnapshotMetadata(sharedProjectId: string): Promise<SnapshotMetadata | null> {
+  const supabase = getCollaborationSupabaseClient();
+  if (!supabase) {
+    throw new Error('Collaboration is not configured.');
+  }
+
+  const { data, error } = await supabase
+    .from('shared_project_snapshots')
+    .select('published_at')
+    .eq('project_id', sharedProjectId)
+    .maybeSingle();
+
+  if (error) {
+    throw error;
+  }
+
+  return data ? { publishedAt: data.published_at } : null;
+}
+
 function reviveBackup(row: {
   id: string;
   project_id: string;
@@ -305,7 +332,7 @@ export function hasNewerLocalChangesThanSharedSnapshot(localProject: Project, pu
 
 export function subscribeToSharedProjectSnapshotChanges(
   sharedProjectId: string,
-  onChange: () => void
+  onChange: (change: SnapshotChange) => void
 ) {
   const supabase = getCollaborationSupabaseClient();
   if (!supabase) {
@@ -322,8 +349,12 @@ export function subscribeToSharedProjectSnapshotChanges(
         table: 'shared_project_snapshots',
         filter: `project_id=eq.${sharedProjectId}`,
       },
-      () => {
-        onChange();
+      (payload) => {
+        const row = typeof payload === 'object' && payload !== null && 'new' in payload
+          ? (payload as { new?: Record<string, unknown> }).new
+          : undefined;
+        const publishedAt = typeof row?.published_at === 'string' ? row.published_at : undefined;
+        onChange({ publishedAt });
       }
     )
     .subscribe();

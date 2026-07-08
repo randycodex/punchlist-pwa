@@ -59,6 +59,7 @@ import {
   getSharedProjectMembers,
   getSharedProjectBackupSnapshot,
   getSharedProjectSnapshot,
+  getSharedProjectSnapshotMetadata,
   hasNewerLocalChangesThanSharedSnapshot,
   getCollaborationErrorMessage,
   isSharedSnapshotNewer,
@@ -667,6 +668,8 @@ export default function ProjectsPage() {
   const [messageDialog, setMessageDialog] = useState<MessageDialogState | null>(null);
   const syncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const backgroundAreaClaimKeysRef = useRef(new Set<string>());
+  const liveSharedDashboardRefreshKeysRef = useRef(new Set<string>());
+  const projectsRef = useRef<Project[]>(cachedProjects);
   const pullStartYRef = useRef<number | null>(null);
   const pullArmedRef = useRef(false);
   const listRef = useRef<HTMLElement | null>(null);
@@ -688,6 +691,10 @@ export default function ProjectsPage() {
   }, []);
   scheduleSyncRef.current = scheduleSync;
   scheduleOneDriveSyncRef.current = scheduleOneDriveSync;
+
+  useEffect(() => {
+    projectsRef.current = projects;
+  }, [projects]);
 
   useEffect(() => {
     const savedSort = localStorage.getItem(SORT_STORAGE_KEY);
@@ -999,12 +1006,25 @@ export default function ProjectsPage() {
       }
 
       try {
-        const snapshot = await getSharedProjectSnapshot(project);
-        if (isSharedSnapshotNewer(project, snapshot.publishedAt)) {
-          await saveProjectPreserveTimestamps(snapshot.project);
-          return snapshot.project;
+        const metadata = await getSharedProjectSnapshotMetadata(project.sharedProjectId);
+        if (!metadata) {
+          return project;
         }
-        return project;
+        if (hasNewerLocalChangesThanSharedSnapshot(project, metadata.publishedAt)) {
+          return project;
+        }
+        if (!isSharedSnapshotNewer(project, metadata.publishedAt)) {
+          return project;
+        }
+        const snapshot = await getSharedProjectSnapshot(project);
+        if (hasNewerLocalChangesThanSharedSnapshot(project, snapshot.publishedAt)) {
+          return project;
+        }
+        if (!isSharedSnapshotNewer(project, snapshot.publishedAt)) {
+          return project;
+        }
+        await saveProjectPreserveTimestamps(snapshot.project);
+        return snapshot.project;
       } catch (error) {
         console.info('Shared snapshot pull skipped:', error);
         return project;
@@ -1114,6 +1134,88 @@ export default function ProjectsPage() {
     [activeProjects]
   );
   const singleProjectMainView = !!singleProject && !showTrash;
+  const multiProjectSharedProjectSubscriptionKey = useMemo(() => {
+    if (activeProjects.length <= 1) return '';
+    return activeProjects
+      .flatMap((project) => (project.sharedProjectId ? [`${project.id}:${project.sharedProjectId}`] : []))
+      .sort()
+      .join('|');
+  }, [activeProjects]);
+
+  const refreshLiveSharedDashboardProject = useCallback(async (
+    localProjectId: string,
+    sharedProjectId: string,
+    publishedAt?: string
+  ) => {
+    const refreshKey = `${localProjectId}:${sharedProjectId}`;
+    if (liveSharedDashboardRefreshKeysRef.current.has(refreshKey)) return;
+    liveSharedDashboardRefreshKeysRef.current.add(refreshKey);
+
+    try {
+      const visibleProject = projectsRef.current.find(
+        (entry) => entry.id === localProjectId && entry.sharedProjectId === sharedProjectId
+      );
+      if (!visibleProject || visibleProject.deletedAt) return;
+
+      let remotePublishedAt = publishedAt;
+      if (!remotePublishedAt) {
+        const metadata = await getSharedProjectSnapshotMetadata(sharedProjectId);
+        remotePublishedAt = metadata?.publishedAt;
+      }
+      if (!remotePublishedAt) return;
+      if (hasNewerLocalChangesThanSharedSnapshot(visibleProject, remotePublishedAt)) return;
+      if (!isSharedSnapshotNewer(visibleProject, remotePublishedAt)) return;
+
+      const localProject = await getProject(localProjectId);
+      if (!localProject?.sharedProjectId || localProject.sharedProjectId !== sharedProjectId || localProject.deletedAt) {
+        return;
+      }
+      if (hasNewerLocalChangesThanSharedSnapshot(localProject, remotePublishedAt)) return;
+      if (!isSharedSnapshotNewer(localProject, remotePublishedAt)) return;
+
+      const snapshot = await getSharedProjectSnapshot(localProject);
+      if (hasNewerLocalChangesThanSharedSnapshot(localProject, snapshot.publishedAt)) return;
+      if (!isSharedSnapshotNewer(localProject, snapshot.publishedAt)) return;
+
+      await saveProjectPreserveTimestamps(snapshot.project);
+      cacheProjectPreview(snapshot.project);
+      setProjects((prev) => {
+        let updated = false;
+        const nextProjects = prev.map((entry) => {
+          if (entry.id !== localProject.id) return entry;
+          updated = true;
+          return { ...snapshot.project, areas: [...snapshot.project.areas] };
+        });
+        return updated ? nextProjects : prev;
+      });
+    } catch (error) {
+      console.info('Live shared dashboard refresh skipped:', error);
+    } finally {
+      liveSharedDashboardRefreshKeysRef.current.delete(refreshKey);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!collaborationAuth.isSignedIn || !multiProjectSharedProjectSubscriptionKey) return;
+
+    const unsubscribeSnapshotChanges = multiProjectSharedProjectSubscriptionKey
+      .split('|')
+      .map((entry) => {
+        const [localProjectId, sharedProjectId] = entry.split(':');
+        if (!localProjectId || !sharedProjectId) return () => {};
+        return subscribeToSharedProjectSnapshotChanges(sharedProjectId, (change) => {
+          void refreshLiveSharedDashboardProject(localProjectId, sharedProjectId, change.publishedAt);
+        });
+      });
+
+    return () => {
+      unsubscribeSnapshotChanges.forEach((unsubscribe) => unsubscribe());
+    };
+  }, [
+    collaborationAuth.isSignedIn,
+    multiProjectSharedProjectSubscriptionKey,
+    refreshLiveSharedDashboardProject,
+  ]);
 
   useEffect(() => {
     if (!collaborationAuth.isSignedIn || !singleProject?.sharedProjectId) return;
@@ -1123,12 +1225,22 @@ export default function ProjectsPage() {
     let cancelled = false;
     let refreshing = false;
 
-    async function pullSafeSharedSnapshot() {
+    async function pullSafeSharedSnapshot(publishedAt?: string) {
       if (refreshing) return;
       refreshing = true;
       try {
         const localProject = await getProject(localProjectId);
         if (cancelled || !localProject?.sharedProjectId) return;
+
+        let remotePublishedAt = publishedAt;
+        if (!remotePublishedAt) {
+          const metadata = await getSharedProjectSnapshotMetadata(activeSharedProjectId);
+          if (cancelled) return;
+          remotePublishedAt = metadata?.publishedAt;
+        }
+        if (!remotePublishedAt) return;
+        if (hasNewerLocalChangesThanSharedSnapshot(localProject, remotePublishedAt)) return;
+        if (!isSharedSnapshotNewer(localProject, remotePublishedAt)) return;
 
         const snapshot = await getSharedProjectSnapshot(localProject);
         if (cancelled) return;
@@ -1156,8 +1268,8 @@ export default function ProjectsPage() {
 
     const unsubscribeSnapshotChanges = subscribeToSharedProjectSnapshotChanges(
       activeSharedProjectId,
-      () => {
-        void pullSafeSharedSnapshot();
+      (change) => {
+        void pullSafeSharedSnapshot(change.publishedAt);
       }
     );
 
