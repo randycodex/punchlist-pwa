@@ -20,6 +20,7 @@ import {
   buildAreaName,
   buildFacadeLevelOptions,
   compareAreaNames,
+  getAreaDisplayNameMap,
   getAreaCreationForms,
   getDefaultAreaFormValue,
   upsertFacadeElevationDrawing,
@@ -29,7 +30,6 @@ import { applyTemplateToArea } from '@/lib/template';
 import { hydrateProjectMediaFromOneDrive } from '@/lib/oneDriveSync';
 import {
   formatSyncConflictReviewMessage,
-  SYNC_CONFLICT_RETRY_MS,
   syncProjectsWithOneDriveRecovery,
 } from '@/lib/oneDriveSyncRecovery';
 import { reserveLaunchOneDriveSync, resetLaunchOneDriveSyncReservations } from '@/lib/autoOneDriveSync';
@@ -43,9 +43,13 @@ import {
   clearPendingSyncState,
   getPendingSyncWaitMs,
   hasPendingSyncState,
+  isPendingSyncAutoRetryPaused,
   loadPendingSyncState,
+  pausePendingSyncAutoRetry,
   queuePendingSync,
   recordPendingSyncRetry,
+  resumePendingSyncAutoRetry,
+  shouldPausePendingSyncAutoRetry,
 } from '@/lib/pendingSync';
 import { useMicrosoftAuth } from '@/contexts/MicrosoftAuthContext';
 import { useCollaborationAuth } from '@/contexts/CollaborationAuthContext';
@@ -61,9 +65,11 @@ import {
   getCollaborationErrorMessage,
   getSharedProjectMembers,
   getSharedProjectBackupSnapshot,
+  getSharedProjectPublishConflict,
   getSharedProjectSnapshot,
   hasNewerLocalChangesThanSharedSnapshot,
   isSharedSnapshotNewer,
+  isSharedProjectPublishConflictError,
   listSharedProjectBackups,
   publishSharedProjectSnapshot,
   runCollaborationHealthCheck,
@@ -158,7 +164,22 @@ type PendingPullState = {
   sharedProject: Project;
   publishedAt: string;
   hasNewerLocalChanges: boolean;
+  reason: 'manual-pull' | 'publish-conflict' | 'area-create-conflict';
 };
+
+async function getPendingSharedPullState(
+  localProject: Project,
+  reason: PendingPullState['reason']
+): Promise<PendingPullState> {
+  const result = await getSharedProjectSnapshot(localProject);
+  return {
+    localProject,
+    sharedProject: result.project,
+    publishedAt: result.publishedAt,
+    hasNewerLocalChanges: hasNewerLocalChangesThanSharedSnapshot(localProject, result.publishedAt),
+    reason,
+  };
+}
 
 function unlinkLocalSharedProject(project: Project): Project {
   const nextProject: Project = { ...project, areas: [...project.areas] };
@@ -184,6 +205,7 @@ type BackupRestoreConfirmState = {
 type AreaCardProps = {
   projectId: string;
   area: Project['areas'][number];
+  displayName: string;
   metric?: AreaMetrics;
   claimStatus?: AreaClaimDisplay;
   deleteMode: boolean;
@@ -198,6 +220,7 @@ type AreaCardProps = {
 const AreaCard = memo(function AreaCard({
   projectId,
   area,
+  displayName,
   metric,
   claimStatus,
   deleteMode,
@@ -314,7 +337,7 @@ const AreaCard = memo(function AreaCard({
         >
           <div className="min-w-0">
             <div className="min-w-0 flex items-center gap-2">
-              <h3 className="truncate text-[1.05rem] font-semibold tracking-[-0.02em] text-gray-900 dark:text-white">{area.name}</h3>
+              <h3 className="truncate text-[1.05rem] font-semibold tracking-[-0.02em] text-gray-900 dark:text-white">{displayName}</h3>
               {claimLabel && (
                 <span className="segmented-chip shrink-0 px-2.5 py-1 text-[11px]">
                   {claimLabel}
@@ -359,7 +382,7 @@ const AreaCard = memo(function AreaCard({
             }
           }}
           className="mt-1 flex h-10 w-10 items-center justify-center rounded-[1rem] border border-black/5 bg-white/70 text-gray-500 transition hover:bg-white hover:text-gray-700 dark:border-white/10 dark:bg-white/[0.04] dark:text-gray-300 dark:hover:bg-white/[0.12] dark:hover:text-white"
-          aria-label={`Open ${area.name}`}
+          aria-label={`Open ${displayName}`}
         >
           <ChevronRight className="w-5 h-5 text-gray-400" />
         </Link>
@@ -434,6 +457,12 @@ export default function ProjectDetailPage() {
     setMessageDialog({ title, message });
   }, []);
 
+  const pauseAutoSyncRetry = useCallback(() => {
+    pausePendingSyncAutoRetry();
+    setRetryAt(null);
+    setSyncStatus(hasPendingSyncState() ? 'error' : 'idle');
+  }, [setRetryAt, setSyncStatus]);
+
   async function handleRunCollaborationHealthCheck() {
     setShowCollaborationHealth(true);
     setRunningCollaborationHealth(true);
@@ -507,6 +536,11 @@ export default function ProjectDetailPage() {
     if (!hasPendingSyncState()) {
       setRetryAt(null);
       setSyncStatus('idle');
+    }
+    if (isPendingSyncAutoRetryPaused()) {
+      setRetryAt(null);
+      setSyncStatus(hasPendingSyncState() ? 'error' : 'idle');
+      return;
     }
     if (!reserveLaunchOneDriveSync(accountKey)) return;
     scheduleOneDriveSyncRef.current(0, { silentStatus: true });
@@ -657,6 +691,10 @@ export default function ProjectDetailPage() {
   const activeAreas = useMemo(
     () => (project ? project.areas.filter((area) => !area.deletedAt) : []),
     [project]
+  );
+  const areaDisplayNames = useMemo(
+    () => getAreaDisplayNameMap(activeAreas),
+    [activeAreas]
   );
 
   const trashedAreas = useMemo(
@@ -828,16 +866,40 @@ export default function ProjectDetailPage() {
   async function handleAddArea() {
     if (!project) return;
 
-    const areaForms = getAreaCreationForms(newAreaForm, buildFacadeLevelOptions(project));
+    let projectForAreaCreation = project;
+    if (project.sharedProjectId && collaborationAuth.isSignedIn) {
+      try {
+        const fullProject = await getProject(project.id);
+        if (!fullProject) {
+          throw new Error('Could not load this project.');
+        }
+        fullProject.sharedProjectId = project.sharedProjectId;
+        fullProject.sharedProjectLinkedAt = project.sharedProjectLinkedAt;
+
+        const conflict = await getSharedProjectPublishConflict(fullProject);
+        if (conflict) {
+          setPendingPull(await getPendingSharedPullState(fullProject, 'area-create-conflict'));
+          return;
+        }
+
+        projectForAreaCreation = fullProject;
+      } catch (error) {
+        console.error('Failed to verify shared project before adding area:', error);
+        showMessage(getCollaborationErrorMessage(error, 'Could not verify the latest shared data before adding this area.'));
+        return;
+      }
+    }
+
+    const areaForms = getAreaCreationForms(newAreaForm, buildFacadeLevelOptions(projectForAreaCreation));
     if (areaForms.length === 0) return;
-    upsertFacadeElevationDrawing(project, newAreaForm.pendingElevationDrawing);
+    upsertFacadeElevationDrawing(projectForAreaCreation, newAreaForm.pendingElevationDrawing);
 
     const createdAreas = areaForms.map(
       (areaForm, index) => {
         const areaName = buildAreaName(areaForm);
         if (!areaName) return null;
 
-        const area = createArea(project.id, areaName, project.areas.length + index, {
+        const area = createArea(projectForAreaCreation.id, areaName, projectForAreaCreation.areas.length + index, {
           areaTypeKey: areaForm.areaTypeKey,
           unitType: areaForm.unitType,
           customAreaName: areaForm.customAreaName,
@@ -858,13 +920,18 @@ export default function ProjectDetailPage() {
     ).filter((area): area is Area => area !== null);
     if (createdAreas.length === 0) return;
 
-    project.areas.push(...createdAreas);
+    projectForAreaCreation.areas.push(...createdAreas);
     if (newAreaForm.pendingElevationDrawing) {
-      await saveProject(project);
+      await saveProject(projectForAreaCreation);
     } else {
-      await saveProjectMetadataOnly(project);
+      await saveProjectMetadataOnly(projectForAreaCreation);
     }
-    scheduleSync(project.id);
+    if (projectForAreaCreation.sharedProjectId && collaborationAuth.isSignedIn && collaborationAuth.user?.id) {
+      for (const area of createdAreas) {
+        claimAreaOpenInBackground(area.id);
+      }
+    }
+    scheduleSync(projectForAreaCreation.id);
     const nextRecentAreaTypeKeys = [
       newAreaForm.areaTypeKey,
       ...recentAreaTypeKeys.filter((key) => key !== newAreaForm.areaTypeKey),
@@ -873,7 +940,7 @@ export default function ProjectDetailPage() {
     localStorage.setItem(RECENT_AREA_TYPES_STORAGE_KEY, JSON.stringify(nextRecentAreaTypeKeys));
     setNewAreaForm(getDefaultAreaFormValue());
     setShowAddArea(false);
-    setProject({ ...project, areas: [...project.areas] });
+    setProject({ ...projectForAreaCreation, areas: [...projectForAreaCreation.areas] });
   }
 
   const toggleAreaSelection = useCallback((areaId: string) => {
@@ -1009,6 +1076,10 @@ export default function ProjectDetailPage() {
 
   function scheduleOneDriveSync(delayMs = AUTO_SYNC_DELAY_MS, options?: { silentStatus?: boolean }) {
     if (!isSignedIn) return;
+    if (isPendingSyncAutoRetryPaused()) {
+      pauseAutoSyncRetry();
+      return;
+    }
     if (syncTimerRef.current) {
       clearTimeout(syncTimerRef.current);
     }
@@ -1022,6 +1093,10 @@ export default function ProjectDetailPage() {
 
   async function handleSync(options: { interactive?: boolean; quiet?: boolean; silentStatus?: boolean } = {}) {
     if (syncing) return;
+    if (!options.quiet) {
+      resumePendingSyncAutoRetry();
+      setRetryAt(null);
+    }
     setSyncing(true);
     if (!options.quiet) {
       setSyncError(null);
@@ -1045,13 +1120,10 @@ export default function ProjectDetailPage() {
         pushProjectIds: pendingSyncState.projectIds,
       });
       if (result.conflicts.length > 0) {
-        const retry = recordPendingSyncRetry(SYNC_CONFLICT_RETRY_MS);
-        setRetryAt(retry.retryAt);
         if (!options.quiet) {
           setSyncError(formatSyncConflictReviewMessage(result.conflicts));
         }
-        setSyncStatus('pending');
-        scheduleOneDriveSync(retry.delayMs);
+        pauseAutoSyncRetry();
         return;
       }
       clearPendingSyncState();
@@ -1070,6 +1142,10 @@ export default function ProjectDetailPage() {
           setSyncStatus('idle');
           return;
         }
+        if (options.quiet && shouldPausePendingSyncAutoRetry()) {
+          pauseAutoSyncRetry();
+          return;
+        }
         const retry = recordPendingSyncRetry(retryDelayMs);
         setRetryAt(retry.retryAt);
         if (!options.quiet) {
@@ -1084,6 +1160,10 @@ export default function ProjectDetailPage() {
         if (options.quiet && !hasQueuedSync) {
           setRetryAt(null);
           setSyncStatus('idle');
+          return;
+        }
+        if (options.quiet && shouldPausePendingSyncAutoRetry()) {
+          pauseAutoSyncRetry();
           return;
         }
         const retry = recordPendingSyncRetry(60_000);
@@ -1243,23 +1323,36 @@ export default function ProjectDetailPage() {
     }
 
     setPublishingSharedProject(true);
+    let fullProject: Project | undefined;
     try {
-      const fullProject = await getProject(project.id);
+      fullProject = await getProject(project.id);
       if (!fullProject) {
         throw new Error('Could not load this project.');
       }
 
-      fullProject.sharedProjectId = project.sharedProjectId;
-      fullProject.sharedProjectLinkedAt = project.sharedProjectLinkedAt;
-      const result = await publishSharedProjectSnapshot(fullProject, collaborationAuth.user.id);
-      await saveProjectMetadataOnly(fullProject, { touch: false });
+      const loadedProject = fullProject;
+      loadedProject.sharedProjectId = project.sharedProjectId;
+      loadedProject.sharedProjectLinkedAt = project.sharedProjectLinkedAt;
+      const result = await publishSharedProjectSnapshot(loadedProject, collaborationAuth.user.id);
+      await saveProjectMetadataOnly(loadedProject, { touch: false });
       setProject((currentProject) =>
-        currentProject?.id === fullProject.id
-          ? { ...currentProject, sharedSnapshotPublishedAt: fullProject.sharedSnapshotPublishedAt }
+        currentProject?.id === loadedProject.id
+          ? { ...currentProject, sharedSnapshotPublishedAt: loadedProject.sharedSnapshotPublishedAt }
           : currentProject
       );
       showMessage(`Shared data published at ${new Date(result.publishedAt).toLocaleTimeString()}.`);
     } catch (error) {
+      if (fullProject && isSharedProjectPublishConflictError(error)) {
+        console.info('Publish blocked because shared data is newer:', error);
+        try {
+          setPendingPull(await getPendingSharedPullState(fullProject, 'publish-conflict'));
+        } catch (reviewError) {
+          console.error('Failed to load shared data for publish conflict review:', reviewError);
+          showMessage('Shared data changed before publishing. Pull shared data before publishing again.');
+        }
+        return;
+      }
+
       console.error('Failed to publish shared project:', error);
       showMessage(getCollaborationErrorMessage(error, 'Failed to publish shared data. Please try again.'));
     } finally {
@@ -1297,6 +1390,7 @@ export default function ProjectDetailPage() {
           sharedProject: result.project,
           publishedAt: result.publishedAt,
           hasNewerLocalChanges,
+          reason: 'manual-pull',
         });
         return;
       }
@@ -1856,6 +1950,7 @@ export default function ProjectDetailPage() {
                     key={area.id}
                     projectId={project.id}
                     area={area}
+                    displayName={areaDisplayNames.get(area.id) ?? area.name}
                     metric={metric}
                     claimStatus={sharedAreaClaims.get(area.id)}
                     deleteMode={deleteMode}
@@ -1897,10 +1992,16 @@ export default function ProjectDetailPage() {
 
       {pendingPull && (
         <AppConfirmDialog
-          title="Pull Shared Data"
-          message={`${pendingPull.hasNewerLocalChanges ? 'Your local project has changes newer than the shared version.\n\n' : ''}This will save a backup of your current local project, then replace this device's project data with the shared version from ${new Date(pendingPull.publishedAt).toLocaleString()}.`}
-          confirmLabel="Pull"
-          danger={pendingPull.hasNewerLocalChanges}
+          title={pendingPull.reason === 'manual-pull' ? 'Pull Shared Data' : 'Review Shared Changes'}
+          message={
+            pendingPull.reason === 'publish-conflict'
+              ? `Publishing now would overwrite newer shared data from ${new Date(pendingPull.publishedAt).toLocaleString()}.\n\nThis will save a backup of your current local project, then replace this device's project data with the newer shared version.`
+              : pendingPull.reason === 'area-create-conflict'
+                ? `Shared data changed before this area could be added. Adding it now could recreate old project structure or duplicate work.\n\nThis will save a backup of your current local project, then replace this device's project data with the newer shared version from ${new Date(pendingPull.publishedAt).toLocaleString()}.`
+              : `${pendingPull.hasNewerLocalChanges ? 'Your local project has changes newer than the shared version.\n\n' : ''}This will save a backup of your current local project, then replace this device's project data with the shared version from ${new Date(pendingPull.publishedAt).toLocaleString()}.`
+          }
+          confirmLabel={pendingPull.reason === 'manual-pull' ? 'Pull' : 'Back Up + Pull'}
+          danger={pendingPull.hasNewerLocalChanges || pendingPull.reason !== 'manual-pull'}
           onCancel={() => setPendingPull(null)}
           onConfirm={() => void confirmPullSharedProject()}
         />

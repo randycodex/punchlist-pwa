@@ -9,14 +9,12 @@ export type SyncRecoveryResult = SyncResult & {
   recoveredConflictCount: number;
 };
 
-export const SYNC_CONFLICT_RETRY_MS = 30_000;
-
 export function formatSyncConflictReviewMessage(conflicts: SyncConflict[]) {
   if (conflicts.length === 1) {
-    return `Sync needs review for ${conflicts[0].name}. Your local changes are safe and the app will keep trying in the background.`;
+    return `Sync needs review for ${conflicts[0].name}. Your local changes are safe. Review the project, then retry sync.`;
   }
 
-  return `Sync needs review for ${conflicts.length} projects. Your local changes are safe and the app will keep trying in the background.`;
+  return `Sync needs review for ${conflicts.length} projects. Your local changes are safe. Review them, then retry sync.`;
 }
 
 export async function syncProjectsWithOneDriveRecovery(

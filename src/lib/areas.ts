@@ -322,6 +322,39 @@ export function compareAreaNames(a: Pick<Area, 'facadeLevel' | 'name'>, b: Pick<
   return a.name.localeCompare(b.name);
 }
 
+export function getAreaDisplayNameMap(areas: Array<Pick<Area, 'id' | 'name' | 'createdAt'>>): Map<string, string> {
+  const groupedByName = new Map<string, Array<Pick<Area, 'id' | 'name' | 'createdAt'>>>();
+
+  for (const area of areas) {
+    const key = area.name.trim().replace(/\s+/g, ' ').toLocaleLowerCase();
+    const group = groupedByName.get(key);
+    if (group) {
+      group.push(area);
+    } else {
+      groupedByName.set(key, [area]);
+    }
+  }
+
+  const displayNames = new Map<string, string>();
+  for (const group of groupedByName.values()) {
+    if (group.length === 1) {
+      displayNames.set(group[0].id, group[0].name);
+      continue;
+    }
+
+    const sortedGroup = [...group].sort((a, b) => {
+      const createdCompare = a.createdAt.getTime() - b.createdAt.getTime();
+      return createdCompare !== 0 ? createdCompare : a.id.localeCompare(b.id);
+    });
+
+    sortedGroup.forEach((area, index) => {
+      displayNames.set(area.id, `${area.name} #${index + 1}`);
+    });
+  }
+
+  return displayNames;
+}
+
 export function areaHasRecordedActivity(area: Area): boolean {
   return area.locations.some((location) =>
     location.items.some((item) =>

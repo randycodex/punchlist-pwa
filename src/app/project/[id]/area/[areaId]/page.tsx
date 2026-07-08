@@ -52,7 +52,6 @@ import {
 import { applyTemplateToArea } from '@/lib/template';
 import {
   formatSyncConflictReviewMessage,
-  SYNC_CONFLICT_RETRY_MS,
   syncProjectsWithOneDriveRecovery,
 } from '@/lib/oneDriveSyncRecovery';
 import { reserveLaunchOneDriveSync, resetLaunchOneDriveSyncReservations } from '@/lib/autoOneDriveSync';
@@ -66,9 +65,13 @@ import {
   clearPendingSyncState,
   getPendingSyncWaitMs,
   hasPendingSyncState,
+  isPendingSyncAutoRetryPaused,
   loadPendingSyncState,
+  pausePendingSyncAutoRetry,
   queuePendingSync,
   recordPendingSyncRetry,
+  resumePendingSyncAutoRetry,
+  shouldPausePendingSyncAutoRetry,
 } from '@/lib/pendingSync';
 import { useMicrosoftAuth } from '@/contexts/MicrosoftAuthContext';
 import { useCollaborationAuth } from '@/contexts/CollaborationAuthContext';
@@ -338,6 +341,12 @@ export default function AreaDetailPage() {
     loadDataRef.current = loadData;
   });
 
+  const pauseAutoSyncRetry = useCallback(() => {
+    pausePendingSyncAutoRetry();
+    setRetryAt(null);
+    setSyncStatus(hasPendingSyncState() ? 'error' : 'idle');
+  }, [setRetryAt, setSyncStatus]);
+
   function sharedAreaEditsAreBlocked() {
     return Boolean(projectRef.current?.sharedProjectId && areaClaimProblemRef.current);
   }
@@ -489,6 +498,11 @@ export default function AreaDetailPage() {
     if (!hasPendingSyncState()) {
       setRetryAt(null);
       setSyncStatus('idle');
+    }
+    if (isPendingSyncAutoRetryPaused()) {
+      setRetryAt(null);
+      setSyncStatus(hasPendingSyncState() ? 'error' : 'idle');
+      return;
     }
     if (!reserveLaunchOneDriveSync(accountKey)) return;
     scheduleOneDriveSyncRef.current(0, { silentStatus: true });
@@ -1716,6 +1730,10 @@ export default function AreaDetailPage() {
 
   function scheduleOneDriveSync(delayMs = AUTO_SYNC_DELAY_MS, options?: { silentStatus?: boolean }) {
     if (!isSignedIn) return;
+    if (isPendingSyncAutoRetryPaused()) {
+      pauseAutoSyncRetry();
+      return;
+    }
     if (syncTimerRef.current) {
       clearTimeout(syncTimerRef.current);
     }
@@ -1729,6 +1747,10 @@ export default function AreaDetailPage() {
 
   async function handleSync(options: { interactive?: boolean; quiet?: boolean; silentStatus?: boolean } = {}) {
     if (syncing) return;
+    if (!options.quiet) {
+      resumePendingSyncAutoRetry();
+      setRetryAt(null);
+    }
     setSyncing(true);
     if (!options.quiet) {
       setSyncError(null);
@@ -1752,13 +1774,10 @@ export default function AreaDetailPage() {
         pushProjectIds: pendingSyncState.projectIds,
       });
       if (result.conflicts.length > 0) {
-        const retry = recordPendingSyncRetry(SYNC_CONFLICT_RETRY_MS);
-        setRetryAt(retry.retryAt);
         if (!options.quiet) {
           setSyncError(formatSyncConflictReviewMessage(result.conflicts));
         }
-        setSyncStatus('pending');
-        scheduleOneDriveSync(retry.delayMs);
+        pauseAutoSyncRetry();
         return;
       }
       clearPendingSyncState();
@@ -1777,6 +1796,10 @@ export default function AreaDetailPage() {
           setSyncStatus('idle');
           return;
         }
+        if (options.quiet && shouldPausePendingSyncAutoRetry()) {
+          pauseAutoSyncRetry();
+          return;
+        }
         const retry = recordPendingSyncRetry(retryDelayMs);
         setRetryAt(retry.retryAt);
         if (!options.quiet) {
@@ -1791,6 +1814,10 @@ export default function AreaDetailPage() {
         if (options.quiet && !hasQueuedSync) {
           setRetryAt(null);
           setSyncStatus('idle');
+          return;
+        }
+        if (options.quiet && shouldPausePendingSyncAutoRetry()) {
+          pauseAutoSyncRetry();
           return;
         }
         const retry = recordPendingSyncRetry(60_000);

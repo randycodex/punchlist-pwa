@@ -18,6 +18,17 @@ type SnapshotChange = {
 
 const SHARED_SNAPSHOT_CLOCK_SKEW_MS = 2_000;
 
+export class SharedProjectPublishConflictError extends Error {
+  readonly code = 'SHARED_PROJECT_PUBLISH_CONFLICT';
+  readonly publishedAt?: string;
+
+  constructor(publishedAt?: string) {
+    super('Shared project has newer published data. Review shared data before publishing again.');
+    this.name = 'SharedProjectPublishConflictError';
+    this.publishedAt = publishedAt;
+  }
+}
+
 function toJson(value: unknown): Json {
   return JSON.parse(JSON.stringify(value)) as Json;
 }
@@ -91,6 +102,46 @@ function isMissingPublishRpcError(error: { code?: string; message?: string }) {
   return error.code === 'PGRST202' || message.includes('publish_shared_project_snapshot');
 }
 
+export function isSharedProjectPublishConflictError(error: unknown): error is SharedProjectPublishConflictError {
+  if (error instanceof SharedProjectPublishConflictError) return true;
+  if (!error || typeof error !== 'object') return false;
+
+  const maybeError = error as { code?: unknown; message?: unknown; details?: unknown; hint?: unknown };
+  const code = typeof maybeError.code === 'string' ? maybeError.code : '';
+  const message = [maybeError.message, maybeError.details, maybeError.hint]
+    .filter((part): part is string => typeof part === 'string')
+    .join(' ')
+    .toLowerCase();
+
+  return code === '40001'
+    || message.includes('newer published data')
+    || message.includes('pull shared data before publishing');
+}
+
+export function isSharedProjectPublishStale(project: Project, remotePublishedAt: string) {
+  const remotePublishedMs = new Date(remotePublishedAt).getTime();
+  if (!Number.isFinite(remotePublishedMs)) return false;
+
+  const basePublishedAt = project.sharedSnapshotPublishedAt;
+  if (!basePublishedAt) return true;
+
+  const basePublishedMs = new Date(basePublishedAt).getTime();
+  if (!Number.isFinite(basePublishedMs)) return true;
+
+  return remotePublishedMs > basePublishedMs + SHARED_SNAPSHOT_CLOCK_SKEW_MS;
+}
+
+export async function getSharedProjectPublishConflict(project: Project): Promise<SnapshotMetadata | null> {
+  if (!project.sharedProjectId) {
+    throw new Error('Share this project before publishing shared data.');
+  }
+
+  const metadata = await getSharedProjectSnapshotMetadata(project.sharedProjectId);
+  if (!metadata) return null;
+
+  return isSharedProjectPublishStale(project, metadata.publishedAt) ? metadata : null;
+}
+
 async function publishSnapshotWithUpsert(
   project: Project,
   publishedByUserId: string
@@ -102,6 +153,11 @@ async function publishSnapshotWithUpsert(
   const supabase = getCollaborationSupabaseClient();
   if (!supabase) {
     throw new Error('Collaboration is not configured.');
+  }
+
+  const conflict = await getSharedProjectPublishConflict(project);
+  if (conflict) {
+    throw new SharedProjectPublishConflictError(conflict.publishedAt);
   }
 
   const publishedAt = new Date().toISOString();
@@ -132,6 +188,11 @@ export async function publishSharedProjectSnapshot(project: Project, publishedBy
     throw new Error('Collaboration is not configured.');
   }
 
+  const conflict = await getSharedProjectPublishConflict(project);
+  if (conflict) {
+    throw new SharedProjectPublishConflictError(conflict.publishedAt);
+  }
+
   const basePublishedAt = project.sharedSnapshotPublishedAt?.toISOString() ?? null;
   const { data, error } = await supabase.rpc('publish_shared_project_snapshot', {
     p_project_id: project.sharedProjectId,
@@ -142,6 +203,9 @@ export async function publishSharedProjectSnapshot(project: Project, publishedBy
 
   let publishedAt: string;
   if (error) {
+    if (isSharedProjectPublishConflictError(error)) {
+      throw new SharedProjectPublishConflictError();
+    }
     if (!isMissingPublishRpcError(error)) {
       throw error;
     }

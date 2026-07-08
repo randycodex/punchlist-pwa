@@ -1,5 +1,5 @@
 import { getProject, saveProjectMetadataOnly } from '@/lib/db';
-import { publishSharedProjectSnapshot } from '@/lib/collaboration';
+import { isSharedProjectPublishConflictError, publishSharedProjectSnapshot } from '@/lib/collaboration';
 import type { Project } from '@/types';
 
 type PublishItem = {
@@ -67,6 +67,13 @@ async function publishProject(projectId: string) {
     pendingItems.delete(projectId);
     retryCounts.delete(projectId);
   } catch (error) {
+    if (isSharedProjectPublishConflictError(error)) {
+      pendingItems.delete(projectId);
+      retryCounts.delete(projectId);
+      console.info('Shared publish skipped because newer shared data exists:', error);
+      return;
+    }
+
     const retryCount = (retryCounts.get(projectId) ?? 0) + 1;
     retryCounts.set(projectId, retryCount);
     const retryDelayMs = Math.min(RETRY_BASE_DELAY_MS * 2 ** (retryCount - 1), RETRY_MAX_DELAY_MS);

@@ -3,10 +3,12 @@ type PendingSyncState = {
   fullSyncNeeded: boolean;
   retryCount: number;
   retryNotBefore: string | null;
+  autoRetryPaused: boolean;
 };
 
 const PENDING_SYNC_STORAGE_KEY = 'punchlist-pending-sync';
 const MAX_STORED_RETRY_WAIT_MS = 30_000;
+const MAX_AUTOMATIC_RETRY_COUNT = 1;
 
 function getDefaultPendingSyncState(): PendingSyncState {
   return {
@@ -14,6 +16,7 @@ function getDefaultPendingSyncState(): PendingSyncState {
     fullSyncNeeded: false,
     retryCount: 0,
     retryNotBefore: null,
+    autoRetryPaused: false,
   };
 }
 
@@ -28,12 +31,14 @@ function normalizePendingSyncState(raw: unknown): PendingSyncState {
   const fullSyncNeeded = Boolean((raw as { fullSyncNeeded?: unknown }).fullSyncNeeded);
   const retryCount = Number((raw as { retryCount?: unknown }).retryCount);
   const retryNotBefore = (raw as { retryNotBefore?: unknown }).retryNotBefore;
+  const autoRetryPaused = Boolean((raw as { autoRetryPaused?: unknown }).autoRetryPaused);
 
   return {
     projectIds,
     fullSyncNeeded,
     retryCount: Number.isFinite(retryCount) && retryCount > 0 ? retryCount : 0,
     retryNotBefore: typeof retryNotBefore === 'string' ? retryNotBefore : null,
+    autoRetryPaused,
   };
 }
 
@@ -44,7 +49,8 @@ function persistPendingSyncState(state: PendingSyncState) {
     state.projectIds.length === 0 &&
     !state.fullSyncNeeded &&
     state.retryCount === 0 &&
-    !state.retryNotBefore
+    !state.retryNotBefore &&
+    !state.autoRetryPaused
   ) {
     localStorage.removeItem(PENDING_SYNC_STORAGE_KEY);
     return;
@@ -86,6 +92,7 @@ export function queuePendingSync(projectId?: string, options?: { fullSync?: bool
     fullSyncNeeded: state.fullSyncNeeded || Boolean(options?.fullSync),
     retryCount: state.retryCount,
     retryNotBefore: state.retryNotBefore,
+    autoRetryPaused: state.autoRetryPaused,
   });
 }
 
@@ -102,6 +109,7 @@ export function clearPendingProjectSync(projectIds: string[]) {
     fullSyncNeeded: state.fullSyncNeeded,
     retryCount: state.retryCount,
     retryNotBefore: state.retryNotBefore,
+    autoRetryPaused: state.autoRetryPaused,
   });
 }
 
@@ -112,6 +120,7 @@ export function clearPendingFullSyncFlag() {
     fullSyncNeeded: false,
     retryCount: state.retryCount,
     retryNotBefore: state.retryNotBefore,
+    autoRetryPaused: state.autoRetryPaused,
   });
 }
 
@@ -122,6 +131,33 @@ export function clearPendingSyncBackoff() {
     retryCount: 0,
     retryNotBefore: null,
   });
+}
+
+export function isPendingSyncAutoRetryPaused() {
+  return loadPendingSyncState().autoRetryPaused;
+}
+
+export function pausePendingSyncAutoRetry() {
+  const state = loadPendingSyncState();
+  persistPendingSyncState({
+    ...state,
+    retryNotBefore: null,
+    autoRetryPaused: true,
+  });
+}
+
+export function resumePendingSyncAutoRetry() {
+  const state = loadPendingSyncState();
+  persistPendingSyncState({
+    ...state,
+    retryCount: 0,
+    retryNotBefore: null,
+    autoRetryPaused: false,
+  });
+}
+
+export function shouldPausePendingSyncAutoRetry() {
+  return loadPendingSyncState().retryCount >= MAX_AUTOMATIC_RETRY_COUNT;
 }
 
 export function recordPendingSyncRetry(
@@ -146,6 +182,7 @@ export function recordPendingSyncRetry(
     ...state,
     retryCount,
     retryNotBefore,
+    autoRetryPaused: false,
   });
 
   return {
