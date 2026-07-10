@@ -1,6 +1,6 @@
 'use client';
 
-import { memo, useState, useEffect, useMemo, useRef, useCallback, type TouchEvent } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { Area, Project, checkpointHasIssue, getReviewMetrics } from '@/types';
 import {
   getAllProjects,
@@ -13,36 +13,33 @@ import {
   createArea,
 } from '@/lib/db';
 import {
-  SyncConflict,
   markProjectDeleted,
   unmarkProjectDeleted,
   hydrateProjectMediaFromOneDrive,
 } from '@/lib/oneDriveSync';
 import {
-  formatSyncConflictReviewMessage,
-  syncProjectsWithOneDriveRecovery,
-} from '@/lib/oneDriveSyncRecovery';
-import {
-  clearPendingSyncState,
   hasPendingSyncState,
-  loadPendingSyncState,
-  pausePendingSyncAutoRetry,
   queuePendingSync,
-  resumePendingSyncAutoRetry,
 } from '@/lib/pendingSync';
 import type { PdfExportMode } from '@/lib/pdfExport';
 import { uploadPdfToOneDrive, getNextOneDriveExportFilename } from '@/lib/oneDrive';
-import { queueBackgroundProjectMediaHydration, resetBackgroundMediaHydration } from '@/lib/backgroundMediaHydration';
 import {
-  queueBackgroundSharedProjectPublish,
-  queueStaleBackgroundSharedProjectPublishes,
-  resetBackgroundSharedProjectPublish,
-} from '@/lib/backgroundSharedPublish';
+  formatDateForExport,
+  getOneDriveProjectFolderName,
+  sanitizeExportNamePart,
+} from '@/lib/projectNaming';
+import { runManualOneDriveSync } from '@/features/sync/runManualOneDriveSync';
 import {
-  formatMicrosoftManualRetryMessage,
-  getMicrosoftErrorMessage,
-  getMicrosoftRetryDelayMs,
-} from '@/lib/microsoftErrors';
+  formatPendingSharedPullMessage,
+  getPendingSharedPullState,
+  mergeSharedProjectAreas,
+  type PendingSharedPullState,
+} from '@/features/collaboration/manualSharedPull';
+import { ProjectCard, type ProjectCardMetrics as ProjectMetrics } from '@/features/projects/ProjectCard';
+import { HomeAreaCard,
+  type HomeAreaCardMetrics as AreaMetrics,
+  type HomeAreaClaimDisplay as AreaClaimDisplay,
+} from '@/features/projects/HomeAreaCard';
 import { useMicrosoftAuth } from '@/contexts/MicrosoftAuthContext';
 import { useCollaborationAuth } from '@/contexts/CollaborationAuthContext';
 import { useSyncStatus } from '@/contexts/SyncStatusContext';
@@ -75,7 +72,6 @@ import {
 import type { CollaborationHealthReport, CollaborationProjectMember, CollaborationSharedProjectDirectoryEntry, CollaborationSnapshotBackup } from '@/lib/collaboration';
 import ProjectEditModal from '@/components/ProjectEditModal';
 import AreaEditorModal from '@/components/AreaEditorModal';
-import MetadataLine from '@/components/MetadataLine';
 import AppMessageDialog from '@/components/AppMessageDialog';
 import AppConfirmDialog from '@/components/AppConfirmDialog';
 import AppPromptDialog from '@/components/AppPromptDialog';
@@ -97,15 +93,11 @@ import {
   upsertFacadeElevationDrawing,
   type AreaTypeKey,
 } from '@/lib/areas';
-import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
-  ChevronRight,
   Trash2,
   FileDown,
   Loader2,
-  MoreVertical,
-  Pencil,
   RotateCcw,
   Plus,
 } from 'lucide-react';
@@ -118,43 +110,7 @@ const SORT_STORAGE_KEY = 'punchlist-projects-sort';
 const RECENT_AREA_TYPES_STORAGE_KEY = 'punchlist-recent-area-types';
 const TRASH_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 const LONG_PRESS_MS = 500;
-const AREA_CARD_LONG_PRESS_MOVE_THRESHOLD = 12;
 const SHARED_AREA_CLAIM_REFRESH_MS = 15 * 1000;
-
-function sanitizeOneDriveProjectFolderPart(value: string | undefined, fallback: string) {
-  const cleaned = (value ?? '')
-    .trim()
-    .replace(/\s+/g, '-')
-    .replace(/[^a-z0-9-_]/gi, '-')
-    .replace(/-+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 48);
-  return cleaned || fallback;
-}
-
-function getOneDriveProjectFolderName(project: Pick<Project, 'projectName' | 'oneDriveFolderName'>) {
-  return sanitizeOneDriveProjectFolderPart(
-    project.oneDriveFolderName,
-    sanitizeOneDriveProjectFolderPart(project.projectName, 'project')
-  );
-}
-
-function sanitizeExportNamePart(name: string): string {
-  const cleaned = name
-    .trim()
-    .replace(/\s+/g, '_')
-    .replace(/[^a-z0-9_-]/gi, '')
-    .replace(/_+/g, '_')
-    .replace(/^_+|_+$/g, '');
-  return cleaned || 'Project';
-}
-
-function formatDateForExport(now = new Date()): string {
-  const yyyy = now.getFullYear();
-  const mm = String(now.getMonth() + 1).padStart(2, '0');
-  const dd = String(now.getDate()).padStart(2, '0');
-  return `${yyyy}.${mm}.${dd}`;
-}
 
 function formatSharedBackupReason(reason: CollaborationSnapshotBackup['reason']) {
   if (reason === 'publish') return 'Published version';
@@ -174,42 +130,10 @@ function formatMemberJoinMethod(method: CollaborationProjectMember['joinedBy']) 
   return method === 'joinCode' ? 'Joined by code' : 'Email invite';
 }
 
-type ProjectMetrics = {
-  stats: { total: number; ok: number; issues: number; areas: number };
-  pending: number;
-  progress: number;
-  okPercent: number;
-  issuePercent: number;
-  photoCount: number;
-  commentCount: number;
-};
-
 type MessageDialogState = {
   title: string;
   message: string;
 };
-
-type PendingPullState = {
-  localProject: Project;
-  sharedProject: Project;
-  publishedAt: string;
-  hasNewerLocalChanges: boolean;
-  reason: 'manual-pull' | 'publish-conflict' | 'area-create-conflict';
-};
-
-async function getPendingSharedPullState(
-  localProject: Project,
-  reason: PendingPullState['reason']
-): Promise<PendingPullState> {
-  const result = await getSharedProjectSnapshot(localProject);
-  return {
-    localProject,
-    sharedProject: result.project,
-    publishedAt: result.publishedAt,
-    hasNewerLocalChanges: hasNewerLocalChangesThanSharedSnapshot(localProject, result.publishedAt),
-    reason,
-  };
-}
 
 type BackupRestoreConfirmState = {
   backup: CollaborationSnapshotBackup;
@@ -224,404 +148,11 @@ function unlinkLocalSharedProject(project: Project): Project {
   return nextProject;
 }
 
-type AreaMetrics = {
-  stats: { total: number; ok: number; issues: number; areas?: number };
-  pending: number;
-  progress: number;
-  photoCount: number;
-  commentCount: number;
-};
-
-type AreaClaimDisplay = {
-  ownership: 'mine' | 'other';
-  label: string;
-  expiresAt?: Date;
-};
-
 type TrashedAreaEntry = {
   project: Project;
   area: Area;
   deletedAt: Date;
 };
-
-type ProjectCardProps = {
-  project: Project;
-  metric?: ProjectMetrics;
-  selectionMode: boolean;
-  isSelected: boolean;
-  menuOpen: boolean;
-  onToggleSelection: (id: string) => void;
-  onToggleMenu: (id: string) => void;
-  onCloseMenu: () => void;
-  onEditProject: (project: Project) => void;
-  onDeleteProject: (project: Project) => void;
-  onLongPressSelect: (projectId: string) => void;
-  onPrimeOpen: (project: Project) => void;
-};
-
-const ProjectCard = memo(function ProjectCard({
-  project,
-  metric,
-  selectionMode,
-  isSelected,
-  menuOpen,
-  onToggleSelection,
-  onToggleMenu,
-  onCloseMenu,
-  onEditProject,
-  onDeleteProject,
-  onLongPressSelect,
-  onPrimeOpen,
-}: ProjectCardProps) {
-  const stats = metric?.stats ?? { total: 0, ok: 0, issues: 0, areas: project.areas.length };
-  const progress = metric?.progress ?? 0;
-  const commentCount = metric?.commentCount ?? 0;
-  const photoCount = metric?.photoCount ?? 0;
-  const hasContent = stats.total > 0 || stats.areas > 0;
-
-  const longPressRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  function clearLongPress() {
-    if (longPressRef.current) {
-      clearTimeout(longPressRef.current);
-      longPressRef.current = null;
-    }
-  }
-
-  return (
-    <div
-      onContextMenu={(event) => {
-        if (!selectionMode) {
-          event.preventDefault();
-        }
-      }}
-      onClick={() => {
-        if (selectionMode) {
-          onToggleSelection(project.id);
-        }
-      }}
-      onPointerDown={() => {
-        if (!selectionMode) {
-          onPrimeOpen(project);
-          longPressRef.current = setTimeout(() => {
-            onLongPressSelect(project.id);
-            longPressRef.current = null;
-          }, LONG_PRESS_MS);
-        }
-      }}
-      onMouseEnter={() => {
-        if (!selectionMode) {
-          onPrimeOpen(project);
-        }
-      }}
-      onPointerUp={clearLongPress}
-      onPointerCancel={clearLongPress}
-      onPointerLeave={clearLongPress}
-      className={`card-surface select-none rounded-[1.7rem] p-4 transition-all sm:p-5 [-webkit-touch-callout:none] ${
-        isSelected
-          ? '!border-gray-400 !bg-gray-100 dark:!border-gray-500 dark:!bg-white/[0.08]'
-          : 'hover:-translate-y-px hover:border-black/10 dark:hover:border-white/[0.08] dark:hover:bg-white/[0.07]'
-      } ${selectionMode ? 'cursor-pointer' : ''}`}
-    >
-      <div className="flex items-start gap-3">
-        <Link
-          href={selectionMode ? '#' : `/project/${project.id}`}
-          onClick={(event) => {
-            if (selectionMode) event.preventDefault();
-          }}
-          onContextMenu={(event) => {
-            if (!selectionMode) {
-              event.preventDefault();
-            }
-          }}
-          className="flex-1 min-w-0 [-webkit-touch-callout:none]"
-        >
-          <div className="min-w-0">
-            <div className="flex items-center gap-2 min-w-0">
-              <h3 className="truncate text-[1.05rem] font-semibold tracking-[-0.02em] text-gray-900 dark:text-white">{project.projectName}</h3>
-            </div>
-            <p className={`mt-1 truncate text-sm ${project.address ? 'text-gray-500 dark:text-gray-300' : 'text-gray-400 dark:text-gray-400'}`}>
-              {project.address || 'No address added'}
-            </p>
-            <MetadataLine className="mt-3" issues={stats.issues} notes={commentCount} photos={photoCount} />
-            <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-gray-200 dark:bg-white/[0.12]">
-              <div
-                className={`h-full rounded-full transition-all ${
-                  stats.issues > 0 ? 'accent-bg' : 'bg-gray-900 dark:bg-white'
-                } ${!hasContent ? 'opacity-40' : ''}`}
-                style={{ width: `${hasContent ? Math.max(progress, 4) : 4}%` }}
-              />
-            </div>
-          </div>
-        </Link>
-        <div className="flex items-center gap-2">
-          <div className="relative">
-            <button
-              onClick={(event) => {
-                event.stopPropagation();
-                onToggleMenu(project.id);
-              }}
-              onPointerDown={(event) => event.stopPropagation()}
-              className="rounded-[1rem] border border-black/5 bg-white/60 p-2 text-gray-400 transition hover:bg-white hover:text-gray-700 dark:border-white/10 dark:bg-white/[0.04] dark:text-gray-300 dark:hover:bg-white/[0.08] dark:hover:text-white"
-              aria-label={`Project actions for ${project.projectName}`}
-            >
-              <MoreVertical className="w-4 h-4" />
-            </button>
-            {menuOpen && (
-              <>
-                <div className="fixed inset-0 z-10" onClick={onCloseMenu} />
-                <div className="menu-surface absolute right-0 z-20 mt-2 w-44 overflow-hidden rounded-[1.3rem] p-1.5">
-                  <button
-                    onClick={() => {
-                      onCloseMenu();
-                      onEditProject(project);
-                    }}
-                    className="flex w-full items-center gap-2 rounded-[1rem] px-4 py-3 text-left text-sm text-gray-700 transition hover:bg-black/[0.04] dark:text-gray-300 dark:hover:bg-white/[0.05]"
-                  >
-                    <Pencil className="w-4 h-4" />
-                    Edit Project
-                  </button>
-                  <button
-                    onClick={() => {
-                      onCloseMenu();
-                      onDeleteProject(project);
-                    }}
-                    className="accent-text flex w-full items-center gap-2 rounded-[1rem] px-4 py-3 text-left text-sm transition hover:bg-black/[0.04] dark:hover:bg-white/[0.05]"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                    Delete
-                  </button>
-                </div>
-              </>
-            )}
-          </div>
-          <Link
-            href={selectionMode ? '#' : `/project/${project.id}`}
-            onClick={(event) => {
-              event.stopPropagation();
-              if (selectionMode) event.preventDefault();
-            }}
-            onContextMenu={(event) => {
-              if (!selectionMode) {
-                event.preventDefault();
-              }
-            }}
-            onPointerDown={(event) => {
-              event.stopPropagation();
-              if (!selectionMode) {
-                onPrimeOpen(project);
-              }
-            }}
-            onMouseEnter={() => {
-              if (!selectionMode) {
-                onPrimeOpen(project);
-              }
-            }}
-            className="mt-0.5 rounded-[1rem] border border-transparent p-1.5 text-gray-400 transition hover:border-black/5 hover:bg-white hover:text-gray-700 dark:text-gray-300 dark:hover:border-white/10 dark:hover:bg-white/[0.08] dark:hover:text-white [-webkit-touch-callout:none]"
-            aria-label={`Open ${project.projectName}`}
-          >
-            <ChevronRight className="w-5 h-5" />
-          </Link>
-        </div>
-      </div>
-    </div>
-  );
-});
-
-type HomeAreaCardProps = {
-  project: Project;
-  area: Project['areas'][number];
-  displayName: string;
-  metric?: AreaMetrics;
-  claimStatus?: AreaClaimDisplay;
-  deleteMode: boolean;
-  isSelected: boolean;
-  onToggleSelection: (areaId: string) => void;
-  onLongPressSelect: (areaId: string) => void;
-  onBlockedByClaim: (message: string) => void;
-  onPrimeOpen: (project: Project, areaId: string) => void;
-  onOpenArea: (project: Project, areaId: string) => void;
-};
-
-const HomeAreaCard = memo(function HomeAreaCard({
-  project,
-  area,
-  displayName,
-  metric,
-  claimStatus,
-  deleteMode,
-  isSelected,
-  onToggleSelection,
-  onLongPressSelect,
-  onBlockedByClaim,
-  onPrimeOpen,
-  onOpenArea,
-}: HomeAreaCardProps) {
-  const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const longPressStartRef = useRef<{ x: number; y: number } | null>(null);
-  const suppressClickRef = useRef(false);
-  const areaStats = metric?.stats ?? { total: 0, ok: 0, issues: 0 };
-  const progress = metric?.progress ?? 0;
-  const commentCount = metric?.commentCount ?? 0;
-  const photoCount = metric?.photoCount ?? 0;
-  const blockedByClaim = claimStatus?.ownership === 'other';
-  const claimLabel = claimStatus
-    ? claimStatus.ownership === 'mine'
-      ? 'In use by you'
-      : `In use by ${claimStatus.label}`
-    : null;
-  const blockedClaimMessage = claimStatus?.ownership === 'other'
-    ? `${claimStatus.label} is working in this area. Try again when they leave.`
-    : 'This shared area is currently in use.';
-  const clearLongPressTimer = () => {
-    if (longPressTimerRef.current) {
-      clearTimeout(longPressTimerRef.current);
-      longPressTimerRef.current = null;
-    }
-  };
-  useEffect(() => {
-    return () => {
-      if (longPressTimerRef.current) {
-        clearTimeout(longPressTimerRef.current);
-      }
-    };
-  }, []);
-
-  return (
-    <div
-      onPointerDown={(event) => {
-        if (deleteMode || blockedByClaim) return;
-        if (event.pointerType === 'mouse' && event.button !== 0) return;
-
-        onPrimeOpen(project, area.id);
-        clearLongPressTimer();
-        longPressStartRef.current = { x: event.clientX, y: event.clientY };
-        suppressClickRef.current = false;
-        longPressTimerRef.current = setTimeout(() => {
-          suppressClickRef.current = true;
-          onLongPressSelect(area.id);
-        }, LONG_PRESS_MS);
-      }}
-      onPointerMove={(event) => {
-        const start = longPressStartRef.current;
-        if (!start) return;
-        const moved = Math.hypot(event.clientX - start.x, event.clientY - start.y);
-        if (moved > AREA_CARD_LONG_PRESS_MOVE_THRESHOLD) {
-          clearLongPressTimer();
-        }
-      }}
-      onPointerUp={clearLongPressTimer}
-      onPointerCancel={clearLongPressTimer}
-      onPointerLeave={clearLongPressTimer}
-      onMouseEnter={() => {
-        if (!deleteMode && !blockedByClaim) {
-          onPrimeOpen(project, area.id);
-        }
-      }}
-      onContextMenu={(event) => {
-        if (!deleteMode) {
-          event.preventDefault();
-          if (!blockedByClaim) {
-            onLongPressSelect(area.id);
-          }
-        }
-      }}
-      onClickCapture={(event) => {
-        if (suppressClickRef.current) {
-          event.preventDefault();
-          event.stopPropagation();
-          suppressClickRef.current = false;
-        }
-      }}
-      onClick={() => {
-        if (deleteMode) {
-          onToggleSelection(area.id);
-        }
-      }}
-      className={`card-surface-subtle select-none touch-manipulation [-webkit-touch-callout:none] rounded-[1.6rem] p-4 transition-all sm:p-5 ${
-        isSelected
-          ? '!border-gray-400 !bg-gray-100 dark:!border-gray-500 dark:!bg-white/[0.08]'
-          : 'hover:-translate-y-px hover:border-black/10 dark:hover:border-white/[0.08]'
-      } ${deleteMode ? 'cursor-pointer' : ''}`}
-      style={{ WebkitTapHighlightColor: 'transparent' }}
-    >
-      <div className="flex items-start gap-3">
-        <Link
-          href={deleteMode || blockedByClaim ? '#' : `/project/${project.id}/area/${area.id}`}
-          onClick={(event) => {
-            if (deleteMode || blockedByClaim) {
-              event.preventDefault();
-              if (blockedByClaim) {
-                onBlockedByClaim(blockedClaimMessage);
-              }
-              return;
-            }
-            onOpenArea(project, area.id);
-          }}
-          onContextMenu={(event) => {
-            if (!deleteMode) {
-              event.preventDefault();
-            }
-          }}
-          className="flex-1 min-w-0 [-webkit-touch-callout:none]"
-          style={{ WebkitTapHighlightColor: 'transparent' }}
-        >
-          <div className="min-w-0">
-            <div className="flex items-center gap-2 min-w-0">
-              <h3 className="truncate text-[1.03rem] font-semibold tracking-[-0.02em] text-gray-900 dark:text-white">{displayName}</h3>
-              {claimLabel && (
-                <span className="segmented-chip shrink-0 px-2.5 py-1 text-[11px]">
-                  {claimLabel}
-                </span>
-              )}
-            </div>
-            <MetadataLine className="mt-2" issues={areaStats.issues} notes={commentCount} photos={photoCount} />
-            <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-gray-200 dark:bg-white/[0.12]">
-              <div
-                className={`${areaStats.issues > 0 ? 'accent-bg' : 'bg-gray-900 dark:bg-white'} h-full rounded-full transition-all`}
-                style={{ width: `${Math.max(progress, 4)}%` }}
-              />
-            </div>
-          </div>
-        </Link>
-        <Link
-          href={deleteMode || blockedByClaim ? '#' : `/project/${project.id}/area/${area.id}`}
-          onClick={(event) => {
-            if (deleteMode || blockedByClaim) {
-              event.preventDefault();
-              if (blockedByClaim) {
-                onBlockedByClaim(blockedClaimMessage);
-              }
-              return;
-            }
-            onOpenArea(project, area.id);
-          }}
-          onContextMenu={(event) => {
-            if (!deleteMode) {
-              event.preventDefault();
-            }
-          }}
-          onPointerDown={(event) => {
-            event.stopPropagation();
-            if (!deleteMode && !blockedByClaim) {
-              onPrimeOpen(project, area.id);
-            }
-          }}
-          onMouseEnter={() => {
-            if (!deleteMode && !blockedByClaim) {
-              onPrimeOpen(project, area.id);
-            }
-          }}
-          className="mt-0.5 rounded-[1rem] border border-transparent p-1.5 text-gray-400 transition hover:border-black/5 hover:bg-white hover:text-gray-700 dark:hover:border-white/10 dark:hover:bg-white/[0.06] dark:hover:text-gray-200 [-webkit-touch-callout:none]"
-          style={{ WebkitTapHighlightColor: 'transparent' }}
-          aria-label={`Open ${displayName}`}
-        >
-          <ChevronRight className="w-5 h-5" />
-        </Link>
-      </div>
-    </div>
-  );
-});
 
 export default function ProjectsPage() {
   const router = useRouter();
@@ -649,7 +180,7 @@ export default function ProjectsPage() {
   const [sharedMembers, setSharedMembers] = useState<CollaborationProjectMember[]>([]);
   const [publishingSharedProject, setPublishingSharedProject] = useState(false);
   const [pullingSharedProject, setPullingSharedProject] = useState(false);
-  const [pendingPull, setPendingPull] = useState<PendingPullState | null>(null);
+  const [pendingPull, setPendingPull] = useState<PendingSharedPullState | null>(null);
   const [disconnectSharedProjectConfirm, setDisconnectSharedProjectConfirm] = useState<Project | null>(null);
   const [disconnectingSharedProject, setDisconnectingSharedProject] = useState(false);
   const [transferringSharedProject, setTransferringSharedProject] = useState(false);
@@ -670,7 +201,6 @@ export default function ProjectsPage() {
   const [sortOption, setSortOption] = useState<SortOption>('issues');
   const [syncing, setSyncing] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
-  const [syncConflicts, setSyncConflicts] = useState<SyncConflict[]>([]);
   const [deleteMode, setDeleteMode] = useState(false);
   const [exportMode, setExportMode] = useState(false);
   const [showTrash, setShowTrash] = useState(false);
@@ -692,32 +222,28 @@ export default function ProjectsPage() {
   const [sharedAreaClaims, setSharedAreaClaims] = useState<Map<string, AreaClaimDisplay>>(new Map());
   const [messageDialog, setMessageDialog] = useState<MessageDialogState | null>(null);
   const backgroundAreaClaimKeysRef = useRef(new Set<string>());
-  const liveSharedDashboardRefreshKeysRef = useRef(new Set<string>());
   const projectsRef = useRef<Project[]>(cachedProjects);
-  const pullStartYRef = useRef<number | null>(null);
-  const pullArmedRef = useRef(false);
-  const listRef = useRef<HTMLElement | null>(null);
   const homeMenuActionHandlerRef = useRef<((event: Event) => void) | null>(null);
   const loadProjectsRef = useRef<() => Promise<void>>(() => Promise.resolve());
   const scheduleSyncRef = useRef<(projectId?: string, options?: { fullSync?: boolean }) => void>(() => {});
   const { signIn, signOut, isReady, isSignedIn, ensureAccessToken, accountEmail, accountName } = useMicrosoftAuth();
-  const ensureAccessTokenRef = useRef(ensureAccessToken);
   const collaborationAuth = useCollaborationAuth();
-  const { setRetryAt, setStatus: setSyncStatus } = useSyncStatus();
+  const {
+    clearSharedUpdateAvailable,
+    markSharedUpdateAvailable,
+    setRetryAt,
+    setStatus: setSyncStatus,
+    setSyncConflicts,
+    syncConflicts,
+  } = useSyncStatus();
   const { quickSort, setQuickSort, markSyncedNow } = useAppSettings();
   const selectionMode = deleteMode || exportMode;
   loadProjectsRef.current = loadProjects;
-  ensureAccessTokenRef.current = ensureAccessToken;
 
   const showMessage = useCallback((message: string, title = 'Punchlist') => {
     setMessageDialog({ title, message });
   }, []);
 
-  const pauseAutoSyncRetry = useCallback(() => {
-    pausePendingSyncAutoRetry();
-    setRetryAt(null);
-    setSyncStatus(hasPendingSyncState() ? 'pending' : 'idle');
-  }, [setRetryAt, setSyncStatus]);
   scheduleSyncRef.current = scheduleSync;
 
   useEffect(() => {
@@ -750,10 +276,7 @@ export default function ProjectsPage() {
   }, []);
 
   useEffect(() => {
-    if (!collaborationAuth.isSignedIn) {
-      resetBackgroundSharedProjectPublish();
-      return;
-    }
+    if (!collaborationAuth.isSignedIn) return;
     if (loading) return;
     void loadProjectsRef.current();
   }, [collaborationAuth.isSignedIn, loading]);
@@ -761,26 +284,14 @@ export default function ProjectsPage() {
   useEffect(() => {
     if (!isReady || loading) return;
     if (!isSignedIn) {
-      resetBackgroundMediaHydration();
       setRetryAt(null);
-      setSyncStatus('idle');
+      setSyncStatus(hasPendingSyncState() ? 'pending' : 'idle');
       return;
     }
 
     setRetryAt(null);
     setSyncStatus(hasPendingSyncState() ? 'pending' : 'idle');
   }, [isReady, isSignedIn, loading, setRetryAt, setSyncStatus]);
-
-  useEffect(() => {
-    if (!isReady || loading || !isSignedIn || projects.length === 0) return;
-    const accountKey = accountEmail ?? accountName ?? 'signed-in';
-    queueBackgroundProjectMediaHydration({
-      accountKey,
-      projects,
-      getAccessToken: () => ensureAccessTokenRef.current({ interactive: false }),
-      onProjectHydrated: cacheProjectPreview,
-    });
-  }, [accountEmail, accountName, isReady, isSignedIn, loading, projects]);
 
   function handleSortChange(option: SortOption) {
     setSortOption(option);
@@ -886,17 +397,11 @@ export default function ProjectsPage() {
 
       const expiredIds = new Set(expiredProjects.map((project) => project.id));
       const activeData = data.filter((project) => !expiredIds.has(project.id));
-      const nextProjects = collaborationAuth.isSignedIn
-        ? await pullNewerSharedSnapshots(activeData)
-        : activeData;
-      if (collaborationAuth.user?.id) {
-        queueStaleBackgroundSharedProjectPublishes({
-          projects: nextProjects,
-          userId: collaborationAuth.user.id,
-        });
+      if (collaborationAuth.isSignedIn) {
+        void detectNewerSharedSnapshots(activeData);
       }
-      replaceProjectPreviewCache(nextProjects);
-      setProjects(nextProjects);
+      replaceProjectPreviewCache(activeData);
+      setProjects(activeData);
     } catch (error) {
       console.error('Failed to load projects:', error);
     } finally {
@@ -904,82 +409,44 @@ export default function ProjectsPage() {
     }
   }
 
-  async function handleSync(options: { quiet?: boolean; silentStatus?: boolean } = {}) {
+  async function handleSync() {
     if (syncing) return;
-    if (!options.quiet) {
-      resumePendingSyncAutoRetry();
-      setRetryAt(null);
-    }
     setSyncing(true);
-    if (!options.quiet) {
-      setSyncError(null);
-    }
-    if (!options.silentStatus) {
-      setSyncStatus('syncing');
-    }
+    setSyncError(null);
+    setRetryAt(null);
+    setSyncStatus('syncing');
     try {
-      const token = await ensureAccessToken({ interactive: options.quiet ? false : true });
-      if (!token) {
-        if (options.quiet) {
-          setSyncStatus(hasPendingSyncState() ? 'pending' : 'idle');
-        } else {
-          setSyncError('Please sign in to sync.');
-          setSyncStatus('needs-auth');
-          await signIn({ selectAccount: true });
-        }
-        return;
-      }
-      const pendingSyncState = loadPendingSyncState();
-      const result = await syncProjectsWithOneDriveRecovery(token, {
-        pushProjectIds: pendingSyncState.projectIds,
+      const result = await runManualOneDriveSync({
+        ensureAccessToken: () => ensureAccessToken({ interactive: true }),
       });
-      setSyncConflicts(result.conflicts);
-      if (result.conflicts.length > 0) {
-        if (!options.quiet) {
-          setSyncError(formatSyncConflictReviewMessage(result.conflicts));
-        }
-        pauseAutoSyncRetry();
+      if (result.status === 'needs-auth') {
+        setSyncError('Please sign in to sync.');
+        setSyncStatus('needs-auth');
+        await signIn({ selectAccount: true });
         return;
       }
-      clearPendingSyncState();
+      if (result.status === 'conflict') {
+        setSyncConflicts(result.conflicts);
+        setSyncError(result.message);
+        setSyncStatus('error');
+        return;
+      }
+      if (result.status === 'retry') {
+        setSyncError(result.message);
+        setSyncStatus('pending');
+        return;
+      }
+      if (result.status === 'error') {
+        setSyncError(result.message);
+        setSyncStatus('error');
+        return;
+      }
+      setSyncConflicts([]);
       setSyncError(null);
       setRetryAt(null);
       setSyncStatus('idle');
       markSyncedNow();
       await loadProjects();
-    } catch (error) {
-      console.error('Sync failed:', error);
-      const hasQueuedSync = hasPendingSyncState();
-      const retryDelayMs = getMicrosoftRetryDelayMs(error);
-      if (retryDelayMs) {
-        if (!hasQueuedSync) {
-          queuePendingSync(undefined, { fullSync: true });
-        }
-        setRetryAt(null);
-        if (!options.quiet) {
-          setSyncError(formatMicrosoftManualRetryMessage(Math.ceil(retryDelayMs / 1000)));
-        }
-        pauseAutoSyncRetry();
-        return;
-      }
-      const message = getMicrosoftErrorMessage(error, 'Sync failed.');
-      if (message.startsWith('Saved locally.')) {
-        if (!hasQueuedSync) {
-          queuePendingSync(undefined, { fullSync: true });
-        }
-        setRetryAt(null);
-        if (!options.quiet) {
-          setSyncError(formatMicrosoftManualRetryMessage());
-        }
-        pauseAutoSyncRetry();
-        return;
-      }
-      if (options.quiet) {
-        setSyncStatus(hasQueuedSync ? 'pending' : 'idle');
-        return;
-      }
-      setSyncError(message);
-      setSyncStatus('error');
     } finally {
       setSyncing(false);
     }
@@ -988,48 +455,22 @@ export default function ProjectsPage() {
   function scheduleSync(projectId?: string, options?: { fullSync?: boolean }) {
     queuePendingSync(projectId, options);
     setSyncStatus('pending');
-    if (projectId) {
-      scheduleSharedPublish(projectId);
-    }
   }
 
-  async function pullNewerSharedSnapshots(projectsToCheck: Project[]) {
-    return Promise.all(projectsToCheck.map(async (project) => {
-      if (!project.sharedProjectId) {
-        return project;
-      }
-
+  async function detectNewerSharedSnapshots(projectsToCheck: Project[]) {
+    await Promise.all(projectsToCheck.map(async (project) => {
+      if (!project.sharedProjectId) return;
       try {
         const metadata = await getSharedProjectSnapshotMetadata(project.sharedProjectId);
-        if (!metadata) {
-          return project;
+        if (metadata && isSharedSnapshotNewer(project, metadata.publishedAt)) {
+          markSharedUpdateAvailable(project.id);
+        } else {
+          clearSharedUpdateAvailable(project.id);
         }
-        if (hasNewerLocalChangesThanSharedSnapshot(project, metadata.publishedAt)) {
-          return project;
-        }
-        if (!isSharedSnapshotNewer(project, metadata.publishedAt)) {
-          return project;
-        }
-        const snapshot = await getSharedProjectSnapshot(project);
-        if (hasNewerLocalChangesThanSharedSnapshot(project, snapshot.publishedAt)) {
-          return project;
-        }
-        if (!isSharedSnapshotNewer(project, snapshot.publishedAt)) {
-          return project;
-        }
-        await saveProjectPreserveTimestamps(snapshot.project);
-        return snapshot.project;
       } catch (error) {
-        console.info('Shared snapshot pull skipped:', error);
-        return project;
+        console.info('Shared update check skipped:', error);
       }
     }));
-  }
-
-  function scheduleSharedPublish(projectId: string) {
-    const userId = collaborationAuth.user?.id;
-    if (!userId) return;
-    queueBackgroundSharedProjectPublish({ projectId, userId });
   }
 
   const projectMetrics = useMemo(() => {
@@ -1136,15 +577,11 @@ export default function ProjectsPage() {
       .join('|');
   }, [activeProjects]);
 
-  const refreshLiveSharedDashboardProject = useCallback(async (
+  const noticeLiveSharedDashboardProject = useCallback(async (
     localProjectId: string,
     sharedProjectId: string,
     publishedAt?: string
   ) => {
-    const refreshKey = `${localProjectId}:${sharedProjectId}`;
-    if (liveSharedDashboardRefreshKeysRef.current.has(refreshKey)) return;
-    liveSharedDashboardRefreshKeysRef.current.add(refreshKey);
-
     try {
       const visibleProject = projectsRef.current.find(
         (entry) => entry.id === localProjectId && entry.sharedProjectId === sharedProjectId
@@ -1157,37 +594,12 @@ export default function ProjectsPage() {
         remotePublishedAt = metadata?.publishedAt;
       }
       if (!remotePublishedAt) return;
-      if (hasNewerLocalChangesThanSharedSnapshot(visibleProject, remotePublishedAt)) return;
       if (!isSharedSnapshotNewer(visibleProject, remotePublishedAt)) return;
-
-      const localProject = await getProject(localProjectId);
-      if (!localProject?.sharedProjectId || localProject.sharedProjectId !== sharedProjectId || localProject.deletedAt) {
-        return;
-      }
-      if (hasNewerLocalChangesThanSharedSnapshot(localProject, remotePublishedAt)) return;
-      if (!isSharedSnapshotNewer(localProject, remotePublishedAt)) return;
-
-      const snapshot = await getSharedProjectSnapshot(localProject);
-      if (hasNewerLocalChangesThanSharedSnapshot(localProject, snapshot.publishedAt)) return;
-      if (!isSharedSnapshotNewer(localProject, snapshot.publishedAt)) return;
-
-      await saveProjectPreserveTimestamps(snapshot.project);
-      cacheProjectPreview(snapshot.project);
-      setProjects((prev) => {
-        let updated = false;
-        const nextProjects = prev.map((entry) => {
-          if (entry.id !== localProject.id) return entry;
-          updated = true;
-          return { ...snapshot.project, areas: [...snapshot.project.areas] };
-        });
-        return updated ? nextProjects : prev;
-      });
+      markSharedUpdateAvailable(localProjectId);
     } catch (error) {
-      console.info('Live shared dashboard refresh skipped:', error);
-    } finally {
-      liveSharedDashboardRefreshKeysRef.current.delete(refreshKey);
+      console.info('Live shared update notice skipped:', error);
     }
-  }, []);
+  }, [markSharedUpdateAvailable]);
 
   useEffect(() => {
     if (!collaborationAuth.isSignedIn || !multiProjectSharedProjectSubscriptionKey) return;
@@ -1198,7 +610,7 @@ export default function ProjectsPage() {
         const [localProjectId, sharedProjectId] = entry.split(':');
         if (!localProjectId || !sharedProjectId) return () => {};
         return subscribeToSharedProjectSnapshotChanges(sharedProjectId, (change) => {
-          void refreshLiveSharedDashboardProject(localProjectId, sharedProjectId, change.publishedAt);
+          void noticeLiveSharedDashboardProject(localProjectId, sharedProjectId, change.publishedAt);
         });
       });
 
@@ -1208,7 +620,7 @@ export default function ProjectsPage() {
   }, [
     collaborationAuth.isSignedIn,
     multiProjectSharedProjectSubscriptionKey,
-    refreshLiveSharedDashboardProject,
+    noticeLiveSharedDashboardProject,
   ]);
 
   useEffect(() => {
@@ -1216,62 +628,21 @@ export default function ProjectsPage() {
 
     const localProjectId = singleProject.id;
     const activeSharedProjectId = singleProject.sharedProjectId;
-    let cancelled = false;
-    let refreshing = false;
-
-    async function pullSafeSharedSnapshot(publishedAt?: string) {
-      if (refreshing) return;
-      refreshing = true;
-      try {
-        const localProject = await getProject(localProjectId);
-        if (cancelled || !localProject?.sharedProjectId) return;
-
-        let remotePublishedAt = publishedAt;
-        if (!remotePublishedAt) {
-          const metadata = await getSharedProjectSnapshotMetadata(activeSharedProjectId);
-          if (cancelled) return;
-          remotePublishedAt = metadata?.publishedAt;
-        }
-        if (!remotePublishedAt) return;
-        if (hasNewerLocalChangesThanSharedSnapshot(localProject, remotePublishedAt)) return;
-        if (!isSharedSnapshotNewer(localProject, remotePublishedAt)) return;
-
-        const snapshot = await getSharedProjectSnapshot(localProject);
-        if (cancelled) return;
-        if (hasNewerLocalChangesThanSharedSnapshot(localProject, snapshot.publishedAt)) return;
-        if (!isSharedSnapshotNewer(localProject, snapshot.publishedAt)) return;
-
-        await saveProjectPreserveTimestamps(snapshot.project);
-        if (cancelled) return;
-        cacheProjectPreview(snapshot.project);
-        setProjects((prev) =>
-          prev.map((entry) =>
-            entry.id === localProject.id
-              ? { ...snapshot.project, areas: [...snapshot.project.areas] }
-              : entry
-          )
-        );
-      } catch (error) {
-        if (!cancelled) {
-          console.info('Live shared snapshot refresh skipped:', error);
-        }
-      } finally {
-        refreshing = false;
-      }
-    }
-
     const unsubscribeSnapshotChanges = subscribeToSharedProjectSnapshotChanges(
       activeSharedProjectId,
       (change) => {
-        void pullSafeSharedSnapshot(change.publishedAt);
+        if (!change.publishedAt || isSharedSnapshotNewer(singleProject, change.publishedAt)) {
+          markSharedUpdateAvailable(localProjectId);
+        }
       }
     );
 
-    return () => {
-      cancelled = true;
-      unsubscribeSnapshotChanges();
-    };
-  }, [collaborationAuth.isSignedIn, singleProject?.id, singleProject?.sharedProjectId]);
+    return unsubscribeSnapshotChanges;
+  }, [
+    collaborationAuth.isSignedIn,
+    markSharedUpdateAvailable,
+    singleProject,
+  ]);
 
   const areaTargetProject =
     projects.find((project) => project.id === areaTargetProjectId && !project.deletedAt) ??
@@ -2035,6 +1406,7 @@ export default function ProjectsPage() {
       loadedProject.sharedProjectLinkedAt = project.sharedProjectLinkedAt;
       const result = await publishSharedProjectSnapshot(loadedProject, collaborationAuth.user.id);
       await saveProjectMetadataOnly(loadedProject, { touch: false });
+      clearSharedUpdateAvailable(loadedProject.id);
       setProjects((prev) =>
         prev.map((entry) =>
           entry.id === loadedProject.id
@@ -2046,6 +1418,7 @@ export default function ProjectsPage() {
     } catch (error) {
       if (fullProject && isSharedProjectPublishConflictError(error)) {
         console.info('Publish blocked because shared data is newer:', error);
+        markSharedUpdateAvailable(fullProject.id);
         try {
           setPendingPull(await getPendingSharedPullState(fullProject, 'publish-conflict'));
         } catch (reviewError) {
@@ -2060,7 +1433,13 @@ export default function ProjectsPage() {
     } finally {
       setPublishingSharedProject(false);
     }
-  }, [collaborationAuth.isSignedIn, collaborationAuth.user, showMessage]);
+  }, [
+    clearSharedUpdateAvailable,
+    collaborationAuth.isSignedIn,
+    collaborationAuth.user,
+    markSharedUpdateAvailable,
+    showMessage,
+  ]);
 
   const handlePullSharedProject = useCallback(async (project: Project) => {
     if (!project.sharedProjectId) {
@@ -2088,6 +1467,7 @@ export default function ProjectsPage() {
         setPendingPull({
           localProject: fullProject,
           sharedProject: result.project,
+          ...mergeSharedProjectAreas(fullProject, result.project),
           publishedAt: result.publishedAt,
           hasNewerLocalChanges,
           reason: 'manual-pull',
@@ -2101,6 +1481,7 @@ export default function ProjectsPage() {
       }
 
       await saveProjectPreserveTimestamps(result.project);
+      clearSharedUpdateAvailable(fullProject.id);
       cacheProjectPreview(result.project);
       setProjects((prev) =>
         prev.map((entry) =>
@@ -2116,7 +1497,7 @@ export default function ProjectsPage() {
     } finally {
       setPullingSharedProject(false);
     }
-  }, [collaborationAuth.isSignedIn, showMessage]);
+  }, [clearSharedUpdateAvailable, collaborationAuth.isSignedIn, showMessage]);
 
   async function confirmPullSharedProject() {
     if (!pendingPull) return;
@@ -2131,15 +1512,20 @@ export default function ProjectsPage() {
         'Local data before pulling shared data.'
       );
 
-      await saveProjectPreserveTimestamps(pullState.sharedProject);
+      await saveProjectPreserveTimestamps(pullState.resolutionProject);
+      clearSharedUpdateAvailable(pullState.localProject.id);
       setProjects((prev) =>
         prev.map((entry) =>
           entry.id === pullState.localProject.id
-            ? { ...pullState.sharedProject, areas: [...pullState.sharedProject.areas] }
+            ? { ...pullState.resolutionProject, areas: [...pullState.resolutionProject.areas] }
             : entry
         )
       );
-      showMessage(`Shared data pulled from ${new Date(pullState.publishedAt).toLocaleString()}.`);
+      showMessage(
+        pullState.conflictingAreaNames.length > 0
+          ? `Team data merged. ${pullState.conflictingAreaNames.length} area${pullState.conflictingAreaNames.length === 1 ? '' : 's'} changed on both sides and kept the local version.`
+          : `Team data merged from ${new Date(pullState.publishedAt).toLocaleString()}.`
+      );
     } catch (error) {
       console.error('Failed to pull shared project:', error);
       showMessage(getCollaborationErrorMessage(error, 'Failed to pull shared data. Please try again.'));
@@ -2208,6 +1594,7 @@ export default function ProjectsPage() {
         const publishResult = await publishSharedProjectSnapshot(result.project, collaborationAuth.user.id);
         publishedAt = publishResult.publishedAt;
         await saveProjectMetadataOnly(result.project, { touch: false });
+        clearSharedUpdateAvailable(result.project.id);
       }
       setProjects((prev) =>
         prev.map((entry) =>
@@ -2268,6 +1655,7 @@ export default function ProjectsPage() {
       const localProject = unlinkLocalSharedProject(fullProject);
       await saveProject(localProject);
       scheduleSync(localProject.id);
+      clearSharedUpdateAvailable(localProject.id);
       setProjects((prev) =>
         prev.map((entry) =>
           entry.id === localProject.id ? { ...localProject, areas: [...localProject.areas] } : entry
@@ -2541,34 +1929,6 @@ export default function ProjectsPage() {
     });
   }
 
-  function handlePullStart(e: TouchEvent<HTMLElement>) {
-    const atTop = (listRef.current?.scrollTop ?? 0) <= 0;
-    if (!atTop || syncing) {
-      pullStartYRef.current = null;
-      return;
-    }
-    pullStartYRef.current = e.touches[0]?.clientY ?? null;
-  }
-
-  function handlePullMove(e: TouchEvent<HTMLElement>) {
-    const atTop = (listRef.current?.scrollTop ?? 0) <= 0;
-    if (pullStartYRef.current === null || !atTop || syncing) return;
-    const currentY = e.touches[0]?.clientY ?? pullStartYRef.current;
-    const delta = currentY - pullStartYRef.current;
-    const armed = delta >= 90;
-    if (armed !== pullArmedRef.current) {
-      pullArmedRef.current = armed;
-    }
-  }
-
-  function handlePullEnd() {
-    pullStartYRef.current = null;
-    if (pullArmedRef.current && !syncing) {
-      void handleSync();
-    }
-    pullArmedRef.current = false;
-  }
-
   if (loading) {
     return (
       <div className="flex min-h-[100dvh] items-center justify-center bg-[var(--background)]">
@@ -2715,12 +2075,7 @@ export default function ProjectsPage() {
 
       {/* Content */}
       <main
-        ref={listRef}
         className="flex-1 min-h-0 overflow-y-auto overscroll-y-contain px-4 pt-5 pb-[calc(env(safe-area-inset-bottom)+6.5rem)] sm:px-5"
-        onTouchStart={handlePullStart}
-        onTouchMove={handlePullMove}
-        onTouchEnd={handlePullEnd}
-        onTouchCancel={handlePullEnd}
       >
         {showTrash ? (
           trashedProjects.length === 0 && trashedAreaEntries.length === 0 ? (
@@ -2980,14 +2335,8 @@ export default function ProjectsPage() {
       {pendingPull && (
         <AppConfirmDialog
           title={pendingPull.reason === 'manual-pull' ? 'Pull Shared Data' : 'Review Shared Changes'}
-          message={
-            pendingPull.reason === 'publish-conflict'
-              ? `Publishing now would overwrite newer shared data from ${new Date(pendingPull.publishedAt).toLocaleString()}.\n\nThis will save a backup of your current local project, then replace this device's project data with the newer shared version.`
-              : pendingPull.reason === 'area-create-conflict'
-                ? `Shared data changed before this area could be added. Adding it now could recreate old project structure or duplicate work.\n\nThis will save a backup of your current local project, then replace this device's project data with the newer shared version from ${new Date(pendingPull.publishedAt).toLocaleString()}.`
-              : `${pendingPull.hasNewerLocalChanges ? 'Your local project has changes newer than the shared version.\n\n' : ''}This will save a backup of your current local project, then replace this device's project data with the shared version from ${new Date(pendingPull.publishedAt).toLocaleString()}.`
-          }
-          confirmLabel={pendingPull.reason === 'manual-pull' ? 'Pull' : 'Back Up + Pull'}
+          message={formatPendingSharedPullMessage(pendingPull)}
+          confirmLabel="Back Up + Merge"
           danger={pendingPull.hasNewerLocalChanges || pendingPull.reason !== 'manual-pull'}
           onCancel={() => setPendingPull(null)}
           onConfirm={() => void confirmPullSharedProject()}

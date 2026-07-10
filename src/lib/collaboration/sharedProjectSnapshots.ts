@@ -2,6 +2,7 @@ import type { Area, Project } from '@/types';
 import type { Json } from './database';
 import type { CollaborationSnapshotBackup, CollaborationSnapshotBackupReason } from './types';
 import { getCollaborationSupabaseClient } from './supabaseClient';
+import { parseProjectPayload } from '@/lib/projectPayload';
 
 type SnapshotResult = {
   project: Project;
@@ -31,54 +32,6 @@ export class SharedProjectPublishConflictError extends Error {
 
 function toJson(value: unknown): Json {
   return JSON.parse(JSON.stringify(value)) as Json;
-}
-
-function reviveProjectDates(project: Project): Project {
-  return {
-    ...project,
-    date: new Date(project.date),
-    createdAt: new Date(project.createdAt),
-    updatedAt: new Date(project.updatedAt),
-    sharedProjectLinkedAt: project.sharedProjectLinkedAt ? new Date(project.sharedProjectLinkedAt) : undefined,
-    sharedSnapshotPublishedAt: project.sharedSnapshotPublishedAt
-      ? new Date(project.sharedSnapshotPublishedAt)
-      : undefined,
-    deletedAt: project.deletedAt ? new Date(project.deletedAt) : undefined,
-    facadeElevationDrawings: (project.facadeElevationDrawings ?? []).map((drawing) => ({
-      ...drawing,
-      createdAt: new Date(drawing.createdAt),
-      updatedAt: new Date(drawing.updatedAt),
-    })),
-    areas: project.areas.map((area) => ({
-      ...area,
-      createdAt: new Date(area.createdAt),
-      updatedAt: new Date(area.updatedAt),
-      deletedAt: area.deletedAt ? new Date(area.deletedAt) : undefined,
-      locations: area.locations.map((location) => ({
-        ...location,
-        createdAt: new Date(location.createdAt),
-        updatedAt: new Date(location.updatedAt),
-        items: location.items.map((item) => ({
-          ...item,
-          createdAt: new Date(item.createdAt),
-          updatedAt: new Date(item.updatedAt),
-          checkpoints: item.checkpoints.map((checkpoint) => ({
-            ...checkpoint,
-            createdAt: new Date(checkpoint.createdAt),
-            updatedAt: new Date(checkpoint.updatedAt),
-            photos: checkpoint.photos.map((photo) => ({
-              ...photo,
-              createdAt: new Date(photo.createdAt),
-            })),
-            files: (checkpoint.files ?? []).map((file) => ({
-              ...file,
-              createdAt: new Date(file.createdAt),
-            })),
-          })),
-        })),
-      })),
-    })),
-  };
 }
 
 function retargetProject(project: Project, localProject: Project): Project {
@@ -260,7 +213,7 @@ export async function getSharedProjectSnapshot(localProject: Project): Promise<S
 
   const { data, error } = await supabase
     .from('shared_project_snapshots')
-    .select('project_payload, published_at')
+    .select('project_payload, payload_version, published_at')
     .eq('project_id', localProject.sharedProjectId)
     .maybeSingle();
 
@@ -272,7 +225,7 @@ export async function getSharedProjectSnapshot(localProject: Project): Promise<S
     throw new Error('No shared data has been published for this project yet.');
   }
 
-  const revivedProject = reviveProjectDates(data.project_payload as unknown as Project);
+  const revivedProject = parseProjectPayload(data.project_payload, data.payload_version);
   const retargetedProject = retargetProject(revivedProject, localProject);
   return {
     project: {
@@ -355,7 +308,7 @@ export async function getSharedProjectBackupSnapshot(localProject: Project, back
 
   const { data, error } = await supabase
     .from('shared_project_snapshot_history')
-    .select('project_payload, captured_at')
+    .select('project_payload, payload_version, captured_at')
     .eq('id', backupId)
     .eq('project_id', localProject.sharedProjectId)
     .maybeSingle();
@@ -368,7 +321,7 @@ export async function getSharedProjectBackupSnapshot(localProject: Project, back
     throw new Error('Could not find this shared project backup.');
   }
 
-  const revivedProject = reviveProjectDates(data.project_payload as unknown as Project);
+  const revivedProject = parseProjectPayload(data.project_payload, data.payload_version);
   const retargetedProject = retargetProject(revivedProject, localProject);
   return {
     project: {
@@ -381,7 +334,8 @@ export async function getSharedProjectBackupSnapshot(localProject: Project, back
 
 export function isSharedSnapshotNewer(localProject: Project, publishedAt: string) {
   const publishedMs = new Date(publishedAt).getTime();
-  const localUpdatedMs = new Date(localProject.updatedAt).getTime();
+  const comparisonDate = localProject.sharedSnapshotPublishedAt ?? localProject.updatedAt;
+  const localUpdatedMs = new Date(comparisonDate).getTime();
   if (!Number.isFinite(publishedMs)) return false;
   if (!Number.isFinite(localUpdatedMs)) return true;
   return publishedMs > localUpdatedMs + SHARED_SNAPSHOT_CLOCK_SKEW_MS;

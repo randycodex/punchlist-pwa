@@ -12,16 +12,38 @@ import {
 import type { AreaTypeKey, ApartmentUnitType, FacadeOrientation } from '@/lib/areas';
 import { v4 as uuidv4 } from 'uuid';
 
+type StoredPhotoAttachment = Omit<PhotoAttachment, 'imageData' | 'thumbnail'> & {
+  imageData: string | Blob;
+  thumbnail?: string | Blob;
+};
+
+type StoredFileAttachment = Omit<FileAttachment, 'data'> & {
+  data: string | Blob;
+};
+
 interface CheckpointMediaRecord {
   checkpointId: string;
   projectId: string;
-  photos: PhotoAttachment[];
-  files: FileAttachment[];
+  areaId: string;
+  photos: StoredPhotoAttachment[];
+  files: StoredFileAttachment[];
 }
 
 interface ElevationDrawingRecord extends FacadeElevationDrawing {
   projectId: string;
 }
+
+interface SyncMetadataRecord {
+  key: 'pending';
+  projectIds: string[];
+  fullSyncNeeded: boolean;
+  updatedAt: Date;
+}
+
+type SyncMetadataStore = {
+  get(key: 'pending'): Promise<SyncMetadataRecord | undefined>;
+  put(value: SyncMetadataRecord): Promise<'pending'>;
+};
 
 interface PunchListDB extends DBSchema {
   projects: {
@@ -32,16 +54,45 @@ interface PunchListDB extends DBSchema {
   checkpointMedia: {
     key: string;
     value: CheckpointMediaRecord;
-    indexes: { 'by-project': string };
+    indexes: { 'by-project': string; 'by-project-area': [string, string] };
   };
   elevationDrawings: {
     key: string;
     value: ElevationDrawingRecord;
     indexes: { 'by-project': string };
   };
+  syncMetadata: {
+    key: 'pending';
+    value: SyncMetadataRecord;
+  };
 }
 
 let dbPromise: Promise<IDBPDatabase<PunchListDB>> | null = null;
+
+type LocalSaveStatusDetail = {
+  status: 'saving' | 'saved' | 'error';
+  message?: string;
+};
+
+function reportLocalSaveStatus(detail: LocalSaveStatusDetail) {
+  if (typeof window === 'undefined' || typeof window.dispatchEvent !== 'function') return;
+  window.dispatchEvent(new CustomEvent('punchlist-local-save-status', { detail }));
+}
+
+async function runLocalPersistence<T>(operation: () => Promise<T>): Promise<T> {
+  reportLocalSaveStatus({ status: 'saving' });
+  try {
+    const result = await operation();
+    reportLocalSaveStatus({ status: 'saved' });
+    return result;
+  } catch (error) {
+    reportLocalSaveStatus({
+      status: 'error',
+      message: error instanceof Error ? error.message : 'This device could not save the latest change.',
+    });
+    throw error;
+  }
+}
 
 function sanitizeOneDriveFolderNamePart(value: string | undefined, fallback: string) {
   const cleaned = (value ?? '')
@@ -58,6 +109,7 @@ function stripPhotoPayload(photo: PhotoAttachment): PhotoAttachment {
   return {
     ...photo,
     imageData: '',
+    thumbnail: undefined,
   };
 }
 
@@ -79,17 +131,21 @@ function cloneProjectWithoutMediaPayload(project: Project): Project {
   return {
     ...project,
     facadeElevationDrawings: project.facadeElevationDrawings?.map(stripElevationDrawingPayload),
-    areas: project.areas.map((area) => ({
-      ...area,
-      locations: area.locations.map((location) => ({
-        ...location,
-        items: location.items.map((item) => ({
-          ...item,
-          checkpoints: item.checkpoints.map((checkpoint) => ({
-            ...checkpoint,
-            photos: checkpoint.photos.map(stripPhotoPayload),
-            files: (checkpoint.files ?? []).map(stripFilePayload),
-          })),
+    areas: project.areas.map(cloneAreaWithoutMediaPayload),
+  };
+}
+
+function cloneAreaWithoutMediaPayload(area: Area): Area {
+  return {
+    ...area,
+    locations: area.locations.map((location) => ({
+      ...location,
+      items: location.items.map((item) => ({
+        ...item,
+        checkpoints: item.checkpoints.map((checkpoint) => ({
+          ...checkpoint,
+          photos: checkpoint.photos.map(stripPhotoPayload),
+          files: (checkpoint.files ?? []).map(stripFilePayload),
         })),
       })),
     })),
@@ -119,16 +175,14 @@ function serializeProjectForStorage(project: Project): {
         items: location.items.map((item) => ({
           ...item,
           checkpoints: item.checkpoints.map((checkpoint) => {
-            const photos = checkpoint.photos.map((photo) => ({
-              ...photo,
-              thumbnail: undefined,
-            }));
+            const photos = checkpoint.photos;
             const files = checkpoint.files ?? [];
 
             if (photos.length > 0 || files.length > 0) {
               mediaRecords.push({
                 checkpointId: checkpoint.id,
                 projectId: project.id,
+                areaId: area.id,
                 photos,
                 files,
               });
@@ -148,12 +202,71 @@ function serializeProjectForStorage(project: Project): {
   return { storedProject, mediaRecords, elevationDrawingRecords };
 }
 
-function hydrateProjectMedia(project: Project, mediaRecords: CheckpointMediaRecord[]): Project {
+async function storedPayloadToDataUrl(payload: string | Blob | undefined) {
+  if (payload === undefined || typeof payload === 'string') return payload;
+  const bytes = new Uint8Array(await payload.arrayBuffer());
+  let binary = '';
+  const chunkSize = 0x8000;
+  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + chunkSize));
+  }
+  return `data:${payload.type || 'application/octet-stream'};base64,${btoa(binary)}`;
+}
+
+function dataUrlToStoredPayload(payload: string) {
+  const match = payload.match(/^data:([^;,]+)?(;base64)?,(.*)$/);
+  if (!match) return payload;
+  try {
+    const mimeType = match[1] || 'application/octet-stream';
+    const binary = match[2] ? atob(match[3]) : decodeURIComponent(match[3]);
+    const bytes = new Uint8Array(binary.length);
+    for (let index = 0; index < binary.length; index += 1) {
+      bytes[index] = binary.charCodeAt(index);
+    }
+    return new Blob([bytes], { type: mimeType });
+  } catch {
+    return payload;
+  }
+}
+
+async function compactMediaRecord(record: CheckpointMediaRecord): Promise<CheckpointMediaRecord> {
+  return {
+    ...record,
+    photos: record.photos.map((photo) => ({
+      ...photo,
+      imageData: typeof photo.imageData === 'string' ? dataUrlToStoredPayload(photo.imageData) : photo.imageData,
+      thumbnail: typeof photo.thumbnail === 'string' ? dataUrlToStoredPayload(photo.thumbnail) : photo.thumbnail,
+    })),
+    files: record.files.map((file) => ({
+      ...file,
+      data: typeof file.data === 'string' ? dataUrlToStoredPayload(file.data) : file.data,
+    })),
+  };
+}
+
+async function hydrateMediaRecord(record: CheckpointMediaRecord) {
+  return {
+    photos: await Promise.all(record.photos.map(async (photo): Promise<PhotoAttachment> => ({
+      ...photo,
+      imageData: (await storedPayloadToDataUrl(photo.imageData)) ?? '',
+      thumbnail: await storedPayloadToDataUrl(photo.thumbnail),
+    }))),
+    files: await Promise.all(record.files.map(async (file): Promise<FileAttachment> => ({
+      ...file,
+      data: (await storedPayloadToDataUrl(file.data)) ?? '',
+    }))),
+  };
+}
+
+async function hydrateProjectMedia(project: Project, mediaRecords: CheckpointMediaRecord[]): Promise<Project> {
   if (mediaRecords.length === 0) {
     return project;
   }
 
-  const mediaByCheckpoint = new Map(mediaRecords.map((record) => [record.checkpointId, record]));
+  const hydratedMediaRecords = await Promise.all(
+    mediaRecords.map(async (record) => [record.checkpointId, await hydrateMediaRecord(record)] as const)
+  );
+  const mediaByCheckpoint = new Map(hydratedMediaRecords);
 
   return {
     ...project,
@@ -242,7 +355,7 @@ function preserveExistingMediaPayloads(
 
 function getDB() {
   if (!dbPromise) {
-    dbPromise = openDB<PunchListDB>('punchlist-db', 3, {
+    dbPromise = openDB<PunchListDB>('punchlist-db', 5, {
       async upgrade(db, oldVersion, _newVersion, transaction) {
         if (!db.objectStoreNames.contains('projects')) {
           const projectStore = db.createObjectStore('projects', { keyPath: 'id' });
@@ -253,11 +366,16 @@ function getDB() {
         if (!db.objectStoreNames.contains('checkpointMedia')) {
           const mediaStore = db.createObjectStore('checkpointMedia', { keyPath: 'checkpointId' });
           mediaStore.createIndex('by-project', 'projectId');
+          mediaStore.createIndex('by-project-area', ['projectId', 'areaId']);
         }
 
         if (!db.objectStoreNames.contains('elevationDrawings')) {
           const drawingStore = db.createObjectStore('elevationDrawings', { keyPath: 'id' });
           drawingStore.createIndex('by-project', 'projectId');
+        }
+
+        if (!db.objectStoreNames.contains('syncMetadata')) {
+          db.createObjectStore('syncMetadata', { keyPath: 'key' });
         }
 
         if (oldVersion < 3 && db.objectStoreNames.contains('projects')) {
@@ -285,6 +403,36 @@ function getDB() {
             cursor = await cursor.continue();
           }
         }
+
+        if (oldVersion < 5 && db.objectStoreNames.contains('checkpointMedia')) {
+          const projectStore = transaction.objectStore('projects');
+          const mediaStore = transaction.objectStore('checkpointMedia');
+          if (!mediaStore.indexNames.contains('by-project-area')) {
+            mediaStore.createIndex('by-project-area', ['projectId', 'areaId']);
+          }
+
+          const areaIdByCheckpointId = new Map<string, string>();
+          for (const project of await projectStore.getAll()) {
+            for (const area of project.areas ?? []) {
+              for (const location of area.locations ?? []) {
+                for (const item of location.items ?? []) {
+                  for (const checkpoint of item.checkpoints ?? []) {
+                    areaIdByCheckpointId.set(checkpoint.id, area.id);
+                  }
+                }
+              }
+            }
+          }
+
+          let mediaCursor = await mediaStore.openCursor();
+          while (mediaCursor) {
+            const areaId = areaIdByCheckpointId.get(mediaCursor.value.checkpointId);
+            if (areaId && mediaCursor.value.areaId !== areaId) {
+              await mediaCursor.update({ ...mediaCursor.value, areaId });
+            }
+            mediaCursor = await mediaCursor.continue();
+          }
+        }
       },
     });
   }
@@ -306,7 +454,20 @@ export async function getProject(id: string): Promise<Project | undefined> {
     db.getAllFromIndex('checkpointMedia', 'by-project', id),
     db.getAllFromIndex('elevationDrawings', 'by-project', id),
   ]);
-  return hydrateProjectElevationDrawings(hydrateProjectMedia(project, mediaRecords), drawingRecords);
+  const projectWithMedia = await hydrateProjectMedia(project, mediaRecords);
+  return hydrateProjectElevationDrawings(projectWithMedia, drawingRecords);
+}
+
+export async function getProjectForArea(id: string, areaId: string): Promise<Project | undefined> {
+  const db = await getDB();
+  const project = await db.get('projects', id);
+  if (!project) return undefined;
+  const [mediaRecords, drawingRecords] = await Promise.all([
+    db.getAllFromIndex('checkpointMedia', 'by-project-area', [id, areaId]),
+    db.getAllFromIndex('elevationDrawings', 'by-project', id),
+  ]);
+  const projectWithAreaMedia = await hydrateProjectMedia(project, mediaRecords);
+  return hydrateProjectElevationDrawings(projectWithAreaMedia, drawingRecords);
 }
 
 export async function getProjectMetadata(id: string): Promise<Project | undefined> {
@@ -333,23 +494,78 @@ export async function getActiveProjectCount(): Promise<number> {
 }
 
 export async function saveProject(project: Project): Promise<void> {
-  await saveProjectInternal(project, { touch: true });
+  await runLocalPersistence(() => saveProjectInternal(project, { touch: true }));
 }
 
 export async function saveProjectMetadataOnly(
   project: Project,
   options: { touch?: boolean } = {}
 ): Promise<void> {
-  const db = await getDB();
-  if (options.touch ?? true) {
-    project.updatedAt = new Date();
-  }
-  const { storedProject } = serializeProjectForStorage(project);
-  await db.put('projects', storedProject);
+  await runLocalPersistence(async () => {
+    const db = await getDB();
+    const shouldMarkPending = options.touch ?? true;
+    if (shouldMarkPending) {
+      project.updatedAt = new Date();
+    }
+    const { storedProject } = serializeProjectForStorage(project);
+    const tx = db.transaction(['projects', 'syncMetadata'], 'readwrite');
+    await tx.objectStore('projects').put(storedProject);
+    if (shouldMarkPending) {
+      await markPendingProjectInStore(tx.objectStore('syncMetadata'), project.id);
+    }
+    await tx.done;
+  });
+}
+
+export async function saveProjectAreaMetadataOnly(
+  project: Project,
+  areaId: string,
+  options: { touch?: boolean } = {}
+): Promise<void> {
+  await runLocalPersistence(async () => {
+    const area = project.areas.find((entry) => entry.id === areaId);
+    if (!area) {
+      throw new Error(`Could not save missing project area ${areaId}.`);
+    }
+
+    const db = await getDB();
+    const shouldMarkPending = options.touch ?? true;
+    if (shouldMarkPending) {
+      project.updatedAt = new Date();
+    }
+
+    const tx = db.transaction(['projects', 'syncMetadata'], 'readwrite');
+    const projectStore = tx.objectStore('projects');
+    const existingProject = await projectStore.get(project.id);
+    const storedArea = cloneAreaWithoutMediaPayload(area);
+
+    if (!existingProject) {
+      const { storedProject } = serializeProjectForStorage(project);
+      await projectStore.put(storedProject);
+    } else {
+      const existingIndex = existingProject.areas.findIndex((entry) => entry.id === areaId);
+      const nextAreas = [...existingProject.areas];
+      if (existingIndex === -1) {
+        nextAreas.push(storedArea);
+      } else {
+        nextAreas[existingIndex] = storedArea;
+      }
+      await projectStore.put({
+        ...existingProject,
+        updatedAt: project.updatedAt,
+        areas: nextAreas,
+      });
+    }
+
+    if (shouldMarkPending) {
+      await markPendingProjectInStore(tx.objectStore('syncMetadata'), project.id);
+    }
+    await tx.done;
+  });
 }
 
 export async function saveProjectPreserveTimestamps(project: Project): Promise<void> {
-  await saveProjectInternal(project, { touch: false });
+  await runLocalPersistence(() => saveProjectInternal(project, { touch: false }));
 }
 
 async function saveProjectInternal(project: Project, options: { touch: boolean }): Promise<void> {
@@ -358,12 +574,15 @@ async function saveProjectInternal(project: Project, options: { touch: boolean }
     project.updatedAt = new Date();
   }
   const { storedProject, mediaRecords, elevationDrawingRecords } = serializeProjectForStorage(project);
-  const tx = db.transaction(['projects', 'checkpointMedia', 'elevationDrawings'], 'readwrite');
+  const tx = db.transaction(['projects', 'checkpointMedia', 'elevationDrawings', 'syncMetadata'], 'readwrite');
   const projectStore = tx.objectStore('projects');
   const mediaStore = tx.objectStore('checkpointMedia');
   const drawingStore = tx.objectStore('elevationDrawings');
 
   await projectStore.put(storedProject);
+  if (options.touch) {
+    await markPendingProjectInStore(tx.objectStore('syncMetadata'), project.id);
+  }
 
   const existingMediaRecords = await mediaStore.index('by-project').getAll(project.id);
   const existingMediaByCheckpoint = new Map(
@@ -378,9 +597,12 @@ async function saveProjectInternal(project: Project, options: { touch: boolean }
   );
 
   await Promise.all(
-    mediaRecords.map((record) =>
-      mediaStore.put(preserveExistingMediaPayloads(record, existingMediaByCheckpoint.get(record.checkpointId)))
-    )
+    mediaRecords.map(async (record) => {
+      const compactRecord = await compactMediaRecord(record);
+      return mediaStore.put(
+        preserveExistingMediaPayloads(compactRecord, existingMediaByCheckpoint.get(record.checkpointId))
+      );
+    })
   );
 
   const existingDrawingRecords = await drawingStore.index('by-project').getAll(project.id);
@@ -414,16 +636,67 @@ async function saveProjectInternal(project: Project, options: { touch: boolean }
 }
 
 export async function deleteProject(id: string): Promise<void> {
+  await runLocalPersistence(async () => {
+    const db = await getDB();
+    const tx = db.transaction(['projects', 'checkpointMedia', 'elevationDrawings', 'syncMetadata'], 'readwrite');
+    await tx.objectStore('projects').delete(id);
+    const mediaStore = tx.objectStore('checkpointMedia');
+    const mediaRecords = await mediaStore.index('by-project').getAll(id);
+    await Promise.all(mediaRecords.map((record) => mediaStore.delete(record.checkpointId)));
+    const drawingStore = tx.objectStore('elevationDrawings');
+    const drawingRecords = await drawingStore.index('by-project').getAll(id);
+    await Promise.all(drawingRecords.map((record) => drawingStore.delete(record.id)));
+    await markFullSyncNeededInStore(tx.objectStore('syncMetadata'));
+    await tx.done;
+  });
+}
+
+async function markPendingProjectInStore(
+  store: SyncMetadataStore,
+  projectId: string
+) {
+  const current = await store.get('pending');
+  const projectIds = new Set(current?.projectIds ?? []);
+  projectIds.add(projectId);
+  await store.put({
+    key: 'pending',
+    projectIds: [...projectIds],
+    fullSyncNeeded: current?.fullSyncNeeded ?? false,
+    updatedAt: new Date(),
+  });
+}
+
+async function markFullSyncNeededInStore(store: SyncMetadataStore) {
+  const current = await store.get('pending');
+  await store.put({
+    key: 'pending',
+    projectIds: current?.projectIds ?? [],
+    fullSyncNeeded: true,
+    updatedAt: new Date(),
+  });
+}
+
+export async function getDurablePendingSyncState() {
   const db = await getDB();
-  const tx = db.transaction(['projects', 'checkpointMedia', 'elevationDrawings'], 'readwrite');
-  await tx.objectStore('projects').delete(id);
-  const mediaStore = tx.objectStore('checkpointMedia');
-  const mediaRecords = await mediaStore.index('by-project').getAll(id);
-  await Promise.all(mediaRecords.map((record) => mediaStore.delete(record.checkpointId)));
-  const drawingStore = tx.objectStore('elevationDrawings');
-  const drawingRecords = await drawingStore.index('by-project').getAll(id);
-  await Promise.all(drawingRecords.map((record) => drawingStore.delete(record.id)));
-  await tx.done;
+  const state = await db.get('syncMetadata', 'pending');
+  return {
+    projectIds: state?.projectIds ?? [],
+    fullSyncNeeded: state?.fullSyncNeeded ?? false,
+  };
+}
+
+export async function persistDurablePendingSyncState(projectIds: string[], fullSyncNeeded: boolean) {
+  const db = await getDB();
+  if (projectIds.length === 0 && !fullSyncNeeded) {
+    await db.delete('syncMetadata', 'pending');
+    return;
+  }
+  await db.put('syncMetadata', {
+    key: 'pending',
+    projectIds: [...new Set(projectIds)],
+    fullSyncNeeded,
+    updatedAt: new Date(),
+  });
 }
 
 export function createProject(name: string, address: string = '', inspector: string = ''): Project {
