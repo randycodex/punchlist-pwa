@@ -1,6 +1,6 @@
 'use client';
 
-import { memo, useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { Area, Project, checkpointHasIssue, getReviewMetrics } from '@/types';
 import {
   getAllProjects,
@@ -23,6 +23,11 @@ import {
 } from '@/lib/pendingSync';
 import type { PdfExportMode } from '@/lib/pdfExport';
 import { uploadPdfToOneDrive, getNextOneDriveExportFilename } from '@/lib/oneDrive';
+import {
+  formatDateForExport,
+  getOneDriveProjectFolderName,
+  sanitizeExportNamePart,
+} from '@/lib/projectNaming';
 import { runManualOneDriveSync } from '@/features/sync/runManualOneDriveSync';
 import {
   formatPendingSharedPullMessage,
@@ -30,6 +35,11 @@ import {
   mergeSharedProjectAreas,
   type PendingSharedPullState,
 } from '@/features/collaboration/manualSharedPull';
+import { ProjectCard, type ProjectCardMetrics as ProjectMetrics } from '@/features/projects/ProjectCard';
+import { HomeAreaCard,
+  type HomeAreaCardMetrics as AreaMetrics,
+  type HomeAreaClaimDisplay as AreaClaimDisplay,
+} from '@/features/projects/HomeAreaCard';
 import { useMicrosoftAuth } from '@/contexts/MicrosoftAuthContext';
 import { useCollaborationAuth } from '@/contexts/CollaborationAuthContext';
 import { useSyncStatus } from '@/contexts/SyncStatusContext';
@@ -62,7 +72,6 @@ import {
 import type { CollaborationHealthReport, CollaborationProjectMember, CollaborationSharedProjectDirectoryEntry, CollaborationSnapshotBackup } from '@/lib/collaboration';
 import ProjectEditModal from '@/components/ProjectEditModal';
 import AreaEditorModal from '@/components/AreaEditorModal';
-import MetadataLine from '@/components/MetadataLine';
 import AppMessageDialog from '@/components/AppMessageDialog';
 import AppConfirmDialog from '@/components/AppConfirmDialog';
 import AppPromptDialog from '@/components/AppPromptDialog';
@@ -84,15 +93,11 @@ import {
   upsertFacadeElevationDrawing,
   type AreaTypeKey,
 } from '@/lib/areas';
-import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
-  ChevronRight,
   Trash2,
   FileDown,
   Loader2,
-  MoreVertical,
-  Pencil,
   RotateCcw,
   Plus,
 } from 'lucide-react';
@@ -105,43 +110,7 @@ const SORT_STORAGE_KEY = 'punchlist-projects-sort';
 const RECENT_AREA_TYPES_STORAGE_KEY = 'punchlist-recent-area-types';
 const TRASH_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 const LONG_PRESS_MS = 500;
-const AREA_CARD_LONG_PRESS_MOVE_THRESHOLD = 12;
 const SHARED_AREA_CLAIM_REFRESH_MS = 15 * 1000;
-
-function sanitizeOneDriveProjectFolderPart(value: string | undefined, fallback: string) {
-  const cleaned = (value ?? '')
-    .trim()
-    .replace(/\s+/g, '-')
-    .replace(/[^a-z0-9-_]/gi, '-')
-    .replace(/-+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 48);
-  return cleaned || fallback;
-}
-
-function getOneDriveProjectFolderName(project: Pick<Project, 'projectName' | 'oneDriveFolderName'>) {
-  return sanitizeOneDriveProjectFolderPart(
-    project.oneDriveFolderName,
-    sanitizeOneDriveProjectFolderPart(project.projectName, 'project')
-  );
-}
-
-function sanitizeExportNamePart(name: string): string {
-  const cleaned = name
-    .trim()
-    .replace(/\s+/g, '_')
-    .replace(/[^a-z0-9_-]/gi, '')
-    .replace(/_+/g, '_')
-    .replace(/^_+|_+$/g, '');
-  return cleaned || 'Project';
-}
-
-function formatDateForExport(now = new Date()): string {
-  const yyyy = now.getFullYear();
-  const mm = String(now.getMonth() + 1).padStart(2, '0');
-  const dd = String(now.getDate()).padStart(2, '0');
-  return `${yyyy}.${mm}.${dd}`;
-}
 
 function formatSharedBackupReason(reason: CollaborationSnapshotBackup['reason']) {
   if (reason === 'publish') return 'Published version';
@@ -161,16 +130,6 @@ function formatMemberJoinMethod(method: CollaborationProjectMember['joinedBy']) 
   return method === 'joinCode' ? 'Joined by code' : 'Email invite';
 }
 
-type ProjectMetrics = {
-  stats: { total: number; ok: number; issues: number; areas: number };
-  pending: number;
-  progress: number;
-  okPercent: number;
-  issuePercent: number;
-  photoCount: number;
-  commentCount: number;
-};
-
 type MessageDialogState = {
   title: string;
   message: string;
@@ -189,404 +148,11 @@ function unlinkLocalSharedProject(project: Project): Project {
   return nextProject;
 }
 
-type AreaMetrics = {
-  stats: { total: number; ok: number; issues: number; areas?: number };
-  pending: number;
-  progress: number;
-  photoCount: number;
-  commentCount: number;
-};
-
-type AreaClaimDisplay = {
-  ownership: 'mine' | 'other';
-  label: string;
-  expiresAt?: Date;
-};
-
 type TrashedAreaEntry = {
   project: Project;
   area: Area;
   deletedAt: Date;
 };
-
-type ProjectCardProps = {
-  project: Project;
-  metric?: ProjectMetrics;
-  selectionMode: boolean;
-  isSelected: boolean;
-  menuOpen: boolean;
-  onToggleSelection: (id: string) => void;
-  onToggleMenu: (id: string) => void;
-  onCloseMenu: () => void;
-  onEditProject: (project: Project) => void;
-  onDeleteProject: (project: Project) => void;
-  onLongPressSelect: (projectId: string) => void;
-  onPrimeOpen: (project: Project) => void;
-};
-
-const ProjectCard = memo(function ProjectCard({
-  project,
-  metric,
-  selectionMode,
-  isSelected,
-  menuOpen,
-  onToggleSelection,
-  onToggleMenu,
-  onCloseMenu,
-  onEditProject,
-  onDeleteProject,
-  onLongPressSelect,
-  onPrimeOpen,
-}: ProjectCardProps) {
-  const stats = metric?.stats ?? { total: 0, ok: 0, issues: 0, areas: project.areas.length };
-  const progress = metric?.progress ?? 0;
-  const commentCount = metric?.commentCount ?? 0;
-  const photoCount = metric?.photoCount ?? 0;
-  const hasContent = stats.total > 0 || stats.areas > 0;
-
-  const longPressRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  function clearLongPress() {
-    if (longPressRef.current) {
-      clearTimeout(longPressRef.current);
-      longPressRef.current = null;
-    }
-  }
-
-  return (
-    <div
-      onContextMenu={(event) => {
-        if (!selectionMode) {
-          event.preventDefault();
-        }
-      }}
-      onClick={() => {
-        if (selectionMode) {
-          onToggleSelection(project.id);
-        }
-      }}
-      onPointerDown={() => {
-        if (!selectionMode) {
-          onPrimeOpen(project);
-          longPressRef.current = setTimeout(() => {
-            onLongPressSelect(project.id);
-            longPressRef.current = null;
-          }, LONG_PRESS_MS);
-        }
-      }}
-      onMouseEnter={() => {
-        if (!selectionMode) {
-          onPrimeOpen(project);
-        }
-      }}
-      onPointerUp={clearLongPress}
-      onPointerCancel={clearLongPress}
-      onPointerLeave={clearLongPress}
-      className={`card-surface select-none rounded-[1.7rem] p-4 transition-all sm:p-5 [-webkit-touch-callout:none] ${
-        isSelected
-          ? '!border-gray-400 !bg-gray-100 dark:!border-gray-500 dark:!bg-white/[0.08]'
-          : 'hover:-translate-y-px hover:border-black/10 dark:hover:border-white/[0.08] dark:hover:bg-white/[0.07]'
-      } ${selectionMode ? 'cursor-pointer' : ''}`}
-    >
-      <div className="flex items-start gap-3">
-        <Link
-          href={selectionMode ? '#' : `/project/${project.id}`}
-          onClick={(event) => {
-            if (selectionMode) event.preventDefault();
-          }}
-          onContextMenu={(event) => {
-            if (!selectionMode) {
-              event.preventDefault();
-            }
-          }}
-          className="flex-1 min-w-0 [-webkit-touch-callout:none]"
-        >
-          <div className="min-w-0">
-            <div className="flex items-center gap-2 min-w-0">
-              <h3 className="truncate text-[1.05rem] font-semibold tracking-[-0.02em] text-gray-900 dark:text-white">{project.projectName}</h3>
-            </div>
-            <p className={`mt-1 truncate text-sm ${project.address ? 'text-gray-500 dark:text-gray-300' : 'text-gray-400 dark:text-gray-400'}`}>
-              {project.address || 'No address added'}
-            </p>
-            <MetadataLine className="mt-3" issues={stats.issues} notes={commentCount} photos={photoCount} />
-            <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-gray-200 dark:bg-white/[0.12]">
-              <div
-                className={`h-full rounded-full transition-all ${
-                  stats.issues > 0 ? 'accent-bg' : 'bg-gray-900 dark:bg-white'
-                } ${!hasContent ? 'opacity-40' : ''}`}
-                style={{ width: `${hasContent ? Math.max(progress, 4) : 4}%` }}
-              />
-            </div>
-          </div>
-        </Link>
-        <div className="flex items-center gap-2">
-          <div className="relative">
-            <button
-              onClick={(event) => {
-                event.stopPropagation();
-                onToggleMenu(project.id);
-              }}
-              onPointerDown={(event) => event.stopPropagation()}
-              className="rounded-[1rem] border border-black/5 bg-white/60 p-2 text-gray-400 transition hover:bg-white hover:text-gray-700 dark:border-white/10 dark:bg-white/[0.04] dark:text-gray-300 dark:hover:bg-white/[0.08] dark:hover:text-white"
-              aria-label={`Project actions for ${project.projectName}`}
-            >
-              <MoreVertical className="w-4 h-4" />
-            </button>
-            {menuOpen && (
-              <>
-                <div className="fixed inset-0 z-10" onClick={onCloseMenu} />
-                <div className="menu-surface absolute right-0 z-20 mt-2 w-44 overflow-hidden rounded-[1.3rem] p-1.5">
-                  <button
-                    onClick={() => {
-                      onCloseMenu();
-                      onEditProject(project);
-                    }}
-                    className="flex w-full items-center gap-2 rounded-[1rem] px-4 py-3 text-left text-sm text-gray-700 transition hover:bg-black/[0.04] dark:text-gray-300 dark:hover:bg-white/[0.05]"
-                  >
-                    <Pencil className="w-4 h-4" />
-                    Edit Project
-                  </button>
-                  <button
-                    onClick={() => {
-                      onCloseMenu();
-                      onDeleteProject(project);
-                    }}
-                    className="accent-text flex w-full items-center gap-2 rounded-[1rem] px-4 py-3 text-left text-sm transition hover:bg-black/[0.04] dark:hover:bg-white/[0.05]"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                    Delete
-                  </button>
-                </div>
-              </>
-            )}
-          </div>
-          <Link
-            href={selectionMode ? '#' : `/project/${project.id}`}
-            onClick={(event) => {
-              event.stopPropagation();
-              if (selectionMode) event.preventDefault();
-            }}
-            onContextMenu={(event) => {
-              if (!selectionMode) {
-                event.preventDefault();
-              }
-            }}
-            onPointerDown={(event) => {
-              event.stopPropagation();
-              if (!selectionMode) {
-                onPrimeOpen(project);
-              }
-            }}
-            onMouseEnter={() => {
-              if (!selectionMode) {
-                onPrimeOpen(project);
-              }
-            }}
-            className="mt-0.5 rounded-[1rem] border border-transparent p-1.5 text-gray-400 transition hover:border-black/5 hover:bg-white hover:text-gray-700 dark:text-gray-300 dark:hover:border-white/10 dark:hover:bg-white/[0.08] dark:hover:text-white [-webkit-touch-callout:none]"
-            aria-label={`Open ${project.projectName}`}
-          >
-            <ChevronRight className="w-5 h-5" />
-          </Link>
-        </div>
-      </div>
-    </div>
-  );
-});
-
-type HomeAreaCardProps = {
-  project: Project;
-  area: Project['areas'][number];
-  displayName: string;
-  metric?: AreaMetrics;
-  claimStatus?: AreaClaimDisplay;
-  deleteMode: boolean;
-  isSelected: boolean;
-  onToggleSelection: (areaId: string) => void;
-  onLongPressSelect: (areaId: string) => void;
-  onBlockedByClaim: (message: string) => void;
-  onPrimeOpen: (project: Project, areaId: string) => void;
-  onOpenArea: (project: Project, areaId: string) => void;
-};
-
-const HomeAreaCard = memo(function HomeAreaCard({
-  project,
-  area,
-  displayName,
-  metric,
-  claimStatus,
-  deleteMode,
-  isSelected,
-  onToggleSelection,
-  onLongPressSelect,
-  onBlockedByClaim,
-  onPrimeOpen,
-  onOpenArea,
-}: HomeAreaCardProps) {
-  const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const longPressStartRef = useRef<{ x: number; y: number } | null>(null);
-  const suppressClickRef = useRef(false);
-  const areaStats = metric?.stats ?? { total: 0, ok: 0, issues: 0 };
-  const progress = metric?.progress ?? 0;
-  const commentCount = metric?.commentCount ?? 0;
-  const photoCount = metric?.photoCount ?? 0;
-  const blockedByClaim = claimStatus?.ownership === 'other';
-  const claimLabel = claimStatus
-    ? claimStatus.ownership === 'mine'
-      ? 'In use by you'
-      : `In use by ${claimStatus.label}`
-    : null;
-  const blockedClaimMessage = claimStatus?.ownership === 'other'
-    ? `${claimStatus.label} is working in this area. Try again when they leave.`
-    : 'This shared area is currently in use.';
-  const clearLongPressTimer = () => {
-    if (longPressTimerRef.current) {
-      clearTimeout(longPressTimerRef.current);
-      longPressTimerRef.current = null;
-    }
-  };
-  useEffect(() => {
-    return () => {
-      if (longPressTimerRef.current) {
-        clearTimeout(longPressTimerRef.current);
-      }
-    };
-  }, []);
-
-  return (
-    <div
-      onPointerDown={(event) => {
-        if (deleteMode || blockedByClaim) return;
-        if (event.pointerType === 'mouse' && event.button !== 0) return;
-
-        onPrimeOpen(project, area.id);
-        clearLongPressTimer();
-        longPressStartRef.current = { x: event.clientX, y: event.clientY };
-        suppressClickRef.current = false;
-        longPressTimerRef.current = setTimeout(() => {
-          suppressClickRef.current = true;
-          onLongPressSelect(area.id);
-        }, LONG_PRESS_MS);
-      }}
-      onPointerMove={(event) => {
-        const start = longPressStartRef.current;
-        if (!start) return;
-        const moved = Math.hypot(event.clientX - start.x, event.clientY - start.y);
-        if (moved > AREA_CARD_LONG_PRESS_MOVE_THRESHOLD) {
-          clearLongPressTimer();
-        }
-      }}
-      onPointerUp={clearLongPressTimer}
-      onPointerCancel={clearLongPressTimer}
-      onPointerLeave={clearLongPressTimer}
-      onMouseEnter={() => {
-        if (!deleteMode && !blockedByClaim) {
-          onPrimeOpen(project, area.id);
-        }
-      }}
-      onContextMenu={(event) => {
-        if (!deleteMode) {
-          event.preventDefault();
-          if (!blockedByClaim) {
-            onLongPressSelect(area.id);
-          }
-        }
-      }}
-      onClickCapture={(event) => {
-        if (suppressClickRef.current) {
-          event.preventDefault();
-          event.stopPropagation();
-          suppressClickRef.current = false;
-        }
-      }}
-      onClick={() => {
-        if (deleteMode) {
-          onToggleSelection(area.id);
-        }
-      }}
-      className={`card-surface-subtle select-none touch-manipulation [-webkit-touch-callout:none] rounded-[1.6rem] p-4 transition-all sm:p-5 ${
-        isSelected
-          ? '!border-gray-400 !bg-gray-100 dark:!border-gray-500 dark:!bg-white/[0.08]'
-          : 'hover:-translate-y-px hover:border-black/10 dark:hover:border-white/[0.08]'
-      } ${deleteMode ? 'cursor-pointer' : ''}`}
-      style={{ WebkitTapHighlightColor: 'transparent' }}
-    >
-      <div className="flex items-start gap-3">
-        <Link
-          href={deleteMode || blockedByClaim ? '#' : `/project/${project.id}/area/${area.id}`}
-          onClick={(event) => {
-            if (deleteMode || blockedByClaim) {
-              event.preventDefault();
-              if (blockedByClaim) {
-                onBlockedByClaim(blockedClaimMessage);
-              }
-              return;
-            }
-            onOpenArea(project, area.id);
-          }}
-          onContextMenu={(event) => {
-            if (!deleteMode) {
-              event.preventDefault();
-            }
-          }}
-          className="flex-1 min-w-0 [-webkit-touch-callout:none]"
-          style={{ WebkitTapHighlightColor: 'transparent' }}
-        >
-          <div className="min-w-0">
-            <div className="flex items-center gap-2 min-w-0">
-              <h3 className="truncate text-[1.03rem] font-semibold tracking-[-0.02em] text-gray-900 dark:text-white">{displayName}</h3>
-              {claimLabel && (
-                <span className="segmented-chip shrink-0 px-2.5 py-1 text-[11px]">
-                  {claimLabel}
-                </span>
-              )}
-            </div>
-            <MetadataLine className="mt-2" issues={areaStats.issues} notes={commentCount} photos={photoCount} />
-            <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-gray-200 dark:bg-white/[0.12]">
-              <div
-                className={`${areaStats.issues > 0 ? 'accent-bg' : 'bg-gray-900 dark:bg-white'} h-full rounded-full transition-all`}
-                style={{ width: `${Math.max(progress, 4)}%` }}
-              />
-            </div>
-          </div>
-        </Link>
-        <Link
-          href={deleteMode || blockedByClaim ? '#' : `/project/${project.id}/area/${area.id}`}
-          onClick={(event) => {
-            if (deleteMode || blockedByClaim) {
-              event.preventDefault();
-              if (blockedByClaim) {
-                onBlockedByClaim(blockedClaimMessage);
-              }
-              return;
-            }
-            onOpenArea(project, area.id);
-          }}
-          onContextMenu={(event) => {
-            if (!deleteMode) {
-              event.preventDefault();
-            }
-          }}
-          onPointerDown={(event) => {
-            event.stopPropagation();
-            if (!deleteMode && !blockedByClaim) {
-              onPrimeOpen(project, area.id);
-            }
-          }}
-          onMouseEnter={() => {
-            if (!deleteMode && !blockedByClaim) {
-              onPrimeOpen(project, area.id);
-            }
-          }}
-          className="mt-0.5 rounded-[1rem] border border-transparent p-1.5 text-gray-400 transition hover:border-black/5 hover:bg-white hover:text-gray-700 dark:hover:border-white/10 dark:hover:bg-white/[0.06] dark:hover:text-gray-200 [-webkit-touch-callout:none]"
-          style={{ WebkitTapHighlightColor: 'transparent' }}
-          aria-label={`Open ${displayName}`}
-        >
-          <ChevronRight className="w-5 h-5" />
-        </Link>
-      </div>
-    </div>
-  );
-});
 
 export default function ProjectsPage() {
   const router = useRouter();

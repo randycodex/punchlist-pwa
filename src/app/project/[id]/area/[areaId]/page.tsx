@@ -50,6 +50,17 @@ import {
 } from '@/lib/pendingSync';
 import { runManualOneDriveSync } from '@/features/sync/runManualOneDriveSync';
 import { getNextPendingCheckpoint } from '@/features/inspection/checkpointNavigation';
+import {
+  CUSTOM_ITEMS_LOCATION_NAME,
+  OTHER_LOCATION_NAME,
+  checkpointHasFacadeListContent,
+  checkpointHasStoredMedia,
+  facadeAreaNeedsTemplateRefresh,
+  itemHasStoredMedia,
+  locationHasFacadeListContent,
+  locationHasRecordedActivity,
+  locationHasStoredMedia,
+} from '@/features/inspection/inspectionContent';
 import { useMicrosoftAuth } from '@/contexts/MicrosoftAuthContext';
 import { useCollaborationAuth } from '@/contexts/CollaborationAuthContext';
 import { useSyncStatus } from '@/contexts/SyncStatusContext';
@@ -82,85 +93,7 @@ import {
 
 const RECENT_COMMENTS_STORAGE_KEY = 'punchlist-recent-comments';
 const RECENT_AREA_TYPES_STORAGE_KEY = 'punchlist-recent-area-types';
-const CUSTOM_ITEMS_LOCATION_NAME = 'Custom Items';
-const OTHER_LOCATION_NAME = 'Other';
 const MAX_RECENT_COMMENTS = 5;
-const REQUIRED_FACADE_ITEM_NAMES = [
-  'Doors',
-  'Storefront',
-  'Planting',
-  'Light Fixture',
-  'Security Camera',
-  'Fence',
-  'Signage',
-  'Canopy',
-  'Louvers',
-];
-
-function locationHasRecordedActivity(location: Area['locations'][number]) {
-  return location.items.some((item) =>
-    item.checkpoints.some(
-      (checkpoint) =>
-        checkpoint.status !== 'pending' ||
-        checkpoint.comments.trim().length > 0 ||
-        Boolean(checkpoint.elevationMarker) ||
-        checkpoint.photos.length > 0 ||
-        (checkpoint.files?.length ?? 0) > 0
-    )
-  );
-}
-
-function checkpointHasStoredMedia(checkpoint: Checkpoint) {
-  return checkpoint.photos.length > 0 || (checkpoint.files?.length ?? 0) > 0;
-}
-
-function itemHasStoredMedia(item: Area['locations'][number]['items'][number]) {
-  return item.checkpoints.some(checkpointHasStoredMedia);
-}
-
-function locationHasStoredMedia(location: Area['locations'][number]) {
-  return location.items.some(itemHasStoredMedia);
-}
-
-function checkpointHasFacadeListContent(checkpoint: Checkpoint, drawingId?: string) {
-  const hasComments = checkpoint.comments.trim().length > 0;
-  const hasMedia = checkpoint.photos.length > 0 || (checkpoint.files?.length ?? 0) > 0;
-
-  if (checkpoint.isElevationIssue) {
-    const matchesDrawing = !drawingId || checkpoint.elevationMarker?.drawingId === drawingId;
-    return matchesDrawing && (checkpointHasIssue(checkpoint) || hasComments || hasMedia);
-  }
-
-  return (
-    checkpoint.status !== 'pending' ||
-    checkpointHasIssue(checkpoint) ||
-    hasComments ||
-    hasMedia ||
-    Boolean(checkpoint.elevationMarker)
-  );
-}
-
-function locationHasFacadeListContent(location: Area['locations'][number], drawingId?: string) {
-  return location.items.some((item) =>
-    item.checkpoints.some((checkpoint) => checkpointHasFacadeListContent(checkpoint, drawingId))
-  );
-}
-
-function facadeAreaNeedsTemplateRefresh(area: Area) {
-  if (area.areaTypeKey !== 'facade') return false;
-  const standardLocations = area.locations.filter(
-    (location) =>
-      !location.isCustom &&
-      location.name.trim().toLowerCase() !== CUSTOM_ITEMS_LOCATION_NAME.toLowerCase() &&
-      location.name.trim().toLowerCase() !== OTHER_LOCATION_NAME.toLowerCase()
-  );
-  if (standardLocations.length === 0) return false;
-
-  return standardLocations.some((location) => {
-    const itemNames = new Set(location.items.map((item) => item.name));
-    return REQUIRED_FACADE_ITEM_NAMES.some((itemName) => !itemNames.has(itemName));
-  });
-}
 
 type StatusMetrics = {
   total: number;

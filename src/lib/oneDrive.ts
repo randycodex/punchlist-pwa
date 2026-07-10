@@ -1,3 +1,5 @@
+import { formatDateForExport, sanitizeExportNamePart } from '@/lib/projectNaming';
+
 const GRAPH_API = 'https://graph.microsoft.com/v1.0';
 const PUNCHLIST_ROOT = 'PunchList';
 const TRASH_BIN_ROOT = `${PUNCHLIST_ROOT}/Trash Bin`;
@@ -624,23 +626,6 @@ export async function uploadPdfToOneDrive(
     },
     body: blob,
   });
-}
-
-function sanitizeExportNamePart(name: string): string {
-  const cleaned = name
-    .trim()
-    .replace(/\s+/g, '_')
-    .replace(/[^a-z0-9_-]/gi, '')
-    .replace(/_+/g, '_')
-    .replace(/^_+|_+$/g, '');
-  return cleaned || 'Project';
-}
-
-function formatDateForExport(now: Date): string {
-  const yyyy = now.getFullYear();
-  const mm = String(now.getMonth() + 1).padStart(2, '0');
-  const dd = String(now.getDate()).padStart(2, '0');
-  return `${yyyy}.${mm}.${dd}`;
 }
 
 export async function getNextOneDriveExportFilename(
