@@ -1,3 +1,8 @@
+import {
+  getDurablePendingSyncState,
+  persistDurablePendingSyncState,
+} from '@/lib/db';
+
 type PendingSyncState = {
   projectIds: string[];
   fullSyncNeeded: boolean;
@@ -45,6 +50,10 @@ function normalizePendingSyncState(raw: unknown): PendingSyncState {
 function persistPendingSyncState(state: PendingSyncState) {
   if (typeof window === 'undefined') return;
 
+  void persistDurablePendingSyncState(state.projectIds, state.fullSyncNeeded).catch((error) => {
+    console.info('Durable pending sync state could not be updated:', error);
+  });
+
   if (
     state.projectIds.length === 0 &&
     !state.fullSyncNeeded &&
@@ -57,6 +66,23 @@ function persistPendingSyncState(state: PendingSyncState) {
   }
 
   localStorage.setItem(PENDING_SYNC_STORAGE_KEY, JSON.stringify(state));
+}
+
+export async function restorePendingSyncStateFromDurableStorage() {
+  const localState = loadPendingSyncState();
+  try {
+    const durableState = await getDurablePendingSyncState();
+    const restoredState: PendingSyncState = {
+      ...localState,
+      projectIds: [...new Set([...durableState.projectIds, ...localState.projectIds])],
+      fullSyncNeeded: durableState.fullSyncNeeded || localState.fullSyncNeeded,
+    };
+    persistPendingSyncState(restoredState);
+    return restoredState;
+  } catch (error) {
+    console.info('Durable pending sync state could not be restored:', error);
+    return localState;
+  }
 }
 
 export function loadPendingSyncState(): PendingSyncState {

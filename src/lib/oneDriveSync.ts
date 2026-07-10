@@ -1,5 +1,6 @@
 import { Area, Checkpoint, FileAttachment, Item, Location, PhotoAttachment, Project } from '@/types';
 import { splitFacadeLevels } from '@/lib/areas';
+import { parseProjectPayload, serializeProjectPayload } from '@/lib/projectPayload';
 import {
   getAllProjects,
   getProject,
@@ -1089,50 +1090,6 @@ function resolveProjectSyncStates(
   return { syncStates: next, revivedRemoteProjectIds };
 }
 
-function reviveProjectDates(project: Project): Project {
-  return {
-    ...project,
-    date: new Date(project.date),
-    createdAt: new Date(project.createdAt),
-    updatedAt: new Date(project.updatedAt),
-    deletedAt: project.deletedAt ? new Date(project.deletedAt) : undefined,
-    facadeElevationDrawings: (project.facadeElevationDrawings ?? []).map((drawing) => ({
-      ...drawing,
-      createdAt: new Date(drawing.createdAt),
-      updatedAt: new Date(drawing.updatedAt),
-    })),
-    areas: (project.areas ?? []).map((area) => ({
-      ...area,
-      createdAt: new Date(area.createdAt),
-      updatedAt: new Date(area.updatedAt),
-      deletedAt: area.deletedAt ? new Date(area.deletedAt) : undefined,
-      locations: (area.locations ?? []).map((location) => ({
-        ...location,
-        createdAt: new Date(location.createdAt),
-        updatedAt: new Date(location.updatedAt),
-        items: (location.items ?? []).map((item) => ({
-          ...item,
-          createdAt: new Date(item.createdAt),
-          updatedAt: new Date(item.updatedAt),
-          checkpoints: (item.checkpoints ?? []).map((checkpoint) => ({
-            ...checkpoint,
-            createdAt: new Date(checkpoint.createdAt),
-            updatedAt: new Date(checkpoint.updatedAt),
-            photos: (checkpoint.photos ?? []).map((photo) => ({
-              ...photo,
-              createdAt: new Date(photo.createdAt),
-            })),
-            files: (checkpoint.files ?? []).map((file) => ({
-              ...file,
-              createdAt: new Date(file.createdAt),
-            })),
-          })),
-        })),
-      })),
-    })),
-  };
-}
-
 async function downloadRemoteProject(token: string, remoteId: string): Promise<Project | null> {
   let raw: string;
   try {
@@ -1144,9 +1101,9 @@ async function downloadRemoteProject(token: string, remoteId: string): Promise<P
     throw error;
   }
   try {
-    return reviveProjectDates(JSON.parse(raw) as Project);
-  } catch {
-    return null;
+    return parseProjectPayload(JSON.parse(raw));
+  } catch (error) {
+    throw new Error('OneDrive project data is invalid. Your local project was not changed.', { cause: error });
   }
 }
 
@@ -1368,7 +1325,7 @@ export async function syncProjectsWithOneDrive(token: string, options: SyncOptio
         token,
         targetFolderName,
         filename,
-        JSON.stringify(stripProjectMediaPayload(fullProject)),
+        serializeProjectPayload(stripProjectMediaPayload(fullProject)),
         isProjectInTrash(fullProject),
         canonicalRemote?.eTag
       );
@@ -1449,7 +1406,7 @@ export async function pushProjectsToOneDrive(token: string, projectIds: string[]
         token,
         targetFolderName,
         filename,
-        JSON.stringify(stripProjectMediaPayload(localProjectWithFolder)),
+        serializeProjectPayload(stripProjectMediaPayload(localProjectWithFolder)),
         isProjectInTrash(localProjectWithFolder),
         canonicalRemote?.eTag
       );

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo, useRef, useCallback, type TouchEvent } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import {
   Project,
@@ -14,10 +14,9 @@ import {
 } from '@/types';
 import {
   getActiveProjectCount,
-  getProject,
+  getProjectForArea,
   saveProject,
-  saveProjectMetadataOnly,
-  saveProjectPreserveTimestamps,
+  saveProjectAreaMetadataOnly,
   createPhotoAttachment,
   createFileAttachment,
   createLocation,
@@ -25,11 +24,6 @@ import {
   createCheckpoint,
 } from '@/lib/db';
 import { cacheProjectPreview, getCachedProjectPreview } from '@/lib/projectNavigationCache';
-import {
-  formatMicrosoftManualRetryMessage,
-  getMicrosoftErrorMessage,
-  getMicrosoftRetryDelayMs,
-} from '@/lib/microsoftErrors';
 import AreaEditorModal from '@/components/AreaEditorModal';
 import AppConfirmDialog from '@/components/AppConfirmDialog';
 import AppPromptDialog from '@/components/AppPromptDialog';
@@ -51,23 +45,11 @@ import {
 } from '@/lib/elevationMarkers';
 import { applyTemplateToArea } from '@/lib/template';
 import {
-  formatSyncConflictReviewMessage,
-  syncProjectsWithOneDriveRecovery,
-} from '@/lib/oneDriveSyncRecovery';
-import { queueBackgroundProjectMediaHydration, resetBackgroundMediaHydration } from '@/lib/backgroundMediaHydration';
-import {
-  queueBackgroundSharedProjectPublish,
-  queueStaleBackgroundSharedProjectPublishes,
-  resetBackgroundSharedProjectPublish,
-} from '@/lib/backgroundSharedPublish';
-import {
-  clearPendingSyncState,
   hasPendingSyncState,
-  loadPendingSyncState,
-  pausePendingSyncAutoRetry,
   queuePendingSync,
-  resumePendingSyncAutoRetry,
 } from '@/lib/pendingSync';
+import { runManualOneDriveSync } from '@/features/sync/runManualOneDriveSync';
+import { getNextPendingCheckpoint } from '@/features/inspection/checkpointNavigation';
 import { useMicrosoftAuth } from '@/contexts/MicrosoftAuthContext';
 import { useCollaborationAuth } from '@/contexts/CollaborationAuthContext';
 import { useSyncStatus } from '@/contexts/SyncStatusContext';
@@ -77,8 +59,7 @@ import {
   getCollaborationErrorMessage,
   getCollaborationRuntimeConfig,
   getAreaClaimExpiry,
-  getSharedProjectSnapshot,
-  hasNewerLocalChangesThanSharedSnapshot,
+  getSharedProjectSnapshotMetadata,
   isSharedSnapshotNewer,
   releaseSharedProjectArea,
   subscribeToSharedProjectSnapshotChanges,
@@ -220,18 +201,11 @@ type LocationMetrics = {
 
 type CheckpointReviewState = 'pending' | 'ok' | 'open' | 'resolved' | 'verified';
 type ScheduleSyncOptions = { fullSync?: boolean };
-type LiveSharedUpdateState =
-  | { kind: 'waiting-for-draft'; message: string }
-  | { kind: 'local-newer'; message: string }
-  | null;
 type SharedAreaLockProblem =
   | { kind: 'blocked'; message: string }
   | { kind: 'lost'; message: string }
   | null;
 
-const LIVE_SHARED_WAITING_MESSAGE = 'Shared update ready. It will apply automatically when this edit is finished.';
-const LIVE_SHARED_LOCAL_NEWER_MESSAGE =
-  'Shared update ready. Review it from the project page to keep your local edits safe.';
 const SHARED_AREA_LOCK_BLOCKED_MESSAGE =
   'This shared area is in use by someone else. Try again when they leave, or return to the project.';
 const SHARED_AREA_LOCK_LOST_MESSAGE =
@@ -288,7 +262,7 @@ export default function AreaDetailPage() {
   } | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
-  const [liveSharedUpdate, setLiveSharedUpdate] = useState<LiveSharedUpdateState>(null);
+  const [inspectionNotice, setInspectionNotice] = useState<string | null>(null);
   const [areaClaimError, setAreaClaimError] = useState<string | null>(null);
   const [claimingArea, setClaimingArea] = useState(false);
   const [releasingAreaClaim, setReleasingAreaClaim] = useState(false);
@@ -304,23 +278,23 @@ export default function AreaDetailPage() {
   const projectRef = useRef<Project | null>(null);
   const areaRef = useRef<Area | null>(null);
   const areaClaimProblemRef = useRef<SharedAreaLockProblem>(null);
-  const liveSharedRefreshBlockedRef = useRef(false);
-  const pendingLiveSharedRefreshRef = useRef(false);
-  const retryLiveSharedRefreshRef = useRef<() => void>(() => {});
   const scheduleSyncRef = useRef<(projectId?: string, options?: ScheduleSyncOptions) => void>(() => {});
   const loadDataRef = useRef<() => Promise<void>>(() => Promise.resolve());
-  const pullStartYRef = useRef<number | null>(null);
-  const pullDistanceRef = useRef(0);
-  const pullArmedRef = useRef(false);
   const listRef = useRef<HTMLElement | null>(null);
   const itemRefs = useRef(new Map<string, HTMLDivElement | null>());
   const locationRefs = useRef(new Map<string, HTMLDivElement | null>());
   const headerMenuRef = useRef<HTMLDivElement | null>(null);
   const topMenuActionHandlerRef = useRef<((event: Event) => void) | null>(null);
-  const { ensureAccessToken, signIn, isReady, isSignedIn, accountEmail, accountName } = useMicrosoftAuth();
-  const ensureAccessTokenRef = useRef(ensureAccessToken);
+  const { ensureAccessToken, signIn, isReady, isSignedIn } = useMicrosoftAuth();
   const collaborationAuth = useCollaborationAuth();
-  const { setRetryAt, setStatus: setSyncStatus } = useSyncStatus();
+  const {
+    clearSharedUpdateAvailable,
+    markSharedUpdateAvailable,
+    setRetryAt,
+    setStatus: setSyncStatus,
+    setSyncConflicts,
+    sharedUpdateProjectIds,
+  } = useSyncStatus();
   const { inspectionShowOnlyIssues, setInspectionShowOnlyIssues, quickSort, markSyncedNow } = useAppSettings();
 
   useEffect(() => {
@@ -328,15 +302,8 @@ export default function AreaDetailPage() {
     areaRef.current = area;
     areaClaimProblemRef.current = areaClaimProblem;
     scheduleSyncRef.current = scheduleSync;
-    ensureAccessTokenRef.current = ensureAccessToken;
     loadDataRef.current = loadData;
   });
-
-  const pauseAutoSyncRetry = useCallback(() => {
-    pausePendingSyncAutoRetry();
-    setRetryAt(null);
-    setSyncStatus(hasPendingSyncState() ? 'pending' : 'idle');
-  }, [setRetryAt, setSyncStatus]);
 
   function sharedAreaEditsAreBlocked() {
     return Boolean(projectRef.current?.sharedProjectId && areaClaimProblemRef.current);
@@ -364,59 +331,6 @@ export default function AreaDetailPage() {
     }
   }, [project]);
 
-  useEffect(() => {
-    const expandedComment = expandedCheckpoint && area
-      ? area.locations
-          .find((location) => location.id === expandedCheckpoint.locationId)
-          ?.items.find((item) => item.id === expandedCheckpoint.itemId)
-          ?.checkpoints.find((checkpoint) => checkpoint.id === expandedCheckpoint.checkpointId)
-      : null;
-    const hasUnsavedCheckpointComment = expandedComment
-      ? (expandedComment.comments ?? '') !== commentText
-      : false;
-    const hasUnsavedGeneralNotes = (area?.notes ?? '') !== notesDraftRef.current;
-    const hasComposerDraft =
-      customItemName.trim().length > 0 ||
-      customSubareaName.trim().length > 0 ||
-      customCheckpointName.trim().length > 0;
-    const blocked =
-      hasUnsavedGeneralNotes ||
-      hasUnsavedCheckpointComment ||
-      hasComposerDraft ||
-      showEditArea ||
-      deleteMode ||
-      showCustomItemComposer ||
-      showCustomSubareaComposer ||
-      showCustomCheckpointComposer ||
-      Boolean(editingCustomItem) ||
-      Boolean(editingCustomCheckpoint) ||
-      Boolean(promptDialog) ||
-      Boolean(confirmDialog);
-
-    liveSharedRefreshBlockedRef.current = blocked;
-    if (!blocked && pendingLiveSharedRefreshRef.current) {
-      pendingLiveSharedRefreshRef.current = false;
-      retryLiveSharedRefreshRef.current();
-    }
-  }, [
-    area,
-    commentText,
-    confirmDialog,
-    customCheckpointName,
-    customItemName,
-    customSubareaName,
-    deleteMode,
-    editingCustomCheckpoint,
-    editingCustomItem,
-    expandedCheckpoint,
-    generalNotes,
-    promptDialog,
-    showCustomCheckpointComposer,
-    showCustomItemComposer,
-    showCustomSubareaComposer,
-    showEditArea,
-  ]);
-
   const persistGeneralNotes = useCallback(async (value: string) => {
     const currentProject = projectRef.current;
     const currentArea = areaRef.current;
@@ -427,7 +341,7 @@ export default function AreaDetailPage() {
     if ((targetArea.notes ?? '') === value) return;
     targetArea.notes = value;
     targetArea.updatedAt = new Date();
-    await saveProjectMetadataOnly(currentProject);
+    await saveProjectAreaMetadataOnly(currentProject, targetArea.id);
     scheduleSyncRef.current(currentProject.id);
     setProject({ ...currentProject, areas: [...currentProject.areas] });
     setArea({ ...targetArea });
@@ -469,45 +383,16 @@ export default function AreaDetailPage() {
   }, [persistGeneralNotes]);
 
   useEffect(() => {
-    if (!collaborationAuth.isSignedIn) {
-      resetBackgroundSharedProjectPublish();
-    }
-  }, [collaborationAuth.isSignedIn]);
-
-  useEffect(() => {
     if (!isReady || loading) return;
     if (!isSignedIn) {
-      resetBackgroundMediaHydration();
       setRetryAt(null);
-      setSyncStatus('idle');
+      setSyncStatus(hasPendingSyncState() ? 'pending' : 'idle');
       return;
     }
 
     setRetryAt(null);
     setSyncStatus(hasPendingSyncState() ? 'pending' : 'idle');
   }, [isReady, isSignedIn, loading, setRetryAt, setSyncStatus]);
-
-  useEffect(() => {
-    if (!isReady || loading || !isSignedIn || !project) return;
-    let active = true;
-    const accountKey = accountEmail ?? accountName ?? 'signed-in';
-    queueBackgroundProjectMediaHydration({
-      accountKey,
-      projects: [project],
-      getAccessToken: () => ensureAccessTokenRef.current({ interactive: false }),
-      onProjectHydrated: (hydratedProject) => {
-        if (!active || hydratedProject.id !== projectRef.current?.id) return;
-        const hydratedArea = hydratedProject.areas.find((entry) => entry.id === areaRef.current?.id);
-        if (!hydratedArea || hydratedArea.deletedAt) return;
-        cacheProjectPreview(hydratedProject);
-        setProject(hydratedProject);
-        setArea(hydratedArea);
-      },
-    });
-    return () => {
-      active = false;
-    };
-  }, [accountEmail, accountName, isReady, isSignedIn, loading, project]);
 
   useEffect(() => {
     if (!showHeaderMenu) return;
@@ -546,83 +431,22 @@ export default function AreaDetailPage() {
   }, [area]);
 
   useEffect(() => {
-    if (!collaborationAuth.isSignedIn || !project?.sharedProjectId || !area?.id) {
-      retryLiveSharedRefreshRef.current = () => {};
-      pendingLiveSharedRefreshRef.current = false;
-      return;
-    }
+    if (!collaborationAuth.isSignedIn || !project?.sharedProjectId || !area?.id) return;
 
     const localProjectId = project.id;
-    const activeAreaId = area.id;
     const activeSharedProjectId = project.sharedProjectId;
-    let cancelled = false;
-    let refreshing = false;
-
-    async function pullSafeSharedSnapshot() {
-      if (refreshing) return;
-      refreshing = true;
-      try {
-        const localProject = await getProject(localProjectId);
-        if (cancelled || !localProject?.sharedProjectId) return;
-
-        const snapshot = await getSharedProjectSnapshot(localProject);
-        if (cancelled) return;
-        if (!isSharedSnapshotNewer(localProject, snapshot.publishedAt)) {
-          pendingLiveSharedRefreshRef.current = false;
-          setLiveSharedUpdate(null);
-          return;
-        }
-
-        if (hasNewerLocalChangesThanSharedSnapshot(localProject, snapshot.publishedAt)) {
-          pendingLiveSharedRefreshRef.current = false;
-          setLiveSharedUpdate({ kind: 'local-newer', message: LIVE_SHARED_LOCAL_NEWER_MESSAGE });
-          return;
-        }
-
-        if (liveSharedRefreshBlockedRef.current) {
-          pendingLiveSharedRefreshRef.current = true;
-          setLiveSharedUpdate({ kind: 'waiting-for-draft', message: LIVE_SHARED_WAITING_MESSAGE });
-          return;
-        }
-
-        const snapshotArea = snapshot.project.areas.find((entry) => entry.id === activeAreaId);
-        await saveProjectPreserveTimestamps(snapshot.project);
-        if (cancelled) return;
-        cacheProjectPreview(snapshot.project);
-        if (!snapshotArea || snapshotArea.deletedAt) {
-          router.push(`/project/${localProject.id}`);
-          return;
-        }
-        pendingLiveSharedRefreshRef.current = false;
-        setLiveSharedUpdate(null);
-        setProject(snapshot.project);
-        setArea(snapshotArea);
-      } catch (error) {
-        if (!cancelled) {
-          console.info('Live shared area refresh skipped:', error);
-        }
-      } finally {
-        refreshing = false;
-      }
-    }
-
-    retryLiveSharedRefreshRef.current = () => {
-      void pullSafeSharedSnapshot();
-    };
 
     const unsubscribeSnapshotChanges = subscribeToSharedProjectSnapshotChanges(
       activeSharedProjectId,
-      () => {
-        void pullSafeSharedSnapshot();
+      (change) => {
+        if (!change.publishedAt || isSharedSnapshotNewer(project, change.publishedAt)) {
+          markSharedUpdateAvailable(localProjectId);
+        }
       }
     );
 
-    return () => {
-      cancelled = true;
-      retryLiveSharedRefreshRef.current = () => {};
-      unsubscribeSnapshotChanges();
-    };
-  }, [area?.id, collaborationAuth.isSignedIn, project?.id, project?.sharedProjectId, router]);
+    return unsubscribeSnapshotChanges;
+  }, [area?.id, collaborationAuth.isSignedIn, markSharedUpdateAvailable, project]);
 
   useEffect(() => {
     const sharedProjectId = project?.sharedProjectId;
@@ -757,7 +581,7 @@ export default function AreaDetailPage() {
     try {
       const [activeProjectCount, projectData] = await Promise.all([
         getActiveProjectCount(),
-        getProject(id),
+        getProjectForArea(id, areaId),
       ]);
       setReturnToHome(activeProjectCount === 1);
       if (projectData) {
@@ -765,23 +589,18 @@ export default function AreaDetailPage() {
           router.push('/');
           return;
         }
-        let nextProject = projectData;
+        const nextProject = projectData;
         if (collaborationAuth.isSignedIn && projectData.sharedProjectId) {
           try {
-            const snapshot = await getSharedProjectSnapshot(projectData);
-            if (isSharedSnapshotNewer(projectData, snapshot.publishedAt)) {
-              await saveProjectPreserveTimestamps(snapshot.project);
-              nextProject = snapshot.project;
+            const metadata = await getSharedProjectSnapshotMetadata(projectData.sharedProjectId);
+            if (metadata && isSharedSnapshotNewer(projectData, metadata.publishedAt)) {
+              markSharedUpdateAvailable(projectData.id);
+            } else {
+              clearSharedUpdateAvailable(projectData.id);
             }
           } catch (error) {
-            console.info('Shared snapshot pull skipped:', error);
+            console.info('Shared update check skipped:', error);
           }
-        }
-        if (collaborationAuth.user?.id) {
-          queueStaleBackgroundSharedProjectPublishes({
-            projects: [nextProject],
-            userId: collaborationAuth.user.id,
-          });
         }
         setProject(nextProject);
         const areaData = nextProject.areas.find((a) => a.id === areaId);
@@ -1033,7 +852,7 @@ export default function AreaDetailPage() {
     }
     checkpoint.updatedAt = new Date();
     syncAreaCompletion(area);
-    await saveProjectMetadataOnly(project);
+    await saveProjectAreaMetadataOnly(project, area.id);
     scheduleSync(project.id);
     setArea({ ...area });
   }
@@ -1054,7 +873,7 @@ export default function AreaDetailPage() {
     checkpoint.comments = value;
     checkpoint.updatedAt = new Date();
     syncAreaCompletion(area);
-    await saveProjectMetadataOnly(project);
+    await saveProjectAreaMetadataOnly(project, area.id);
     scheduleSync(project.id);
 
     const trimmedComment = value.trim();
@@ -1173,7 +992,7 @@ export default function AreaDetailPage() {
     if (shouldUseFullSave) {
       await saveProject(project);
     } else {
-      await saveProjectMetadataOnly(project);
+      await saveProjectAreaMetadataOnly(project, targetArea.id);
     }
     scheduleSync(project.id);
 
@@ -1204,7 +1023,7 @@ export default function AreaDetailPage() {
 
       targetItem.name = trimmedName;
       syncAreaCompletion(targetArea);
-      await saveProjectMetadataOnly(project);
+      await saveProjectAreaMetadataOnly(project, targetArea.id);
       scheduleSync(project.id);
 
       setCustomItemName('');
@@ -1238,7 +1057,7 @@ export default function AreaDetailPage() {
     });
     syncAreaCompletion(targetArea);
 
-    await saveProjectMetadataOnly(project);
+    await saveProjectAreaMetadataOnly(project, targetArea.id);
     scheduleSync(project.id);
 
     setCustomItemName('');
@@ -1269,7 +1088,7 @@ export default function AreaDetailPage() {
     });
 
     syncAreaCompletion(targetArea);
-    await saveProjectMetadataOnly(project);
+    await saveProjectAreaMetadataOnly(project, targetArea.id);
     scheduleSync(project.id);
 
     setCustomSubareaName('');
@@ -1313,7 +1132,7 @@ export default function AreaDetailPage() {
       checkpoint.updatedAt = new Date();
 
       syncAreaCompletion(targetArea);
-      await saveProjectMetadataOnly(project);
+      await saveProjectAreaMetadataOnly(project, targetArea.id);
       scheduleSync(project.id);
 
       setCustomCheckpointName('');
@@ -1340,7 +1159,7 @@ export default function AreaDetailPage() {
     });
 
     syncAreaCompletion(targetArea);
-    await saveProjectMetadataOnly(project);
+    await saveProjectAreaMetadataOnly(project, targetArea.id);
     scheduleSync(project.id);
 
     setCustomCheckpointName('');
@@ -1424,7 +1243,7 @@ export default function AreaDetailPage() {
     if (removedStoredMedia) {
       await saveProject(project);
     } else {
-      await saveProjectMetadataOnly(project);
+      await saveProjectAreaMetadataOnly(project, targetArea.id);
     }
     scheduleSync(project.id);
     setProject({ ...project, areas: [...project.areas] });
@@ -1466,7 +1285,7 @@ export default function AreaDetailPage() {
     if (removedStoredMedia) {
       await saveProject(project);
     } else {
-      await saveProjectMetadataOnly(project);
+      await saveProjectAreaMetadataOnly(project, targetArea.id);
     }
     scheduleSync(project.id);
     setProject({ ...project, areas: [...project.areas] });
@@ -1504,7 +1323,7 @@ export default function AreaDetailPage() {
     targetLocation.updatedAt = new Date();
 
     syncAreaCompletion(targetArea);
-    await saveProjectMetadataOnly(project);
+    await saveProjectAreaMetadataOnly(project, targetArea.id);
     scheduleSync(project.id);
     setProject({ ...project, areas: [...project.areas] });
     setArea({ ...targetArea });
@@ -1539,7 +1358,7 @@ export default function AreaDetailPage() {
     if (removedStoredMedia) {
       await saveProject(project);
     } else {
-      await saveProjectMetadataOnly(project);
+      await saveProjectAreaMetadataOnly(project, targetArea.id);
     }
     scheduleSync(project.id);
     setProject({ ...project, areas: [...project.areas] });
@@ -1707,81 +1526,44 @@ export default function AreaDetailPage() {
     setArea({ ...area });
   }
 
-  async function handleSync(options: { interactive?: boolean; quiet?: boolean; silentStatus?: boolean } = {}) {
+  async function handleSync() {
     if (syncing) return;
-    if (!options.quiet) {
-      resumePendingSyncAutoRetry();
-      setRetryAt(null);
-    }
     setSyncing(true);
-    if (!options.quiet) {
-      setSyncError(null);
-    }
-    if (!options.silentStatus) {
-      setSyncStatus('syncing');
-    }
+    setSyncError(null);
+    setRetryAt(null);
+    setSyncStatus('syncing');
     try {
-      const token = await ensureAccessToken({ interactive: options.interactive ?? true });
-      if (!token) {
-        if (options.quiet) {
-          setSyncStatus(hasPendingSyncState() ? 'pending' : 'idle');
-        } else {
-          setSyncError('Please sign in to sync.');
-          setSyncStatus('needs-auth');
-          await signIn({ selectAccount: true });
-        }
-        return;
-      }
-      const pendingSyncState = loadPendingSyncState();
-      const result = await syncProjectsWithOneDriveRecovery(token, {
-        pushProjectIds: pendingSyncState.projectIds,
+      const result = await runManualOneDriveSync({
+        ensureAccessToken: () => ensureAccessToken({ interactive: true }),
       });
-      if (result.conflicts.length > 0) {
-        if (!options.quiet) {
-          setSyncError(formatSyncConflictReviewMessage(result.conflicts));
-        }
-        pauseAutoSyncRetry();
+      if (result.status === 'needs-auth') {
+        setSyncError('Please sign in to sync.');
+        setSyncStatus('needs-auth');
+        await signIn({ selectAccount: true });
         return;
       }
-      clearPendingSyncState();
+      if (result.status === 'conflict') {
+        setSyncConflicts(result.conflicts);
+        setSyncError(result.message);
+        setSyncStatus('error');
+        return;
+      }
+      if (result.status === 'retry') {
+        setSyncError(result.message);
+        setSyncStatus('pending');
+        return;
+      }
+      if (result.status === 'error') {
+        setSyncError(result.message);
+        setSyncStatus('error');
+        return;
+      }
+      setSyncConflicts([]);
       setSyncError(null);
       setRetryAt(null);
       setSyncStatus('idle');
       markSyncedNow();
       await loadData();
-    } catch (error) {
-      console.error('Sync failed:', error);
-      const hasQueuedSync = hasPendingSyncState();
-      const retryDelayMs = getMicrosoftRetryDelayMs(error);
-      if (retryDelayMs) {
-        if (!hasQueuedSync) {
-          queuePendingSync(undefined, { fullSync: true });
-        }
-        setRetryAt(null);
-        if (!options.quiet) {
-          setSyncError(formatMicrosoftManualRetryMessage(Math.ceil(retryDelayMs / 1000)));
-        }
-        pauseAutoSyncRetry();
-        return;
-      }
-      const message = getMicrosoftErrorMessage(error, 'Sync failed.');
-      if (message.startsWith('Saved locally.')) {
-        if (!hasQueuedSync) {
-          queuePendingSync(undefined, { fullSync: true });
-        }
-        setRetryAt(null);
-        if (!options.quiet) {
-          setSyncError(formatMicrosoftManualRetryMessage());
-        }
-        pauseAutoSyncRetry();
-        return;
-      }
-      if (options.quiet) {
-        setSyncStatus(hasQueuedSync ? 'pending' : 'idle');
-        return;
-      }
-      setSyncError(message);
-      setSyncStatus('error');
     } finally {
       setSyncing(false);
     }
@@ -1804,7 +1586,6 @@ export default function AreaDetailPage() {
     setSyncError(null);
     try {
       await closeExpandedCheckpoint();
-      scheduleSharedPublish(project.id);
       await releaseSharedProjectArea(project.sharedProjectId, area.id);
       setAreaClaimExpiresAt(null);
       setAreaClaimError(null);
@@ -1829,10 +1610,6 @@ export default function AreaDetailPage() {
     }, 400);
   }
 
-  function isListAtTop() {
-    return (listRef.current?.scrollTop ?? 0) <= 8;
-  }
-
   function scrollLocationToListAnchor(locationId: string) {
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
@@ -1853,56 +1630,9 @@ export default function AreaDetailPage() {
     });
   }
 
-  function handlePullStart(e: TouchEvent<HTMLElement>) {
-    if (e.touches.length !== 1) {
-      pullStartYRef.current = null;
-      pullDistanceRef.current = 0;
-      return;
-    }
-    const atTop = isListAtTop();
-    if (!atTop || syncing) {
-      pullStartYRef.current = null;
-      pullDistanceRef.current = 0;
-      return;
-    }
-    pullStartYRef.current = e.touches[0]?.clientY ?? null;
-    pullDistanceRef.current = 0;
-  }
-
-  function handlePullMove(e: TouchEvent<HTMLElement>) {
-    if (e.touches.length !== 1) return;
-    const atTop = isListAtTop();
-    if (pullStartYRef.current === null || !atTop || syncing) return;
-    const currentY = e.touches[0]?.clientY ?? pullStartYRef.current;
-    const delta = currentY - pullStartYRef.current;
-    pullDistanceRef.current = delta;
-    const armed = delta >= 45;
-    if (armed !== pullArmedRef.current) {
-      pullArmedRef.current = armed;
-    }
-  }
-
-  function handlePullEnd() {
-    pullStartYRef.current = null;
-    if (pullDistanceRef.current >= 45 && !syncing) {
-      void handleSync();
-    }
-    pullDistanceRef.current = 0;
-    pullArmedRef.current = false;
-  }
-
   function scheduleSync(projectId?: string, options?: ScheduleSyncOptions) {
     queuePendingSync(projectId, options);
     setSyncStatus('pending');
-    if (projectId) {
-      scheduleSharedPublish(projectId);
-    }
-  }
-
-  function scheduleSharedPublish(projectId: string) {
-    const userId = collaborationAuth.user?.id;
-    if (!userId) return;
-    queueBackgroundSharedProjectPublish({ projectId, userId });
   }
 
   async function closeExpandedCheckpoint() {
@@ -2034,6 +1764,37 @@ export default function AreaDetailPage() {
     setBulkExpansionMode('expanded');
   }
 
+  async function goToNextPendingCheckpoint() {
+    if (!area || areaEditingLocked) return;
+    const currentCheckpointId = expandedCheckpoint?.checkpointId ?? null;
+    await closeExpandedCheckpoint();
+
+    const nextEntry = getNextPendingCheckpoint(area, currentCheckpointId, {
+      excludedLocationNames: [OTHER_LOCATION_NAME],
+    });
+
+    if (!nextEntry) {
+      setInspectionNotice('All checkpoints in this area have been reviewed.');
+      return;
+    }
+
+    setInspectionNotice(null);
+    setInspectionShowOnlyIssues(false);
+    setExpandedLocations((current) => new Set([...current, nextEntry.location.id]));
+    setExpandedItems((current) => new Set([...current, nextEntry.item.id]));
+    setExpandedCheckpoint({
+      locationId: nextEntry.location.id,
+      itemId: nextEntry.item.id,
+      checkpointId: nextEntry.checkpoint.id,
+    });
+    setCommentText(nextEntry.checkpoint.comments ?? '');
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        itemRefs.current.get(nextEntry.item.id)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      });
+    });
+  }
+
   async function openElevationSelection({
     locationId,
     itemId,
@@ -2105,7 +1866,7 @@ export default function AreaDetailPage() {
       entry.sortOrder = index;
     });
     syncAreaCompletion(targetArea);
-    await saveProjectMetadataOnly(project);
+    await saveProjectAreaMetadataOnly(project, targetArea.id);
     scheduleSync(project.id);
     setProject({ ...project, areas: [...project.areas] });
     setArea({ ...targetArea });
@@ -2173,7 +1934,11 @@ export default function AreaDetailPage() {
   const flattenSingleStairsLocation =
     !deleteMode && !isApartmentArea(area) && sortedStandardLocations.length === 1;
   const canReleaseAreaClaim = Boolean(project.sharedProjectId && areaClaimExpiresAt && !areaClaimError && !areaClaimProblem);
-  const visibleLiveSharedUpdate = collaborationAuth.isSignedIn && project.sharedProjectId ? liveSharedUpdate : null;
+  const visibleLiveSharedUpdate = Boolean(
+    collaborationAuth.isSignedIn &&
+    project.sharedProjectId &&
+    sharedUpdateProjectIds.has(project.id)
+  );
   const sharedAreaClaimLabel = visibleAreaClaimProblem
     ? visibleAreaClaimProblem.kind === 'blocked'
       ? 'Area in use by someone else'
@@ -2272,6 +2037,17 @@ export default function AreaDetailPage() {
                       )}
                       {bulkExpansionMode === 'expanded' ? 'Collapse all' : 'Expand all'}
                     </button>
+                    <button
+                      onClick={() => {
+                        setShowHeaderMenu(false);
+                        void goToNextPendingCheckpoint();
+                      }}
+                      disabled={areaEditingLocked}
+                      className="flex w-full items-center gap-3 rounded-[1rem] px-3 py-2.5 text-left text-[0.98rem] text-gray-700 transition hover:bg-black/[0.04] disabled:opacity-50 dark:text-gray-200 dark:hover:bg-white/[0.06]"
+                    >
+                      <ChevronsDown className="h-4 w-4" />
+                      Next pending checkpoint
+                    </button>
                   </div>
                 </div>
               )}
@@ -2350,22 +2126,28 @@ export default function AreaDetailPage() {
         </div>
       )}
 
+      {inspectionNotice && (
+        <div className="shrink-0 border-b border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-medium text-emerald-900 dark:border-emerald-300/20 dark:bg-emerald-400/10 dark:text-emerald-100" aria-live="polite">
+          {inspectionNotice}
+        </div>
+      )}
+
       {visibleLiveSharedUpdate && (
         <div
           className="shrink-0 border-b border-sky-200 bg-sky-50 px-4 py-2 text-sm text-sky-950 dark:border-sky-300/20 dark:bg-sky-400/10 dark:text-sky-100"
           aria-live="polite"
         >
           <div className="mx-auto flex w-full max-w-6xl flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-            <p className="min-w-0 flex-1 font-medium">{visibleLiveSharedUpdate.message}</p>
-            {visibleLiveSharedUpdate.kind === 'local-newer' && (
-              <button
-                type="button"
-                onClick={() => router.push(`/project/${project.id}`)}
-                className="inline-flex h-9 w-fit items-center justify-center rounded-full bg-sky-700 px-3 text-xs font-semibold text-white transition hover:bg-sky-800 dark:bg-sky-200 dark:text-sky-950 dark:hover:bg-sky-100"
-              >
-                Review
-              </button>
-            )}
+            <p className="min-w-0 flex-1 font-medium">
+              A team update is available. Your current inspection stays on this device until you pull it manually.
+            </p>
+            <button
+              type="button"
+              onClick={() => router.push(`/project/${project.id}`)}
+              className="inline-flex h-9 w-fit items-center justify-center rounded-full bg-sky-700 px-3 text-xs font-semibold text-white transition hover:bg-sky-800 dark:bg-sky-200 dark:text-sky-950 dark:hover:bg-sky-100"
+            >
+              Review
+            </button>
           </div>
         </div>
       )}
@@ -2373,10 +2155,6 @@ export default function AreaDetailPage() {
       <main
         ref={listRef}
         className="flex-1 min-h-0 overflow-y-scroll overscroll-y-contain touch-pan-y px-4 pt-5 pb-[calc(env(safe-area-inset-bottom)+3.5rem)] sm:px-5"
-        onTouchStartCapture={handlePullStart}
-        onTouchMoveCapture={handlePullMove}
-        onTouchEndCapture={handlePullEnd}
-        onTouchCancelCapture={handlePullEnd}
       >
         <div
           className={`list-stack mx-auto min-h-[calc(100%+1px)] w-full max-w-6xl transition-opacity ${
