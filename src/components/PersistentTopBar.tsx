@@ -10,7 +10,7 @@ import { useCollaborationAuth } from '@/contexts/CollaborationAuthContext';
 import { useSyncStatus } from '@/contexts/SyncStatusContext';
 import { useAppSettings } from '@/contexts/AppSettingsContext';
 import { getProject } from '@/lib/db';
-import { hasPendingSyncState, loadPendingSyncState } from '@/lib/pendingSync';
+import { hasPendingSyncState } from '@/lib/pendingSync';
 import { getCachedProjectPreview } from '@/lib/projectNavigationCache';
 import {
   Activity,
@@ -35,16 +35,9 @@ import {
   Trash2,
   UserPlus,
   Users,
-  X,
 } from 'lucide-react';
 
 const projectTitleCache = new Map<string, string>();
-
-function formatStorageSize(bytes: number) {
-  if (bytes < 1024 * 1024) return `${Math.max(0, Math.round(bytes / 1024))} KB`;
-  if (bytes < 1024 * 1024 * 1024) return `${Math.round(bytes / (1024 * 1024))} MB`;
-  return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
-}
 
 type SortOption = 'alphabetical' | 'issues' | 'progress';
 type QuickSortOption = 'issues' | 'alphabetical' | 'progress';
@@ -67,25 +60,21 @@ type HomeMenuState = {
 
 export default function PersistentTopBar() {
   const pathname = usePathname();
-  const { accountEmail, accountName, isReady, isSignedIn } = useMicrosoftAuth();
+  const { isReady, isSignedIn } = useMicrosoftAuth();
   const collaborationAuth = useCollaborationAuth();
   const {
     localSaveError,
     localSaveStatus,
     retryInSeconds,
-    sharedUpdateProjectIds,
     status,
-    syncConflicts,
   } = useSyncStatus();
-  const { lastSyncAt, quickSort } = useAppSettings();
+  const { quickSort } = useAppSettings();
   const hasQueuedSync = status === 'pending' && hasPendingSyncState();
   const displayStatus = status === 'pending' && !hasQueuedSync ? 'idle' : status;
   const displayRetryInSeconds = hasQueuedSync ? retryInSeconds : 0;
   const showAuth = pathname === '/';
   const [projectTitle, setProjectTitle] = useState('');
   const [showHomeMenu, setShowHomeMenu] = useState(false);
-  const [showSyncCenter, setShowSyncCenter] = useState(false);
-  const [storageEstimate, setStorageEstimate] = useState<{ usage: number; quota: number } | null>(null);
   const [homeMenuState, setHomeMenuState] = useState<HomeMenuState>({
     context: 'home',
     sortOption: 'alphabetical',
@@ -112,9 +101,6 @@ export default function PersistentTopBar() {
     homeMenuState.context === 'project' && homeMenuState.singleProjectName
       ? homeMenuState.singleProjectName
       : projectTitle;
-  const pendingSyncState = showSyncCenter ? loadPendingSyncState() : null;
-  const pendingProjectCount = pendingSyncState?.projectIds.length ?? 0;
-  const hasSharedUpdates = sharedUpdateProjectIds.size > 0;
 
   const syncButtonClasses = {
     idle: 'border-black/5 bg-white/70 text-gray-600 hover:bg-white dark:border-white/10 dark:bg-white/[0.04] dark:text-gray-300 dark:hover:bg-white/[0.08]',
@@ -189,32 +175,17 @@ export default function PersistentTopBar() {
   }, [homeMenuState.context, homeMenuState.singleProjectName, projectId]);
 
   useEffect(() => {
-    if (!showHomeMenu && !showSyncCenter) return;
+    if (!showHomeMenu) return;
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         setShowHomeMenu(false);
-        setShowSyncCenter(false);
       }
     };
     document.addEventListener('keydown', handleKeyDown);
     return () => {
       document.removeEventListener('keydown', handleKeyDown);
     };
-  }, [showHomeMenu, showSyncCenter]);
-
-  useEffect(() => {
-    if (!showSyncCenter || !navigator.storage?.estimate) return;
-    let active = true;
-    void navigator.storage.estimate().then((estimate) => {
-      if (!active || estimate.usage === undefined || estimate.quota === undefined) return;
-      setStorageEstimate({ usage: estimate.usage, quota: estimate.quota });
-    }).catch(() => {
-      if (active) setStorageEstimate(null);
-    });
-    return () => {
-      active = false;
-    };
-  }, [showSyncCenter]);
+  }, [showHomeMenu]);
 
   useEffect(() => {
     const root = document.documentElement;
@@ -265,29 +236,21 @@ export default function PersistentTopBar() {
   function renderSyncButton() {
     const label = localSaveStatus === 'error'
       ? 'Local save needs attention'
-      : hasSharedUpdates && displayStatus === 'idle'
-      ? `${sharedUpdateProjectIds.size} team update${sharedUpdateProjectIds.size === 1 ? '' : 's'} available`
       : displayRetryInSeconds > 0
       ? `Sync available in ${displayRetryInSeconds} seconds`
       : syncButtonLabel[displayStatus];
     const shortLabel = localSaveStatus === 'error'
       ? 'Save error'
-      : hasSharedUpdates && displayStatus === 'idle'
-      ? 'Update'
       : displayRetryInSeconds > 0
       ? `${displayRetryInSeconds}s`
       : syncButtonShortLabel[displayStatus];
     const SyncIcon = localSaveStatus === 'error'
       ? Activity
-      : hasSharedUpdates && displayStatus === 'idle'
-      ? CloudDownload
       : displayRetryInSeconds > 0
         ? CloudUpload
         : syncButtonIcons[displayStatus];
     const buttonClasses = localSaveStatus === 'error'
       ? syncButtonClasses.error
-      : hasSharedUpdates && displayStatus === 'idle'
-      ? 'border-sky-200 bg-sky-50 text-sky-700 hover:bg-sky-100 dark:border-sky-400/25 dark:bg-sky-400/10 dark:text-sky-200 dark:hover:bg-sky-400/15'
       : syncButtonClasses[displayStatus];
 
     return (
@@ -295,11 +258,17 @@ export default function PersistentTopBar() {
         type="button"
         onClick={() => {
           setShowHomeMenu(false);
-          setShowSyncCenter(true);
+          if (localSaveStatus === 'error') {
+            window.alert(
+              `This device could not save the latest change. Keep the app open and try the action again.${localSaveError ? ` ${localSaveError}` : ''}`
+            );
+            return;
+          }
+          dispatchHomeAction('sync-now');
         }}
+        disabled={displayStatus === 'syncing' || displayRetryInSeconds > 0}
         className={`flex h-10 min-w-10 shrink-0 items-center justify-center gap-2 rounded-[1rem] border px-2.5 transition ${buttonClasses}`}
         aria-label={label}
-        aria-haspopup="dialog"
         title={label}
       >
         <SyncIcon className={`h-4 w-4 ${displayStatus === 'syncing' && displayRetryInSeconds === 0 ? 'animate-spin' : ''}`} />
@@ -590,178 +559,6 @@ export default function PersistentTopBar() {
                   </div>
                 </div>
                 </div>
-              </div>
-            ), document.body)}
-            {showSyncCenter && createPortal((
-              <div
-                className="fixed inset-0 z-[140] flex items-end justify-center bg-black/30 p-0 backdrop-blur-[2px] sm:items-center sm:p-5"
-                role="presentation"
-                onMouseDown={(event) => {
-                  if (event.currentTarget === event.target) {
-                    setShowSyncCenter(false);
-                  }
-                }}
-              >
-                <section
-                  className="menu-surface w-full max-w-md rounded-b-none rounded-t-[1.75rem] p-4 pb-[calc(env(safe-area-inset-bottom)+1rem)] sm:rounded-[1.75rem] sm:p-5"
-                  role="dialog"
-                  aria-modal="true"
-                  aria-labelledby="sync-center-title"
-                >
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <h2 id="sync-center-title" className="text-lg font-semibold text-gray-950 dark:text-white">
-                        Manual sync
-                      </h2>
-                      <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
-                        Your work saves to this device automatically.
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => setShowSyncCenter(false)}
-                      className="flex h-10 w-10 items-center justify-center rounded-full bg-black/[0.04] text-gray-500 transition hover:bg-black/[0.08] dark:bg-white/[0.06] dark:text-gray-300 dark:hover:bg-white/[0.1]"
-                      aria-label="Close sync center"
-                    >
-                      <X className="h-5 w-5" />
-                    </button>
-                  </div>
-
-                  <div className="mt-4 space-y-2 rounded-[1.25rem] bg-black/[0.03] p-3 dark:bg-white/[0.04]">
-                    <div className="flex items-center justify-between gap-4 text-sm">
-                      <span className="text-gray-600 dark:text-gray-300">On this device</span>
-                      <span
-                        className={`inline-flex items-center gap-1.5 font-medium ${
-                          localSaveStatus === 'error'
-                            ? 'text-red-700 dark:text-red-300'
-                            : localSaveStatus === 'saving'
-                              ? 'text-sky-700 dark:text-sky-300'
-                              : 'text-emerald-700 dark:text-emerald-300'
-                        }`}
-                        aria-live="polite"
-                      >
-                        {localSaveStatus === 'saving' ? (
-                          <><RefreshCw className="h-4 w-4 animate-spin" /> Saving...</>
-                        ) : localSaveStatus === 'error' ? (
-                          <><Activity className="h-4 w-4" /> Save failed</>
-                        ) : (
-                          <><CheckCircle2 className="h-4 w-4" /> Saved</>
-                        )}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between gap-4 text-sm">
-                      <span className="text-gray-600 dark:text-gray-300">OneDrive changes</span>
-                      <span className={`text-right font-medium ${syncConflicts.length > 0 ? 'text-red-700 dark:text-red-300' : 'text-gray-900 dark:text-white'}`}>
-                        {syncConflicts.length > 0
-                          ? `${syncConflicts.length} conflict${syncConflicts.length === 1 ? '' : 's'}`
-                          : pendingSyncState?.fullSyncNeeded
-                          ? 'Full sync waiting'
-                          : pendingProjectCount > 0
-                            ? `${pendingProjectCount} project${pendingProjectCount === 1 ? '' : 's'} waiting`
-                            : 'None waiting'}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between gap-4 text-sm">
-                      <span className="text-gray-600 dark:text-gray-300">Team updates</span>
-                      <span className={`text-right font-medium ${hasSharedUpdates ? 'text-sky-700 dark:text-sky-300' : 'text-gray-900 dark:text-white'}`}>
-                        {hasSharedUpdates
-                          ? `${sharedUpdateProjectIds.size} available`
-                          : 'None detected'}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between gap-4 text-sm">
-                      <span className="text-gray-600 dark:text-gray-300">Last OneDrive sync</span>
-                      <span className="text-right font-medium text-gray-900 dark:text-white">
-                        {lastSyncAt ? new Date(lastSyncAt).toLocaleString() : 'Never'}
-                      </span>
-                    </div>
-                    {storageEstimate && (
-                      <div className="flex items-center justify-between gap-4 text-sm">
-                        <span className="text-gray-600 dark:text-gray-300">Device storage used</span>
-                        <span className="text-right font-medium text-gray-900 dark:text-white">
-                          {formatStorageSize(storageEstimate.usage)} of {formatStorageSize(storageEstimate.quota)}
-                        </span>
-                      </div>
-                    )}
-                    <div className="flex items-center justify-between gap-4 text-sm">
-                      <span className="text-gray-600 dark:text-gray-300">Microsoft account</span>
-                      <span className="max-w-[62%] truncate text-right font-medium text-gray-900 dark:text-white">
-                        {isSignedIn ? accountEmail || accountName || 'Signed in' : 'Not signed in'}
-                      </span>
-                    </div>
-                  </div>
-
-                  {localSaveError && (
-                    <p className="mt-3 rounded-[1rem] border border-red-200 bg-red-50 px-3 py-2 text-xs leading-5 text-red-800 dark:border-red-300/20 dark:bg-red-400/10 dark:text-red-100">
-                      This device could not save the latest change. Keep this screen open and try the action again. {localSaveError}
-                    </p>
-                  )}
-
-                  {syncConflicts.length > 0 && (
-                    <div className="mt-3 rounded-[1rem] border border-red-200 bg-red-50 px-3 py-2.5 text-xs leading-5 text-red-900 dark:border-red-300/20 dark:bg-red-400/10 dark:text-red-100">
-                      <p className="font-semibold">OneDrive changed before your upload completed.</p>
-                      <p className="mt-1">Your local work is safe. Review the affected project, then retry manual sync.</p>
-                      <div className="mt-2 flex flex-wrap gap-2">
-                        {syncConflicts.map((conflict) => (
-                          <Link
-                            key={conflict.id}
-                            href={`/project/${conflict.id}`}
-                            onClick={() => setShowSyncCenter(false)}
-                            className="rounded-full bg-red-900/10 px-2.5 py-1 font-semibold text-red-900 hover:bg-red-900/15 dark:bg-white/10 dark:text-white dark:hover:bg-white/15"
-                          >
-                            {conflict.name}
-                          </Link>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  <p className="mt-3 text-xs leading-5 text-gray-500 dark:text-gray-400">
-                    Nothing uploads to or downloads from OneDrive until you press Sync now. Team project versions are published and pulled manually from the project menu.
-                  </p>
-
-                  {hasSharedUpdates && projectId && (
-                    isAreaRoute ? (
-                      <Link
-                        href={`/project/${projectId}`}
-                        onClick={() => setShowSyncCenter(false)}
-                        className="mt-4 flex h-11 w-full items-center justify-center rounded-[1rem] border border-sky-200 bg-sky-50 px-4 text-sm font-semibold text-sky-800 transition hover:bg-sky-100 dark:border-sky-300/20 dark:bg-sky-400/10 dark:text-sky-100 dark:hover:bg-sky-400/15"
-                      >
-                        Review team update
-                      </Link>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setShowSyncCenter(false);
-                          dispatchHomeAction('pull-shared-project');
-                        }}
-                        className="mt-4 flex h-11 w-full items-center justify-center rounded-[1rem] border border-sky-200 bg-sky-50 px-4 text-sm font-semibold text-sky-800 transition hover:bg-sky-100 dark:border-sky-300/20 dark:bg-sky-400/10 dark:text-sky-100 dark:hover:bg-sky-400/15"
-                      >
-                        Pull team update
-                      </button>
-                    )
-                  )}
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setShowSyncCenter(false);
-                      dispatchHomeAction('sync-now');
-                    }}
-                    disabled={displayStatus === 'syncing'}
-                    className="mt-3 flex h-12 w-full items-center justify-center gap-2 rounded-[1rem] bg-gray-950 px-4 text-sm font-semibold text-white transition hover:bg-black disabled:cursor-wait disabled:opacity-60 dark:bg-white dark:text-gray-950 dark:hover:bg-gray-100"
-                  >
-                    <RefreshCw className={`h-4 w-4 ${displayStatus === 'syncing' ? 'animate-spin' : ''}`} />
-                    {displayStatus === 'syncing'
-                      ? 'Syncing...'
-                      : syncConflicts.length > 0
-                        ? 'Retry OneDrive sync'
-                        : isSignedIn
-                          ? 'Sync OneDrive now'
-                          : 'Sign in and sync'}
-                  </button>
-                </section>
               </div>
             ), document.body)}
           </div>
