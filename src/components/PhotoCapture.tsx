@@ -3,7 +3,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
-import { Camera, Paperclip, X, Zap, ZapOff } from 'lucide-react';
+import { Camera, ChevronLeft, ChevronRight, Paperclip, X, Zap, ZapOff } from 'lucide-react';
 import { PhotoAttachment, FileAttachment } from '@/types';
 
 const PHOTO_INPUT_ACCEPT = 'image/*,.heic,.heif,image/heic,image/heif';
@@ -130,6 +130,7 @@ export default function PhotoCapture({
   const [savingPhotos, setSavingPhotos] = useState(false);
   const pinchDistanceRef = useRef<number | null>(null);
   const pinchScaleRef = useRef(1);
+  const swipeStartRef = useRef<{ x: number; y: number } | null>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -339,6 +340,27 @@ export default function PhotoCapture({
     setViewerScale(1);
     pinchDistanceRef.current = null;
     pinchScaleRef.current = 1;
+    swipeStartRef.current = null;
+  }
+
+  const selectedPhotoIndex = selectedPhoto
+    ? photos.findIndex((photo) => photo.imageData === selectedPhoto)
+    : -1;
+
+  function showPhotoAt(index: number) {
+    const photo = photos[index];
+    if (!photo) return;
+    setSelectedPhoto(photo.imageData);
+    setViewerScale(1);
+    pinchDistanceRef.current = null;
+    pinchScaleRef.current = 1;
+    swipeStartRef.current = null;
+  }
+
+  function showAdjacentPhoto(direction: -1 | 1) {
+    if (selectedPhotoIndex < 0 || photos.length < 2) return;
+    const nextIndex = (selectedPhotoIndex + direction + photos.length) % photos.length;
+    showPhotoAt(nextIndex);
   }
 
   function getTouchDistance(touches: React.TouchList) {
@@ -349,7 +371,12 @@ export default function PhotoCapture({
 
   function handleViewerTouchStart(event: React.TouchEvent<HTMLDivElement>) {
     const distance = getTouchDistance(event.touches);
-    if (distance === null) return;
+    if (distance === null) {
+      const touch = event.touches[0];
+      swipeStartRef.current = touch ? { x: touch.clientX, y: touch.clientY } : null;
+      return;
+    }
+    swipeStartRef.current = null;
     pinchDistanceRef.current = distance;
     pinchScaleRef.current = viewerScale;
   }
@@ -372,7 +399,16 @@ export default function PhotoCapture({
       return;
     }
     pinchDistanceRef.current = null;
-    pinchScaleRef.current = viewerScale;
+
+    const start = swipeStartRef.current;
+    const touch = event.changedTouches[0];
+    swipeStartRef.current = null;
+    if (!start || !touch || viewerScale > 1) return;
+
+    const deltaX = touch.clientX - start.x;
+    const deltaY = touch.clientY - start.y;
+    if (Math.abs(deltaX) < 50 || Math.abs(deltaX) <= Math.abs(deltaY)) return;
+    showAdjacentPhoto(deltaX < 0 ? 1 : -1);
   }
 
   async function addCapturedBatch() {
@@ -757,8 +793,12 @@ export default function PhotoCapture({
       {/* Full photo viewer */}
       {selectedPhoto && (
         <div
+          data-inspection-inline-action="true"
           className="fixed inset-0 z-50 bg-black/95"
-          onClick={resetViewer}
+          onClick={(event) => {
+            event.stopPropagation();
+            resetViewer();
+          }}
         >
           <div className="absolute right-4 top-4 z-10 flex items-center gap-2">
             <button
@@ -772,6 +812,35 @@ export default function PhotoCapture({
               <X className="w-5 h-5" />
             </button>
           </div>
+          {selectedPhotoIndex >= 0 && photos.length > 1 && (
+            <>
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  showAdjacentPhoto(-1);
+                }}
+                className="absolute left-3 top-1/2 z-10 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full bg-black/55 text-white backdrop-blur-sm"
+                aria-label="Previous photo"
+              >
+                <ChevronLeft className="h-6 w-6" />
+              </button>
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  showAdjacentPhoto(1);
+                }}
+                className="absolute right-3 top-1/2 z-10 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full bg-black/55 text-white backdrop-blur-sm"
+                aria-label="Next photo"
+              >
+                <ChevronRight className="h-6 w-6" />
+              </button>
+              <div className="pointer-events-none absolute inset-x-0 bottom-[calc(env(safe-area-inset-bottom)+1rem)] z-10 text-center text-sm text-white/75">
+                {selectedPhotoIndex + 1} / {photos.length}
+              </div>
+            </>
+          )}
           <div
             className="h-full overflow-auto p-6"
             onClick={(event) => event.stopPropagation()}
