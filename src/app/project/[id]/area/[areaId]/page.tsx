@@ -7,8 +7,6 @@ import {
   Area,
   Checkpoint,
   getCheckpointIssueState,
-  getReviewMetrics,
-  checkpointHasIssue,
   isAreaInspectionComplete,
   type IssueState,
 } from '@/types';
@@ -50,6 +48,7 @@ import {
 } from '@/lib/pendingSync';
 import { runManualOneDriveSync } from '@/features/sync/runManualOneDriveSync';
 import { getNextPendingCheckpoint } from '@/features/inspection/checkpointNavigation';
+import { getInspectionAreaMetrics } from '@/features/inspection/inspectionMetrics';
 import {
   CUSTOM_ITEMS_LOCATION_NAME,
   OTHER_LOCATION_NAME,
@@ -95,19 +94,6 @@ const RECENT_COMMENTS_STORAGE_KEY = 'punchlist-recent-comments';
 const RECENT_AREA_TYPES_STORAGE_KEY = 'punchlist-recent-area-types';
 const MAX_RECENT_COMMENTS = 5;
 
-type StatusMetrics = {
-  total: number;
-  ok: number;
-  issues: number;
-};
-
-type ItemMetrics = {
-  stats: StatusMetrics;
-  pending: number;
-  photoCount: number;
-  commentCount: number;
-};
-
 type ConfirmDialogState = {
   title: string;
   message: string;
@@ -122,14 +108,6 @@ type PromptDialogState = {
   initialValue: string;
   confirmLabel?: string;
   onConfirm: (value: string) => void | Promise<void>;
-};
-
-type LocationMetrics = {
-  stats: StatusMetrics;
-  pending: number;
-  progress: number;
-  photoCount: number;
-  commentCount: number;
 };
 
 type CheckpointReviewState = 'pending' | 'ok' | 'open' | 'resolved' | 'verified';
@@ -571,76 +549,7 @@ export default function AreaDetailPage() {
 
   const areaDerived = useMemo(() => {
     if (!area) return null;
-
-    const locationMetrics = new Map<string, LocationMetrics>();
-    const itemMetrics = new Map<string, ItemMetrics>();
-
-    let total = 0;
-    let ok = 0;
-    let issues = 0;
-
-    for (const location of visibleLocations) {
-      let locationTotal = 0;
-      let locationOk = 0;
-      let locationIssues = 0;
-      let locationPhotoCount = 0;
-      let locationCommentCount = 0;
-
-      for (const item of location.items) {
-        let itemTotal = 0;
-        let itemOk = 0;
-        let itemIssues = 0;
-        let itemPhotoCount = 0;
-        let itemCommentCount = 0;
-
-        for (const checkpoint of item.checkpoints) {
-          itemTotal += 1;
-          if (checkpoint.status === 'ok') itemOk += 1;
-          else if (checkpointHasIssue(checkpoint)) itemIssues += 1;
-          itemPhotoCount += checkpoint.photos.length;
-          if (checkpoint.comments.trim()) itemCommentCount += 1;
-        }
-
-        const itemPending = itemTotal - itemOk - itemIssues;
-        itemMetrics.set(item.id, {
-          stats: { total: itemTotal, ok: itemOk, issues: itemIssues },
-          pending: itemPending,
-          photoCount: itemPhotoCount,
-          commentCount: itemCommentCount,
-        });
-
-        locationTotal += itemTotal;
-        locationOk += itemOk;
-        locationIssues += itemIssues;
-        locationPhotoCount += itemPhotoCount;
-        locationCommentCount += itemCommentCount;
-      }
-
-      const locationPending = locationTotal - locationOk - locationIssues;
-      const locationReviewMetrics = getReviewMetrics(locationTotal, locationOk, locationIssues);
-      locationMetrics.set(location.id, {
-        stats: { total: locationTotal, ok: locationOk, issues: locationIssues },
-        pending: locationPending,
-        progress: locationReviewMetrics.reviewedPercent,
-        photoCount: locationPhotoCount,
-        commentCount: locationCommentCount,
-      });
-
-      total += locationTotal;
-      ok += locationOk;
-      issues += locationIssues;
-    }
-
-    const reviewMetrics = getReviewMetrics(total, ok, issues);
-    return {
-      stats: { total, ok, issues },
-      pending: reviewMetrics.pending,
-      reviewedPercent: reviewMetrics.reviewedPercent,
-      okPercent: reviewMetrics.okPercent,
-      issuePercent: reviewMetrics.issuePercent,
-      locationMetrics,
-      itemMetrics,
-    };
+    return getInspectionAreaMetrics(visibleLocations);
   }, [area, visibleLocations]);
 
   const elevationMarkerRefsByCheckpoint = useMemo(
