@@ -2161,7 +2161,7 @@ export default function AreaDetailPage() {
                 onEditCustomCheckpoint={handleEditCustomCheckpoint}
                 onDeleteCustomCheckpoint={handleDeleteCustomCheckpoint}
                 renderCheckpointAddControl={
-                  supportsInlineLocationCustomItems && area.areaTypeKey !== 'facade'
+                  supportsInlineLocationCustomItems
                     ? (locationId, itemId) => (
                         <CustomItemComposer
                           open={
@@ -2192,7 +2192,7 @@ export default function AreaDetailPage() {
                     : undefined
                 }
                 addItemControl={
-                  supportsInlineLocationCustomItems && area.areaTypeKey !== 'facade' && !editingCustomItem ? (
+                  supportsInlineLocationCustomItems && !editingCustomItem ? (
                     <CustomItemComposer
                       open={
                         primaryStandardItem
