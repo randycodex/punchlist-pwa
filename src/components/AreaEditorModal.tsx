@@ -12,6 +12,7 @@ import {
   type AreaTypeKey,
   type ApartmentUnitType,
   type FacadeOrientation,
+  type FacadeType,
 } from '@/lib/areas';
 import { ClipboardPaste, FileText, Upload, X } from 'lucide-react';
 
@@ -23,6 +24,14 @@ const MIN_BULK_APARTMENT_UNITS = 2;
 const MAX_BULK_APARTMENT_UNITS = 5000;
 const BULK_APARTMENT_PAGE_SIZE = 50;
 const MAX_BULK_SCHEDULE_FILE_SIZE = 2 * 1024 * 1024;
+
+function getFacadeTypeValues(value: string): string[] {
+  return value.split(',').map((type) => type.trim()).filter(Boolean);
+}
+
+function getCustomFacadeType(value: string): string {
+  return getFacadeTypeValues(value).find((type) => !FACADE_TYPES.includes(type as FacadeType)) ?? '';
+}
 
 type BulkApartmentUnit = {
   id: string;
@@ -213,6 +222,10 @@ export default function AreaEditorModal({
   const [bulkScheduleError, setBulkScheduleError] = useState('');
   const [bulkScheduleStatus, setBulkScheduleStatus] = useState('');
   const [bulkFillUnitType, setBulkFillUnitType] = useState<ApartmentUnitType | ''>('');
+  const [customFacadeTypeEnabled, setCustomFacadeTypeEnabled] = useState(
+    () => Boolean(getCustomFacadeType(value.areaNumber))
+  );
+  const [customFacadeType, setCustomFacadeType] = useState(() => getCustomFacadeType(value.areaNumber));
   const elevationInputRef = useRef<HTMLInputElement | null>(null);
   const bulkScheduleFileInputRef = useRef<HTMLInputElement | null>(null);
   const orderedAreaTypes = useMemo(() => {
@@ -244,6 +257,7 @@ export default function AreaEditorModal({
     : levelMode;
   const selectedFacadeLevels = value.facadeLevel.split(',').map((level) => level.trim()).filter(Boolean);
   const selectedFacadeLevelSet = new Set(selectedFacadeLevels);
+  const selectedFacadeTypes = getFacadeTypeValues(value.areaNumber);
   const matchingElevationDrawings = selectedOrientation
     ? facadeElevationDrawings.filter((drawing) => drawing.orientation === selectedOrientation)
     : [];
@@ -467,6 +481,10 @@ export default function AreaEditorModal({
                   setElevationError('');
                   if (nextAreaType !== 'apartment_unit') {
                     setApartmentCreationMode('single');
+                  }
+                  if (!keepsFacadeFields) {
+                    setCustomFacadeTypeEnabled(false);
+                    setCustomFacadeType('');
                   }
                   onChange({
                     ...value,
@@ -888,14 +906,14 @@ export default function AreaEditorModal({
               </label>
               <div className="flex flex-col gap-2 rounded-[1rem] border border-[var(--surface-border)] bg-white/70 px-4 py-3 dark:bg-white/[0.05]">
                 {FACADE_TYPES.map((type) => {
-                  const selected = value.areaNumber.split(',').filter(Boolean).includes(type);
+                  const selected = selectedFacadeTypes.includes(type);
                   return (
                     <label key={type} className="flex cursor-pointer items-center gap-3">
                       <input
                         type="checkbox"
                         checked={selected}
                         onChange={() => {
-                          const current = value.areaNumber.split(',').filter(Boolean);
+                          const current = getFacadeTypeValues(value.areaNumber);
                           const next = selected
                             ? current.filter((t) => t !== type)
                             : [...current, type];
@@ -907,6 +925,48 @@ export default function AreaEditorModal({
                     </label>
                   );
                 })}
+                <label className="flex cursor-pointer items-center gap-3">
+                  <input
+                    type="checkbox"
+                    checked={customFacadeTypeEnabled}
+                    onChange={(event) => {
+                      const enabled = event.target.checked;
+                      setCustomFacadeTypeEnabled(enabled);
+                      const standardTypes = getFacadeTypeValues(value.areaNumber).filter((type) =>
+                        FACADE_TYPES.includes(type as FacadeType)
+                      );
+                      onChange({
+                        ...value,
+                        areaNumber: [
+                          ...standardTypes,
+                          ...(enabled && customFacadeType.trim() ? [customFacadeType.trim()] : []),
+                        ].join(','),
+                      });
+                    }}
+                    className="h-4 w-4 accent-[var(--accent)]"
+                  />
+                  <span className="text-sm text-gray-800 dark:text-gray-200">Custom</span>
+                </label>
+                {customFacadeTypeEnabled && (
+                  <input
+                    type="text"
+                    value={customFacadeType}
+                    onChange={(event) => {
+                      const nextCustomType = event.target.value.replace(/,/g, ' ');
+                      setCustomFacadeType(nextCustomType);
+                      const standardTypes = getFacadeTypeValues(value.areaNumber).filter((type) =>
+                        FACADE_TYPES.includes(type as FacadeType)
+                      );
+                      onChange({
+                        ...value,
+                        areaNumber: [...standardTypes, ...(nextCustomType.trim() ? [nextCustomType.trim()] : [])].join(','),
+                      });
+                    }}
+                    className="field-shell mt-1"
+                    placeholder="Enter custom facade type"
+                    aria-label="Custom facade type name"
+                  />
+                )}
               </div>
             </div>
           )}
@@ -1085,6 +1145,9 @@ export default function AreaEditorModal({
                 !value.facadeLevel.trim()) ||
               (!!value.pendingElevationDrawing && !value.pendingElevationDrawing.name.trim()) ||
               (selectedDefinition.requiresFacadeType && !value.areaNumber) ||
+              (selectedDefinition.requiresFacadeType &&
+                customFacadeTypeEnabled &&
+                !customFacadeType.trim()) ||
               (selectedDefinition.requiresCustomName && !value.customAreaName.trim())
             }
             className="flex-1 rounded-2xl bg-zinc-900 px-4 py-3 font-medium text-white transition hover:bg-black disabled:cursor-not-allowed disabled:opacity-50 dark:bg-white dark:text-gray-900 dark:hover:bg-gray-200"
