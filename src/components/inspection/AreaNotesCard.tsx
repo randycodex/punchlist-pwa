@@ -41,7 +41,7 @@ export default function AreaNotesCard({ value, isExpanded, onToggle, onChange, o
             onBlur={(e) => onBlur(e.target.value)}
             placeholder="Add general notes for this area"
             rows={4}
-            className="field-shell min-h-[128px] resize-none text-sm"
+            className="field-shell area-notes-field min-h-[128px] resize-none text-sm"
           />
         </div>
       )}

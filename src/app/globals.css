@@ -461,6 +461,11 @@ html:not(.dark) {
   background: rgba(255, 255, 255, 0.05);
 }
 
+.area-notes-field,
+.area-notes-field:focus {
+  border-color: transparent;
+}
+
 select.field-shell option {
   background: #ffffff;
   color: #111827;
