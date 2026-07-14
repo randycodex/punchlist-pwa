@@ -2170,6 +2170,7 @@ export default function AreaDetailPage() {
                             customCheckpointTarget?.itemId === itemId
                           }
                           value={customCheckpointName}
+                          triggerLabel="+ Sub Item"
                           valuePlaceholder="Sub-item name"
                           submitLabel={editingCustomCheckpoint ? 'Save' : 'Add'}
                           onOpen={() => {

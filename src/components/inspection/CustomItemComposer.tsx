@@ -35,7 +35,7 @@ export default function CustomItemComposer({
   const composerRef = useRef<HTMLDivElement | null>(null);
   const requiresSecondaryValue = typeof secondaryValue === 'string' && typeof onSecondaryChange === 'function';
   const canSubmit = value.trim().length > 0;
-  const compactTriggerLabels = new Set(['+ Item', '+ Sub Area']);
+  const compactTriggerLabels = new Set(['+ Item', '+ Sub Item', '+ Sub Area']);
   const triggerWidthClass = compactTriggerLabels.has(triggerLabel) ? 'mx-auto block w-1/2' : 'w-full';
 
   useEffect(() => {
@@ -62,7 +62,7 @@ export default function CustomItemComposer({
       <div className="px-1 pt-1">
         <button
           onClick={onOpen}
-          className={`${triggerWidthClass} justify-center rounded-[1.2rem] border border-[#68728D] bg-[#68728D] px-6 py-3 text-sm text-white transition hover:bg-[#68728D]/80 dark:border-[#793302] dark:bg-[#793302] dark:text-white dark:hover:bg-[#793302]/80`}
+          className={`${triggerWidthClass} inspection-add-trigger justify-center rounded-[1.2rem] px-6 py-3 text-sm transition`}
         >
           {triggerLabel}
         </button>
