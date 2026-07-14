@@ -11,8 +11,6 @@ type AreaNotesCardProps = {
 };
 
 export default function AreaNotesCard({ value, isExpanded, onToggle, onChange, onBlur }: AreaNotesCardProps) {
-  const hasNotes = value.trim().length > 0;
-
   return (
     <div className="card-surface-subtle overflow-hidden rounded-[1.7rem]">
       <button
@@ -25,9 +23,6 @@ export default function AreaNotesCard({ value, isExpanded, onToggle, onChange, o
           <div className="min-w-0 flex-1">
             <div className="text-[1.02rem] font-semibold tracking-[-0.02em] text-gray-900 dark:text-white">
               General Notes
-            </div>
-            <div className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-              {hasNotes ? '1 note' : 'No notes'}
             </div>
           </div>
           {isExpanded ? (
