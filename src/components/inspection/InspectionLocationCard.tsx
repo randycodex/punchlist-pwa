@@ -677,10 +677,10 @@ export default function InspectionLocationCard({
                       event.preventDefault();
                       void onToggleItem(item.id);
                     }}
-                    className={`w-full cursor-pointer px-4 py-3 text-left transition ${
+                    className={`card-surface-subtle w-full cursor-pointer px-4 py-3 text-left ${
                       isItemExpanded
                         ? 'rounded-t-[1.4rem]'
-                        : 'card-surface-subtle rounded-[1.3rem] dark:border-transparent hover:bg-[var(--surface-strong)] dark:hover:bg-white/[0.06]'
+                        : 'rounded-[1.3rem] dark:border-transparent hover:bg-[var(--surface-strong)] dark:hover:bg-white/[0.06]'
                     }`}
                   >
                     <div className="flex items-center justify-between gap-4">
