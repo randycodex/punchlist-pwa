@@ -254,7 +254,7 @@ export default function InspectionLocationCard({
         hideHeader
           ? ''
           : `${openCustomItemMenuId ? 'overflow-visible' : 'overflow-hidden'} rounded-[1.7rem] ${
-              isSelected ? 'bg-gray-200 dark:bg-white/[0.09]' : 'card-surface-subtle'
+              isSelected ? 'bg-gray-200 dark:bg-white/[0.09]' : 'inspection-location-surface'
             }`
       }
     >

@@ -262,6 +262,16 @@ html:not(.dark) {
   border: 1px solid var(--surface-border);
 }
 
+.inspection-location-surface {
+  background: #e8edf2;
+  border: 1px solid rgba(51, 65, 85, 0.08);
+}
+
+.dark .inspection-location-surface {
+  background: #222a32;
+  border-color: rgba(255, 255, 255, 0.07);
+}
+
 .inspection-item-expanded-surface {
   background: rgba(248, 250, 252, 0.78);
   border: 1px solid var(--surface-border);
