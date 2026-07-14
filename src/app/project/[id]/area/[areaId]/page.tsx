@@ -47,7 +47,6 @@ import {
   queuePendingSync,
 } from '@/lib/pendingSync';
 import { runManualOneDriveSync } from '@/features/sync/runManualOneDriveSync';
-import { getNextPendingCheckpoint } from '@/features/inspection/checkpointNavigation';
 import { getInspectionAreaMetrics } from '@/features/inspection/inspectionMetrics';
 import {
   CUSTOM_ITEMS_LOCATION_NAME,
@@ -1650,37 +1649,6 @@ export default function AreaDetailPage() {
     setBulkExpansionMode('expanded');
   }
 
-  async function goToNextPendingCheckpoint() {
-    if (!area || areaEditingLocked) return;
-    const currentCheckpointId = expandedCheckpoint?.checkpointId ?? null;
-    await closeExpandedCheckpoint();
-
-    const nextEntry = getNextPendingCheckpoint(area, currentCheckpointId, {
-      excludedLocationNames: [OTHER_LOCATION_NAME],
-    });
-
-    if (!nextEntry) {
-      setInspectionNotice('All checkpoints in this area have been reviewed.');
-      return;
-    }
-
-    setInspectionNotice(null);
-    setInspectionShowOnlyIssues(false);
-    setExpandedLocations((current) => new Set([...current, nextEntry.location.id]));
-    setExpandedItems((current) => new Set([...current, nextEntry.item.id]));
-    setExpandedCheckpoint({
-      locationId: nextEntry.location.id,
-      itemId: nextEntry.item.id,
-      checkpointId: nextEntry.checkpoint.id,
-    });
-    setCommentText(nextEntry.checkpoint.comments ?? '');
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        itemRefs.current.get(nextEntry.item.id)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      });
-    });
-  }
-
   async function openElevationSelection({
     locationId,
     itemId,
@@ -1922,17 +1890,6 @@ export default function AreaDetailPage() {
                         <ChevronsDown className="h-4 w-4" />
                       )}
                       {bulkExpansionMode === 'expanded' ? 'Collapse all' : 'Expand all'}
-                    </button>
-                    <button
-                      onClick={() => {
-                        setShowHeaderMenu(false);
-                        void goToNextPendingCheckpoint();
-                      }}
-                      disabled={areaEditingLocked}
-                      className="flex w-full items-center gap-3 rounded-[1rem] px-3 py-2.5 text-left text-[0.98rem] text-gray-700 transition hover:bg-black/[0.04] disabled:opacity-50 dark:text-gray-200 dark:hover:bg-white/[0.06]"
-                    >
-                      <ChevronsDown className="h-4 w-4" />
-                      Next pending checkpoint
                     </button>
                   </div>
                 </div>
