@@ -993,7 +993,7 @@ function CheckpointRow({
                 <span
                   data-inspection-inline-action="true"
                   onClick={(event) => event.stopPropagation()}
-                  className="flex h-8 w-8 items-center justify-center rounded-[0.8rem] border border-black/5 bg-white/70 text-gray-500 dark:border-white/10 dark:bg-white/[0.04] dark:text-gray-300"
+                  className="accent-bg flex h-8 w-8 items-center justify-center rounded-[0.8rem] text-white"
                   title="Has note"
                   aria-label={`Has note for ${checkpoint.name}`}
                 >
