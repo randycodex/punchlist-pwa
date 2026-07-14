@@ -13,7 +13,7 @@ import {
   type ApartmentUnitType,
   type FacadeOrientation,
 } from '@/lib/areas';
-import { FileText, Upload, X } from 'lucide-react';
+import { ClipboardPaste, FileText, Upload, X } from 'lucide-react';
 
 const FACADE_LEVEL_CUSTOM_VALUE = '__custom__';
 const MAX_ELEVATION_FILE_SIZE = 25 * 1024 * 1024;
@@ -22,12 +22,19 @@ const ELEVATION_FILE_TYPES = new Set(['application/pdf', 'image/jpeg', 'image/pn
 const MIN_BULK_APARTMENT_UNITS = 2;
 const MAX_BULK_APARTMENT_UNITS = 5000;
 const BULK_APARTMENT_PAGE_SIZE = 50;
+const MAX_BULK_SCHEDULE_FILE_SIZE = 2 * 1024 * 1024;
 
 type BulkApartmentUnit = {
   id: string;
   unitType: ApartmentUnitType | '';
   areaNumber: string;
 };
+
+type ParsedBulkApartmentUnit = Omit<BulkApartmentUnit, 'id'>;
+
+type BulkApartmentScheduleParseResult =
+  | { units: ParsedBulkApartmentUnit[]; error: '' }
+  | { units: []; error: string };
 
 function createBulkApartmentUnit(): BulkApartmentUnit {
   return {
@@ -39,6 +46,95 @@ function createBulkApartmentUnit(): BulkApartmentUnit {
 
 function createBulkApartmentUnits(count: number): BulkApartmentUnit[] {
   return Array.from({ length: count }, () => createBulkApartmentUnit());
+}
+
+function normalizeApartmentUnitType(value: string): ApartmentUnitType | '' {
+  const normalized = value.toUpperCase().replace(/[^A-Z0-9]/g, '');
+  if (['EFF', 'EFFICIENCY', 'STUDIO', '0BR', '0BED', '0BEDROOM'].includes(normalized)) return 'EFF';
+  if (['1BR', '1BED', '1BEDROOM'].includes(normalized)) return '1BR';
+  if (['2BR', '2BED', '2BEDROOM'].includes(normalized)) return '2BR';
+  if (['3BR', '3BED', '3BEDROOM'].includes(normalized)) return '3BR';
+  return '';
+}
+
+function parseDelimitedScheduleLine(line: string): string[] {
+  if (line.includes('\t')) {
+    return line.split('\t').map((cell) => cell.trim());
+  }
+
+  if (!line.includes(',')) {
+    return line.trim().split(/\s{2,}/).map((cell) => cell.trim());
+  }
+
+  const cells: string[] = [];
+  let current = '';
+  let quoted = false;
+  for (let index = 0; index < line.length; index += 1) {
+    const character = line[index];
+    if (character === '"') {
+      if (quoted && line[index + 1] === '"') {
+        current += '"';
+        index += 1;
+      } else {
+        quoted = !quoted;
+      }
+    } else if (character === ',' && !quoted) {
+      cells.push(current.trim());
+      current = '';
+    } else {
+      current += character;
+    }
+  }
+  cells.push(current.trim());
+  return cells;
+}
+
+function isBulkScheduleHeader(cells: string[]): boolean {
+  const normalizedCells = cells.map((cell) => cell.toLowerCase().replace(/[^a-z0-9]/g, ''));
+  const hasTypeHeader = normalizedCells.some((cell) => cell.includes('type'));
+  const hasNumberHeader = normalizedCells.some((cell) =>
+    ['unit', 'unitnumber', 'apartment', 'apartmentnumber', 'number'].includes(cell)
+  );
+  return hasTypeHeader && hasNumberHeader;
+}
+
+function parseBulkApartmentSchedule(text: string): BulkApartmentScheduleParseResult {
+  const lines = text.split(/\r?\n/);
+  const units: ParsedBulkApartmentUnit[] = [];
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index].trim();
+    if (!line) continue;
+
+    const cells = parseDelimitedScheduleLine(line).filter(Boolean);
+    if (isBulkScheduleHeader(cells)) continue;
+
+    const typedCells = cells
+      .map((cell, cellIndex) => ({ cellIndex, unitType: normalizeApartmentUnitType(cell) }))
+      .filter((entry) => entry.unitType);
+    if (typedCells.length !== 1) {
+      return {
+        units: [],
+        error: `Line ${index + 1} needs one unit type: EFF, 1BR, 2BR, or 3BR.`,
+      };
+    }
+
+    const typedCell = typedCells[0];
+    const areaNumber = cells.find((cell, cellIndex) => cellIndex !== typedCell.cellIndex && cell.trim())?.trim() ?? '';
+    if (!areaNumber) {
+      return { units: [], error: `Line ${index + 1} is missing a unit number.` };
+    }
+
+    units.push({ unitType: typedCell.unitType, areaNumber });
+  }
+
+  if (units.length < MIN_BULK_APARTMENT_UNITS) {
+    return { units: [], error: 'Paste at least two units.' };
+  }
+  if (units.length > MAX_BULK_APARTMENT_UNITS) {
+    return { units: [], error: `Import no more than ${MAX_BULK_APARTMENT_UNITS.toLocaleString()} units at once.` };
+  }
+  return { units, error: '' };
 }
 
 function createElevationDrawingId() {
@@ -112,7 +208,13 @@ export default function AreaEditorModal({
     createBulkApartmentUnits(MIN_BULK_APARTMENT_UNITS)
   );
   const [bulkUnitPage, setBulkUnitPage] = useState(1);
+  const [showBulkScheduleImport, setShowBulkScheduleImport] = useState(false);
+  const [bulkScheduleText, setBulkScheduleText] = useState('');
+  const [bulkScheduleError, setBulkScheduleError] = useState('');
+  const [bulkScheduleStatus, setBulkScheduleStatus] = useState('');
+  const [bulkFillUnitType, setBulkFillUnitType] = useState<ApartmentUnitType | ''>('');
   const elevationInputRef = useRef<HTMLInputElement | null>(null);
+  const bulkScheduleFileInputRef = useRef<HTMLInputElement | null>(null);
   const orderedAreaTypes = useMemo(() => {
     const preferredOrder: AreaTypeKey[] = ['apartment_unit', 'custom'];
     const recentSet = new Set(recentAreaTypeKeys);
@@ -185,6 +287,7 @@ export default function AreaEditorModal({
   function handleBulkUnitCountChange(nextValue: string) {
     const digitsOnly = nextValue.replace(/\D/g, '');
     setBulkUnitCount(digitsOnly);
+    setBulkScheduleStatus('');
     const parsedCount = Number.parseInt(digitsOnly, 10);
     if (
       !Number.isInteger(parsedCount) ||
@@ -207,6 +310,58 @@ export default function AreaEditorModal({
   function updateBulkApartmentUnit(index: number, patch: Partial<Omit<BulkApartmentUnit, 'id'>>) {
     setBulkApartmentUnits((current) =>
       current.map((unit, unitIndex) => (unitIndex === index ? { ...unit, ...patch } : unit))
+    );
+  }
+
+  function applyBulkApartmentSchedule(scheduleText: string) {
+    setBulkScheduleText(scheduleText);
+    const result = parseBulkApartmentSchedule(scheduleText);
+    if (result.error) {
+      setBulkScheduleError(result.error);
+      setBulkScheduleStatus('');
+      setShowBulkScheduleImport(true);
+      return;
+    }
+
+    const importedUnits = result.units.map((unit) => ({ ...createBulkApartmentUnit(), ...unit }));
+    setBulkApartmentUnits(importedUnits);
+    setBulkUnitCount(String(importedUnits.length));
+    setBulkUnitPage(1);
+    setBulkScheduleError('');
+    setBulkScheduleStatus(`Imported ${importedUnits.length.toLocaleString()} units.`);
+    setShowBulkScheduleImport(false);
+  }
+
+  async function handleBulkScheduleFileChange(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+
+    if (file.size > MAX_BULK_SCHEDULE_FILE_SIZE) {
+      setBulkScheduleError('Use a schedule file under 2 MB.');
+      setBulkScheduleStatus('');
+      setShowBulkScheduleImport(true);
+      return;
+    }
+
+    try {
+      applyBulkApartmentSchedule(await file.text());
+    } catch (error) {
+      console.error('Failed to read unit schedule:', error);
+      setBulkScheduleError('Unable to read that schedule file.');
+      setBulkScheduleStatus('');
+    }
+  }
+
+  function fillBlankBulkUnitTypes(scope: 'page' | 'all') {
+    if (!bulkFillUnitType) return;
+    const pageStart = firstVisibleBulkUnitIndex;
+    const pageEnd = pageStart + BULK_APARTMENT_PAGE_SIZE;
+    setBulkApartmentUnits((current) =>
+      current.map((unit, index) => {
+        const isInScope = scope === 'all' || (index >= pageStart && index < pageEnd);
+        return isInScope && !unit.unitType ? { ...unit, unitType: bulkFillUnitType } : unit;
+      })
     );
   }
 
@@ -282,7 +437,7 @@ export default function AreaEditorModal({
 
   return (
     <div className="modal-overlay fixed inset-0 z-50 flex items-start justify-center overflow-y-auto p-4">
-      <div className="modal-panel my-4 w-full max-w-md rounded-[1.9rem] p-6">
+      <div className={`modal-panel my-4 w-full rounded-[1.9rem] p-6 ${isBulkApartmentCreation ? 'max-w-2xl' : 'max-w-md'}`}>
         <h2 className="mb-1 text-xl font-semibold tracking-[-0.02em] text-gray-900 dark:text-white">{title}</h2>
         <p className="mb-5 text-sm text-gray-500 dark:text-gray-400">
           {lockAreaType ? 'Update the label details for this area.' : 'Choose the area type and label details.'}
@@ -403,12 +558,116 @@ export default function AreaEditorModal({
                 </p>
               </div>
 
+              <div className="rounded-[1rem] border border-[var(--surface-border)] bg-white/55 p-3 dark:bg-white/[0.03]">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowBulkScheduleImport((current) => !current);
+                    setBulkScheduleError('');
+                  }}
+                  className="flex w-full items-center justify-between gap-3 text-left"
+                  aria-expanded={showBulkScheduleImport}
+                >
+                  <span className="flex items-center gap-2 text-sm font-medium text-gray-800 dark:text-gray-200">
+                    <ClipboardPaste className="h-4 w-4" />
+                    Paste or Import Unit Schedule
+                  </span>
+                  <span className="text-xs text-gray-500 dark:text-gray-400">
+                    {showBulkScheduleImport ? 'Hide' : 'Open'}
+                  </span>
+                </button>
+
+                {showBulkScheduleImport && (
+                  <div className="mt-3 space-y-3">
+                    <p className="text-xs text-gray-500 dark:text-gray-400">
+                      Paste two columns from Excel or Sheets in either order: unit number and unit type. CSV/TSV headers are allowed.
+                    </p>
+                    <textarea
+                      value={bulkScheduleText}
+                      onChange={(event) => {
+                        setBulkScheduleText(event.target.value);
+                        setBulkScheduleError('');
+                        setBulkScheduleStatus('');
+                      }}
+                      className="field-shell min-h-32 resize-y font-mono text-sm"
+                      placeholder={'Unit Number\tUnit Type\n101\tEFF\n102\t1BR\n103\t2BR'}
+                      aria-label="Unit schedule"
+                    />
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => applyBulkApartmentSchedule(bulkScheduleText)}
+                        disabled={!bulkScheduleText.trim()}
+                        className="rounded-xl bg-zinc-900 px-3 py-2 text-xs font-medium text-white transition hover:bg-black disabled:cursor-not-allowed disabled:opacity-40 dark:bg-white dark:text-gray-900 dark:hover:bg-gray-200"
+                      >
+                        Import Pasted Rows
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => bulkScheduleFileInputRef.current?.click()}
+                        className="flex items-center gap-2 rounded-xl border border-[var(--surface-border)] px-3 py-2 text-xs font-medium text-gray-700 transition hover:bg-black/[0.04] dark:text-gray-300 dark:hover:bg-white/[0.06]"
+                      >
+                        <Upload className="h-3.5 w-3.5" />
+                        Choose CSV / TSV
+                      </button>
+                      <input
+                        ref={bulkScheduleFileInputRef}
+                        type="file"
+                        accept=".csv,.tsv,.txt,text/csv,text/tab-separated-values,text/plain"
+                        className="hidden"
+                        onChange={(event) => void handleBulkScheduleFileChange(event)}
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {bulkScheduleError && (
+                  <p className="mt-2 text-xs text-red-600 dark:text-red-300">{bulkScheduleError}</p>
+                )}
+                {bulkScheduleStatus && (
+                  <p className="mt-2 text-xs font-medium text-emerald-700 dark:text-emerald-300">
+                    {bulkScheduleStatus}
+                  </p>
+                )}
+              </div>
+
               <div>
                 <div className="mb-2 flex items-center justify-between gap-3">
                   <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Unit Details</span>
                   <span className="text-xs text-gray-500 dark:text-gray-400">
                     {bulkApartmentUnits.length} units
                   </span>
+                </div>
+                <div className="mb-3 grid gap-2 rounded-[0.9rem] border border-[var(--surface-border)] bg-black/[0.025] p-2 sm:grid-cols-[minmax(0,1fr)_auto_auto] dark:bg-white/[0.03]">
+                  <select
+                    value={bulkFillUnitType}
+                    onChange={(event) => setBulkFillUnitType(event.target.value as ApartmentUnitType)}
+                    className="field-shell min-w-0 px-3 py-2 text-sm"
+                    aria-label="Unit type to fill"
+                  >
+                    <option value="">Choose type to fill</option>
+                    {APARTMENT_UNIT_TYPES.map((unitType) => (
+                      <option key={unitType} value={unitType}>
+                        {unitType}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={() => fillBlankBulkUnitTypes('page')}
+                    disabled={!bulkFillUnitType}
+                    className="rounded-xl border border-[var(--surface-border)] px-3 py-2 text-xs font-medium text-gray-700 transition hover:bg-black/[0.04] disabled:cursor-not-allowed disabled:opacity-40 dark:text-gray-300 dark:hover:bg-white/[0.06]"
+                  >
+                    Fill Page Blanks
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => fillBlankBulkUnitTypes('all')}
+                    disabled={!bulkFillUnitType}
+                    className="rounded-xl border border-[var(--surface-border)] px-3 py-2 text-xs font-medium text-gray-700 transition hover:bg-black/[0.04] disabled:cursor-not-allowed disabled:opacity-40 dark:text-gray-300 dark:hover:bg-white/[0.06]"
+                  >
+                    Fill All Blanks
+                  </button>
                 </div>
                 <div className="max-h-[22rem] space-y-2 overflow-y-auto rounded-[1rem] border border-[var(--surface-border)] bg-white/55 p-3 dark:bg-white/[0.03]">
                   {visibleBulkApartmentUnits.map((unit, visibleIndex) => {
