@@ -1996,7 +1996,7 @@ export default function AreaDetailPage() {
       {/* Inspection Items */}
       <main
         ref={listRef}
-        className="mt-3 flex-1 min-h-0 overflow-y-scroll overscroll-y-contain touch-pan-y px-4 pt-2 pb-[calc(env(safe-area-inset-bottom)+3.5rem)] sm:px-5"
+        className="flex-1 min-h-0 overflow-y-scroll overscroll-y-contain touch-pan-y px-4 pt-5 pb-[calc(env(safe-area-inset-bottom)+3.5rem)] sm:px-5"
       >
         <div
           className={`list-stack mx-auto min-h-[calc(100%+1px)] w-full max-w-6xl transition-opacity ${
