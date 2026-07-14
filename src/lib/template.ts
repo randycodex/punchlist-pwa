@@ -487,8 +487,26 @@ function populateArea(
 
 }
 
+function dedupeTemplateItems(items: TemplateItem[]): TemplateItem[] {
+  const deduped: TemplateItem[] = [];
+  for (const item of items) {
+    const match = deduped.find(
+      (candidate) => candidate.name.trim().toLocaleLowerCase() === item.name.trim().toLocaleLowerCase()
+    );
+    if (!match) {
+      deduped.push({ ...item, checkpoints: [...item.checkpoints] });
+      continue;
+    }
+    const checkpointNames = new Set(match.checkpoints.map((name) => name.trim().toLocaleLowerCase()));
+    match.checkpoints.push(
+      ...item.checkpoints.filter((name) => !checkpointNames.has(name.trim().toLocaleLowerCase()))
+    );
+  }
+  return deduped;
+}
+
 function getFacadeTemplateLocations(area: Area): TemplateLocation[] {
-  const facadeTypes = (area.areaNumber ?? '').split(',').filter(Boolean);
+  const facadeTypes = [...new Set((area.areaNumber ?? '').split(',').map((value) => value.trim()).filter(Boolean))];
   if (facadeTypes.length === 0) return [];
 
   const typeTemplateMap: Record<string, TemplateLocation[]> = {
@@ -522,7 +540,7 @@ function populateFacadeArea(area: Area, options?: { preserveExisting?: boolean }
     area,
     facadeLevels.map((level) => ({
       name: level,
-      items: facadeTemplateLocations.flatMap((location) => location.items),
+      items: dedupeTemplateItems(facadeTemplateLocations.flatMap((location) => location.items)),
     })),
     options
   );

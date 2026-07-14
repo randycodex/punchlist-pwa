@@ -54,6 +54,7 @@ import {
   OTHER_LOCATION_NAME,
   checkpointHasFacadeListContent,
   checkpointHasStoredMedia,
+  dedupeInspectionHierarchy,
   facadeAreaNeedsTemplateRefresh,
   itemHasStoredMedia,
   locationHasFacadeListContent,
@@ -93,6 +94,11 @@ import {
 const RECENT_COMMENTS_STORAGE_KEY = 'punchlist-recent-comments';
 const RECENT_AREA_TYPES_STORAGE_KEY = 'punchlist-recent-area-types';
 const MAX_RECENT_COMMENTS = 5;
+
+function inspectionNamesMatch(left: string, right: string) {
+  const normalize = (value: string) => value.trim().replace(/\s+/g, ' ').toLocaleLowerCase();
+  return normalize(left) === normalize(right);
+}
 
 type ConfirmDialogState = {
   title: string;
@@ -516,6 +522,7 @@ export default function AreaDetailPage() {
         setProject(nextProject);
         const areaData = nextProject.areas.find((a) => a.id === areaId);
         if (areaData && !areaData.deletedAt) {
+          let inspectionHierarchyChanged = dedupeInspectionHierarchy(areaData);
           const normalizedLocations = areaData.locations.filter(
             (location) => location.name.trim().toLowerCase() !== OTHER_LOCATION_NAME.toLowerCase()
           );
@@ -524,11 +531,13 @@ export default function AreaDetailPage() {
               ...location,
               sortOrder: index,
             }));
-            await saveProject(nextProject);
-            scheduleSync(nextProject.id);
+            inspectionHierarchyChanged = true;
           }
           if (facadeAreaNeedsTemplateRefresh(areaData)) {
             applyTemplateToArea(areaData, { preserveExisting: true });
+            inspectionHierarchyChanged = true;
+          }
+          if (inspectionHierarchyChanged) {
             await saveProject(nextProject);
             scheduleSync(nextProject.id);
           }
@@ -862,6 +871,14 @@ export default function AreaDetailPage() {
       const targetLocation = targetArea.locations.find((location) => location.id === editingCustomItem.locationId);
       const targetItem = targetLocation?.items.find((item) => item.id === editingCustomItem.itemId);
       if (!targetLocation || !targetItem) return;
+      if (
+        targetLocation.items.some(
+          (item) => item.id !== targetItem.id && inspectionNamesMatch(item.name, trimmedName)
+        )
+      ) {
+        setInspectionNotice(`An item named “${trimmedName}” already exists here.`);
+        return;
+      }
 
       targetItem.name = trimmedName;
       syncAreaCompletion(targetArea);
@@ -890,6 +907,11 @@ export default function AreaDetailPage() {
       targetArea.locations.forEach((location, index) => {
         location.sortOrder = index;
       });
+    }
+
+    if (targetLocation.items.some((item) => inspectionNamesMatch(item.name, trimmedName))) {
+      setInspectionNotice(`An item named “${trimmedName}” already exists here.`);
+      return;
     }
 
     const item = createItem(targetLocation.id, trimmedName, targetLocation.items.length, { isCustom: true });
@@ -921,7 +943,13 @@ export default function AreaDetailPage() {
     const targetArea = project.areas.find((entry) => entry.id === area.id);
     if (!targetArea) return;
 
-    const location = createLocation(targetArea.id, customSubareaName.trim(), targetArea.locations.length, {
+    const trimmedName = customSubareaName.trim();
+    if (targetArea.locations.some((location) => inspectionNamesMatch(location.name, trimmedName))) {
+      setInspectionNotice(`A sub-area named “${trimmedName}” already exists here.`);
+      return;
+    }
+
+    const location = createLocation(targetArea.id, trimmedName, targetArea.locations.length, {
       isCustom: true,
     });
     targetArea.locations.push(location);
@@ -970,7 +998,17 @@ export default function AreaDetailPage() {
       const checkpoint = targetItem.checkpoints.find((entry) => entry.id === editingCustomCheckpoint.checkpointId);
       if (!checkpoint) return;
 
-      checkpoint.name = customCheckpointName.trim();
+      const trimmedName = customCheckpointName.trim();
+      if (
+        targetItem.checkpoints.some(
+          (entry) => entry.id !== checkpoint.id && inspectionNamesMatch(entry.name, trimmedName)
+        )
+      ) {
+        setInspectionNotice(`A sub-item named “${trimmedName}” already exists here.`);
+        return;
+      }
+
+      checkpoint.name = trimmedName;
       checkpoint.updatedAt = new Date();
 
       syncAreaCompletion(targetArea);
@@ -986,9 +1024,15 @@ export default function AreaDetailPage() {
       return;
     }
 
+    const trimmedName = customCheckpointName.trim();
+    if (targetItem.checkpoints.some((checkpoint) => inspectionNamesMatch(checkpoint.name, trimmedName))) {
+      setInspectionNotice(`A sub-item named “${trimmedName}” already exists here.`);
+      return;
+    }
+
     const checkpoint = createCheckpoint(
       targetItem.id,
-      customCheckpointName.trim(),
+      trimmedName,
       targetItem.checkpoints.length,
       { isCustom: true }
     );
