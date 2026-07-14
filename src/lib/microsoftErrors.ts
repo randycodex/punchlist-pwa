@@ -96,10 +96,6 @@ export function getMicrosoftRetryDelayMs(error: unknown): number | null {
   return null;
 }
 
-export function formatMicrosoftRetryMessage(delayMs: number) {
-  return `Saved locally. Microsoft is catching up. Retrying in about ${Math.ceil(delayMs / 1000)} seconds.`;
-}
-
 export function formatMicrosoftManualRetryMessage(retryInSeconds?: number) {
   if (retryInSeconds && retryInSeconds > 0) {
     return `Saved locally. OneDrive is still catching up. Tap Sync to try again in about ${retryInSeconds} seconds.`;

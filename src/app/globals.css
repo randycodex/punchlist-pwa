@@ -101,7 +101,6 @@ html:not(.dark) {
 }
 
 .persistent-top-bar,
-.pinned-surface,
 .sticky-surface {
   background-color: var(--surface);
   border-color: var(--surface-border);
@@ -191,67 +190,6 @@ html:not(.dark) {
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
-}
-
-.list-card {
-  border-radius: 0.75rem;
-  padding: 0.875rem;
-}
-
-.stat-row {
-  margin-top: 0.625rem;
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 0.75rem;
-  font-size: 0.875rem;
-  line-height: 1.25rem;
-}
-
-.stat-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.25rem;
-  white-space: nowrap;
-  line-height: 1;
-  font-variant-numeric: tabular-nums;
-}
-
-.summary-stat-grid {
-  width: 100%;
-  display: grid;
-  gap: 0.5rem;
-}
-
-.summary-stat-grid-3 {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-}
-
-.summary-stat-grid-4 {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-}
-
-.summary-stat-cell {
-  text-align: center;
-  min-width: 0;
-}
-
-.summary-stat-value {
-  font-size: 1.25rem;
-  line-height: 1.5rem;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-}
-
-.summary-stat-label {
-  font-size: 0.75rem;
-  line-height: 1rem;
-}
-
-.summary-stat-meta {
-  font-size: 0.75rem;
-  line-height: 1rem;
-  font-variant-numeric: tabular-nums;
 }
 
 .app-page {
@@ -355,10 +293,6 @@ html:not(.dark) {
   line-height: 1.3rem;
 }
 
-.metric-primary {
-  color: var(--accent);
-}
-
 .metric-secondary {
   color: rgb(107 114 128);
 }
@@ -378,17 +312,6 @@ html:not(.dark) {
 
 .dark .section-eyebrow {
   color: rgb(186 191 199);
-}
-
-.pill-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.375rem;
-  border-radius: 999px;
-  padding: 0.4rem 0.7rem;
-  font-size: 0.75rem;
-  line-height: 1rem;
-  font-weight: 600;
 }
 
 .accent-text {
@@ -515,15 +438,8 @@ select.field-shell option {
   color: rgb(209 213 219);
 }
 
-@media (min-width: 640px) {
-  .list-card {
-    padding: 1rem;
-  }
-}
-
 /* In dark mode, force pinned utility surfaces to match the page background tone. */
 .dark .safe-top-shim,
-.dark .pinned-surface,
 .dark .sticky-surface {
   background-color: var(--surface-strong) !important;
   border-color: var(--surface-border) !important;
@@ -531,7 +447,6 @@ select.field-shell option {
 
 /* In light mode, keep utility pinned surfaces explicitly white. */
 html:not(.dark) .safe-top-shim,
-html:not(.dark) .pinned-surface,
 html:not(.dark) .sticky-surface {
   background-color: #ffffff !important;
   border-color: #e5e7eb !important;
@@ -540,7 +455,6 @@ html:not(.dark) .sticky-surface {
 /* Avoid a white flash in system-dark mode before JS/theme class is fully applied. */
 @media (prefers-color-scheme: dark) {
   html:not(.dark) .safe-top-shim,
-  html:not(.dark) .pinned-surface,
   html:not(.dark) .sticky-surface {
     background-color: #18181b !important;
     border-color: #27272a !important;

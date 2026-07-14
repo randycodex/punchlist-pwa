@@ -968,10 +968,8 @@ export default function AreaDetailPage() {
     setArea({ ...targetArea });
   }
 
-  async function handleEditCustomItem(locationId: string, itemId: string, currentName: string) {
+  function handleEditCustomItem(locationId: string, itemId: string, currentName: string) {
     if (!canEditSharedArea()) return;
-    void project;
-    void area;
     setEditingCustomItem({ locationId, itemId });
     setCustomItemTargetLocationId(locationId);
     setCustomItemName(currentName);

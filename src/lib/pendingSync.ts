@@ -13,7 +13,6 @@ type PendingSyncState = {
 
 const PENDING_SYNC_STORAGE_KEY = 'punchlist-pending-sync';
 const MAX_STORED_RETRY_WAIT_MS = 30_000;
-const MAX_AUTOMATIC_RETRY_COUNT = 1;
 
 function getDefaultPendingSyncState(): PendingSyncState {
   return {
@@ -139,26 +138,6 @@ export function clearPendingProjectSync(projectIds: string[]) {
   });
 }
 
-export function clearPendingFullSyncFlag() {
-  const state = loadPendingSyncState();
-  persistPendingSyncState({
-    projectIds: state.projectIds,
-    fullSyncNeeded: false,
-    retryCount: state.retryCount,
-    retryNotBefore: state.retryNotBefore,
-    autoRetryPaused: state.autoRetryPaused,
-  });
-}
-
-export function clearPendingSyncBackoff() {
-  const state = loadPendingSyncState();
-  persistPendingSyncState({
-    ...state,
-    retryCount: 0,
-    retryNotBefore: null,
-  });
-}
-
 export function isPendingSyncAutoRetryPaused() {
   return loadPendingSyncState().autoRetryPaused;
 }
@@ -180,10 +159,6 @@ export function resumePendingSyncAutoRetry() {
     retryNotBefore: null,
     autoRetryPaused: false,
   });
-}
-
-export function shouldPausePendingSyncAutoRetry() {
-  return loadPendingSyncState().retryCount >= MAX_AUTOMATIC_RETRY_COUNT;
 }
 
 export function recordPendingSyncRetry(
@@ -215,13 +190,4 @@ export function recordPendingSyncRetry(
     delayMs: exponentialDelayMs,
     retryAt,
   };
-}
-
-export function getPendingSyncWaitMs() {
-  const retryNotBefore = loadPendingSyncState().retryNotBefore;
-  if (!retryNotBefore) return 0;
-  const waitMs = new Date(retryNotBefore).getTime() - Date.now();
-  return Number.isFinite(waitMs) && waitMs > 0
-    ? Math.min(waitMs, MAX_STORED_RETRY_WAIT_MS)
-    : 0;
 }

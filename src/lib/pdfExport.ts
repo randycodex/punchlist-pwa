@@ -400,7 +400,7 @@ function getCheckpointPhotoSources(checkpoint: Checkpoint) {
     .filter((photo): photo is string => Boolean(photo));
 }
 
-function getPhotoGridMetrics(layout: LayoutMetrics, availableWidth: number) {
+function getPhotoGridMetrics(availableWidth: number) {
   const photosPerRow = 3;
   const photoGap = 4;
   const photoWidth = (availableWidth - photoGap * (photosPerRow - 1)) / photosPerRow;
@@ -409,16 +409,16 @@ function getPhotoGridMetrics(layout: LayoutMetrics, availableWidth: number) {
   return { photosPerRow, photoGap, photoWidth, photoHeight, rowGap };
 }
 
-function estimatePhotoBlockHeight(photoCount: number, layout: LayoutMetrics, availableWidth: number) {
+function estimatePhotoBlockHeight(photoCount: number, availableWidth: number) {
   if (photoCount === 0) return 0;
-  const grid = getPhotoGridMetrics(layout, availableWidth);
+  const grid = getPhotoGridMetrics(availableWidth);
   const rows = Math.ceil(photoCount / grid.photosPerRow);
   return 4 + rows * grid.photoHeight + Math.max(rows - 1, 0) * grid.rowGap + 6;
 }
 
-function estimateFirstPhotoRowHeight(photoCount: number, layout: LayoutMetrics, availableWidth: number) {
+function estimateFirstPhotoRowHeight(photoCount: number, availableWidth: number) {
   if (photoCount === 0) return 0;
-  const grid = getPhotoGridMetrics(layout, availableWidth);
+  const grid = getPhotoGridMetrics(availableWidth);
   return 4 + grid.photoHeight + 1.5;
 }
 
@@ -428,14 +428,14 @@ function estimateCheckpointIntroHeight(pdf: jsPDF, checkpoint: Checkpoint, textW
   return 4.8 + notesLines.length * 3.5 + fileLines.length * 3.4;
 }
 
-function estimateCheckpointBlockHeight(pdf: jsPDF, checkpoint: Checkpoint, layout: LayoutMetrics, textWidth: number) {
+function estimateCheckpointBlockHeight(pdf: jsPDF, checkpoint: Checkpoint, textWidth: number) {
   const photoCount = getCheckpointPhotoSources(checkpoint).length;
-  return estimateCheckpointIntroHeight(pdf, checkpoint, textWidth) + estimatePhotoBlockHeight(photoCount, layout, textWidth) + ITEM_GAP;
+  return estimateCheckpointIntroHeight(pdf, checkpoint, textWidth) + estimatePhotoBlockHeight(photoCount, textWidth) + ITEM_GAP;
 }
 
-function estimateCheckpointMinimumStartHeight(pdf: jsPDF, checkpoint: Checkpoint, layout: LayoutMetrics, textWidth: number) {
+function estimateCheckpointMinimumStartHeight(pdf: jsPDF, checkpoint: Checkpoint, textWidth: number) {
   const photoCount = getCheckpointPhotoSources(checkpoint).length;
-  return estimateCheckpointIntroHeight(pdf, checkpoint, textWidth) + estimateFirstPhotoRowHeight(photoCount, layout, textWidth) + ITEM_GAP;
+  return estimateCheckpointIntroHeight(pdf, checkpoint, textWidth) + estimateFirstPhotoRowHeight(photoCount, textWidth) + ITEM_GAP;
 }
 
 function getUniqueCheckpoints(checkpoints: ExportCheckpoint[]) {
@@ -450,7 +450,7 @@ function getUniqueCheckpoints(checkpoints: ExportCheckpoint[]) {
 function estimateItemBlockHeight(pdf: jsPDF, item: ExportItem, layout: LayoutMetrics) {
   let height = GROUP_TO_ITEM_GAP + 1.6;
   for (const checkpoint of item.checkpoints) {
-    height += estimateCheckpointBlockHeight(pdf, checkpoint, layout, layout.detailColumnWidth - 20);
+    height += estimateCheckpointBlockHeight(pdf, checkpoint, layout.detailColumnWidth - 20);
   }
   return height + 1.6;
 }
@@ -646,7 +646,6 @@ function buildAreaPhotoReferenceData(area: ExportArea) {
 function renderCoverPage(
   pdf: jsPDF,
   project: ExportProject,
-  mode: PdfExportMode,
   logo: LogoAssets,
   layout: LayoutMetrics,
   forceReportDate = false
@@ -716,12 +715,11 @@ function renderCoverPage(
 function renderIntroPages(
   pdf: jsPDF,
   project: ExportProject,
-  mode: PdfExportMode,
   logo: LogoAssets,
   layout: LayoutMetrics,
   forceReportDate = false
 ) {
-  return renderCoverPage(pdf, project, mode, logo, layout, forceReportDate);
+  return renderCoverPage(pdf, project, logo, layout, forceReportDate);
 }
 
 function renderEmptyIssuesMessage(pdf: jsPDF, layout: LayoutMetrics, startY: number, message: string) {
@@ -1240,10 +1238,9 @@ function renderPhotos(
   photoRefs: string[],
   startX: number,
   startY: number,
-  layout: LayoutMetrics,
   availableWidth: number
 ) {
-  const grid = getPhotoGridMetrics(layout, availableWidth);
+  const grid = getPhotoGridMetrics(availableWidth);
   const y = startY + 4;
 
   for (let index = 0; index < photos.length; index += 1) {
@@ -1326,7 +1323,7 @@ async function renderCheckpointBlock(
   y = renderCheckpointPrefix(y);
 
   if (photos.length > 0) {
-    const grid = getPhotoGridMetrics(layout, availableWidth);
+    const grid = getPhotoGridMetrics(availableWidth);
     const minPhotoBlockHeight = 5 + grid.photoHeight + 1.5;
     const rowUnit = grid.photoHeight + grid.rowGap;
     let photoIndex = 0;
@@ -1350,7 +1347,6 @@ async function renderCheckpointBlock(
         photoRefs.slice(photoIndex, photoIndex + photosThisPage),
         bodyX,
         y,
-        layout,
         availableWidth
       );
       photoIndex += Math.min(photosThisPage, photos.length - photoIndex);
@@ -1392,7 +1388,7 @@ async function renderProjectDetailPages(
     }));
   }
 
-  let introEndY = renderIntroPages(pdf, project, mode, logo, layout, forceReportDate);
+  let introEndY = renderIntroPages(pdf, project, logo, layout, forceReportDate);
   let firstAreaStartsOnCurrentPage = true;
 
   if (project.areas.length > 1 && projectSummary.areas.length > 1) {
@@ -1522,7 +1518,7 @@ async function renderProjectDetailPages(
         const firstCheckpoint = firstRenderedCheckpoints[0];
         const itemHeaderHeight = GROUP_TO_ITEM_GAP + 1;
         const firstCheckpointMinimumStartHeight = firstCheckpoint
-          ? estimateCheckpointMinimumStartHeight(pdf, firstCheckpoint, layout, layout.contentWidth - BODY_INDENT - 2)
+          ? estimateCheckpointMinimumStartHeight(pdf, firstCheckpoint, layout.contentWidth - BODY_INDENT - 2)
           : 0;
         if (firstCheckpoint && y + locationHeaderHeight + itemHeaderHeight + firstCheckpointMinimumStartHeight > layout.contentBottom) {
           y = startAreaPage(false);
@@ -1544,7 +1540,7 @@ async function renderProjectDetailPages(
         const maxItemHeightOnFreshPage = layout.contentBottom - (continuedAreaStartY + locationHeaderHeight);
         const firstCheckpoint = renderedCheckpoints[0];
         const firstCheckpointMinimumStartHeight = firstCheckpoint
-          ? estimateCheckpointMinimumStartHeight(pdf, firstCheckpoint, layout, layout.contentWidth - BODY_INDENT - 2)
+          ? estimateCheckpointMinimumStartHeight(pdf, firstCheckpoint, layout.contentWidth - BODY_INDENT - 2)
           : 0;
         const itemHeaderHeight = GROUP_TO_ITEM_GAP + 1;
         if (itemHeight <= maxItemHeightOnFreshPage && y + itemHeight > layout.contentBottom) {
@@ -1572,8 +1568,8 @@ async function renderProjectDetailPages(
 
         for (const checkpoint of renderedCheckpoints) {
           const textWidth = layout.contentWidth - BODY_INDENT - 2;
-          const checkpointHeight = estimateCheckpointBlockHeight(pdf, checkpoint, layout, textWidth);
-          const checkpointMinimumStartHeight = estimateCheckpointMinimumStartHeight(pdf, checkpoint, layout, textWidth);
+          const checkpointHeight = estimateCheckpointBlockHeight(pdf, checkpoint, textWidth);
+          const checkpointMinimumStartHeight = estimateCheckpointMinimumStartHeight(pdf, checkpoint, textWidth);
           const maxCheckpointHeightOnFreshPage = layout.contentBottom - (continuedAreaStartY + locationHeaderHeight + itemHeaderHeight);
           if (
             y + checkpointMinimumStartHeight > layout.contentBottom ||
@@ -1620,7 +1616,7 @@ export async function generateProjectPDF(project: Project, mode: PdfExportMode =
   const summaryPages = hasRenderableContent(exportProject, mode)
     ? await renderProjectDetailPages(pdf, exportProject, mode, logo, layout, forceReportDate)
     : (() => {
-        const messageY = renderCoverPage(pdf, exportProject, mode, logo, layout, forceReportDate);
+        const messageY = renderCoverPage(pdf, exportProject, logo, layout, forceReportDate);
         renderEmptyIssuesMessage(pdf, layout, messageY, getEmptyProjectMessage(mode));
         return new Set<number>();
       })();
@@ -1649,7 +1645,7 @@ export async function generateMultiProjectPDF(projects: Project[], mode: PdfExpo
         summaryPages.add(page);
       }
     } else {
-      const messageY = renderCoverPage(pdf, exportProject, mode, logo, layout, true);
+      const messageY = renderCoverPage(pdf, exportProject, logo, layout, true);
       renderEmptyIssuesMessage(pdf, layout, messageY, getEmptyProjectMessage(mode));
     }
 
