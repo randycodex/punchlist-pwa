@@ -2377,6 +2377,7 @@ export default function AreaDetailPage() {
       </main>
 
       <AreaEditorModal
+        key={showEditArea ? `edit-${area.id}` : 'closed'}
         open={showEditArea && !areaEditingLocked}
         title="Edit Area"
         value={areaForm}
