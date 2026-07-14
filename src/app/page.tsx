@@ -91,6 +91,7 @@ import {
   getAreaCreationForms,
   getDefaultAreaFormValue,
   upsertFacadeElevationDrawing,
+  type AreaFormValue,
   type AreaTypeKey,
 } from '@/lib/areas';
 import { useRouter } from 'next/navigation';
@@ -786,7 +787,7 @@ export default function ProjectsPage() {
     setShowNewProject(false);
   }
 
-  async function handleAddArea() {
+  async function handleAddArea(submittedForms?: AreaFormValue[]) {
     const targetProject =
       projects.find((project) => project.id === areaTargetProjectId && !project.deletedAt) ??
       singleProject;
@@ -816,7 +817,7 @@ export default function ProjectsPage() {
       }
     }
 
-    const areaForms = getAreaCreationForms(newAreaForm, buildFacadeLevelOptions(projectForAreaCreation));
+    const areaForms = submittedForms ?? getAreaCreationForms(newAreaForm, buildFacadeLevelOptions(projectForAreaCreation));
     if (areaForms.length === 0) return;
     upsertFacadeElevationDrawing(projectForAreaCreation, newAreaForm.pendingElevationDrawing);
 
@@ -2466,6 +2467,7 @@ export default function ProjectsPage() {
       )}
 
       <AreaEditorModal
+        key={showAddArea ? 'open' : 'closed'}
         open={showAddArea}
         title="Add Area"
         value={newAreaForm}
@@ -2479,7 +2481,7 @@ export default function ProjectsPage() {
           setAreaTargetProjectId(null);
           setNewAreaForm(getDefaultAreaFormValue());
         }}
-        onSubmit={() => void handleAddArea()}
+        onSubmit={(values) => void handleAddArea(values)}
         submitLabel="Add"
       />
 

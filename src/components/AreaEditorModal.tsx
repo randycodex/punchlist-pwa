@@ -19,6 +19,27 @@ const FACADE_LEVEL_CUSTOM_VALUE = '__custom__';
 const MAX_ELEVATION_FILE_SIZE = 25 * 1024 * 1024;
 const ELEVATION_FILE_ACCEPT = '.pdf,image/jpeg,image/png,image/webp,application/pdf';
 const ELEVATION_FILE_TYPES = new Set(['application/pdf', 'image/jpeg', 'image/png', 'image/webp']);
+const MIN_BULK_APARTMENT_UNITS = 2;
+const MAX_BULK_APARTMENT_UNITS = 5000;
+const BULK_APARTMENT_PAGE_SIZE = 50;
+
+type BulkApartmentUnit = {
+  id: string;
+  unitType: ApartmentUnitType | '';
+  areaNumber: string;
+};
+
+function createBulkApartmentUnit(): BulkApartmentUnit {
+  return {
+    id: globalThis.crypto?.randomUUID?.() ?? `unit-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    unitType: '',
+    areaNumber: '',
+  };
+}
+
+function createBulkApartmentUnits(count: number): BulkApartmentUnit[] {
+  return Array.from({ length: count }, () => createBulkApartmentUnit());
+}
 
 function createElevationDrawingId() {
   return globalThis.crypto?.randomUUID?.() ?? `elevation-${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -65,7 +86,7 @@ type AreaEditorModalProps = {
   lockAreaType?: boolean;
   onChange: (value: AreaFormValue) => void;
   onClose: () => void;
-  onSubmit: () => void;
+  onSubmit: (values?: AreaFormValue[]) => void;
   submitLabel: string;
 };
 
@@ -85,6 +106,12 @@ export default function AreaEditorModal({
 }: AreaEditorModalProps) {
   const [levelMode, setLevelMode] = useState('');
   const [elevationError, setElevationError] = useState('');
+  const [apartmentCreationMode, setApartmentCreationMode] = useState<'single' | 'multiple'>('single');
+  const [bulkUnitCount, setBulkUnitCount] = useState(String(MIN_BULK_APARTMENT_UNITS));
+  const [bulkApartmentUnits, setBulkApartmentUnits] = useState<BulkApartmentUnit[]>(() =>
+    createBulkApartmentUnits(MIN_BULK_APARTMENT_UNITS)
+  );
+  const [bulkUnitPage, setBulkUnitPage] = useState(1);
   const elevationInputRef = useRef<HTMLInputElement | null>(null);
   const orderedAreaTypes = useMemo(() => {
     const preferredOrder: AreaTypeKey[] = ['apartment_unit', 'custom'];
@@ -123,6 +150,90 @@ export default function AreaEditorModal({
       ? matchingElevationDrawings.find((drawing) => drawing.id === value.elevationDrawingId) ?? null
       : null;
   const selectedElevationDrawing = value.pendingElevationDrawing ?? selectedStoredElevationDrawing;
+  const isBulkApartmentCreation =
+    !lockAreaType && selectedDefinition.key === 'apartment_unit' && apartmentCreationMode === 'multiple';
+  const normalizedBulkUnitNumbers = bulkApartmentUnits.map((unit) => unit.areaNumber.trim().toLocaleLowerCase());
+  const bulkUnitNumberCounts = new Map<string, number>();
+  normalizedBulkUnitNumbers.forEach((unitNumber) => {
+    if (unitNumber) {
+      bulkUnitNumberCounts.set(unitNumber, (bulkUnitNumberCounts.get(unitNumber) ?? 0) + 1);
+    }
+  });
+  const duplicateBulkUnitNumbers = new Set(
+    [...bulkUnitNumberCounts.entries()]
+      .filter(([, count]) => count > 1)
+      .map(([unitNumber]) => unitNumber)
+  );
+  const parsedBulkUnitCount = Number.parseInt(bulkUnitCount, 10);
+  const isBulkUnitCountValid =
+    Number.isInteger(parsedBulkUnitCount) &&
+    parsedBulkUnitCount >= MIN_BULK_APARTMENT_UNITS &&
+    parsedBulkUnitCount <= MAX_BULK_APARTMENT_UNITS &&
+    parsedBulkUnitCount === bulkApartmentUnits.length;
+  const hasIncompleteBulkApartmentUnits = bulkApartmentUnits.some(
+    (unit) => !unit.unitType || !unit.areaNumber.trim()
+  );
+  const hasDuplicateBulkApartmentUnits = duplicateBulkUnitNumbers.size > 0;
+  const bulkUnitPageCount = Math.max(1, Math.ceil(bulkApartmentUnits.length / BULK_APARTMENT_PAGE_SIZE));
+  const activeBulkUnitPage = Math.min(bulkUnitPage, bulkUnitPageCount);
+  const firstVisibleBulkUnitIndex = (activeBulkUnitPage - 1) * BULK_APARTMENT_PAGE_SIZE;
+  const visibleBulkApartmentUnits = bulkApartmentUnits.slice(
+    firstVisibleBulkUnitIndex,
+    firstVisibleBulkUnitIndex + BULK_APARTMENT_PAGE_SIZE
+  );
+
+  function handleBulkUnitCountChange(nextValue: string) {
+    const digitsOnly = nextValue.replace(/\D/g, '');
+    setBulkUnitCount(digitsOnly);
+    const parsedCount = Number.parseInt(digitsOnly, 10);
+    if (
+      !Number.isInteger(parsedCount) ||
+      parsedCount < MIN_BULK_APARTMENT_UNITS ||
+      parsedCount > MAX_BULK_APARTMENT_UNITS
+    ) {
+      return;
+    }
+
+    setBulkApartmentUnits((current) => {
+      if (current.length === parsedCount) return current;
+      if (current.length > parsedCount) return current.slice(0, parsedCount);
+      return [...current, ...createBulkApartmentUnits(parsedCount - current.length)];
+    });
+    setBulkUnitPage((currentPage) =>
+      Math.min(currentPage, Math.max(1, Math.ceil(parsedCount / BULK_APARTMENT_PAGE_SIZE)))
+    );
+  }
+
+  function updateBulkApartmentUnit(index: number, patch: Partial<Omit<BulkApartmentUnit, 'id'>>) {
+    setBulkApartmentUnits((current) =>
+      current.map((unit, unitIndex) => (unitIndex === index ? { ...unit, ...patch } : unit))
+    );
+  }
+
+  function handleClose() {
+    onClose();
+  }
+
+  function handleSubmit() {
+    if (!isBulkApartmentCreation) {
+      onSubmit();
+      return;
+    }
+
+    if (!isBulkUnitCountValid || hasIncompleteBulkApartmentUnits || hasDuplicateBulkApartmentUnits) return;
+    const forms = bulkApartmentUnits.map((unit) => ({
+      ...value,
+      areaTypeKey: 'apartment_unit' as const,
+      unitType: unit.unitType,
+      areaNumber: unit.areaNumber.trim(),
+      customAreaName: '',
+      facadeLevel: '',
+      facadeLevelMode: '' as const,
+      elevationDrawingId: '',
+      pendingElevationDrawing: null,
+    }));
+    onSubmit(forms);
+  }
 
   async function handleElevationFileChange(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
@@ -199,6 +310,9 @@ export default function AreaEditorModal({
                   const keepsElevationDrawing = keepsFacadeFields && Boolean(nextUnitType);
                   setLevelMode('');
                   setElevationError('');
+                  if (nextAreaType !== 'apartment_unit') {
+                    setApartmentCreationMode('single');
+                  }
                   onChange({
                     ...value,
                     areaTypeKey: nextAreaType,
@@ -238,7 +352,139 @@ export default function AreaEditorModal({
             </div>
           )}
 
-          {selectedDefinition.requiresUnitType && (
+          {!lockAreaType && selectedDefinition.key === 'apartment_unit' && (
+            <div>
+              <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                Add
+              </label>
+              <div className="grid grid-cols-2 gap-1 rounded-[1rem] border border-[var(--surface-border)] bg-black/[0.025] p-1 dark:bg-white/[0.04]">
+                {(['single', 'multiple'] as const).map((mode) => {
+                  const selected = apartmentCreationMode === mode;
+                  return (
+                    <button
+                      key={mode}
+                      type="button"
+                      onClick={() => setApartmentCreationMode(mode)}
+                      className={`rounded-[0.75rem] px-3 py-2 text-sm font-medium transition ${
+                        selected
+                          ? 'bg-white text-gray-900 shadow-sm dark:bg-white/[0.12] dark:text-white'
+                          : 'text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white'
+                      }`}
+                      aria-pressed={selected}
+                    >
+                      {mode === 'single' ? 'Single unit' : 'Multiple units'}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {isBulkApartmentCreation && (
+            <div className="space-y-4">
+              <div>
+                <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                  Number of Units
+                </label>
+                <input
+                  type="number"
+                  min={MIN_BULK_APARTMENT_UNITS}
+                  max={MAX_BULK_APARTMENT_UNITS}
+                  inputMode="numeric"
+                  value={bulkUnitCount}
+                  onChange={(event) => handleBulkUnitCountChange(event.target.value)}
+                  className="field-shell"
+                  aria-describedby="bulk-unit-count-help"
+                />
+                <p id="bulk-unit-count-help" className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                  {isBulkUnitCountValid
+                    ? `Supports large projects with up to ${MAX_BULK_APARTMENT_UNITS.toLocaleString()} units.`
+                    : `Enter between ${MIN_BULK_APARTMENT_UNITS} and ${MAX_BULK_APARTMENT_UNITS.toLocaleString()} units.`}
+                </p>
+              </div>
+
+              <div>
+                <div className="mb-2 flex items-center justify-between gap-3">
+                  <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Unit Details</span>
+                  <span className="text-xs text-gray-500 dark:text-gray-400">
+                    {bulkApartmentUnits.length} units
+                  </span>
+                </div>
+                <div className="max-h-[22rem] space-y-2 overflow-y-auto rounded-[1rem] border border-[var(--surface-border)] bg-white/55 p-3 dark:bg-white/[0.03]">
+                  {visibleBulkApartmentUnits.map((unit, visibleIndex) => {
+                    const index = firstVisibleBulkUnitIndex + visibleIndex;
+                    const normalizedNumber = unit.areaNumber.trim().toLocaleLowerCase();
+                    const hasDuplicateNumber = Boolean(normalizedNumber && duplicateBulkUnitNumbers.has(normalizedNumber));
+                    return (
+                      <div key={unit.id} className="grid grid-cols-[2rem_minmax(0,0.85fr)_minmax(0,1.15fr)] items-center gap-2">
+                        <span className="text-center text-xs font-semibold tabular-nums text-gray-400 dark:text-gray-500">
+                          {index + 1}
+                        </span>
+                        <select
+                          value={unit.unitType}
+                          onChange={(event) =>
+                            updateBulkApartmentUnit(index, {
+                              unitType: event.target.value as ApartmentUnitType,
+                            })
+                          }
+                          className="field-shell min-w-0 px-3"
+                          aria-label={`Unit ${index + 1} type`}
+                        >
+                          <option value="">Type</option>
+                          {APARTMENT_UNIT_TYPES.map((unitType) => (
+                            <option key={unitType} value={unitType}>
+                              {unitType}
+                            </option>
+                          ))}
+                        </select>
+                        <input
+                          type="text"
+                          value={unit.areaNumber}
+                          onChange={(event) =>
+                            updateBulkApartmentUnit(index, { areaNumber: event.target.value })
+                          }
+                          className={`field-shell min-w-0 px-3 ${hasDuplicateNumber ? 'border-red-500 dark:border-red-400' : ''}`}
+                          placeholder="Unit number"
+                          aria-label={`Unit ${index + 1} number`}
+                          aria-invalid={hasDuplicateNumber}
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
+                {bulkUnitPageCount > 1 && (
+                  <div className="mt-3 flex items-center justify-between gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setBulkUnitPage((page) => Math.max(1, page - 1))}
+                      disabled={activeBulkUnitPage === 1}
+                      className="rounded-xl border border-[var(--surface-border)] px-3 py-2 text-xs font-medium text-gray-700 transition hover:bg-black/[0.04] disabled:cursor-not-allowed disabled:opacity-40 dark:text-gray-300 dark:hover:bg-white/[0.06]"
+                    >
+                      Previous 50
+                    </button>
+                    <span className="text-xs tabular-nums text-gray-500 dark:text-gray-400">
+                      Page {activeBulkUnitPage} of {bulkUnitPageCount}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setBulkUnitPage((page) => Math.min(bulkUnitPageCount, page + 1))}
+                      disabled={activeBulkUnitPage === bulkUnitPageCount}
+                      className="rounded-xl border border-[var(--surface-border)] px-3 py-2 text-xs font-medium text-gray-700 transition hover:bg-black/[0.04] disabled:cursor-not-allowed disabled:opacity-40 dark:text-gray-300 dark:hover:bg-white/[0.06]"
+                    >
+                      Next 50
+                    </button>
+                  </div>
+                )}
+                {hasDuplicateBulkApartmentUnits && (
+                  <p className="mt-2 text-xs text-red-600 dark:text-red-300">
+                    Each unit number must be unique in this batch.
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
+
+          {selectedDefinition.requiresUnitType && !isBulkApartmentCreation && (
             <div>
               <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
                 Unit Type
@@ -536,7 +782,7 @@ export default function AreaEditorModal({
             </div>
           )}
 
-          {!selectedDefinition.requiresOrientation && (
+          {!selectedDefinition.requiresOrientation && !isBulkApartmentCreation && (
             <div>
               <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
                 Number / Floor
@@ -560,15 +806,17 @@ export default function AreaEditorModal({
 
         <div className="mt-6 flex gap-3">
           <button
-            onClick={onClose}
+            onClick={handleClose}
             className="flex-1 rounded-2xl border border-gray-300/90 bg-white/70 px-4 py-3 font-medium text-gray-700 transition hover:bg-white dark:border-white/10 dark:bg-white/[0.04] dark:text-gray-300 dark:hover:bg-white/[0.08]"
           >
             Cancel
           </button>
           <button
-            onClick={onSubmit}
+            onClick={handleSubmit}
             disabled={
-              (selectedDefinition.requiresUnitType && !value.unitType) ||
+              (isBulkApartmentCreation &&
+                (!isBulkUnitCountValid || hasIncompleteBulkApartmentUnits || hasDuplicateBulkApartmentUnits)) ||
+              (!isBulkApartmentCreation && selectedDefinition.requiresUnitType && !value.unitType) ||
               (selectedDefinition.requiresOrientation && !value.unitType) ||
               (selectedDefinition.requiresOrientation &&
                 enableFacadeLevelBatch &&
@@ -582,7 +830,7 @@ export default function AreaEditorModal({
             }
             className="flex-1 rounded-2xl bg-zinc-900 px-4 py-3 font-medium text-white transition hover:bg-black disabled:cursor-not-allowed disabled:opacity-50 dark:bg-white dark:text-gray-900 dark:hover:bg-gray-200"
           >
-            {submitLabel}
+            {isBulkApartmentCreation ? `Add ${bulkApartmentUnits.length} Units` : submitLabel}
           </button>
         </div>
       </div>
