@@ -263,8 +263,8 @@ html:not(.dark) {
 }
 
 .inspection-location-surface {
-  background: #e8edf2;
-  border: 1px solid rgba(51, 65, 85, 0.08);
+  background: #d6e0ea;
+  border: 1px solid rgba(51, 65, 85, 0.14);
 }
 
 .dark .inspection-location-surface {
@@ -273,8 +273,8 @@ html:not(.dark) {
 }
 
 .inspection-item-expanded-surface {
-  background: rgba(248, 250, 252, 0.78);
-  border: 1px solid var(--surface-border);
+  background: rgba(255, 255, 255, 0.96);
+  border: 1px solid rgba(51, 65, 85, 0.08);
 }
 
 .inspection-add-trigger {
