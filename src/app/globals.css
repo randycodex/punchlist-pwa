@@ -410,6 +410,10 @@ html:not(.dark) {
     background-color 160ms ease;
 }
 
+.field-shell-with-action {
+  padding-right: 4.25rem;
+}
+
 .field-shell::placeholder {
   color: rgb(156 163 175);
 }

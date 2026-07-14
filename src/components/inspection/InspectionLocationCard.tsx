@@ -1117,7 +1117,7 @@ function InlineCheckpointEditor({
               value={commentText}
               onChange={(e) => onCommentChange(e.target.value)}
               onBlur={(e) => void onCommentBlur(locationId, itemId, checkpoint.id, e.target.value)}
-              className="field-shell min-h-[96px] resize-none pr-16 text-sm"
+              className="field-shell field-shell-with-action min-h-[96px] resize-none text-sm"
               placeholder="Add inspection note"
             />
             <button
