@@ -1,9 +1,15 @@
 'use client';
 
-import { createContext, ReactNode, useContext, useEffect, useMemo, useState } from 'react';
+import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import type { Session, User } from '@supabase/supabase-js';
 import { useMicrosoftAuth } from '@/contexts/MicrosoftAuthContext';
-import { getCollaborationSupabaseClient } from '@/lib/collaboration';
+import {
+  getCollaborationSupabaseClient,
+  getMyCollaborationProfile,
+  saveMyCollaborationProfile,
+  type CollaborationUserProfile,
+  type CollaborationUserProfileInput,
+} from '@/lib/collaboration';
 
 type CollaborationAuthContextValue = {
   isReady: boolean;
@@ -12,9 +18,14 @@ type CollaborationAuthContextValue = {
   canUseCollaboration: boolean;
   user: User | null;
   session: Session | null;
+  profile: CollaborationUserProfile | null;
+  isProfileLoading: boolean;
+  profileErrorMessage: string | null;
   errorMessage: string | null;
   signIn: () => Promise<void>;
   signOut: () => Promise<void>;
+  saveProfile: (input: CollaborationUserProfileInput) => Promise<CollaborationUserProfile>;
+  refreshProfile: () => Promise<void>;
 };
 
 const CollaborationAuthContext = createContext<CollaborationAuthContextValue | undefined>(undefined);
@@ -26,7 +37,30 @@ export function CollaborationAuthProvider({ children }: { children: ReactNode })
   const [user, setUser] = useState<User | null>(null);
   const [isReady, setIsReady] = useState(() => !supabase);
   const [isSigningIn, setIsSigningIn] = useState(false);
+  const [profile, setProfile] = useState<CollaborationUserProfile | null>(null);
+  const [isProfileLoading, setIsProfileLoading] = useState(false);
+  const [profileErrorMessage, setProfileErrorMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  const refreshProfile = useCallback(async () => {
+    if (!supabase || !user) {
+      setProfile(null);
+      setProfileErrorMessage(null);
+      return;
+    }
+
+    setIsProfileLoading(true);
+    try {
+      setProfile(await getMyCollaborationProfile());
+      setProfileErrorMessage(null);
+    } catch (error) {
+      console.error('Failed to load collaboration profile:', error);
+      setProfile(null);
+      setProfileErrorMessage(error instanceof Error ? error.message : 'Unable to load your profile.');
+    } finally {
+      setIsProfileLoading(false);
+    }
+  }, [supabase, user]);
 
   useEffect(() => {
     let active = true;
@@ -56,6 +90,17 @@ export function CollaborationAuthProvider({ children }: { children: ReactNode })
       data.subscription.unsubscribe();
     };
   }, [supabase]);
+
+  useEffect(() => {
+    void refreshProfile();
+  }, [refreshProfile]);
+
+  async function saveProfile(input: CollaborationUserProfileInput) {
+    setProfileErrorMessage(null);
+    const savedProfile = await saveMyCollaborationProfile(input);
+    setProfile(savedProfile);
+    return savedProfile;
+  }
 
   async function signIn() {
     setErrorMessage(null);
@@ -88,6 +133,8 @@ export function CollaborationAuthProvider({ children }: { children: ReactNode })
     if (error) {
       setErrorMessage(error.message);
     }
+    setProfile(null);
+    setProfileErrorMessage(null);
   }
 
   return (
@@ -99,9 +146,14 @@ export function CollaborationAuthProvider({ children }: { children: ReactNode })
         canUseCollaboration: microsoftAuth.canUseCollaboration,
         user,
         session,
+        profile,
+        isProfileLoading,
+        profileErrorMessage,
         errorMessage,
         signIn,
         signOut,
+        saveProfile,
+        refreshProfile,
       }}
     >
       {children}

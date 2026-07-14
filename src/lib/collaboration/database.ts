@@ -9,6 +9,28 @@ export type Json =
 export interface CollaborationDatabase {
   public: {
     Tables: {
+      user_profiles: {
+        Row: {
+          user_id: string;
+          username: string;
+          first_name: string;
+          last_name: string;
+          job_title: string;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          user_id: string;
+          username: string;
+          first_name: string;
+          last_name: string;
+          job_title: string;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: Partial<CollaborationDatabase['public']['Tables']['user_profiles']['Insert']>;
+        Relationships: [];
+      };
       shared_projects: {
         Row: {
           id: string;

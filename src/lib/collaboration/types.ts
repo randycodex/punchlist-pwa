@@ -2,6 +2,21 @@ export type CollaborationAccessState = 'invited' | 'active' | 'removed';
 
 export type CollaborationJoinMethod = 'emailInvite' | 'joinCode';
 
+export interface CollaborationUserProfile {
+  userId: string;
+  username: string;
+  firstName: string;
+  lastName: string;
+  jobTitle: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export type CollaborationUserProfileInput = Pick<
+  CollaborationUserProfile,
+  'username' | 'firstName' | 'lastName' | 'jobTitle'
+>;
+
 export type CollaborationEntityType =
   | 'project'
   | 'area'

@@ -2,6 +2,7 @@ export * from './areaClaims';
 export * from './config';
 export * from './database';
 export * from './diagnostics';
+export * from './profiles';
 export * from './sharedProjectSnapshots';
 export * from './sharedProjects';
 export * from './storage';

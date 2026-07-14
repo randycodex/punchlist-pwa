@@ -114,6 +114,7 @@ export async function runCollaborationHealthCheck(): Promise<CollaborationHealth
   }
 
   checks.push(await checkTable('shared_projects', 'Shared projects table', () => supabase.from('shared_projects').select('id').limit(1)));
+  checks.push(await checkTable('user_profiles', 'User profiles table', () => supabase.from('user_profiles').select('user_id').limit(1)));
   checks.push(await checkTable('project_members', 'Project members table', () => supabase.from('project_members').select('id').limit(1)));
   checks.push(await checkTable('area_claims', 'Area claims table', () => supabase.from('area_claims').select('id').limit(1)));
   checks.push(await checkTable('snapshots', 'Latest snapshot table', () => supabase.from('shared_project_snapshots').select('project_id').limit(1)));

@@ -12,6 +12,8 @@ import { useAppSettings } from '@/contexts/AppSettingsContext';
 import { getProject } from '@/lib/db';
 import { hasPendingSyncState } from '@/lib/pendingSync';
 import { getCachedProjectPreview } from '@/lib/projectNavigationCache';
+import { getCollaborationProfileInitials } from '@/lib/collaboration';
+import UserProfileModal from '@/components/UserProfileModal';
 import {
   Activity,
   ArchiveRestore,
@@ -33,6 +35,7 @@ import {
   RefreshCw,
   Share2,
   Trash2,
+  UserRound,
   UserPlus,
   Users,
 } from 'lucide-react';
@@ -75,6 +78,7 @@ export default function PersistentTopBar() {
   const showAuth = pathname === '/';
   const [projectTitle, setProjectTitle] = useState('');
   const [showHomeMenu, setShowHomeMenu] = useState(false);
+  const [showProfile, setShowProfile] = useState(false);
   const [homeMenuState, setHomeMenuState] = useState<HomeMenuState>({
     context: 'home',
     sortOption: 'alphabetical',
@@ -523,6 +527,24 @@ export default function PersistentTopBar() {
                       <Trash2 className="h-4 w-4" />
                       {homeMenuState.showTrash ? 'Hide trash' : 'Trash'}
                     </button>
+                    {collaborationAuth.isSignedIn && (
+                      <button
+                        onClick={() => {
+                          setShowHomeMenu(false);
+                          setShowProfile(true);
+                        }}
+                        className={menuItemClass}
+                      >
+                        {collaborationAuth.profile ? (
+                          <span className="flex h-5 w-5 items-center justify-center rounded-md bg-[var(--accent)] text-[9px] font-bold text-white">
+                            {getCollaborationProfileInitials(collaborationAuth.profile)}
+                          </span>
+                        ) : (
+                          <UserRound className="h-4 w-4" />
+                        )}
+                        {collaborationAuth.profile ? 'Edit profile' : 'Create profile'}
+                      </button>
+                    )}
                     {isSignedIn && (
                       <button
                         onClick={() => {
@@ -564,6 +586,7 @@ export default function PersistentTopBar() {
           </div>
         )}
       </div>
+      <UserProfileModal open={showProfile} onClose={() => setShowProfile(false)} />
     </div>
   );
 }
