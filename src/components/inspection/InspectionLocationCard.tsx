@@ -931,12 +931,12 @@ function CheckpointRow({
   return (
     <div
       ref={editableLabel ? editContainerRef : undefined}
-      className={`rounded-[1.15rem] px-3.5 py-2 transition ${
+      className={`inspection-checkpoint-row rounded-[1.15rem] px-3.5 py-2 transition ${
         !editableLabel ? 'cursor-pointer' : ''
       } ${
         issueState === 'open'
-          ? 'accent-tint dark:bg-[#882D17]'
-          : 'bg-blue-50 dark:bg-[#44362F]'
+          ? 'inspection-checkpoint-row--issue'
+          : 'inspection-checkpoint-row--default'
       }`}
       onClick={!editableLabel ? onToggleExpand : undefined}
     >

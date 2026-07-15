@@ -12,7 +12,7 @@ type AreaNotesCardProps = {
 
 export default function AreaNotesCard({ value, isExpanded, onToggle, onChange, onBlur }: AreaNotesCardProps) {
   return (
-    <div className="card-surface-subtle overflow-hidden rounded-[1.7rem]">
+    <div className="area-notes-card card-surface-subtle overflow-hidden rounded-[1.7rem]">
       <button
         type="button"
         onClick={onToggle}

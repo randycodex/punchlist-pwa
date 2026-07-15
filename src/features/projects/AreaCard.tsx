@@ -125,7 +125,7 @@ export const AreaCard = memo(function AreaCard({
       onClick={() => {
         if (deleteMode) onToggleSelection(area.id);
       }}
-      className={`card-surface block rounded-[1.65rem] p-4 transition-all sm:p-5 ${
+      className={`main-card-surface card-surface block rounded-[1.65rem] p-4 transition-all sm:p-5 ${
         isSelected
           ? 'bg-gray-100 border-gray-400 dark:bg-white/[0.08] dark:border-gray-500'
           : 'hover:-translate-y-px hover:border-black/10 dark:hover:bg-white/[0.07] dark:hover:border-white/[0.08]'

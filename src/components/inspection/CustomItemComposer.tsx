@@ -37,6 +37,14 @@ export default function CustomItemComposer({
   const canSubmit = value.trim().length > 0;
   const compactTriggerLabels = new Set(['+ Item', '+ Sub Item', '+ Sub Area']);
   const triggerWidthClass = compactTriggerLabels.has(triggerLabel) ? 'mx-auto block w-1/2' : 'w-full';
+  const triggerToneClass =
+    triggerLabel === '+ Sub Item'
+      ? 'inspection-add-trigger--sub-item'
+      : triggerLabel === '+ Sub Area'
+        ? 'inspection-add-trigger--sub-area'
+        : triggerLabel === '+ Item'
+          ? 'inspection-add-trigger--item'
+          : '';
 
   useEffect(() => {
     if (!open) return;
@@ -62,7 +70,7 @@ export default function CustomItemComposer({
       <div className="px-1 pt-1">
         <button
           onClick={onOpen}
-          className={`${triggerWidthClass} inspection-add-trigger justify-center rounded-[1.2rem] px-6 py-3 text-sm transition`}
+          className={`${triggerWidthClass} ${triggerToneClass} inspection-add-trigger justify-center rounded-[1.2rem] px-6 py-3 text-sm font-semibold transition`}
         >
           {triggerLabel}
         </button>

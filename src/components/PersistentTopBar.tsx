@@ -281,7 +281,7 @@ export default function PersistentTopBar() {
     );
   }
 
-  const menuCardClass = 'space-y-1 rounded-[1.25rem] bg-black/[0.03] p-2.5 dark:bg-white/[0.03]';
+  const menuCardClass = 'app-menu-card space-y-1 rounded-[1.25rem] p-2.5';
   const menuGroupLabelClass = 'px-3 pt-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-gray-500 dark:text-gray-400';
   const menuItemClass = 'flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm text-gray-700 transition hover:bg-black/[0.04] dark:text-gray-300 dark:hover:bg-white/[0.04]';
   const disabledMenuItemClass = `${menuItemClass} disabled:cursor-default disabled:opacity-60`;
@@ -340,7 +340,7 @@ export default function PersistentTopBar() {
                 <div className="scrollbar-hidden min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain px-3 pb-[calc(env(safe-area-inset-bottom)+1rem)] pt-2 md:pt-[calc(env(safe-area-inset-top)+0.5rem)]">
                 {showAuth && (
                   <div className="px-1 py-1">
-                    <div className="space-y-2 rounded-[1.25rem] bg-black/[0.03] p-2.5 dark:bg-white/[0.03]">
+                    <div className="app-menu-card space-y-2 rounded-[1.25rem] p-2.5">
                       <div className="px-3 pt-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-gray-500 dark:text-gray-400">
                         Sort
                       </div>
@@ -368,7 +368,7 @@ export default function PersistentTopBar() {
                     <div className="px-1 pb-2 text-[11px] font-semibold uppercase tracking-[0.24em] text-gray-500 dark:text-gray-400">
                       Sort
                     </div>
-                    <div className="space-y-2 rounded-[1.25rem] bg-black/[0.03] p-2.5 dark:bg-white/[0.03]">
+                    <div className="app-menu-card space-y-2 rounded-[1.25rem] p-2.5">
                       {sortOptions.map(({ value, label, icon: Icon }) => (
                         <button
                           key={value}

@@ -210,48 +210,142 @@ html:not(.dark) {
   border: 1px solid var(--surface-border);
 }
 
+.main-card-surface {
+  --main-card-bg: var(--surface);
+  background: var(--main-card-bg);
+  border-color: color-mix(in srgb, var(--main-card-bg) 82%, black);
+}
+
+.dark .main-card-surface {
+  border-color: color-mix(in srgb, var(--main-card-bg) 85%, white);
+}
+
 .inspection-location-surface {
-  background: #d6e0ea;
-  border: 1px solid rgba(51, 65, 85, 0.14);
+  --inspection-control-bg: rgb(238 238 238);
+  background: var(--inspection-control-bg);
+  border: 1px solid color-mix(in srgb, var(--inspection-control-bg) 82%, black);
 }
 
 .dark .inspection-location-surface {
-  background: #222a32;
-  border-color: rgba(255, 255, 255, 0.07);
+  --inspection-control-bg: #222a32;
+  border-color: color-mix(in srgb, var(--inspection-control-bg) 85%, white);
 }
 
 .inspection-item-expanded-surface {
-  background: rgba(255, 255, 255, 0.96);
-  border: 1px solid rgba(51, 65, 85, 0.08);
+  --inspection-control-bg: rgba(255, 255, 255, 0.96);
+  background: var(--inspection-control-bg);
+  border: 1px solid color-mix(in srgb, var(--inspection-control-bg) 82%, black);
+}
+
+.inspection-location-surface .card-surface-subtle,
+.area-notes-card {
+  --inspection-control-bg: var(--surface);
+  background: var(--inspection-control-bg);
+  border-color: color-mix(in srgb, var(--inspection-control-bg) 82%, black);
+}
+
+.inspection-checkpoint-row {
+  border: 1px solid color-mix(in srgb, var(--inspection-control-bg) 82%, black);
+}
+
+.inspection-checkpoint-row--default {
+  --inspection-control-bg: rgb(239 246 255);
+  background: var(--inspection-control-bg);
+}
+
+.inspection-checkpoint-row--issue {
+  --inspection-control-bg: color-mix(in srgb, var(--accent) 8%, white);
+  background: var(--inspection-control-bg);
 }
 
 .inspection-add-trigger {
-  border: 1px solid #d94320;
-  background: #e64b25;
+  --inspection-control-bg: #e64b25;
+  border: 1px solid color-mix(in srgb, var(--inspection-control-bg) 82%, black);
+  background: var(--inspection-control-bg);
   color: #ffffff;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16);
 }
 
 .inspection-add-trigger:hover {
-  border-color: var(--accent);
-  background: var(--accent);
+  --inspection-control-bg: var(--accent);
 }
 
 .dark .inspection-item-expanded-surface {
-  background: #15191e;
-  border-color: rgba(255, 255, 255, 0.055);
+  --inspection-control-bg: #15191e;
+  border-color: color-mix(in srgb, var(--inspection-control-bg) 85%, white);
+}
+
+.dark .inspection-location-surface .card-surface-subtle,
+.dark .area-notes-card {
+  border-color: color-mix(in srgb, var(--inspection-control-bg) 85%, white);
+}
+
+.dark .inspection-checkpoint-row {
+  border-color: color-mix(in srgb, var(--inspection-control-bg) 85%, white);
+}
+
+.dark .inspection-checkpoint-row--default {
+  --inspection-control-bg: #44362f;
+}
+
+.dark .inspection-checkpoint-row--issue {
+  --inspection-control-bg: #882d17;
 }
 
 .dark .inspection-add-trigger {
-  border-color: #c04a2c;
-  background: #a53d24;
+  --inspection-control-bg: #a53d24;
+  border-color: color-mix(in srgb, var(--inspection-control-bg) 85%, white);
   color: #ffffff;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1);
 }
 
 .dark .inspection-add-trigger:hover {
-  border-color: #dc5937;
-  background: #bf492b;
+  --inspection-control-bg: #bf492b;
+}
+
+.inspection-add-trigger.inspection-add-trigger--sub-item {
+  --inspection-control-bg: rgb(216 155 167);
+  border-color: color-mix(in srgb, var(--inspection-control-bg) 82%, black);
+  background: var(--inspection-control-bg);
+  color: #111827;
+}
+
+.inspection-add-trigger.inspection-add-trigger--item {
+  --inspection-control-bg: rgb(255 220 216);
+  border-color: color-mix(in srgb, var(--inspection-control-bg) 82%, black);
+  background: var(--inspection-control-bg);
+  color: #111827;
+}
+
+.inspection-add-trigger.inspection-add-trigger--sub-area {
+  --inspection-control-bg: rgb(255 189 166);
+  border-color: color-mix(in srgb, var(--inspection-control-bg) 82%, black);
+  background: var(--inspection-control-bg);
+  color: #111827;
+}
+
+.dark .inspection-add-trigger.inspection-add-trigger--sub-item {
+  --inspection-control-bg: rgb(148 60 70);
+  border-color: color-mix(in srgb, var(--inspection-control-bg) 85%, white);
+  color: #ffffff;
+}
+
+.dark .inspection-add-trigger.inspection-add-trigger--item {
+  --inspection-control-bg: rgb(145 74 50);
+  border-color: color-mix(in srgb, var(--inspection-control-bg) 85%, white);
+  color: #ffffff;
+}
+
+.dark .inspection-add-trigger.inspection-add-trigger--sub-area {
+  --inspection-control-bg: rgb(131 59 83);
+  border-color: color-mix(in srgb, var(--inspection-control-bg) 85%, white);
+  color: #ffffff;
+}
+
+.inspection-add-trigger--sub-item:hover,
+.inspection-add-trigger--item:hover,
+.inspection-add-trigger--sub-area:hover {
+  filter: brightness(0.97);
 }
 
 .menu-surface {
@@ -264,6 +358,17 @@ html:not(.dark) {
 .app-menu-drawer.menu-surface {
   background: var(--surface-strong);
   border: 0;
+}
+
+.app-menu-card {
+  --app-menu-card-bg: color-mix(in srgb, var(--surface-strong) 97%, black);
+  background: var(--app-menu-card-bg);
+  border: 1px solid color-mix(in srgb, var(--app-menu-card-bg) 82%, black);
+}
+
+.dark .app-menu-card {
+  --app-menu-card-bg: color-mix(in srgb, var(--surface-strong) 97%, white);
+  border-color: color-mix(in srgb, var(--app-menu-card-bg) 85%, white);
 }
 
 @media (max-width: 767px) {

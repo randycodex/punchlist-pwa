@@ -126,7 +126,7 @@ export const HomeAreaCard = memo(function HomeAreaCard({
       onClick={() => {
         if (deleteMode) onToggleSelection(area.id);
       }}
-      className={`card-surface-subtle select-none touch-manipulation [-webkit-touch-callout:none] rounded-[1.6rem] p-4 transition-all sm:p-5 ${
+      className={`main-card-surface card-surface-subtle select-none touch-manipulation [-webkit-touch-callout:none] rounded-[1.6rem] p-4 transition-all sm:p-5 ${
         isSelected
           ? '!border-gray-400 !bg-gray-100 dark:!border-gray-500 dark:!bg-white/[0.08]'
           : 'hover:-translate-y-px hover:border-black/10 dark:hover:border-white/[0.08]'
