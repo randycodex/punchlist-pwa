@@ -18,6 +18,7 @@ import type { Area, Checkpoint, IssueState } from '@/types';
 import { getCheckpointIssueState } from '@/types';
 import PhotoCapture from '@/components/PhotoCapture';
 import MetadataLine from '@/components/MetadataLine';
+import OfflineVoiceNoteButton from '@/features/inspection/OfflineVoiceNoteButton';
 
 type CheckpointReviewState = 'pending' | 'ok' | Exclude<IssueState, 'none'>;
 
@@ -1069,6 +1070,7 @@ function InlineCheckpointEditor({
   openCameraSignal?: number;
 }) {
   const editorRef = useRef<HTMLDivElement | null>(null);
+  const commentInputRef = useRef<HTMLTextAreaElement | null>(null);
   const [photoLibrarySignal, setPhotoLibrarySignal] = useState(0);
 
   useEffect(() => {
@@ -1110,25 +1112,39 @@ function InlineCheckpointEditor({
         <>
           <div className="relative">
             <textarea
+              ref={commentInputRef}
               value={commentText}
               onChange={(e) => onCommentChange(e.target.value)}
               onBlur={(e) => void onCommentBlur(locationId, itemId, checkpoint.id, e.target.value)}
-              className="field-shell field-shell-with-action min-h-[96px] resize-none text-sm"
+              className="field-shell field-shell-with-two-actions min-h-[96px] resize-none text-sm"
               placeholder="Add inspection note"
             />
-            <button
-              type="button"
-              data-inspection-inline-action="true"
-              onClick={(event) => {
-                event.stopPropagation();
-                setPhotoLibrarySignal((token) => token + 1);
-              }}
-              className="absolute right-3 top-3 flex h-10 w-10 items-center justify-center rounded-[1rem] bg-gray-100 text-gray-700 transition hover:bg-gray-200 dark:bg-zinc-800 dark:text-gray-100 dark:hover:bg-zinc-700"
-              aria-label="Open photo library"
-              title="Open photo library"
-            >
-              <Paperclip className="h-4.5 w-4.5" />
-            </button>
+            <div className="absolute right-3 top-3 flex gap-2">
+              <OfflineVoiceNoteButton
+                onTranscript={(transcript) => {
+                  const separator = commentText.trim() ? ' ' : '';
+                  const nextComment = `${commentText.trimEnd()}${separator}${transcript}`;
+                  onCommentChange(nextComment);
+                  window.requestAnimationFrame(() => {
+                    commentInputRef.current?.focus();
+                    commentInputRef.current?.setSelectionRange(nextComment.length, nextComment.length);
+                  });
+                }}
+              />
+              <button
+                type="button"
+                data-inspection-inline-action="true"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setPhotoLibrarySignal((token) => token + 1);
+                }}
+                className="flex h-10 w-10 items-center justify-center rounded-[1rem] bg-gray-100 text-gray-700 transition hover:bg-gray-200 dark:bg-zinc-800 dark:text-gray-100 dark:hover:bg-zinc-700"
+                aria-label="Open photo library"
+                title="Open photo library"
+              >
+                <Paperclip className="h-4.5 w-4.5" />
+              </button>
+            </div>
           </div>
           {recentComments.length > 0 && (
             <div className="-mx-1 mt-3 overflow-x-auto pb-1">

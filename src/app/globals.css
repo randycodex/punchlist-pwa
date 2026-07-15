@@ -484,6 +484,10 @@ html:not(.dark) {
   padding-right: 4.25rem;
 }
 
+.field-shell-with-two-actions {
+  padding-right: 7.25rem;
+}
+
 .field-shell::placeholder {
   color: rgb(156 163 175);
 }
