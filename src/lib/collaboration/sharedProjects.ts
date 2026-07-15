@@ -127,32 +127,16 @@ export async function createSharedProjectFromLocalProject(
 
   const displayName = memberDisplayName?.trim() || undefined;
 
-  const { data: existingProject, error: existingProjectError } = await supabase
-    .from('shared_projects')
-    .select('id')
-    .eq('local_project_id', project.id)
-    .maybeSingle();
+  const { data: sharedProjectId, error: projectError } = await supabase
+    .rpc('create_shared_project', {
+      p_local_project_id: project.id,
+      p_project_name: project.projectName,
+      p_owner_email: email,
+      p_owner_display_name: displayName ?? null,
+    });
 
-  if (existingProjectError) {
-    throw existingProjectError;
-  }
-
-  let sharedProjectId = existingProject?.id;
-
-  if (!sharedProjectId) {
-    const { data: createdProjectId, error: projectError } = await supabase
-      .rpc('create_shared_project', {
-        p_local_project_id: project.id,
-        p_project_name: project.projectName,
-        p_owner_email: email,
-        p_owner_display_name: displayName ?? null,
-      });
-
-    if (projectError) {
-      throw projectError;
-    }
-
-    sharedProjectId = createdProjectId;
+  if (projectError) {
+    throw projectError;
   }
 
   if (!sharedProjectId) {
@@ -254,6 +238,7 @@ export async function getSharedProjectAccess(sharedProjectId: string): Promise<S
       .from('shared_projects')
       .select('owner_user_id')
       .eq('id', sharedProjectId)
+      .is('archived_at', null)
       .maybeSingle(),
     supabase
       .from('project_members')
@@ -268,7 +253,7 @@ export async function getSharedProjectAccess(sharedProjectId: string): Promise<S
   if (memberResult.error) throw memberResult.error;
 
   return {
-    isActiveMember: memberResult.data?.access_state === 'active',
+    isActiveMember: !!projectResult.data && memberResult.data?.access_state === 'active',
     isOwner: projectResult.data?.owner_user_id === userData.user.id,
   };
 }
