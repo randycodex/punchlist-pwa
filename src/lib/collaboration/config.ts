@@ -16,6 +16,20 @@ export interface CollaborationEmailAccess {
   message: string | null;
 }
 
+export function normalizeCollaborationEmail(email: string | null | undefined) {
+  const normalized = email?.trim().toLowerCase();
+  return normalized || null;
+}
+
+export function collaborationEmailsMatch(
+  firstEmail: string | null | undefined,
+  secondEmail: string | null | undefined
+) {
+  const first = normalizeCollaborationEmail(firstEmail);
+  const second = normalizeCollaborationEmail(secondEmail);
+  return !!first && first === second;
+}
+
 function normalizeSupabaseUrl(value: string | undefined) {
   const trimmed = value?.trim();
   if (!trimmed) return null;
@@ -88,7 +102,7 @@ export function isAllowedCollaborationEmail(email: string) {
   const config = getCollaborationRuntimeConfig();
   if (!config) return false;
 
-  const normalizedEmail = email.trim().toLowerCase();
+  const normalizedEmail = normalizeCollaborationEmail(email) ?? '';
   const emailDomain = normalizedEmail.slice(normalizedEmail.lastIndexOf('@') + 1);
   return (
     (!!config.uaiEmailDomain && emailDomain === config.uaiEmailDomain) ||

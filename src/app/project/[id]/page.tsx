@@ -1331,6 +1331,7 @@ export default function ProjectDetailPage() {
           singleProjectName: project.projectName,
           selectionMode: deleteMode,
           isSharedProject: !!project.sharedProjectId,
+          sharedProjectId: project.sharedProjectId,
           isCreatingJoinCode: creatingJoinCode,
           isLoadingSharedMembers: loadingSharedMembers,
           isPublishingSharedProject: publishingSharedProject,

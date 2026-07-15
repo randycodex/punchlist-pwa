@@ -4,6 +4,7 @@ import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, 
 import type { Session, User } from '@supabase/supabase-js';
 import { useMicrosoftAuth } from '@/contexts/MicrosoftAuthContext';
 import {
+  collaborationEmailsMatch,
   getCollaborationSupabaseClient,
   getMyCollaborationProfile,
   saveMyCollaborationProfile,
@@ -41,6 +42,10 @@ export function CollaborationAuthProvider({ children }: { children: ReactNode })
   const [isProfileLoading, setIsProfileLoading] = useState(false);
   const [profileErrorMessage, setProfileErrorMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const isIdentityAligned =
+    !!session &&
+    microsoftAuth.isSignedIn &&
+    collaborationEmailsMatch(session.user.email, microsoftAuth.accountEmail);
 
   const refreshProfile = useCallback(async () => {
     if (!supabase || !user) {
@@ -95,6 +100,22 @@ export function CollaborationAuthProvider({ children }: { children: ReactNode })
     void refreshProfile();
   }, [refreshProfile]);
 
+  useEffect(() => {
+    if (!supabase || !microsoftAuth.isReady || !session) return;
+    if (isIdentityAligned) return;
+
+    const collaborationEmail = session.user.email ?? 'the previous account';
+    const microsoftEmail = microsoftAuth.accountEmail ?? 'no Microsoft account';
+    setErrorMessage(
+      `Shared projects were disconnected because ${collaborationEmail} does not match ${microsoftEmail}.`
+    );
+    void supabase.auth.signOut({ scope: 'local' }).then(({ error }) => {
+      if (error) {
+        setErrorMessage(error.message);
+      }
+    });
+  }, [isIdentityAligned, microsoftAuth.accountEmail, microsoftAuth.isReady, session, supabase]);
+
   async function saveProfile(input: CollaborationUserProfileInput) {
     setProfileErrorMessage(null);
     const savedProfile = await saveMyCollaborationProfile(input);
@@ -107,6 +128,11 @@ export function CollaborationAuthProvider({ children }: { children: ReactNode })
 
     if (!supabase) {
       setErrorMessage('Collaboration is not configured.');
+      return;
+    }
+
+    if (!microsoftAuth.isSignedIn || !microsoftAuth.accountEmail) {
+      setErrorMessage('Sign in to Microsoft before enabling shared projects.');
       return;
     }
 
@@ -129,7 +155,7 @@ export function CollaborationAuthProvider({ children }: { children: ReactNode })
   async function signOut() {
     setErrorMessage(null);
     if (!supabase) return;
-    const { error } = await supabase.auth.signOut();
+    const { error } = await supabase.auth.signOut({ scope: 'local' });
     if (error) {
       setErrorMessage(error.message);
     }
@@ -142,10 +168,10 @@ export function CollaborationAuthProvider({ children }: { children: ReactNode })
       value={{
         isReady,
         isSigningIn,
-        isSignedIn: !!session,
+        isSignedIn: isIdentityAligned,
         canUseCollaboration: microsoftAuth.canUseCollaboration,
-        user,
-        session,
+        user: isIdentityAligned ? user : null,
+        session: isIdentityAligned ? session : null,
         profile,
         isProfileLoading,
         profileErrorMessage,

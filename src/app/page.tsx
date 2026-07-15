@@ -1898,6 +1898,7 @@ export default function ProjectsPage() {
           singleProjectName: singleProject?.projectName ?? '',
           selectionMode: deleteMode,
           isSharedProject: !!singleProject?.sharedProjectId,
+          sharedProjectId: singleProject?.sharedProjectId,
           isCreatingJoinCode: creatingJoinCode,
           isLoadingSharedMembers: loadingSharedMembers,
           isPublishingSharedProject: publishingSharedProject,

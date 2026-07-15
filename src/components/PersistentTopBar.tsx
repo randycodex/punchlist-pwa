@@ -12,7 +12,7 @@ import { useAppSettings } from '@/contexts/AppSettingsContext';
 import { getProject } from '@/lib/db';
 import { hasPendingSyncState } from '@/lib/pendingSync';
 import { getCachedProjectPreview } from '@/lib/projectNavigationCache';
-import { getCollaborationProfileInitials } from '@/lib/collaboration';
+import { getCollaborationProfileInitials, getSharedProjectAccess } from '@/lib/collaboration';
 import UserProfileModal from '@/components/UserProfileModal';
 import {
   Activity,
@@ -53,6 +53,7 @@ type HomeMenuState = {
   singleProjectName: string;
   selectionMode?: boolean;
   isSharedProject?: boolean;
+  sharedProjectId?: string;
   isCreatingJoinCode?: boolean;
   isLoadingSharedMembers?: boolean;
   isPublishingSharedProject?: boolean;
@@ -63,7 +64,12 @@ type HomeMenuState = {
 
 export default function PersistentTopBar() {
   const pathname = usePathname();
-  const { isReady, isSignedIn } = useMicrosoftAuth();
+  const {
+    isReady,
+    isSignedIn,
+    signIn: signInToMicrosoft,
+    signOut: signOutOfMicrosoft,
+  } = useMicrosoftAuth();
   const collaborationAuth = useCollaborationAuth();
   const {
     localSaveError,
@@ -79,6 +85,11 @@ export default function PersistentTopBar() {
   const [projectTitle, setProjectTitle] = useState('');
   const [showHomeMenu, setShowHomeMenu] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
+  const [sharedProjectAccess, setSharedProjectAccess] = useState({
+    isReady: false,
+    isActiveMember: false,
+    isOwner: false,
+  });
   const [homeMenuState, setHomeMenuState] = useState<HomeMenuState>({
     context: 'home',
     sortOption: 'alphabetical',
@@ -190,6 +201,56 @@ export default function PersistentTopBar() {
       document.removeEventListener('keydown', handleKeyDown);
     };
   }, [showHomeMenu]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const sharedProjectId = homeMenuState.sharedProjectId;
+
+    if (!collaborationAuth.isSignedIn || !sharedProjectId) {
+      void Promise.resolve().then(() => {
+        if (!cancelled) {
+          setSharedProjectAccess({ isReady: false, isActiveMember: false, isOwner: false });
+        }
+      });
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    void Promise.resolve().then(() => {
+      if (!cancelled) {
+        setSharedProjectAccess({ isReady: false, isActiveMember: false, isOwner: false });
+      }
+    });
+
+    void getSharedProjectAccess(sharedProjectId)
+      .then((access) => {
+        if (!cancelled) {
+          setSharedProjectAccess({ isReady: true, ...access });
+        }
+      })
+      .catch((error) => {
+        console.error('Failed to verify shared project access:', error);
+        if (!cancelled) {
+          setSharedProjectAccess({ isReady: true, isActiveMember: false, isOwner: false });
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [collaborationAuth.isSignedIn, collaborationAuth.user?.id, homeMenuState.sharedProjectId]);
+
+  async function handleMicrosoftAuthAction() {
+    setShowHomeMenu(false);
+    if (!isSignedIn) {
+      await signInToMicrosoft();
+      return;
+    }
+
+    await collaborationAuth.signOut();
+    await signOutOfMicrosoft();
+  }
 
   useEffect(() => {
     const root = document.documentElement;
@@ -430,7 +491,7 @@ export default function PersistentTopBar() {
                   <div className="px-1 py-1">
                     <div className={menuCardClass}>
                       <div className={menuGroupLabelClass}>Shared project</div>
-                      {homeMenuState.isSingleProject && homeMenuState.isSharedProject && (
+                      {homeMenuState.isSingleProject && homeMenuState.isSharedProject && sharedProjectAccess.isActiveMember && (
                         <>
                           <button
                             onClick={() => dispatchHomeAction('invite-code')}
@@ -468,24 +529,38 @@ export default function PersistentTopBar() {
                             <ArchiveRestore className="h-4 w-4" />
                             Shared backups
                           </button>
-                          <button
-                            onClick={() => dispatchHomeAction('disconnect-shared-project')}
-                            disabled={!!homeMenuState.isDisconnectingSharedProject}
-                            className={disabledMenuItemClass}
-                          >
-                            <LogOut className="h-4 w-4" />
-                            {homeMenuState.isDisconnectingSharedProject ? 'Stopping...' : 'Stop sharing'}
-                          </button>
-                          <button
-                            onClick={() => dispatchHomeAction('transfer-shared-project')}
-                            disabled={!!homeMenuState.isTransferringSharedProject}
-                            className={disabledMenuItemClass}
-                          >
-                            <Users className="h-4 w-4" />
-                            {homeMenuState.isTransferringSharedProject ? 'Transferring...' : 'Transfer ownership'}
-                          </button>
+                          {sharedProjectAccess.isReady && (
+                            <button
+                              onClick={() => dispatchHomeAction('disconnect-shared-project')}
+                              disabled={!!homeMenuState.isDisconnectingSharedProject}
+                              className={disabledMenuItemClass}
+                            >
+                              <LogOut className="h-4 w-4" />
+                              {homeMenuState.isDisconnectingSharedProject
+                                ? sharedProjectAccess.isOwner ? 'Stopping...' : 'Leaving...'
+                                : sharedProjectAccess.isOwner ? 'Stop sharing' : 'Leave shared project'}
+                            </button>
+                          )}
+                          {sharedProjectAccess.isOwner && (
+                            <button
+                              onClick={() => dispatchHomeAction('transfer-shared-project')}
+                              disabled={!!homeMenuState.isTransferringSharedProject}
+                              className={disabledMenuItemClass}
+                            >
+                              <Users className="h-4 w-4" />
+                              {homeMenuState.isTransferringSharedProject ? 'Transferring...' : 'Transfer ownership'}
+                            </button>
+                          )}
                         </>
                       )}
+                      {homeMenuState.isSingleProject &&
+                        homeMenuState.isSharedProject &&
+                        sharedProjectAccess.isReady &&
+                        !sharedProjectAccess.isActiveMember && (
+                          <div className="px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
+                            This account is not an active member of this shared project.
+                          </div>
+                        )}
                       {showAuth && (
                         <>
                           <button onClick={() => dispatchHomeAction('my-shared-projects')} className={menuItemClass}>
@@ -568,12 +643,12 @@ export default function PersistentTopBar() {
                       </button>
                     )}
                     {!isSignedIn ? (
-                      <button onClick={() => dispatchHomeAction('auth')} className={menuItemClass}>
+                      <button onClick={() => void handleMicrosoftAuthAction()} className={menuItemClass}>
                         <LogIn className="h-4 w-4" />
                         Sign in
                       </button>
                     ) : (
-                      <button onClick={() => dispatchHomeAction('auth')} className={menuItemClass}>
+                      <button onClick={() => void handleMicrosoftAuthAction()} className={menuItemClass}>
                         <LogOut className="h-4 w-4" />
                         Sign out
                       </button>

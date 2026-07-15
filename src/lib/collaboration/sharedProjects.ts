@@ -2,6 +2,7 @@ import type { Project } from '@/types';
 import type { Json } from './database';
 import type { CollaborationProjectMember, CollaborationSharedProjectDirectoryEntry } from './types';
 import { getCollaborationSupabaseClient } from './supabaseClient';
+import { collaborationEmailsMatch, normalizeCollaborationEmail } from './config';
 
 type JoinCodeResult = {
   joinCode: string;
@@ -23,6 +24,30 @@ type DisconnectSharedProjectResult = {
   action: 'archived' | 'left';
   projectId: string;
 };
+
+export type SharedProjectAccess = {
+  isActiveMember: boolean;
+  isOwner: boolean;
+};
+
+async function requireMatchingCollaborationIdentity(
+  expectedEmail: string,
+  fallbackMessage: string
+) {
+  const supabase = getCollaborationSupabaseClient();
+  if (!supabase) {
+    throw new Error('Collaboration is not configured.');
+  }
+
+  const { data, error } = await supabase.auth.getUser();
+  if (error) throw error;
+
+  if (!data.user?.email || !collaborationEmailsMatch(data.user.email, expectedEmail)) {
+    throw new Error(fallbackMessage);
+  }
+
+  return supabase;
+}
 
 export function getCollaborationErrorMessage(error: unknown, fallback = 'Failed to share project. Please try again.') {
   if (error instanceof Error) {
@@ -90,15 +115,15 @@ export async function createSharedProjectFromLocalProject(
     return project.sharedProjectId;
   }
 
-  const supabase = getCollaborationSupabaseClient();
-  if (!supabase) {
-    throw new Error('Collaboration is not configured.');
-  }
-
-  const email = memberEmail.trim().toLowerCase();
+  const email = normalizeCollaborationEmail(memberEmail) ?? '';
   if (!email) {
     throw new Error('Your Microsoft account does not include an email address.');
   }
+
+  const supabase = await requireMatchingCollaborationIdentity(
+    email,
+    'Your Microsoft and shared-project accounts do not match. Re-enable shared projects with the same account.'
+  );
 
   const displayName = memberDisplayName?.trim() || undefined;
 
@@ -212,19 +237,56 @@ export async function getSharedProjectMembers(sharedProjectId: string): Promise<
   return (data ?? []).map((row) => reviveProjectMember(row, projectRow?.owner_user_id));
 }
 
-export async function joinSharedProjectByCode(
-  joinCode: string,
-  memberEmail: string,
-  memberDisplayName?: string | null
-): Promise<JoinedSharedProjectResult> {
+export async function getSharedProjectAccess(sharedProjectId: string): Promise<SharedProjectAccess> {
   const supabase = getCollaborationSupabaseClient();
   if (!supabase) {
     throw new Error('Collaboration is not configured.');
   }
 
+  const { data: userData, error: userError } = await supabase.auth.getUser();
+  if (userError) throw userError;
+  if (!userData.user) {
+    return { isActiveMember: false, isOwner: false };
+  }
+
+  const [projectResult, memberResult] = await Promise.all([
+    supabase
+      .from('shared_projects')
+      .select('owner_user_id')
+      .eq('id', sharedProjectId)
+      .maybeSingle(),
+    supabase
+      .from('project_members')
+      .select('access_state')
+      .eq('project_id', sharedProjectId)
+      .eq('user_id', userData.user.id)
+      .eq('access_state', 'active')
+      .maybeSingle(),
+  ]);
+
+  if (projectResult.error) throw projectResult.error;
+  if (memberResult.error) throw memberResult.error;
+
+  return {
+    isActiveMember: memberResult.data?.access_state === 'active',
+    isOwner: projectResult.data?.owner_user_id === userData.user.id,
+  };
+}
+
+export async function joinSharedProjectByCode(
+  joinCode: string,
+  memberEmail: string,
+  memberDisplayName?: string | null
+): Promise<JoinedSharedProjectResult> {
+  const email = normalizeCollaborationEmail(memberEmail) ?? '';
+  const supabase = await requireMatchingCollaborationIdentity(
+    email,
+    'Your Microsoft and shared-project accounts do not match. Re-enable shared projects with the same account.'
+  );
+
   const { data, error } = await supabase.rpc('join_shared_project_by_code', {
     p_join_code: joinCode,
-    p_member_email: memberEmail,
+    p_member_email: email,
     p_member_display_name: memberDisplayName ?? null,
   });
 
