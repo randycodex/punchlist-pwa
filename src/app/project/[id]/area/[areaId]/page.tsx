@@ -1995,7 +1995,9 @@ export default function AreaDetailPage() {
       {/* Inspection Items */}
       <main
         ref={listRef}
-        className="flex-1 min-h-0 overflow-y-scroll overscroll-y-contain touch-pan-y px-4 pt-5 pb-[calc(env(safe-area-inset-bottom)+3.5rem)] sm:px-5"
+        className={`flex-1 min-h-0 overflow-y-scroll overscroll-y-contain touch-pan-y px-4 pb-[calc(env(safe-area-inset-bottom)+3.5rem)] sm:px-5 ${
+          deleteMode ? '-mt-[8.4rem] pt-[9.65rem]' : '-mt-[4.9rem] pt-[6.15rem]'
+        }`}
       >
         <div
           className={`list-stack mx-auto min-h-[calc(100%+1px)] w-full max-w-6xl transition-opacity ${
