@@ -212,6 +212,7 @@ export async function getSharedProjectMembers(sharedProjectId: string): Promise<
     .from('project_members')
     .select('project_id, user_id, email, display_name, access_state, joined_by, invited_by_user_id, invited_at, joined_at, removed_at')
     .eq('project_id', sharedProjectId)
+    .neq('access_state', 'removed')
     .order('email', { ascending: true });
 
   if (error) {
