@@ -1071,17 +1071,19 @@ function InlineCheckpointEditor({
 }) {
   const editorRef = useRef<HTMLDivElement | null>(null);
   const commentInputRef = useRef<HTMLTextAreaElement | null>(null);
+  const voiceNoteActiveRef = useRef(false);
   const [photoLibrarySignal, setPhotoLibrarySignal] = useState(0);
 
   useEffect(() => {
     function handleDocumentClick(event: MouseEvent) {
       if (!editorRef.current) return;
+      if (voiceNoteActiveRef.current) return;
       const target = event.target as Node;
       if (editorRef.current.contains(target)) return;
-      if (
-        target instanceof Element &&
-        target.closest('[data-inspection-inline-action="true"]')
-      ) {
+      const isInlineAction = event.composedPath().some(
+        (node) => node instanceof Element && node.matches('[data-inspection-inline-action="true"]')
+      );
+      if (isInlineAction) {
         return;
       }
       onCloseEditor?.();
@@ -1121,6 +1123,9 @@ function InlineCheckpointEditor({
             />
             <div className="absolute right-3 top-3 flex gap-2">
               <OfflineVoiceNoteButton
+                onActivityChange={(active) => {
+                  voiceNoteActiveRef.current = active;
+                }}
                 onTranscript={(transcript) => {
                   const separator = commentText.trim() ? ' ' : '';
                   const nextComment = `${commentText.trimEnd()}${separator}${transcript}`;

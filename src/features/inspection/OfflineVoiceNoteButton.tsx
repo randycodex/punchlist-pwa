@@ -13,6 +13,7 @@ type TranscriptionWorkerMessage =
 
 type OfflineVoiceNoteButtonProps = {
   onTranscript: (text: string) => void;
+  onActivityChange?: (active: boolean) => void;
 };
 
 const TARGET_SAMPLE_RATE = 16_000;
@@ -91,7 +92,10 @@ function getMicrophoneErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : 'Could not start the microphone.';
 }
 
-export default function OfflineVoiceNoteButton({ onTranscript }: OfflineVoiceNoteButtonProps) {
+export default function OfflineVoiceNoteButton({
+  onTranscript,
+  onActivityChange,
+}: OfflineVoiceNoteButtonProps) {
   const [voiceState, setVoiceState] = useState<VoiceState>('idle');
   const [statusText, setStatusText] = useState('');
   const recorderRef = useRef<MediaRecorder | null>(null);
@@ -101,10 +105,12 @@ export default function OfflineVoiceNoteButton({ onTranscript }: OfflineVoiceNot
   const recordingTimerRef = useRef<number | null>(null);
   const mountedRef = useRef(true);
   const onTranscriptRef = useRef(onTranscript);
+  const onActivityChangeRef = useRef(onActivityChange);
 
   useEffect(() => {
     onTranscriptRef.current = onTranscript;
-  }, [onTranscript]);
+    onActivityChangeRef.current = onActivityChange;
+  }, [onActivityChange, onTranscript]);
 
   const clearRecordingTimer = useCallback(() => {
     if (recordingTimerRef.current === null) return;
@@ -156,26 +162,31 @@ export default function OfflineVoiceNoteButton({ onTranscript }: OfflineVoiceNot
             onTranscriptRef.current(message.text);
             setVoiceState('idle');
             setStatusText('');
+            onActivityChangeRef.current?.(false);
           } else {
             setVoiceState('error');
             setStatusText('No speech was detected.');
+            onActivityChangeRef.current?.(false);
           }
           return;
         }
 
         setVoiceState('error');
         setStatusText(message.message || 'Offline transcription failed.');
+        onActivityChangeRef.current?.(false);
       };
 
       worker.onerror = () => {
         setVoiceState('error');
         setStatusText('Offline transcription could not start on this device.');
+        onActivityChangeRef.current?.(false);
       };
 
       worker.postMessage({ type: 'transcribe', audio }, [audio.buffer]);
     } catch (error) {
       setVoiceState('error');
       setStatusText(error instanceof Error ? error.message : 'The recording could not be processed.');
+      onActivityChangeRef.current?.(false);
     }
   }, [getWorker]);
 
@@ -183,9 +194,11 @@ export default function OfflineVoiceNoteButton({ onTranscript }: OfflineVoiceNot
     if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
       setVoiceState('error');
       setStatusText('Offline voice notes are not supported by this browser.');
+      onActivityChangeRef.current?.(false);
       return;
     }
 
+    onActivityChangeRef.current?.(true);
     setVoiceState('requesting');
     setStatusText('Requesting microphone…');
 
@@ -211,6 +224,7 @@ export default function OfflineVoiceNoteButton({ onTranscript }: OfflineVoiceNot
         if (recording.size === 0) {
           setVoiceState('error');
           setStatusText('The recording was empty. Try again.');
+          onActivityChangeRef.current?.(false);
           return;
         }
         void transcribeRecording(recording);
@@ -226,6 +240,7 @@ export default function OfflineVoiceNoteButton({ onTranscript }: OfflineVoiceNot
       stopStream();
       setVoiceState('error');
       setStatusText(getMicrophoneErrorMessage(error));
+      onActivityChangeRef.current?.(false);
     }
   }, [clearRecordingTimer, stopStream, transcribeRecording]);
 
@@ -246,6 +261,7 @@ export default function OfflineVoiceNoteButton({ onTranscript }: OfflineVoiceNot
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
+      onActivityChangeRef.current?.(false);
       if (recorderRef.current?.state === 'recording') recorderRef.current.stop();
       clearRecordingTimer();
       stopStream();
