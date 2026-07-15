@@ -20,7 +20,7 @@ export default function AppConfirmDialog({
   onConfirm,
 }: AppConfirmDialogProps) {
   return (
-    <div className="modal-overlay fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div className="modal-overlay fixed inset-0 z-[60] flex items-center justify-center p-4">
       <div className="modal-panel w-full max-w-md rounded-[1.9rem] p-6">
         <h2 className="mb-4 text-xl font-semibold tracking-[-0.02em] text-gray-900 dark:text-white">
           {title}

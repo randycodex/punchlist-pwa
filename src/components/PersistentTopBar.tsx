@@ -576,9 +576,18 @@ export default function PersistentTopBar() {
                         homeMenuState.isSharedProject &&
                         sharedProjectAccess.isReady &&
                         !sharedProjectAccess.isActiveMember && (
-                          <div className="px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
-                            This account is not an active member of this shared project.
-                          </div>
+                          <>
+                            <div className="px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
+                              This account is not an active member of this shared project.
+                            </div>
+                            <button
+                              onClick={() => dispatchHomeAction('unlink-inactive-shared-project')}
+                              className={menuItemClass}
+                            >
+                              <LogOut className="h-4 w-4" />
+                              Keep local copy only
+                            </button>
+                          </>
                         )}
                       {showAuth && (
                         <>

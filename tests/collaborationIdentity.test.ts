@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   collaborationEmailsMatch,
+  getCollaborationErrorMessage,
   normalizeCollaborationEmail,
 } from '@/lib/collaboration';
 
@@ -15,5 +16,12 @@ describe('collaboration identity helpers', () => {
     expect(collaborationEmailsMatch('HJIMENEZ@UAI-NY.COM', 'hjimenez@uai-ny.com')).toBe(true);
     expect(collaborationEmailsMatch('hjimenez@uai-ny.com', 'higiniojimenez@outlook.com')).toBe(false);
     expect(collaborationEmailsMatch(null, null)).toBe(false);
+  });
+
+  it('keeps database error codes out of user-facing messages', () => {
+    expect(getCollaborationErrorMessage({
+      message: 'This shared project code is invalid or expired.',
+      code: '22023',
+    })).toBe('This shared project code is invalid or expired.');
   });
 });

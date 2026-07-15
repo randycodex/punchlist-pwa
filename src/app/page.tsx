@@ -184,6 +184,7 @@ export default function ProjectsPage() {
   const [pendingPull, setPendingPull] = useState<PendingSharedPullState | null>(null);
   const [disconnectSharedProjectConfirm, setDisconnectSharedProjectConfirm] = useState<Project | null>(null);
   const [disconnectSharedProjectIsOwner, setDisconnectSharedProjectIsOwner] = useState(false);
+  const [disconnectSharedProjectLocalOnly, setDisconnectSharedProjectLocalOnly] = useState(false);
   const [disconnectingSharedProject, setDisconnectingSharedProject] = useState(false);
   const [transferringSharedProject, setTransferringSharedProject] = useState(false);
   const [showMySharedProjects, setShowMySharedProjects] = useState(false);
@@ -1630,7 +1631,19 @@ export default function ProjectsPage() {
       return;
     }
 
+    setDisconnectSharedProjectLocalOnly(false);
     setDisconnectSharedProjectIsOwner(isOwner);
+    setDisconnectSharedProjectConfirm(project);
+  }
+
+  function handleUnlinkInactiveSharedProject(project: Project) {
+    if (!project.sharedProjectId) {
+      showMessage('This local project is not linked to shared data.');
+      return;
+    }
+
+    setDisconnectSharedProjectLocalOnly(true);
+    setDisconnectSharedProjectIsOwner(false);
     setDisconnectSharedProjectConfirm(project);
   }
 
@@ -1648,13 +1661,16 @@ export default function ProjectsPage() {
 
       fullProject.sharedProjectId = targetProject.sharedProjectId;
       fullProject.sharedProjectLinkedAt = targetProject.sharedProjectLinkedAt;
-      await captureSharedProjectBackup(
-        fullProject,
-        'manual',
-        'Local data before stopping shared project access.'
-      );
-
-      const result = await disconnectSharedProject(sharedProjectId);
+      let disconnectAction: 'archived' | 'left' | 'local-only' = 'local-only';
+      if (!disconnectSharedProjectLocalOnly) {
+        await captureSharedProjectBackup(
+          fullProject,
+          'manual',
+          'Local data before stopping shared project access.'
+        );
+        const result = await disconnectSharedProject(sharedProjectId);
+        disconnectAction = result.action;
+      }
       const localProject = unlinkLocalSharedProject(fullProject);
       await saveProject(localProject);
       scheduleSync(localProject.id);
@@ -1666,9 +1682,11 @@ export default function ProjectsPage() {
       );
       setDisconnectSharedProjectConfirm(null);
       showMessage(
-        result.action === 'archived'
+        disconnectAction === 'archived'
           ? 'Sharing has stopped for this project. Your local project data is still on this device.'
-          : 'You left this shared project. Your local project data is still on this device.'
+          : disconnectAction === 'left'
+            ? 'You left this shared project. Your local project data is still on this device.'
+            : 'This project is now a local-only copy. Your inspection data is still on this device.'
       );
     } catch (error) {
       console.error('Failed to stop sharing project:', error);
@@ -1867,6 +1885,11 @@ export default function ProjectsPage() {
 
     if (detail.action === 'disconnect-shared-project' && singleProject) {
       handleDisconnectSharedProject(singleProject, detail.isSharedProjectOwner === true);
+      return;
+    }
+
+    if (detail.action === 'unlink-inactive-shared-project' && singleProject) {
+      handleUnlinkInactiveSharedProject(singleProject);
       return;
     }
 
@@ -2366,13 +2389,17 @@ export default function ProjectsPage() {
 
       {disconnectSharedProjectConfirm && (
         <AppConfirmDialog
-          title={disconnectSharedProjectIsOwner ? 'Stop Sharing' : 'Leave Shared Project'}
-          message={disconnectSharedProjectIsOwner
+          title={disconnectSharedProjectLocalOnly
+            ? 'Keep Local Copy'
+            : disconnectSharedProjectIsOwner ? 'Stop Sharing' : 'Leave Shared Project'}
+          message={disconnectSharedProjectLocalOnly
+            ? `"${disconnectSharedProjectConfirm.projectName}" is no longer available to this account as a shared project.\n\nDisconnect this device's copy from collaboration? Your local inspection data will stay on this device.`
+            : disconnectSharedProjectIsOwner
             ? `Stop sharing "${disconnectSharedProjectConfirm.projectName}"?\n\nThis will save a shared backup first, archive the shared project for everyone, and disconnect this device's local copy. Your local inspection data will stay on this device.`
             : `Leave "${disconnectSharedProjectConfirm.projectName}"?\n\nThis will save a shared backup first, remove your membership, and disconnect this device's local copy. Other members will keep access, and your local inspection data will stay on this device.`}
           confirmLabel={disconnectingSharedProject
-            ? disconnectSharedProjectIsOwner ? 'Stopping...' : 'Leaving...'
-            : disconnectSharedProjectIsOwner ? 'Stop Sharing' : 'Leave Project'}
+            ? disconnectSharedProjectLocalOnly ? 'Disconnecting...' : disconnectSharedProjectIsOwner ? 'Stopping...' : 'Leaving...'
+            : disconnectSharedProjectLocalOnly ? 'Keep Local Copy' : disconnectSharedProjectIsOwner ? 'Stop Sharing' : 'Leave Project'}
           danger
           onCancel={() => {
             if (!disconnectingSharedProject) {
