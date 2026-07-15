@@ -206,6 +206,12 @@ export default function PersistentTopBar() {
     let cancelled = false;
     const sharedProjectId = homeMenuState.sharedProjectId;
 
+    if (!showHomeMenu) {
+      return () => {
+        cancelled = true;
+      };
+    }
+
     if (!collaborationAuth.isSignedIn || !sharedProjectId) {
       void Promise.resolve().then(() => {
         if (!cancelled) {
@@ -239,7 +245,12 @@ export default function PersistentTopBar() {
     return () => {
       cancelled = true;
     };
-  }, [collaborationAuth.isSignedIn, collaborationAuth.user?.id, homeMenuState.sharedProjectId]);
+  }, [
+    collaborationAuth.isSignedIn,
+    collaborationAuth.user?.id,
+    homeMenuState.sharedProjectId,
+    showHomeMenu,
+  ]);
 
   async function handleMicrosoftAuthAction() {
     setShowHomeMenu(false);
@@ -292,7 +303,15 @@ export default function PersistentTopBar() {
   ];
 
   function dispatchHomeAction(action: string, sort?: SortOption, options?: { keepMenuOpen?: boolean }) {
-    window.dispatchEvent(new CustomEvent('punchlist-home-menu-action', { detail: { action, sort } }));
+    window.dispatchEvent(new CustomEvent('punchlist-home-menu-action', {
+      detail: {
+        action,
+        sort,
+        isSharedProjectOwner: action === 'disconnect-shared-project'
+          ? sharedProjectAccess.isOwner
+          : undefined,
+      },
+    }));
     if (!options?.keepMenuOpen) {
       setShowHomeMenu(false);
     }

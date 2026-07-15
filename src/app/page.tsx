@@ -183,6 +183,7 @@ export default function ProjectsPage() {
   const [pullingSharedProject, setPullingSharedProject] = useState(false);
   const [pendingPull, setPendingPull] = useState<PendingSharedPullState | null>(null);
   const [disconnectSharedProjectConfirm, setDisconnectSharedProjectConfirm] = useState<Project | null>(null);
+  const [disconnectSharedProjectIsOwner, setDisconnectSharedProjectIsOwner] = useState(false);
   const [disconnectingSharedProject, setDisconnectingSharedProject] = useState(false);
   const [transferringSharedProject, setTransferringSharedProject] = useState(false);
   const [showMySharedProjects, setShowMySharedProjects] = useState(false);
@@ -1618,7 +1619,7 @@ export default function ProjectsPage() {
     }
   }
 
-  function handleDisconnectSharedProject(project: Project) {
+  function handleDisconnectSharedProject(project: Project, isOwner: boolean) {
     if (!project.sharedProjectId) {
       showMessage('This project is not currently shared.');
       return;
@@ -1629,6 +1630,7 @@ export default function ProjectsPage() {
       return;
     }
 
+    setDisconnectSharedProjectIsOwner(isOwner);
     setDisconnectSharedProjectConfirm(project);
   }
 
@@ -1732,7 +1734,11 @@ export default function ProjectsPage() {
   }
 
   homeMenuActionHandlerRef.current = (event: Event) => {
-    const customEvent = event as CustomEvent<{ action: string; sort?: SortOption }>;
+    const customEvent = event as CustomEvent<{
+      action: string;
+      sort?: SortOption;
+      isSharedProjectOwner?: boolean;
+    }>;
     const detail = customEvent.detail;
     if (!detail) return;
 
@@ -1860,7 +1866,7 @@ export default function ProjectsPage() {
     }
 
     if (detail.action === 'disconnect-shared-project' && singleProject) {
-      handleDisconnectSharedProject(singleProject);
+      handleDisconnectSharedProject(singleProject, detail.isSharedProjectOwner === true);
       return;
     }
 
@@ -2360,9 +2366,13 @@ export default function ProjectsPage() {
 
       {disconnectSharedProjectConfirm && (
         <AppConfirmDialog
-          title="Stop Sharing"
-          message={`Stop sharing "${disconnectSharedProjectConfirm.projectName}"?\n\nThis will save a shared backup first, then disconnect this device's local copy from the shared project. If you are the owner, the shared project will be archived for everyone. Your local inspection data will stay on this device.`}
-          confirmLabel={disconnectingSharedProject ? 'Stopping...' : 'Stop Sharing'}
+          title={disconnectSharedProjectIsOwner ? 'Stop Sharing' : 'Leave Shared Project'}
+          message={disconnectSharedProjectIsOwner
+            ? `Stop sharing "${disconnectSharedProjectConfirm.projectName}"?\n\nThis will save a shared backup first, archive the shared project for everyone, and disconnect this device's local copy. Your local inspection data will stay on this device.`
+            : `Leave "${disconnectSharedProjectConfirm.projectName}"?\n\nThis will save a shared backup first, remove your membership, and disconnect this device's local copy. Other members will keep access, and your local inspection data will stay on this device.`}
+          confirmLabel={disconnectingSharedProject
+            ? disconnectSharedProjectIsOwner ? 'Stopping...' : 'Leaving...'
+            : disconnectSharedProjectIsOwner ? 'Stop Sharing' : 'Leave Project'}
           danger
           onCancel={() => {
             if (!disconnectingSharedProject) {
