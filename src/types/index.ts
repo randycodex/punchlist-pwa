@@ -145,6 +145,9 @@ export interface Project {
   sharedProjectId?: string;
   sharedProjectLinkedAt?: Date;
   sharedSnapshotPublishedAt?: Date;
+  detachedSharedProjectId?: string;
+  detachedSharedProjectAt?: Date;
+  detachedSharedSnapshotPublishedAt?: Date;
   projectName: string;
   oneDriveFolderName?: string;
   address: string;

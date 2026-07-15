@@ -32,8 +32,17 @@ describe('project payload validation', () => {
   });
 
   it('round-trips the versioned OneDrive envelope', () => {
-    const parsed = parseProjectPayload(JSON.parse(serializeProjectPayload(validProject())));
+    const detachedAt = new Date('2026-01-02T00:00:00.000Z');
+    const parsed = parseProjectPayload(JSON.parse(serializeProjectPayload({
+      ...validProject(),
+      detachedSharedProjectId: 'shared-project-1',
+      detachedSharedProjectAt: detachedAt,
+      detachedSharedSnapshotPublishedAt: timestamp,
+    })));
     expect(parsed.projectName).toBe('Validated project');
+    expect(parsed.detachedSharedProjectId).toBe('shared-project-1');
+    expect(parsed.detachedSharedProjectAt).toEqual(detachedAt);
+    expect(parsed.detachedSharedSnapshotPublishedAt).toEqual(timestamp);
   });
 
   it('rejects unsupported versions before touching local data', () => {

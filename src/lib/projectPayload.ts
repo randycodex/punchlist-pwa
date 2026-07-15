@@ -253,6 +253,12 @@ export function parseProjectPayload(value: unknown, payloadVersion = CURRENT_PRO
     sharedProjectId: optionalString(input.sharedProjectId, 'project.sharedProjectId'),
     sharedProjectLinkedAt: optionalDate(input.sharedProjectLinkedAt, 'project.sharedProjectLinkedAt'),
     sharedSnapshotPublishedAt: optionalDate(input.sharedSnapshotPublishedAt, 'project.sharedSnapshotPublishedAt'),
+    detachedSharedProjectId: optionalString(input.detachedSharedProjectId, 'project.detachedSharedProjectId'),
+    detachedSharedProjectAt: optionalDate(input.detachedSharedProjectAt, 'project.detachedSharedProjectAt'),
+    detachedSharedSnapshotPublishedAt: optionalDate(
+      input.detachedSharedSnapshotPublishedAt,
+      'project.detachedSharedSnapshotPublishedAt'
+    ),
     projectName: requiredString(input.projectName, 'project.projectName'),
     oneDriveFolderName: optionalString(input.oneDriveFolderName, 'project.oneDriveFolderName'),
     address: stringWithDefault(input.address, 'project.address'),

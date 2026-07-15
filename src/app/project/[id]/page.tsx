@@ -35,6 +35,10 @@ import {
   mergeSharedProjectAreas,
   type PendingSharedPullState,
 } from '@/features/collaboration/manualSharedPull';
+import {
+  clearDetachedSharedProjectMetadata,
+  detachLocalSharedProject,
+} from '@/features/collaboration/detachedSharedProject';
 import { AreaCard,
   type AreaCardMetrics as AreaMetrics,
   type AreaCardClaimDisplay as AreaClaimDisplay,
@@ -96,14 +100,6 @@ type MessageDialogState = {
   title: string;
   message: string;
 };
-
-function unlinkLocalSharedProject(project: Project): Project {
-  const nextProject: Project = { ...project, areas: [...project.areas] };
-  delete nextProject.sharedProjectId;
-  delete nextProject.sharedProjectLinkedAt;
-  delete nextProject.sharedSnapshotPublishedAt;
-  return nextProject;
-}
 
 function formatSharedBackupReason(reason: CollaborationSnapshotBackup['reason']) {
   if (reason === 'publish') return 'Published version';
@@ -803,7 +799,7 @@ export default function ProjectDetailPage() {
       );
       const linkedAt = new Date();
       const nextProject = {
-        ...fullProject,
+        ...clearDetachedSharedProjectMetadata(fullProject),
         sharedProjectId,
         sharedProjectLinkedAt: linkedAt,
         areas: [...fullProject.areas],
@@ -1193,7 +1189,7 @@ export default function ProjectDetailPage() {
         const result = await disconnectSharedProject(sharedProjectId);
         disconnectAction = result.action;
       }
-      const localProject = unlinkLocalSharedProject(fullProject);
+      const localProject = detachLocalSharedProject(fullProject);
       await saveProject(localProject);
       scheduleSync(localProject.id);
       clearSharedUpdateAvailable(localProject.id);

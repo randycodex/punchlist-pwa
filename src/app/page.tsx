@@ -35,6 +35,12 @@ import {
   mergeSharedProjectAreas,
   type PendingSharedPullState,
 } from '@/features/collaboration/manualSharedPull';
+import {
+  clearDetachedSharedProjectMetadata,
+  detachLocalSharedProject,
+  findDetachedSharedProject,
+  relinkDetachedSharedProject,
+} from '@/features/collaboration/detachedSharedProject';
 import { ProjectCard, type ProjectCardMetrics as ProjectMetrics } from '@/features/projects/ProjectCard';
 import { HomeAreaCard,
   type HomeAreaCardMetrics as AreaMetrics,
@@ -140,14 +146,6 @@ type BackupRestoreConfirmState = {
   backup: CollaborationSnapshotBackup;
   publishAfterRestore: boolean;
 };
-
-function unlinkLocalSharedProject(project: Project): Project {
-  const nextProject: Project = { ...project, areas: [...project.areas] };
-  delete nextProject.sharedProjectId;
-  delete nextProject.sharedProjectLinkedAt;
-  delete nextProject.sharedSnapshotPublishedAt;
-  return nextProject;
-}
 
 type TrashedAreaEntry = {
   project: Project;
@@ -1195,13 +1193,17 @@ export default function ProjectsPage() {
         accountName
       );
       const linkedAt = new Date();
-      project.sharedProjectId = sharedProjectId;
-      project.sharedProjectLinkedAt = linkedAt;
-      await saveProject(project);
+      const nextProject = {
+        ...clearDetachedSharedProjectMetadata(project),
+        sharedProjectId,
+        sharedProjectLinkedAt: linkedAt,
+        areas: [...project.areas],
+      };
+      await saveProject(nextProject);
       setProjects((prev) =>
         prev.map((entry) =>
           entry.id === project.id
-            ? { ...project, sharedProjectId, sharedProjectLinkedAt: linkedAt, areas: [...project.areas] }
+            ? nextProject
             : entry
         )
       );
@@ -1276,23 +1278,40 @@ export default function ProjectsPage() {
       return { project: existingProject, alreadyLocal: true };
     }
 
-    const project = createProject(projectName);
-    project.sharedProjectId = sharedProjectId;
-    project.sharedProjectLinkedAt = new Date();
+    const detachedProject = findDetachedSharedProject(projects, sharedProjectId);
+    const project = detachedProject
+      ? relinkDetachedSharedProject(detachedProject, sharedProjectId)
+      : createProject(projectName);
+    if (!detachedProject) {
+      project.sharedProjectId = sharedProjectId;
+      project.sharedProjectLinkedAt = new Date();
+    }
 
     let projectToSave = project;
     let pulledSnapshot = false;
     try {
       const snapshot = await getSharedProjectSnapshot(project);
-      projectToSave = snapshot.project;
+      projectToSave = detachedProject
+        ? clearDetachedSharedProjectMetadata(
+            mergeSharedProjectAreas(project, snapshot.project).resolutionProject
+          )
+        : clearDetachedSharedProjectMetadata(snapshot.project);
       pulledSnapshot = true;
     } catch (error) {
       console.info('Joined shared project before shared data was published:', error);
     }
 
     await saveProject(projectToSave);
-    setProjects((prev) => [...prev, projectToSave]);
-    return { project: projectToSave, alreadyLocal: false, pulledSnapshot };
+    setProjects((prev) => detachedProject
+      ? prev.map((entry) => entry.id === detachedProject.id ? projectToSave : entry)
+      : [...prev, projectToSave]
+    );
+    return {
+      project: projectToSave,
+      alreadyLocal: false,
+      pulledSnapshot,
+      reusedDetached: !!detachedProject,
+    };
   }
 
   async function handleJoinSharedProject() {
@@ -1312,11 +1331,18 @@ export default function ProjectsPage() {
     setJoiningProject(true);
     try {
       const result = await joinSharedProjectByCode(code, accountEmail, accountName);
-      const { alreadyLocal, pulledSnapshot } = await addSharedProjectToDevice(result.sharedProjectId, result.projectName);
+      const { alreadyLocal, pulledSnapshot, reusedDetached } = await addSharedProjectToDevice(
+        result.sharedProjectId,
+        result.projectName
+      );
       setShowJoinProject(false);
       setJoinProjectCode('');
       if (alreadyLocal) {
         showMessage(`You already joined "${result.projectName}".`);
+      } else if (reusedDetached && pulledSnapshot) {
+        showMessage(`Rejoined "${result.projectName}" using the existing local copy and merged the latest shared data.`);
+      } else if (reusedDetached) {
+        showMessage(`Rejoined "${result.projectName}" using the existing local copy. No shared data has been published yet.`);
       } else if (pulledSnapshot) {
         showMessage(`Joined "${result.projectName}" and pulled the latest shared data.`);
       } else {
@@ -1671,7 +1697,7 @@ export default function ProjectsPage() {
         const result = await disconnectSharedProject(sharedProjectId);
         disconnectAction = result.action;
       }
-      const localProject = unlinkLocalSharedProject(fullProject);
+      const localProject = detachLocalSharedProject(fullProject);
       await saveProject(localProject);
       scheduleSync(localProject.id);
       clearSharedUpdateAvailable(localProject.id);
