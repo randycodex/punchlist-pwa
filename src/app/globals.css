@@ -253,11 +253,6 @@ html:not(.dark) {
   background: var(--inspection-control-bg);
 }
 
-.inspection-checkpoint-row--issue {
-  --inspection-control-bg: color-mix(in srgb, var(--accent) 8%, white);
-  background: var(--inspection-control-bg);
-}
-
 .inspection-add-trigger {
   --inspection-control-bg: #e64b25;
   border: 1px solid color-mix(in srgb, var(--inspection-control-bg) 82%, black);
@@ -286,10 +281,6 @@ html:not(.dark) {
 
 .dark .inspection-checkpoint-row--default {
   --inspection-control-bg: #44362f;
-}
-
-.dark .inspection-checkpoint-row--issue {
-  --inspection-control-bg: #882d17;
 }
 
 .dark .inspection-add-trigger {

@@ -933,11 +933,7 @@ function CheckpointRow({
       ref={editableLabel ? editContainerRef : undefined}
       className={`inspection-checkpoint-row rounded-[1.15rem] px-3.5 py-2 transition ${
         !editableLabel ? 'cursor-pointer' : ''
-      } ${
-        issueState === 'open'
-          ? 'inspection-checkpoint-row--issue'
-          : 'inspection-checkpoint-row--default'
-      }`}
+      } inspection-checkpoint-row--default`}
       onClick={!editableLabel ? onToggleExpand : undefined}
     >
       <div className="flex items-center justify-between gap-3">
