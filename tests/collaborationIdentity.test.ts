@@ -24,4 +24,12 @@ describe('collaboration identity helpers', () => {
       code: '22023',
     })).toBe('This shared project code is invalid or expired.');
   });
+
+  it('hides raw database constraint details from users', () => {
+    expect(getCollaborationErrorMessage({
+      message: 'duplicate key value violates unique constraint "project_members_active_user_idx"',
+      details: 'Key (project_id, user_id) already exists.',
+      code: '23505',
+    }, 'Failed to join this shared project.')).toBe('Failed to join this shared project.');
+  });
 });

@@ -55,7 +55,10 @@ export function getCollaborationErrorMessage(error: unknown, fallback = 'Failed 
   }
 
   if (error && typeof error === 'object') {
-    const maybeError = error as { message?: unknown; details?: unknown; hint?: unknown };
+    const maybeError = error as { code?: unknown; message?: unknown; details?: unknown; hint?: unknown };
+    if (typeof maybeError.code === 'string' && maybeError.code.startsWith('23')) {
+      return fallback;
+    }
     const parts = [maybeError.message, maybeError.details, maybeError.hint]
       .filter((part): part is string => typeof part === 'string' && part.trim().length > 0);
 

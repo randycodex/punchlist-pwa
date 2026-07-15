@@ -1,6 +1,6 @@
 # Punchlist PWA seamless automation handoff
 
-Date: 2026-07-08
+Date: 2026-07-15
 
 This file is for continuing the current "make users do less" work from another computer or another Codex thread.
 
@@ -8,7 +8,7 @@ This file is for continuing the current "make users do less" work from another c
 
 - Working directory: `/Users/randy/Documents/X_CODING/punchlist-pwa`
 - Branch: `main`
-- Latest pushed app-code commit at the time this handoff was written: `9c4e7a72 Guard live shared refresh on area pages`
+- Use `git log --oneline` for the current branch tip; the automation items recorded below are all implemented.
 - The app is a Next.js PWA with local IndexedDB persistence, Microsoft/OneDrive sync, and Supabase-backed shared-project collaboration.
 - Do not store Supabase passwords, database passwords, or user credentials in this file.
 
@@ -59,44 +59,22 @@ This file is for continuing the current "make users do less" work from another c
    - No current action. User said this is fine as-is.
 
 9. Make blocked shared updates actionable.
-   - Next work item.
-   - Current behavior: area pages detect blocked live shared updates, but they surface through a generic `syncError` strip.
-   - Desired behavior: show a persistent, clear shared-update banner.
-   - If the user is typing/editing: banner should say the shared update is ready and will apply automatically after the edit is finished.
-   - If local edits are newer: banner should offer a safe review path back to the project page instead of silently asking the user to interpret the state.
-   - Do not add a destructive "pull anyway" button on the area page.
+   - Done.
+   - Area pages show a persistent team-update banner and route users back to the project page for the existing safe review/backup flow.
+   - The area page does not expose a destructive "pull anyway" action.
+   - Relevant commit: `c96e4deb Make blocked shared updates actionable`.
 
 10. Dashboard live shared refresh for multiple projects.
-   - Work after point 9.
-   - Goal: make the dashboard feel current without requiring manual refresh.
-   - Important constraint: do not pull full whole-project snapshots for every dashboard event if metadata/timestamp checks can avoid it. Whole-project JSON snapshots are still a scaling risk.
+   - Done.
+   - Multi-project dashboards subscribe to shared snapshot changes and mark only the affected local project as having an update.
+   - The dashboard avoids automatically pulling every full project snapshot for each event.
+   - Relevant commit: `fcdbcf69 Live refresh shared dashboard projects`.
 
-## Recommended next implementation
+## Plan completion status
 
-Start with point 9: make blocked shared updates actionable.
+All ten items in this seamless-automation handoff are complete or intentionally removed from scope. There is no remaining implementation slice in this file.
 
-Likely file:
-
-- `src/app/project/[id]/area/[areaId]/page.tsx`
-
-Suggested approach:
-
-- Add dedicated state instead of using generic `syncError` for live shared updates, for example:
-
-```ts
-type LiveSharedUpdateState =
-  | { kind: 'waiting-for-draft'; message: string }
-  | { kind: 'local-newer'; message: string }
-  | null;
-```
-
-- In the live shared snapshot effect:
-  - When blocked by drafts/editing, set `waiting-for-draft` and keep `pendingLiveSharedRefreshRef.current = true`.
-  - When local edits are newer, set `local-newer`.
-  - When a safe apply succeeds, clear this state.
-- Render a small persistent banner near the current sync strip.
-- For `waiting-for-draft`, no button is required; it should auto-apply when the draft/edit closes.
-- For `local-newer`, include a safe "Review" action that routes to `/project/${project.id}` so the existing pull/backup flow can handle it.
+Broader future collaboration phases—entity-level mutation processing, audit/conflict UI, member administration, and recovery tooling—remain product roadmap work in `src/features/collaboration/README.md`. Start those only as an explicitly scoped new phase; do not treat them as unfinished work from this automation handoff.
 
 ## Validation commands
 
@@ -125,10 +103,6 @@ Then open:
 Use this prompt in a new Codex thread after pulling the repo:
 
 ```text
-We are continuing the punchlist-pwa seamless automation work from SEAMLESS_AUTOMATION_HANDOFF.md.
-The next item is point 9: make blocked shared updates actionable on the area page.
-Please inspect the current repo, implement the dedicated live shared update banner in src/app/project/[id]/area/[areaId]/page.tsx, validate with eslint/tsc/build, commit the completed slice, and tell me what is next.
-Do not change export methods.
-Do not add destructive pull-anyway behavior on the area page.
+The seamless-automation list in SEAMLESS_AUTOMATION_HANDOFF.md is complete.
+Please inspect the current repo and git state before starting anything new. If the user requests more collaboration work, scope it against src/features/collaboration/README.md as a new roadmap phase, preserve the existing safe pull and area-lock behavior, validate the full affected flow, commit the completed slice, and say what is next.
 ```
-
