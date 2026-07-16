@@ -16,15 +16,17 @@ type OfflineVoiceNoteButtonProps = {
   onActivityChange?: (active: boolean) => void;
 };
 
+type PcmCapture = {
+  context: AudioContext;
+  source: MediaStreamAudioSourceNode;
+  processor: ScriptProcessorNode;
+  silentGain: GainNode;
+  chunks: Float32Array[];
+  sampleRate: number;
+};
+
 const TARGET_SAMPLE_RATE = 16_000;
 const MAX_RECORDING_MS = 30_000;
-
-function getPreferredAudioMimeType() {
-  if (typeof MediaRecorder === 'undefined') return undefined;
-
-  const candidates = ['audio/mp4', 'audio/webm;codecs=opus', 'audio/webm'];
-  return candidates.find((candidate) => MediaRecorder.isTypeSupported(candidate));
-}
 
 function mixChannels(audioBuffer: AudioBuffer) {
   const mono = new Float32Array(audioBuffer.length);
@@ -65,15 +67,17 @@ function resampleAudio(input: Float32Array, inputSampleRate: number) {
   return output;
 }
 
-async function decodeRecording(blob: Blob) {
-  const audioContext = new AudioContext();
+function concatenateAudioChunks(chunks: Float32Array[]) {
+  const totalLength = chunks.reduce((length, chunk) => length + chunk.length, 0);
+  const audio = new Float32Array(totalLength);
+  let offset = 0;
 
-  try {
-    const audioBuffer = await audioContext.decodeAudioData(await blob.arrayBuffer());
-    return resampleAudio(mixChannels(audioBuffer), audioBuffer.sampleRate);
-  } finally {
-    await audioContext.close();
+  for (const chunk of chunks) {
+    audio.set(chunk, offset);
+    offset += chunk.length;
   }
+
+  return audio;
 }
 
 function getMicrophoneErrorMessage(error: unknown) {
@@ -98,9 +102,8 @@ export default function OfflineVoiceNoteButton({
 }: OfflineVoiceNoteButtonProps) {
   const [voiceState, setVoiceState] = useState<VoiceState>('idle');
   const [statusText, setStatusText] = useState('');
-  const recorderRef = useRef<MediaRecorder | null>(null);
+  const captureRef = useRef<PcmCapture | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const chunksRef = useRef<Blob[]>([]);
   const workerRef = useRef<Worker | null>(null);
   const recordingTimerRef = useRef<number | null>(null);
   const mountedRef = useRef(true);
@@ -133,12 +136,11 @@ export default function OfflineVoiceNoteButton({
     return worker;
   }, []);
 
-  const transcribeRecording = useCallback(async (blob: Blob) => {
+  const transcribeAudio = useCallback((audio: Float32Array) => {
     setVoiceState('processing');
-    setStatusText('Preparing voice note…');
+    setStatusText('Preparing offline AI…');
 
     try {
-      const audio = await decodeRecording(blob);
       if (!mountedRef.current) return;
       const worker = getWorker();
 
@@ -190,8 +192,35 @@ export default function OfflineVoiceNoteButton({
     }
   }, [getWorker]);
 
+  const finishRecording = useCallback(() => {
+    const capture = captureRef.current;
+    if (!capture) return;
+
+    captureRef.current = null;
+    clearRecordingTimer();
+    setVoiceState('processing');
+    setStatusText('Finishing recording…');
+
+    capture.processor.onaudioprocess = null;
+    capture.source.disconnect();
+    capture.processor.disconnect();
+    capture.silentGain.disconnect();
+    void capture.context.close().catch(() => undefined);
+    stopStream();
+
+    const recordedAudio = concatenateAudioChunks(capture.chunks);
+    if (recordedAudio.length === 0) {
+      setVoiceState('error');
+      setStatusText('The recording was empty. Try again.');
+      onActivityChangeRef.current?.(false);
+      return;
+    }
+
+    transcribeAudio(resampleAudio(recordedAudio, capture.sampleRate));
+  }, [clearRecordingTimer, stopStream, transcribeAudio]);
+
   const startRecording = useCallback(async () => {
-    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
+    if (!navigator.mediaDevices?.getUserMedia || typeof AudioContext === 'undefined') {
       setVoiceState('error');
       setStatusText('Offline voice notes are not supported by this browser.');
       onActivityChangeRef.current?.(false);
@@ -202,67 +231,73 @@ export default function OfflineVoiceNoteButton({
     setVoiceState('requesting');
     setStatusText('Requesting microphone…');
 
+    let audioContext: AudioContext | null = null;
+
     try {
+      audioContext = new AudioContext();
+      await audioContext.resume();
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-      const mimeType = getPreferredAudioMimeType();
-      const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
-
       streamRef.current = stream;
-      recorderRef.current = recorder;
-      chunksRef.current = [];
+      const source = audioContext.createMediaStreamSource(stream);
+      const processor = audioContext.createScriptProcessor(4096, 1, 1);
+      const silentGain = audioContext.createGain();
+      const chunks: Float32Array[] = [];
 
-      recorder.addEventListener('dataavailable', (event) => {
-        if (event.data.size > 0) chunksRef.current.push(event.data);
-      });
-      recorder.addEventListener('stop', () => {
-        clearRecordingTimer();
-        const recording = new Blob(chunksRef.current, { type: recorder.mimeType });
-        recorderRef.current = null;
-        chunksRef.current = [];
-        stopStream();
-        if (!mountedRef.current) return;
-        if (recording.size === 0) {
-          setVoiceState('error');
-          setStatusText('The recording was empty. Try again.');
-          onActivityChangeRef.current?.(false);
-          return;
-        }
-        void transcribeRecording(recording);
-      }, { once: true });
+      silentGain.gain.value = 0;
+      processor.onaudioprocess = (event) => {
+        chunks.push(mixChannels(event.inputBuffer));
+      };
+      source.connect(processor);
+      processor.connect(silentGain);
+      silentGain.connect(audioContext.destination);
+      captureRef.current = {
+        context: audioContext,
+        source,
+        processor,
+        silentGain,
+        chunks,
+        sampleRate: audioContext.sampleRate,
+      };
 
-      recorder.start();
       recordingTimerRef.current = window.setTimeout(() => {
-        if (recorder.state === 'recording') recorder.stop();
+        finishRecording();
       }, MAX_RECORDING_MS);
       setVoiceState('recording');
       setStatusText('Recording… tap stop when finished. 30 seconds max.');
     } catch (error) {
+      void audioContext?.close().catch(() => undefined);
       stopStream();
       setVoiceState('error');
       setStatusText(getMicrophoneErrorMessage(error));
       onActivityChangeRef.current?.(false);
     }
-  }, [clearRecordingTimer, stopStream, transcribeRecording]);
+  }, [finishRecording, stopStream]);
 
   const handleClick = useCallback(() => {
     if (voiceState === 'recording') {
-      recorderRef.current?.stop();
-      setVoiceState('processing');
-      setStatusText('Finishing recording…');
+      finishRecording();
       return;
     }
 
     if (voiceState === 'idle' || voiceState === 'error') {
       void startRecording();
     }
-  }, [startRecording, voiceState]);
+  }, [finishRecording, startRecording, voiceState]);
 
   useEffect(() => {
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
       onActivityChangeRef.current?.(false);
-      if (recorderRef.current?.state === 'recording') recorderRef.current.stop();
+      const capture = captureRef.current;
+      captureRef.current = null;
+      if (capture) {
+        capture.processor.onaudioprocess = null;
+        capture.source.disconnect();
+        capture.processor.disconnect();
+        capture.silentGain.disconnect();
+        void capture.context.close().catch(() => undefined);
+      }
       clearRecordingTimer();
       stopStream();
       workerRef.current?.terminate();
