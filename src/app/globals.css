@@ -82,8 +82,10 @@ button,
   top: 0;
   left: 0;
   right: 0;
-  height: env(safe-area-inset-top);
-  background: var(--top-bar-surface);
+  height: calc(env(safe-area-inset-top) + 1px);
+  background-color: var(--top-bar-surface);
+  border: 0;
+  box-shadow: none;
   z-index: 100;
   pointer-events: none;
   transform: translateZ(0);
@@ -159,9 +161,11 @@ html:not(.dark) {
 }
 
 .top-bar-surface {
-  background: var(--top-bar-surface);
-  backdrop-filter: blur(24px);
-  -webkit-backdrop-filter: blur(24px);
+  background-color: var(--top-bar-surface);
+  border-top: 0;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }
 
 .page-header-surface {
