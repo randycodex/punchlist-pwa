@@ -89,6 +89,7 @@ export default function PersistentTopBar() {
     isReady: false,
     isActiveMember: false,
     isOwner: false,
+    hasError: false,
   });
   const [homeMenuState, setHomeMenuState] = useState<HomeMenuState>({
     context: 'home',
@@ -215,7 +216,7 @@ export default function PersistentTopBar() {
     if (!collaborationAuth.isSignedIn || !sharedProjectId) {
       void Promise.resolve().then(() => {
         if (!cancelled) {
-          setSharedProjectAccess({ isReady: false, isActiveMember: false, isOwner: false });
+          setSharedProjectAccess({ isReady: false, isActiveMember: false, isOwner: false, hasError: false });
         }
       });
       return () => {
@@ -225,20 +226,20 @@ export default function PersistentTopBar() {
 
     void Promise.resolve().then(() => {
       if (!cancelled) {
-        setSharedProjectAccess({ isReady: false, isActiveMember: false, isOwner: false });
+        setSharedProjectAccess({ isReady: false, isActiveMember: false, isOwner: false, hasError: false });
       }
     });
 
-    void getSharedProjectAccess(sharedProjectId)
+    void getSharedProjectAccess(sharedProjectId, collaborationAuth.user?.id)
       .then((access) => {
         if (!cancelled) {
-          setSharedProjectAccess({ isReady: true, ...access });
+          setSharedProjectAccess({ isReady: true, ...access, hasError: false });
         }
       })
       .catch((error) => {
         console.error('Failed to verify shared project access:', error);
         if (!cancelled) {
-          setSharedProjectAccess({ isReady: true, isActiveMember: false, isOwner: false });
+          setSharedProjectAccess({ isReady: true, isActiveMember: false, isOwner: false, hasError: true });
         }
       });
 
@@ -510,7 +511,12 @@ export default function PersistentTopBar() {
                   <div className="px-1 py-1">
                     <div className={menuCardClass}>
                       <div className={menuGroupLabelClass}>Shared project</div>
-                      {homeMenuState.isSingleProject && homeMenuState.isSharedProject && sharedProjectAccess.isActiveMember && (
+                      {homeMenuState.isSingleProject && homeMenuState.isSharedProject && !sharedProjectAccess.isReady && (
+                        <div className="px-3 py-2 text-xs text-gray-500 dark:text-gray-400">
+                          Checking shared access. Actions remain available while this finishes.
+                        </div>
+                      )}
+                      {homeMenuState.isSingleProject && homeMenuState.isSharedProject && (!sharedProjectAccess.isReady || sharedProjectAccess.isActiveMember || sharedProjectAccess.hasError) && (
                         <>
                           <button
                             onClick={() => dispatchHomeAction('invite-code')}
@@ -548,7 +554,7 @@ export default function PersistentTopBar() {
                             <ArchiveRestore className="h-4 w-4" />
                             Shared backups
                           </button>
-                          {sharedProjectAccess.isReady && (
+                          {sharedProjectAccess.isReady && sharedProjectAccess.isActiveMember && (
                             <button
                               onClick={() => dispatchHomeAction('disconnect-shared-project')}
                               disabled={!!homeMenuState.isDisconnectingSharedProject}
@@ -578,7 +584,7 @@ export default function PersistentTopBar() {
                         !sharedProjectAccess.isActiveMember && (
                           <>
                             <div className="px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
-                              This account is not an active member of this shared project.
+                              {sharedProjectAccess.hasError ? 'Shared access could not be verified. You can retry an action or keep the local copy only.' : 'This account is not an active member of this shared project.'}
                             </div>
                             <button
                               onClick={() => dispatchHomeAction('unlink-inactive-shared-project')}

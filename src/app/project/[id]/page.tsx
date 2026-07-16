@@ -961,6 +961,16 @@ export default function ProjectDetailPage() {
 
       fullProject.sharedProjectId = project.sharedProjectId;
       fullProject.sharedProjectLinkedAt = project.sharedProjectLinkedAt;
+      const metadata = await getSharedProjectSnapshotMetadata(project.sharedProjectId);
+      if (!metadata) {
+        throw new Error('No shared data has been published for this project yet.');
+      }
+      if (!isSharedSnapshotNewer(fullProject, metadata.publishedAt)) {
+        showMessage('Shared data is already up to date. Your local changes have not been replaced.');
+        return;
+      }
+
+
       const result = await getSharedProjectSnapshot(fullProject);
       const hasNewerLocalChanges = hasNewerLocalChangesThanSharedSnapshot(fullProject, result.publishedAt);
       if (hasNewerLocalChanges) {

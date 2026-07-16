@@ -23,7 +23,7 @@ function statusClasses(status: CollaborationHealthCheck['status']) {
 function statusLabel(status: CollaborationHealthCheck['status']) {
   if (status === 'ok') return 'OK';
   if (status === 'warning') return 'Check';
-  return 'Missing';
+  return 'Error';
 }
 
 export default function CollaborationHealthDialog({

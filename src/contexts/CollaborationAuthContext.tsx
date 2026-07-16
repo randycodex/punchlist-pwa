@@ -11,6 +11,8 @@ import {
   type CollaborationUserProfile,
   type CollaborationUserProfileInput,
 } from '@/lib/collaboration';
+import { clearPersistedCollaborationSession } from '@/lib/collaboration/supabaseClient';
+import { withCollaborationTimeout } from '@/lib/collaboration/request';
 
 type CollaborationAuthContextValue = {
   isReady: boolean;
@@ -104,16 +106,32 @@ export function CollaborationAuthProvider({ children }: { children: ReactNode })
     if (!supabase || !microsoftAuth.isReady || !session) return;
     if (isIdentityAligned) return;
 
+    let cancelled = false;
     const collaborationEmail = session.user.email ?? 'the previous account';
     const microsoftEmail = microsoftAuth.accountEmail ?? 'no Microsoft account';
-    setErrorMessage(
-      `Shared projects were disconnected because ${collaborationEmail} does not match ${microsoftEmail}.`
-    );
-    void supabase.auth.signOut({ scope: 'local' }).then(({ error }) => {
-      if (error) {
-        setErrorMessage(error.message);
-      }
+    clearPersistedCollaborationSession();
+    void Promise.resolve().then(() => {
+      if (cancelled) return;
+      setSession(null);
+      setUser(null);
+      setProfile(null);
+      setProfileErrorMessage(null);
+      setErrorMessage(
+        `Shared projects were disconnected because ${collaborationEmail} does not match ${microsoftEmail}.`
+      );
     });
+    void withCollaborationTimeout(
+      supabase.auth.signOut({ scope: 'local' }),
+      'Disconnecting the previous shared-project account',
+      8_000
+    ).then(({ error }) => {
+      if (error) console.warn('Shared-project account cleanup failed:', error);
+    }).catch((error) => {
+      console.warn('Shared-project account cleanup timed out:', error);
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [isIdentityAligned, microsoftAuth.accountEmail, microsoftAuth.isReady, session, supabase]);
 
   async function saveProfile(input: CollaborationUserProfileInput) {
@@ -154,13 +172,28 @@ export function CollaborationAuthProvider({ children }: { children: ReactNode })
 
   async function signOut() {
     setErrorMessage(null);
-    if (!supabase) return;
-    const { error } = await supabase.auth.signOut({ scope: 'local' });
-    if (error) {
-      setErrorMessage(error.message);
-    }
+    setSession(null);
+    setUser(null);
     setProfile(null);
     setProfileErrorMessage(null);
+    setIsSigningIn(false);
+    clearPersistedCollaborationSession();
+    if (!supabase) return;
+
+    try {
+      const { error } = await withCollaborationTimeout(
+        supabase.auth.signOut({ scope: 'local' }),
+        'Leaving shared projects',
+        8_000
+      );
+      if (error) {
+        console.warn('Shared-project server sign-out failed after the local session was cleared:', error);
+      }
+    } catch (error) {
+      console.warn('Shared-project server sign-out timed out after the local session was cleared:', error);
+    } finally {
+      clearPersistedCollaborationSession();
+    }
   }
 
   return (

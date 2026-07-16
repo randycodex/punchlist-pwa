@@ -225,40 +225,31 @@ export async function getSharedProjectMembers(sharedProjectId: string): Promise<
   return (data ?? []).map((row) => reviveProjectMember(row, projectRow?.owner_user_id));
 }
 
-export async function getSharedProjectAccess(sharedProjectId: string): Promise<SharedProjectAccess> {
+export async function getSharedProjectAccess(
+  sharedProjectId: string,
+  signedInUserId?: string
+): Promise<SharedProjectAccess> {
   const supabase = getCollaborationSupabaseClient();
   if (!supabase) {
     throw new Error('Collaboration is not configured.');
   }
 
-  const { data: userData, error: userError } = await supabase.auth.getUser();
-  if (userError) throw userError;
-  if (!userData.user) {
+  let userId = signedInUserId;
+  if (!userId) {
+    const { data: userData, error: userError } = await supabase.auth.getUser();
+    if (userError) throw userError;
+    userId = userData.user?.id;
+  }
+  if (!userId) {
     return { isActiveMember: false, isOwner: false };
   }
 
-  const [projectResult, memberResult] = await Promise.all([
-    supabase
-      .from('shared_projects')
-      .select('owner_user_id')
-      .eq('id', sharedProjectId)
-      .is('archived_at', null)
-      .maybeSingle(),
-    supabase
-      .from('project_members')
-      .select('access_state')
-      .eq('project_id', sharedProjectId)
-      .eq('user_id', userData.user.id)
-      .eq('access_state', 'active')
-      .maybeSingle(),
-  ]);
-
-  if (projectResult.error) throw projectResult.error;
-  if (memberResult.error) throw memberResult.error;
+  const projects = await listMySharedProjects();
+  const project = projects.find((entry) => entry.projectId === sharedProjectId);
 
   return {
-    isActiveMember: !!projectResult.data && memberResult.data?.access_state === 'active',
-    isOwner: projectResult.data?.owner_user_id === userData.user.id,
+    isActiveMember: !!project,
+    isOwner: project?.ownerUserId === userId,
   };
 }
 
