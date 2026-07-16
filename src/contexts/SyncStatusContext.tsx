@@ -6,6 +6,7 @@ import type { SyncConflict } from '@/lib/oneDriveSync';
 
 export type SyncStatus = 'idle' | 'syncing' | 'pending' | 'needs-auth' | 'error';
 export type LocalSaveStatus = 'saving' | 'saved' | 'error';
+export type SharedTransferStatus = 'publishing' | 'pulling' | null;
 
 type SyncStatusContextValue = {
   status: SyncStatus;
@@ -18,6 +19,8 @@ type SyncStatusContextValue = {
   clearSharedUpdateAvailable: (projectId: string) => void;
   localSaveStatus: LocalSaveStatus;
   localSaveError: string | null;
+  sharedTransferStatus: SharedTransferStatus;
+  setSharedTransferStatus: (status: SharedTransferStatus) => void;
   syncConflicts: SyncConflict[];
   setSyncConflicts: (conflicts: SyncConflict[]) => void;
 };
@@ -33,6 +36,7 @@ export function SyncStatusProvider({ children }: { children: ReactNode }) {
   );
   const [localSaveStatus, setLocalSaveStatus] = useState<LocalSaveStatus>('saved');
   const [localSaveError, setLocalSaveError] = useState<string | null>(null);
+  const [sharedTransferStatus, setSharedTransferStatus] = useState<SharedTransferStatus>(null);
   const [syncConflicts, setSyncConflicts] = useState<SyncConflict[]>([]);
 
   useEffect(() => {
@@ -105,6 +109,8 @@ export function SyncStatusProvider({ children }: { children: ReactNode }) {
       clearSharedUpdateAvailable,
       localSaveStatus,
       localSaveError,
+      sharedTransferStatus,
+      setSharedTransferStatus,
       syncConflicts,
       setSyncConflicts,
     }),
@@ -115,6 +121,7 @@ export function SyncStatusProvider({ children }: { children: ReactNode }) {
       markSharedUpdateAvailable,
       retryAt,
       retryInSeconds,
+      sharedTransferStatus,
       sharedUpdateProjectIds,
       status,
       syncConflicts,

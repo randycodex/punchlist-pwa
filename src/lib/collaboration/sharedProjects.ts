@@ -58,6 +58,12 @@ export function getCollaborationErrorMessage(error: unknown, fallback = 'Failed 
     const maybeError = error as { code?: unknown; message?: unknown; details?: unknown; hint?: unknown };
     if (
       typeof maybeError.message === 'string'
+      && maybeError.message.toLowerCase().includes('statement timeout')
+    ) {
+      return 'The shared database took too long to process this project. Please try again.';
+    }
+    if (
+      typeof maybeError.message === 'string'
       && maybeError.message.startsWith('CollaborationRequestTimeoutError:')
     ) {
       return maybeError.message.replace(/^CollaborationRequestTimeoutError:\s*/, '');

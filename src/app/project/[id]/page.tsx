@@ -146,8 +146,6 @@ export default function ProjectDetailPage() {
   } | null>(null);
   const [creatingJoinCode, setCreatingJoinCode] = useState(false);
   const [loadingSharedMembers, setLoadingSharedMembers] = useState(false);
-  const [publishingSharedProject, setPublishingSharedProject] = useState(false);
-  const [pullingSharedProject, setPullingSharedProject] = useState(false);
   const [pendingPull, setPendingPull] = useState<PendingSharedPullState | null>(null);
   const [backupProject, setBackupProject] = useState<Project | null>(null);
   const [loadingSharedBackups, setLoadingSharedBackups] = useState(false);
@@ -168,6 +166,7 @@ export default function ProjectDetailPage() {
   const {
     clearSharedUpdateAvailable,
     markSharedUpdateAvailable,
+    setSharedTransferStatus,
     setRetryAt,
     setStatus: setSyncStatus,
     setSyncConflicts,
@@ -892,7 +891,7 @@ export default function ProjectDetailPage() {
       return;
     }
 
-    setPublishingSharedProject(true);
+    setSharedTransferStatus('publishing');
     let fullProject: Project | undefined;
     try {
       fullProject = await getProject(project.id);
@@ -928,7 +927,7 @@ export default function ProjectDetailPage() {
       console.error('Failed to publish shared project:', error);
       showMessage(getCollaborationErrorMessage(error, 'Failed to publish shared data. Please try again.'));
     } finally {
-      setPublishingSharedProject(false);
+      setSharedTransferStatus(null);
     }
   }, [
     clearSharedUpdateAvailable,
@@ -936,6 +935,7 @@ export default function ProjectDetailPage() {
     collaborationAuth.user,
     markSharedUpdateAvailable,
     project,
+    setSharedTransferStatus,
     showMessage,
   ]);
 
@@ -952,7 +952,7 @@ export default function ProjectDetailPage() {
       return;
     }
 
-    setPullingSharedProject(true);
+    setSharedTransferStatus('pulling');
     try {
       const fullProject = await getProject(project.id);
       if (!fullProject) {
@@ -999,16 +999,16 @@ export default function ProjectDetailPage() {
       console.error('Failed to pull shared project:', error);
       showMessage(getCollaborationErrorMessage(error, 'Failed to pull shared data. Please try again.'));
     } finally {
-      setPullingSharedProject(false);
+      setSharedTransferStatus(null);
     }
-  }, [clearSharedUpdateAvailable, collaborationAuth.isSignedIn, project, showMessage]);
+  }, [clearSharedUpdateAvailable, collaborationAuth.isSignedIn, project, setSharedTransferStatus, showMessage]);
 
   async function confirmPullSharedProject() {
     if (!pendingPull) return;
 
     const pullState = pendingPull;
     setPendingPull(null);
-    setPullingSharedProject(true);
+    setSharedTransferStatus('pulling');
     try {
       await captureSharedProjectBackup(
         pullState.localProject,
@@ -1028,7 +1028,7 @@ export default function ProjectDetailPage() {
       console.error('Failed to pull shared project:', error);
       showMessage(getCollaborationErrorMessage(error, 'Failed to pull shared data. Please try again.'));
     } finally {
-      setPullingSharedProject(false);
+      setSharedTransferStatus(null);
     }
   }
 
@@ -1369,8 +1369,6 @@ export default function ProjectDetailPage() {
           sharedProjectId: project.sharedProjectId,
           isCreatingJoinCode: creatingJoinCode,
           isLoadingSharedMembers: loadingSharedMembers,
-          isPublishingSharedProject: publishingSharedProject,
-          isPullingSharedProject: pullingSharedProject,
           isDisconnectingSharedProject: disconnectingSharedProject,
           isTransferringSharedProject: transferringSharedProject,
         },
@@ -1382,8 +1380,6 @@ export default function ProjectDetailPage() {
     disconnectingSharedProject,
     loadingSharedMembers,
     project,
-    publishingSharedProject,
-    pullingSharedProject,
     showTrash,
     sortOption,
     transferringSharedProject,

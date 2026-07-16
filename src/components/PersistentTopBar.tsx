@@ -56,8 +56,6 @@ type HomeMenuState = {
   sharedProjectId?: string;
   isCreatingJoinCode?: boolean;
   isLoadingSharedMembers?: boolean;
-  isPublishingSharedProject?: boolean;
-  isPullingSharedProject?: boolean;
   isDisconnectingSharedProject?: boolean;
   isTransferringSharedProject?: boolean;
 };
@@ -75,6 +73,7 @@ export default function PersistentTopBar() {
     localSaveError,
     localSaveStatus,
     retryInSeconds,
+    sharedTransferStatus,
     status,
   } = useSyncStatus();
   const { quickSort } = useAppSettings();
@@ -363,12 +362,11 @@ export default function PersistentTopBar() {
   }
 
   function renderSharedTransferIndicator() {
-    const isPublishing = !!homeMenuState.isPublishingSharedProject;
-    const isPulling = !!homeMenuState.isPullingSharedProject;
-    if (!isPublishing && !isPulling) return null;
+    if (!sharedTransferStatus) return null;
 
+    const isPublishing = sharedTransferStatus === 'publishing';
     const label = isPublishing ? 'Pushing shared data' : 'Pulling shared data';
-    const shortLabel = isPublishing ? 'Push' : 'Pull';
+    const shortLabel = isPublishing ? 'Pushing' : 'Pulling';
     const TransferIcon = isPublishing ? CloudUpload : CloudDownload;
 
     return (
@@ -437,7 +435,7 @@ export default function PersistentTopBar() {
             )}
             {!isAreaRoute && showHomeMenu && createPortal((
               <div
-                className="app-menu-drawer menu-surface fixed right-0 top-0 z-[120] flex h-[100dvh] flex-col overflow-hidden border-y-0 border-r-0 p-0"
+                className="app-menu-drawer menu-surface fixed right-0 z-[120] flex h-[100dvh] flex-col overflow-hidden border-y-0 border-r-0 p-0"
                 role="dialog"
                 aria-modal="false"
                 aria-label="App menu"
@@ -560,19 +558,19 @@ export default function PersistentTopBar() {
                           </button>
                           <button
                             onClick={() => dispatchHomeAction('publish-shared-project')}
-                            disabled={!!homeMenuState.isPublishingSharedProject}
+                            disabled={sharedTransferStatus !== null}
                             className={disabledMenuItemClass}
                           >
                             <CloudUpload className="h-4 w-4" />
-                            {homeMenuState.isPublishingSharedProject ? 'Publishing...' : 'Publish shared data'}
+                            {sharedTransferStatus === 'publishing' ? 'Publishing...' : 'Publish shared data'}
                           </button>
                           <button
                             onClick={() => dispatchHomeAction('pull-shared-project')}
-                            disabled={!!homeMenuState.isPullingSharedProject}
+                            disabled={sharedTransferStatus !== null}
                             className={disabledMenuItemClass}
                           >
                             <CloudDownload className="h-4 w-4" />
-                            {homeMenuState.isPullingSharedProject ? 'Pulling...' : 'Pull shared data'}
+                            {sharedTransferStatus === 'pulling' ? 'Pulling...' : 'Pull shared data'}
                           </button>
                           <button onClick={() => dispatchHomeAction('shared-backups')} className={menuItemClass}>
                             <ArchiveRestore className="h-4 w-4" />
