@@ -97,7 +97,6 @@ export default function RootLayout({
         <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
       </head>
       <body className="font-sans antialiased">
-        <div className="safe-top-shim" />
         <div className="app-shell">
           <AppProviders>
             <PersistentTopBar />

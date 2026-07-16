@@ -333,13 +333,9 @@ export default function OfflineVoiceNoteButton({
       >
         {isRecording ? <Square className="h-4 w-4 fill-current" /> : <Mic className="h-4.5 w-4.5" />}
       </button>
-      {statusText && (
+      {voiceState === 'error' && statusText && (
         <span
-          className={`pointer-events-none absolute right-0 top-12 z-10 w-56 rounded-xl px-3 py-2 text-right text-[0.68rem] shadow-lg ${
-            voiceState === 'error'
-              ? 'bg-red-50 text-red-700 dark:bg-red-950 dark:text-red-200'
-              : 'bg-white text-gray-600 dark:bg-zinc-900 dark:text-gray-300'
-          }`}
+          className="pointer-events-none absolute right-0 top-12 z-10 w-56 rounded-xl bg-red-50 px-3 py-2 text-right text-[0.68rem] text-red-700 shadow-lg dark:bg-red-950 dark:text-red-200"
           role="status"
           aria-live="polite"
         >

@@ -77,21 +77,6 @@ button,
   transition: padding-right 220ms ease;
 }
 
-.safe-top-shim {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: calc(env(safe-area-inset-top) + 1px);
-  background-color: var(--top-bar-surface);
-  border: 0;
-  box-shadow: none;
-  z-index: 100;
-  pointer-events: none;
-  transform: translateZ(0);
-  transition: right 220ms ease;
-}
-
 html {
   color-scheme: light;
 }
@@ -113,7 +98,7 @@ html:not(.dark) {
 }
 
 .persistent-top-bar {
-  background-color: transparent !important;
+  background-color: var(--top-bar-surface) !important;
   border-bottom: 0 !important;
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
@@ -141,8 +126,7 @@ html:not(.dark) {
     padding-right: var(--app-menu-drawer-width);
   }
 
-  html[data-app-menu-open="true"] .persistent-top-bar,
-  html[data-app-menu-open="true"] .safe-top-shim {
+  html[data-app-menu-open="true"] .persistent-top-bar {
     right: var(--app-menu-drawer-width);
   }
 
