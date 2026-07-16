@@ -1,4 +1,49 @@
 export const COLLABORATION_REQUEST_TIMEOUT_MS = 20_000;
+export const COLLABORATION_TRANSFER_TIMEOUT_MS = 90_000;
+
+type CollaborationRequestPolicy = {
+  operation: string;
+  timeoutMs: number;
+};
+
+function getRequestUrl(input: RequestInfo | URL) {
+  if (typeof input === 'string') return input;
+  if (input instanceof URL) return input.href;
+  return input.url;
+}
+
+export function getCollaborationRequestPolicy(
+  input: RequestInfo | URL,
+  init?: RequestInit
+): CollaborationRequestPolicy {
+  const url = getRequestUrl(input);
+
+  if (url.includes('/rpc/publish_shared_project_snapshot')) {
+    return {
+      operation: 'Publishing shared data',
+      timeoutMs: COLLABORATION_TRANSFER_TIMEOUT_MS,
+    };
+  }
+
+  if (url.includes('/rpc/capture_shared_project_backup')) {
+    return {
+      operation: 'Saving shared backup',
+      timeoutMs: COLLABORATION_TRANSFER_TIMEOUT_MS,
+    };
+  }
+
+  if (url.includes('/shared_project_snapshots')) {
+    return {
+      operation: init?.method?.toUpperCase() === 'GET' ? 'Pulling shared data' : 'Transferring shared data',
+      timeoutMs: COLLABORATION_TRANSFER_TIMEOUT_MS,
+    };
+  }
+
+  return {
+    operation: 'Collaboration request',
+    timeoutMs: COLLABORATION_REQUEST_TIMEOUT_MS,
+  };
+}
 
 export class CollaborationRequestTimeoutError extends Error {
   readonly code = 'COLLABORATION_REQUEST_TIMEOUT';
@@ -34,6 +79,7 @@ export async function fetchWithCollaborationTimeout(
   input: RequestInfo | URL,
   init?: RequestInit
 ) {
+  const policy = getCollaborationRequestPolicy(input, init);
   const controller = new AbortController();
   const callerSignal = init?.signal;
   let timedOut = false;
@@ -48,13 +94,13 @@ export async function fetchWithCollaborationTimeout(
   const timeoutId = setTimeout(() => {
     timedOut = true;
     controller.abort();
-  }, COLLABORATION_REQUEST_TIMEOUT_MS);
+  }, policy.timeoutMs);
 
   try {
     return await fetch(input, { ...init, signal: controller.signal });
   } catch (error) {
     if (timedOut) {
-      throw new CollaborationRequestTimeoutError();
+      throw new CollaborationRequestTimeoutError(policy.operation, policy.timeoutMs);
     }
     throw error;
   } finally {

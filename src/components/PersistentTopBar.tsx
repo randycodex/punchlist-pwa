@@ -362,6 +362,29 @@ export default function PersistentTopBar() {
     );
   }
 
+  function renderSharedTransferIndicator() {
+    const isPublishing = !!homeMenuState.isPublishingSharedProject;
+    const isPulling = !!homeMenuState.isPullingSharedProject;
+    if (!isPublishing && !isPulling) return null;
+
+    const label = isPublishing ? 'Pushing shared data' : 'Pulling shared data';
+    const shortLabel = isPublishing ? 'Push' : 'Pull';
+    const TransferIcon = isPublishing ? CloudUpload : CloudDownload;
+
+    return (
+      <div
+        className="flex h-10 min-w-10 shrink-0 items-center justify-center gap-2 rounded-[1rem] border border-violet-200 bg-violet-50 px-2.5 text-violet-700 dark:border-violet-400/25 dark:bg-violet-400/10 dark:text-violet-200"
+        role="status"
+        aria-live="polite"
+        aria-label={label}
+        title={label}
+      >
+        <TransferIcon className="h-4 w-4 animate-pulse" />
+        <span className="text-xs font-bold leading-none tracking-normal">{shortLabel}</span>
+      </div>
+    );
+  }
+
   const menuCardClass = 'app-menu-card space-y-1 rounded-[1.25rem] p-2.5';
   const menuGroupLabelClass = 'px-3 pt-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-gray-500 dark:text-gray-400';
   const menuItemClass = 'flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm text-gray-700 transition hover:bg-black/[0.04] dark:text-gray-300 dark:hover:bg-white/[0.04]';
@@ -398,6 +421,7 @@ export default function PersistentTopBar() {
         </div>
         {showAppMenuControl && isReady && (!homeMenuState.showTrash || isAreaRoute) && (
           <div ref={menuRef} className="app-menu-top-actions relative flex items-center gap-2">
+            {renderSharedTransferIndicator()}
             {renderSyncButton()}
             {!isAreaRoute && (
               <button

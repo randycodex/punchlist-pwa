@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  COLLABORATION_REQUEST_TIMEOUT_MS,
+  COLLABORATION_TRANSFER_TIMEOUT_MS,
   CollaborationRequestTimeoutError,
+  getCollaborationRequestPolicy,
   withCollaborationTimeout,
 } from '@/lib/collaboration/request';
 
@@ -14,5 +17,23 @@ describe('collaboration request timeout', () => {
     await expect(
       withCollaborationTimeout(new Promise(() => {}), 'Test request', 5)
     ).rejects.toBeInstanceOf(CollaborationRequestTimeoutError);
+  });
+
+  it('allows full shared snapshot transfers more time than lightweight requests', () => {
+    expect(getCollaborationRequestPolicy(
+      'https://example.supabase.co/rest/v1/rpc/publish_shared_project_snapshot',
+      { method: 'POST' }
+    )).toEqual({
+      operation: 'Publishing shared data',
+      timeoutMs: COLLABORATION_TRANSFER_TIMEOUT_MS,
+    });
+
+    expect(getCollaborationRequestPolicy(
+      'https://example.supabase.co/auth/v1/user',
+      { method: 'GET' }
+    )).toEqual({
+      operation: 'Collaboration request',
+      timeoutMs: COLLABORATION_REQUEST_TIMEOUT_MS,
+    });
   });
 });

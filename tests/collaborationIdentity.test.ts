@@ -32,4 +32,11 @@ describe('collaboration identity helpers', () => {
       code: '23505',
     }, 'Failed to join this shared project.')).toBe('Failed to join this shared project.');
   });
+
+  it('removes timeout implementation details from collaboration errors', () => {
+    expect(getCollaborationErrorMessage({
+      message: 'CollaborationRequestTimeoutError: Publishing shared data timed out after 90 seconds. Check your connection and try again.',
+      details: 'fetchWithCollaborationTimeout@https://example.test/chunk.js:1:1',
+    })).toBe('Publishing shared data timed out after 90 seconds. Check your connection and try again.');
+  });
 });

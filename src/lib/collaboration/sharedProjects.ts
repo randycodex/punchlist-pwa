@@ -56,6 +56,12 @@ export function getCollaborationErrorMessage(error: unknown, fallback = 'Failed 
 
   if (error && typeof error === 'object') {
     const maybeError = error as { code?: unknown; message?: unknown; details?: unknown; hint?: unknown };
+    if (
+      typeof maybeError.message === 'string'
+      && maybeError.message.startsWith('CollaborationRequestTimeoutError:')
+    ) {
+      return maybeError.message.replace(/^CollaborationRequestTimeoutError:\s*/, '');
+    }
     if (typeof maybeError.code === 'string' && maybeError.code.startsWith('23')) {
       return fallback;
     }
