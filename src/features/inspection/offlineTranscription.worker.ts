@@ -76,10 +76,7 @@ self.addEventListener('message', async (event: MessageEvent<TranscribeRequest>) 
     const transcriber = await getTranscriber();
     postMessageToClient({ type: 'transcribing' });
 
-    const result = await transcriber(event.data.audio, {
-      language: 'en',
-      task: 'transcribe',
-    });
+    const result = await transcriber(event.data.audio);
     const text = Array.isArray(result) ? result.map((entry) => entry.text).join(' ') : result.text;
 
     postMessageToClient({ type: 'complete', text: text.trim() });
