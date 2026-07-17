@@ -1,4 +1,5 @@
 import { getSharedProjectSnapshot, hasNewerLocalChangesThanSharedSnapshot } from '@/lib/collaboration';
+import { getPendingSharedProjectMetadataSyncForProject } from '@/lib/db';
 import type { Area, Project } from '@/types';
 
 export type PendingSharedPullReason = 'manual-pull' | 'publish-conflict';
@@ -11,6 +12,7 @@ export type PendingSharedPullState = {
   hasNewerLocalChanges: boolean;
   conflictingAreaNames: string[];
   preservedLocalAreaCount: number;
+  preservedLocalProjectMetadata: boolean;
   appliedRemoteAreaCount: number;
   reason: PendingSharedPullReason;
 };
@@ -42,8 +44,9 @@ function preserveLocalAreaWithRemoteRevision(localArea: Area, remoteArea: Area) 
 
 export function mergeSharedProjectAreas(
   localProject: Project,
-  sharedProject: Project
-): Pick<PendingSharedPullState, 'resolutionProject' | 'conflictingAreaNames' | 'preservedLocalAreaCount' | 'appliedRemoteAreaCount'> {
+  sharedProject: Project,
+  options: { preserveLocalProjectMetadata?: boolean } = {}
+): Pick<PendingSharedPullState, 'resolutionProject' | 'conflictingAreaNames' | 'preservedLocalAreaCount' | 'appliedRemoteAreaCount' | 'preservedLocalProjectMetadata'> {
   const baselineMs = localProject.sharedSnapshotPublishedAt
     ? new Date(localProject.sharedSnapshotPublishedAt).getTime()
     : 0;
@@ -85,22 +88,49 @@ export function mergeSharedProjectAreas(
     return remoteArea;
   });
 
+  const resolutionProject: Project = {
+    ...sharedProject,
+    id: localProject.id,
+    oneDriveFolderName: localProject.oneDriveFolderName || sharedProject.oneDriveFolderName,
+    sharedProjectId: localProject.sharedProjectId,
+    sharedProjectLinkedAt: localProject.sharedProjectLinkedAt,
+    sharedSnapshotPublishedAt: sharedProject.sharedSnapshotPublishedAt,
+    sharedBaselinePublishedAt: sharedProject.sharedBaselinePublishedAt,
+    updatedAt: maxDate(localProject.updatedAt, sharedProject.updatedAt),
+    areas,
+  };
+  if (options.preserveLocalProjectMetadata) {
+    Object.assign(resolutionProject, {
+      projectName: localProject.projectName,
+      address: localProject.address,
+      date: localProject.date,
+      inspector: localProject.inspector,
+      gcName: localProject.gcName,
+      gcSignoff: localProject.gcSignoff,
+      facadeLevelStart: localProject.facadeLevelStart,
+      facadeLevelEnd: localProject.facadeLevelEnd,
+      sharedMetadataVersion: sharedProject.sharedMetadataVersion,
+      sharedMetadataPublishedAt: sharedProject.sharedMetadataPublishedAt,
+    });
+  }
+
   return {
-    resolutionProject: {
-      ...sharedProject,
-      id: localProject.id,
-      oneDriveFolderName: localProject.oneDriveFolderName || sharedProject.oneDriveFolderName,
-      sharedProjectId: localProject.sharedProjectId,
-      sharedProjectLinkedAt: localProject.sharedProjectLinkedAt,
-      sharedSnapshotPublishedAt: sharedProject.sharedSnapshotPublishedAt,
-      sharedBaselinePublishedAt: sharedProject.sharedBaselinePublishedAt,
-      updatedAt: maxDate(localProject.updatedAt, sharedProject.updatedAt),
-      areas,
-    },
+    resolutionProject,
     conflictingAreaNames: [...new Set(conflictingAreaNames)],
     preservedLocalAreaCount,
     appliedRemoteAreaCount,
+    preservedLocalProjectMetadata: options.preserveLocalProjectMetadata ?? false,
   };
+}
+
+export async function mergeSharedProjectAreasWithPendingMetadata(
+  localProject: Project,
+  sharedProject: Project
+) {
+  const pendingMetadata = await getPendingSharedProjectMetadataSyncForProject(localProject.id);
+  return mergeSharedProjectAreas(localProject, sharedProject, {
+    preserveLocalProjectMetadata: Boolean(pendingMetadata),
+  });
 }
 
 export async function getPendingSharedPullState(
@@ -108,7 +138,7 @@ export async function getPendingSharedPullState(
   reason: PendingSharedPullReason
 ): Promise<PendingSharedPullState> {
   const result = await getSharedProjectSnapshot(localProject);
-  const merge = mergeSharedProjectAreas(localProject, result.project);
+  const merge = await mergeSharedProjectAreasWithPendingMetadata(localProject, result.project);
   return {
     localProject,
     sharedProject: result.project,
@@ -122,12 +152,29 @@ export async function getPendingSharedPullState(
 export function formatPendingSharedPullMessage(pendingPull: PendingSharedPullState) {
   const sourceTime = new Date(pendingPull.publishedAt).toLocaleString();
   const mergeSummary = `The app will save a local backup, keep ${pendingPull.preservedLocalAreaCount} locally changed area${pendingPull.preservedLocalAreaCount === 1 ? '' : 's'}, and apply ${pendingPull.appliedRemoteAreaCount} team area${pendingPull.appliedRemoteAreaCount === 1 ? '' : 's'}.`;
+  const metadataSummary = pendingPull.preservedLocalProjectMetadata
+    ? '\n\nYour locally edited project details will also be kept and synced against the latest team version.'
+    : '';
   const conflictSummary = pendingPull.conflictingAreaNames.length > 0
     ? `\n\nChanged on both sides and kept local: ${pendingPull.conflictingAreaNames.join(', ')}. Review these areas before publishing.`
     : '';
 
   if (pendingPull.reason === 'publish-conflict') {
-    return `Publishing now would overwrite newer team data from ${sourceTime}.\n\n${mergeSummary}${conflictSummary}`;
+    return `Publishing now would overwrite newer team data from ${sourceTime}.\n\n${mergeSummary}${metadataSummary}${conflictSummary}`;
   }
-  return `Team data from ${sourceTime} is ready.\n\n${mergeSummary}${conflictSummary}`;
+  return `Team data from ${sourceTime} is ready.\n\n${mergeSummary}${metadataSummary}${conflictSummary}`;
+}
+
+export function formatPendingSharedPullSuccessMessage(pendingPull: PendingSharedPullState) {
+  const preserved: string[] = [];
+  if (pendingPull.conflictingAreaNames.length > 0) {
+    const count = pendingPull.conflictingAreaNames.length;
+    preserved.push(`${count} area${count === 1 ? '' : 's'} changed on both sides and kept the local version.`);
+  }
+  if (pendingPull.preservedLocalProjectMetadata) {
+    preserved.push('Local project details were also kept and requeued.');
+  }
+  return preserved.length > 0
+    ? `Team data merged. ${preserved.join(' ')}`
+    : `Team data merged from ${new Date(pendingPull.publishedAt).toLocaleString()}.`;
 }

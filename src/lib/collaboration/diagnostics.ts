@@ -152,6 +152,7 @@ export async function runCollaborationHealthCheck(): Promise<CollaborationHealth
     checkTable('shared_attachments', 'Shared attachments table', () => supabase.from('shared_attachments').select('id').limit(1)),
     checkTable('snapshots', 'Latest snapshot table', () => supabase.from('shared_project_snapshots').select('project_id').limit(1)),
     checkTable('area_snapshots', 'Area snapshot table', () => supabase.from('shared_project_area_snapshots').select('project_id').limit(1)),
+    checkTable('metadata_snapshots', 'Project metadata table', () => supabase.from('shared_project_metadata_snapshots').select('project_id').limit(1)),
     checkTable('backup_history', 'Backup history table', () => supabase.from('shared_project_snapshot_history').select('id').limit(1)),
     checkStorageBucket(() => supabase.storage.from(COLLABORATION_ATTACHMENT_BUCKET).list('', { limit: 1 })),
 
@@ -164,11 +165,19 @@ export async function runCollaborationHealthCheck(): Promise<CollaborationHealth
       p_member_email: 'diagnostic@uai-ny.com',
       p_member_display_name: 'Diagnostic',
     })),
-    checkRpc('publish_snapshot', 'Publish snapshot function', () => supabase.rpc('publish_shared_project_snapshot', {
+    checkRpc('publish_snapshot', 'Publish snapshot function', () => supabase.rpc('publish_shared_project_snapshot_v2', {
       p_project_id: ZERO_UUID,
       p_project_payload: {} as Json,
       p_payload_version: 1,
       p_base_published_at: null,
+      p_base_metadata_version: 0,
+    })),
+    checkRpc('publish_metadata_snapshot', 'Publish project metadata function', () => supabase.rpc('publish_shared_project_metadata_snapshot', {
+      p_project_id: ZERO_UUID,
+      p_metadata_payload: {} as Json,
+      p_payload_version: 1,
+      p_base_version: 0,
+      p_client_id: ZERO_UUID,
     })),
     checkRpc('publish_area_snapshot', 'Publish area function', () => supabase.rpc('publish_shared_project_area_snapshot', {
       p_project_id: ZERO_UUID,

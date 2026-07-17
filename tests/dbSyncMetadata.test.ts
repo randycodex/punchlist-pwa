@@ -13,6 +13,7 @@ import {
   getProjectMetadata,
   persistDurablePendingSyncState,
   saveProject,
+  saveProjectArea,
   saveProjectAreaMetadataOnly,
   saveProjectMetadataOnly,
   saveProjectPreserveTimestamps,
@@ -144,5 +145,36 @@ describe('durable IndexedDB sync metadata', () => {
       projectIds: [project.id],
       fullSyncNeeded: false,
     });
+  });
+
+  it('persists area media without scanning away attachments that were not hydrated', async () => {
+    const project = createProject('Area media isolation project');
+    for (const [index, areaName] of ['Apartment 2A', 'Apartment 2B'].entries()) {
+      const area = createArea(project.id, areaName, index);
+      const location = createLocation(area.id, 'Bedroom', 0);
+      const item = createItem(location.id, 'Ceiling', 0);
+      const checkpoint = createCheckpoint(item.id, 'Paint', 0);
+      checkpoint.photos.push(createPhotoAttachment(checkpoint.id, `original-photo-${index}`));
+      item.checkpoints.push(checkpoint);
+      location.items.push(item);
+      area.locations.push(location);
+      project.areas.push(area);
+    }
+    await saveProject(project);
+
+    const scopedProject = await getProjectForArea(project.id, project.areas[0].id);
+    expect(scopedProject?.areas[1].locations[0].items[0].checkpoints[0].photos[0].imageData).toBe('');
+    const firstCheckpoint = scopedProject!.areas[0].locations[0].items[0].checkpoints[0];
+    firstCheckpoint.photos = [createPhotoAttachment(firstCheckpoint.id, 'updated-first-area-photo')];
+
+    await saveProjectArea(scopedProject!, scopedProject!.areas[0].id);
+
+    const restored = await getProject(project.id);
+    expect(restored?.areas[0].locations[0].items[0].checkpoints[0].photos[0].imageData).toBe(
+      'updated-first-area-photo'
+    );
+    expect(restored?.areas[1].locations[0].items[0].checkpoints[0].photos[0].imageData).toBe(
+      'original-photo-1'
+    );
   });
 });

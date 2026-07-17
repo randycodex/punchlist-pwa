@@ -21,6 +21,12 @@ import {
   parseSharedProjectAreaSnapshot,
   type SharedProjectAreaSnapshotRow,
 } from './sharedProjectAreas';
+import {
+  applySharedProjectMetadataSnapshot,
+  getSharedProjectMetadataSnapshot,
+  isMissingSharedProjectMetadataTableError,
+} from './sharedProjectMetadata';
+import { settlePendingSharedProjectMetadataSync } from './sharedProjectMetadataSyncQueue';
 
 type SnapshotResult = {
   project: Project;
@@ -60,17 +66,14 @@ function retargetProject(project: Project, localProject: Project): Project {
     sharedProjectId: localProject.sharedProjectId,
     sharedProjectLinkedAt: localProject.sharedProjectLinkedAt ?? project.sharedProjectLinkedAt,
     sharedSnapshotPublishedAt: localProject.sharedSnapshotPublishedAt ?? project.sharedSnapshotPublishedAt,
+    sharedMetadataVersion: project.sharedMetadataVersion ?? localProject.sharedMetadataVersion,
+    sharedMetadataPublishedAt: project.sharedMetadataPublishedAt ?? localProject.sharedMetadataPublishedAt,
     oneDriveFolderName: localProject.oneDriveFolderName || project.oneDriveFolderName,
     areas: project.areas.map((area): Area => ({
       ...area,
       projectId: nextProjectId,
     })),
   };
-}
-
-function isMissingPublishRpcError(error: { code?: string; message?: string }) {
-  const message = error.message?.toLowerCase() ?? '';
-  return error.code === 'PGRST202' || message.includes('publish_shared_project_snapshot');
 }
 
 function isMissingBackupProjectNameError(error: { code?: string; message?: string } | null) {
@@ -171,7 +174,9 @@ export function isSharedProjectPublishConflictError(error: unknown): error is Sh
     .toLowerCase();
 
   return code === '40001'
+    || code === 'SHARED_PROJECT_METADATA_CONFLICT'
     || message.includes('newer published data')
+    || message.includes('newer team details')
     || message.includes('pull shared data before publishing');
 }
 
@@ -202,43 +207,6 @@ export async function getSharedProjectPublishConflict(project: Project): Promise
   return isSharedProjectPublishStale(project, metadata.publishedAt) ? metadata : null;
 }
 
-async function publishSnapshotWithUpsert(
-  project: Project,
-  publishedByUserId: string,
-  transfer: Awaited<ReturnType<typeof prepareSnapshotTransfer>>
-): Promise<{ publishedAt: string }> {
-  if (!project.sharedProjectId) {
-    throw new Error('Share this project before publishing shared data.');
-  }
-
-  const supabase = getCollaborationSupabaseClient();
-  if (!supabase) {
-    throw new Error('Collaboration is not configured.');
-  }
-
-  const conflict = await getSharedProjectPublishConflict(project);
-  if (conflict) {
-    throw new SharedProjectPublishConflictError(conflict.publishedAt);
-  }
-
-  const publishedAt = new Date().toISOString();
-  const { error } = await supabase
-    .from('shared_project_snapshots')
-    .upsert({
-      project_id: project.sharedProjectId,
-      project_payload: transfer.payload,
-      payload_version: transfer.payloadVersion,
-      published_by_user_id: publishedByUserId,
-      published_at: publishedAt,
-    });
-
-  if (error) {
-    throw error;
-  }
-
-  return { publishedAt };
-}
-
 export async function publishSharedProjectSnapshot(project: Project, publishedByUserId: string) {
   if (!project.sharedProjectId) {
     throw new Error('Share this project before publishing shared data.');
@@ -248,6 +216,8 @@ export async function publishSharedProjectSnapshot(project: Project, publishedBy
   if (!supabase) {
     throw new Error('Collaboration is not configured.');
   }
+
+  await settlePendingSharedProjectMetadataSync(project);
 
   const conflict = await getSharedProjectPublishConflict(project);
   if (conflict) {
@@ -262,26 +232,24 @@ export async function publishSharedProjectSnapshot(project: Project, publishedBy
   }
   const basePublishedAt = project.sharedSnapshotPublishedAt?.toISOString() ?? null;
   const transfer = await prepareSnapshotTransfer(project, publishedByUserId);
-  const { data, error } = await supabase.rpc('publish_shared_project_snapshot', {
+  const { data, error } = await supabase.rpc('publish_shared_project_snapshot_v2', {
     p_project_id: project.sharedProjectId,
     p_project_payload: transfer.payload,
     p_payload_version: transfer.payloadVersion,
     p_base_published_at: basePublishedAt,
+    p_base_metadata_version: project.sharedMetadataVersion ?? 0,
   });
 
-  let publishedAt: string;
   if (error) {
     if (isSharedProjectPublishConflictError(error)) {
       throw new SharedProjectPublishConflictError();
     }
-    if (!isMissingPublishRpcError(error)) {
-      throw error;
-    }
-    const fallbackResult = await publishSnapshotWithUpsert(project, publishedByUserId, transfer);
-    publishedAt = fallbackResult.publishedAt;
-  } else {
-    publishedAt = typeof data === 'string' ? data : new Date().toISOString();
+    throw error;
   }
+  if (typeof data !== 'string' || !Number.isFinite(new Date(data).getTime())) {
+    throw new Error('Shared project publishing completed without a valid timestamp.');
+  }
+  const publishedAt = data;
 
   project.sharedSnapshotPublishedAt = new Date(publishedAt);
   project.sharedBaselinePublishedAt = new Date(publishedAt);
@@ -355,10 +323,10 @@ export async function getSharedProjectSnapshot(localProject: Project): Promise<S
   }
 
   const parsed = parseSharedSnapshotPayload(data.project_payload, data.payload_version);
-  const changedAreaSnapshots = await listChangedSharedProjectAreaSnapshots(
-    localProject.sharedProjectId,
-    data.published_at
-  );
+  const [changedAreaSnapshots, metadataSnapshot] = await Promise.all([
+    listChangedSharedProjectAreaSnapshots(localProject.sharedProjectId, data.published_at),
+    getSharedProjectMetadataSnapshot(localProject.sharedProjectId),
+  ]);
   const changedAreaIds = new Set(changedAreaSnapshots.map((row) => row.area_id));
   let hydratedProject = await hydrateSharedSnapshotAssets(
     parsed.project,
@@ -385,6 +353,10 @@ export async function getSharedProjectSnapshot(localProject: Project): Promise<S
     ...hydratedProject,
     facadeElevationDrawings: drawingsById.size > 0 ? [...drawingsById.values()] : undefined,
   };
+  if (metadataSnapshot) {
+    hydratedProject = applySharedProjectMetadataSnapshot(hydratedProject, metadataSnapshot);
+    latestPublishedAt = laterTimestamp(latestPublishedAt, metadataSnapshot.published_at);
+  }
   const retargetedProject = retargetProject(hydratedProject, localProject);
   return {
     project: {
@@ -402,7 +374,7 @@ export async function getSharedProjectSnapshotMetadata(sharedProjectId: string):
     throw new Error('Collaboration is not configured.');
   }
 
-  const [snapshotResult, areaResult] = await Promise.all([
+  const [snapshotResult, areaResult, metadataResult] = await Promise.all([
     supabase
       .from('shared_project_snapshots')
       .select('published_at')
@@ -415,17 +387,28 @@ export async function getSharedProjectSnapshotMetadata(sharedProjectId: string):
       .order('published_at', { ascending: false })
       .limit(1)
       .maybeSingle(),
+    supabase
+      .from('shared_project_metadata_snapshots')
+      .select('published_at')
+      .eq('project_id', sharedProjectId)
+      .maybeSingle(),
   ]);
 
   if (snapshotResult.error) throw snapshotResult.error;
   if (areaResult.error && !isMissingAreaSnapshotsTableError(areaResult.error)) {
     throw areaResult.error;
   }
+  if (metadataResult.error && !isMissingSharedProjectMetadataTableError(metadataResult.error)) {
+    throw metadataResult.error;
+  }
   if (!snapshotResult.data) return null;
+  const areaPublishedAt = areaResult.data?.published_at;
+  const metadataPublishedAt = metadataResult.data?.published_at;
+  const latestPublishedAt = [areaPublishedAt, metadataPublishedAt]
+    .filter((value): value is string => typeof value === 'string')
+    .reduce(laterTimestamp, snapshotResult.data.published_at);
   return {
-    publishedAt: areaResult.data?.published_at
-      ? laterTimestamp(snapshotResult.data.published_at, areaResult.data.published_at)
-      : snapshotResult.data.published_at,
+    publishedAt: latestPublishedAt,
   };
 }
 

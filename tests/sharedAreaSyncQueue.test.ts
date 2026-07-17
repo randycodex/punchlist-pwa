@@ -108,6 +108,38 @@ describe('durable shared area sync queue', () => {
     await clearPendingSharedAreaSyncsForProject(project.id);
   });
 
+  it('does not move stored area revisions backward when an older request finishes late', async () => {
+    const project = createProject('Newer area already stored');
+    project.sharedProjectId = 'shared-project-late-area';
+    project.sharedSnapshotPublishedAt = new Date('2026-07-17T15:00:00.000Z');
+    const area = createArea(project.id, 'Apartment 2B', 0);
+    area.sharedVersion = 5;
+    area.sharedPublishedAt = project.sharedSnapshotPublishedAt;
+    project.areas.push(area);
+    await saveProjectPreserveTimestamps(project);
+    await clearPendingSharedAreaSyncsForProject(project.id);
+
+    const queued = await queuePendingSharedAreaSync({
+      localProjectId: project.id,
+      sharedProjectId: project.sharedProjectId,
+      areaId: area.id,
+      baseVersion: 3,
+      basePublishedAt: '2026-07-17T13:00:00.000Z',
+    });
+    await completePendingSharedAreaSync({
+      key: queued.key,
+      clientId: queued.clientId,
+      revision: queued.revision,
+      areaVersion: 4,
+      publishedAt: '2026-07-17T14:00:00.000Z',
+    });
+
+    expect((await getProjectMetadata(project.id))?.areas[0]).toMatchObject({
+      sharedVersion: 5,
+      sharedPublishedAt: new Date('2026-07-17T15:00:00.000Z'),
+    });
+  });
+
   it('keeps edits queued while an older full-publish cleanup is in flight', async () => {
     const project = createProject('Concurrent full publish project');
     const area = createArea(project.id, 'Apartment 3A', 0);

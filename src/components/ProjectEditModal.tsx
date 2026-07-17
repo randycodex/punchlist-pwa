@@ -25,9 +25,15 @@ export default function ProjectEditModal({ project, onSave, onDelete, onClose }:
   const [facadeLevelStart, setFacadeLevelStart] = useState(project.facadeLevelStart?.toString() ?? '');
   const [facadeLevelEnd, setFacadeLevelEnd] = useState(project.facadeLevelEnd?.toString() ?? '');
   const [date, setDate] = useState(toDateInputValue(project.date));
+  const parsedDate = date ? new Date(`${date}T00:00:00`) : null;
+  const canSave = Boolean(
+    projectName.trim()
+    && parsedDate
+    && !Number.isNaN(parsedDate.getTime())
+  );
 
   function handleSave() {
-    if (!projectName.trim()) return;
+    if (!canSave || !parsedDate) return;
 
     const nextFacadeLevelStart = Number.parseInt(facadeLevelStart, 10);
     const nextFacadeLevelEnd = Number.parseInt(facadeLevelEnd, 10);
@@ -37,7 +43,7 @@ export default function ProjectEditModal({ project, onSave, onDelete, onClose }:
       address: address.trim(),
       inspector: inspector.trim(),
       gcName: gcName.trim(),
-      date: new Date(date),
+      date: parsedDate,
       facadeLevelStart: Number.isNaN(nextFacadeLevelStart) ? undefined : nextFacadeLevelStart,
       facadeLevelEnd: Number.isNaN(nextFacadeLevelEnd) ? undefined : nextFacadeLevelEnd,
     });
@@ -63,6 +69,7 @@ export default function ProjectEditModal({ project, onSave, onDelete, onClose }:
             </label>
             <input
               type="text"
+              maxLength={200}
               value={projectName}
               onChange={(e) => setProjectName(e.target.value)}
               className="field-shell"
@@ -75,6 +82,7 @@ export default function ProjectEditModal({ project, onSave, onDelete, onClose }:
             </label>
             <input
               type="text"
+              maxLength={500}
               value={address}
               onChange={(e) => setAddress(e.target.value)}
               className="field-shell"
@@ -87,6 +95,7 @@ export default function ProjectEditModal({ project, onSave, onDelete, onClose }:
             </label>
             <input
               type="date"
+              required
               value={date}
               onChange={(e) => setDate(e.target.value)}
               className="field-shell"
@@ -99,6 +108,7 @@ export default function ProjectEditModal({ project, onSave, onDelete, onClose }:
             </label>
             <input
               type="text"
+              maxLength={200}
               value={inspector}
               onChange={(e) => setInspector(e.target.value)}
               className="field-shell"
@@ -111,6 +121,7 @@ export default function ProjectEditModal({ project, onSave, onDelete, onClose }:
             </label>
             <input
               type="text"
+              maxLength={200}
               value={gcName}
               onChange={(e) => setGcName(e.target.value)}
               className="field-shell"
@@ -124,6 +135,8 @@ export default function ProjectEditModal({ project, onSave, onDelete, onClose }:
             <div className="grid grid-cols-2 gap-3">
               <input
                 type="number"
+                min={-10000}
+                max={10000}
                 value={facadeLevelStart}
                 onChange={(e) => setFacadeLevelStart(e.target.value)}
                 className="field-shell"
@@ -131,6 +144,8 @@ export default function ProjectEditModal({ project, onSave, onDelete, onClose }:
               />
               <input
                 type="number"
+                min={-10000}
+                max={10000}
                 value={facadeLevelEnd}
                 onChange={(e) => setFacadeLevelEnd(e.target.value)}
                 className="field-shell"
@@ -150,7 +165,7 @@ export default function ProjectEditModal({ project, onSave, onDelete, onClose }:
             </button>
             <button
               onClick={handleSave}
-              disabled={!projectName.trim()}
+              disabled={!canSave}
               className="flex-1 rounded-2xl bg-zinc-900 px-4 py-3 font-medium text-white transition hover:bg-black disabled:opacity-50 dark:bg-white dark:text-gray-900 dark:hover:bg-gray-200"
             >
               Save

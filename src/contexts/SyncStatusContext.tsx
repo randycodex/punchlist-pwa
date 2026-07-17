@@ -4,9 +4,10 @@ import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, 
 import { restorePendingSyncStateFromDurableStorage } from '@/lib/pendingSync';
 import {
   getPendingSharedAreaSyncs,
-  SHARED_AREA_SYNC_QUEUE_CHANGED_EVENT,
-  summarizePendingSharedAreaSyncs,
-  type SharedAreaSyncQueueSummary,
+  getPendingSharedProjectMetadataSyncs,
+  SHARED_SYNC_QUEUE_CHANGED_EVENT,
+  summarizePendingSharedSyncs,
+  type SharedSyncQueueSummary,
 } from '@/lib/db';
 import type { SyncConflict } from '@/lib/oneDriveSync';
 
@@ -27,7 +28,7 @@ type SyncStatusContextValue = {
   localSaveError: string | null;
   sharedTransferStatus: SharedTransferStatus;
   setSharedTransferStatus: (status: SharedTransferStatus) => void;
-  sharedAreaSyncSummary: SharedAreaSyncQueueSummary;
+  sharedSyncSummary: SharedSyncQueueSummary;
   syncConflicts: SyncConflict[];
   setSyncConflicts: (conflicts: SyncConflict[]) => void;
 };
@@ -44,7 +45,7 @@ export function SyncStatusProvider({ children }: { children: ReactNode }) {
   const [localSaveStatus, setLocalSaveStatus] = useState<LocalSaveStatus>('saved');
   const [localSaveError, setLocalSaveError] = useState<string | null>(null);
   const [sharedTransferStatus, setSharedTransferStatus] = useState<SharedTransferStatus>(null);
-  const [sharedAreaSyncSummary, setSharedAreaSyncSummary] = useState<SharedAreaSyncQueueSummary>({
+  const [sharedSyncSummary, setSharedSyncSummary] = useState<SharedSyncQueueSummary>({
     pendingCount: 0,
     conflictCount: 0,
     lastConflictError: null,
@@ -68,12 +69,15 @@ export function SyncStatusProvider({ children }: { children: ReactNode }) {
     let active = true;
     let refreshTimer: number | null = null;
 
-    async function refreshSharedAreaSyncSummary() {
+    async function refreshSharedSyncSummary() {
       try {
-        const records = await getPendingSharedAreaSyncs();
+        const [areaRecords, metadataRecords] = await Promise.all([
+          getPendingSharedAreaSyncs(),
+          getPendingSharedProjectMetadataSyncs(),
+        ]);
         if (active) {
-          const nextSummary = summarizePendingSharedAreaSyncs(records);
-          setSharedAreaSyncSummary((current) => (
+          const nextSummary = summarizePendingSharedSyncs([...areaRecords, ...metadataRecords]);
+          setSharedSyncSummary((current) => (
             current.pendingCount === nextSummary.pendingCount
             && current.conflictCount === nextSummary.conflictCount
             && current.lastConflictError === nextSummary.lastConflictError
@@ -82,29 +86,29 @@ export function SyncStatusProvider({ children }: { children: ReactNode }) {
           ));
         }
       } catch (error) {
-        console.info('Shared area sync status is temporarily unavailable:', error);
+        console.info('Shared sync status is temporarily unavailable:', error);
       }
     }
 
-    function handleSharedAreaSyncQueueChanged() {
+    function handleSharedSyncQueueChanged() {
       if (refreshTimer !== null) window.clearTimeout(refreshTimer);
       refreshTimer = window.setTimeout(() => {
         refreshTimer = null;
-        void refreshSharedAreaSyncSummary();
+        void refreshSharedSyncSummary();
       }, 50);
     }
 
-    void refreshSharedAreaSyncSummary();
+    void refreshSharedSyncSummary();
     window.addEventListener(
-      SHARED_AREA_SYNC_QUEUE_CHANGED_EVENT,
-      handleSharedAreaSyncQueueChanged
+      SHARED_SYNC_QUEUE_CHANGED_EVENT,
+      handleSharedSyncQueueChanged
     );
     return () => {
       active = false;
       if (refreshTimer !== null) window.clearTimeout(refreshTimer);
       window.removeEventListener(
-        SHARED_AREA_SYNC_QUEUE_CHANGED_EVENT,
-        handleSharedAreaSyncQueueChanged
+        SHARED_SYNC_QUEUE_CHANGED_EVENT,
+        handleSharedSyncQueueChanged
       );
     };
   }, []);
@@ -168,7 +172,7 @@ export function SyncStatusProvider({ children }: { children: ReactNode }) {
       localSaveError,
       sharedTransferStatus,
       setSharedTransferStatus,
-      sharedAreaSyncSummary,
+      sharedSyncSummary,
       syncConflicts,
       setSyncConflicts,
     }),
@@ -180,7 +184,7 @@ export function SyncStatusProvider({ children }: { children: ReactNode }) {
       retryAt,
       retryInSeconds,
       sharedTransferStatus,
-      sharedAreaSyncSummary,
+      sharedSyncSummary,
       sharedUpdateProjectIds,
       status,
       syncConflicts,

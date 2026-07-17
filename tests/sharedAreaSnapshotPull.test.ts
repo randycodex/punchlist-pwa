@@ -3,6 +3,7 @@ import type { Project } from '@/types';
 
 const basePublishedAt = '2026-07-17T12:00:00.000Z';
 const areaPublishedAt = '2026-07-17T12:05:00.000Z';
+const metadataPublishedAt = '2026-07-17T12:06:00.000Z';
 
 function project(areaName: string): Project {
   const timestamp = new Date(basePublishedAt);
@@ -77,20 +78,50 @@ describe('area-scoped shared snapshot pulls', () => {
       error: null,
     });
 
-    fromMock.mockImplementation((table: string) => (
-      table === 'shared_project_snapshots' ? baselineQuery : areaQuery
-    ));
+    const metadataQuery: Record<string, ReturnType<typeof vi.fn>> = {};
+    metadataQuery.select = vi.fn(() => metadataQuery);
+    metadataQuery.eq = vi.fn(() => metadataQuery);
+    metadataQuery.maybeSingle = vi.fn().mockResolvedValue({
+      data: {
+        project_id: 'shared-project-1',
+        metadata_payload: {
+          projectName: 'Updated project details',
+          address: '123 Team Street',
+          date: basePublishedAt,
+          inspector: 'Inspector Two',
+          gcName: 'Team GC',
+          gcSignoff: '',
+          facadeLevelStart: 2,
+          facadeLevelEnd: 12,
+        },
+        payload_version: 1,
+        version: 4,
+        published_by_user_id: 'user-2',
+        published_at: metadataPublishedAt,
+      },
+      error: null,
+    });
+
+    fromMock.mockImplementation((table: string) => {
+      if (table === 'shared_project_snapshots') return baselineQuery;
+      if (table === 'shared_project_metadata_snapshots') return metadataQuery;
+      return areaQuery;
+    });
     const localProject = project('Local area');
     localProject.id = 'local-project-id';
 
     const result = await getSharedProjectSnapshot(localProject);
 
     expect(areaQuery.gt).toHaveBeenCalledWith('published_at', basePublishedAt);
-    expect(result.publishedAt).toBe(areaPublishedAt);
+    expect(result.publishedAt).toBe(metadataPublishedAt);
     expect(result.project).toMatchObject({
       id: 'local-project-id',
       sharedBaselinePublishedAt: new Date(basePublishedAt),
-      sharedSnapshotPublishedAt: new Date(areaPublishedAt),
+      sharedSnapshotPublishedAt: new Date(metadataPublishedAt),
+      sharedMetadataVersion: 4,
+      sharedMetadataPublishedAt: new Date(metadataPublishedAt),
+      projectName: 'Updated project details',
+      address: '123 Team Street',
     });
     expect(result.project.areas[0]).toMatchObject({
       projectId: 'local-project-id',
@@ -118,12 +149,21 @@ describe('area-scoped shared snapshot pulls', () => {
       data: { published_at: areaPublishedAt },
       error: null,
     });
-    fromMock.mockImplementation((table: string) => (
-      table === 'shared_project_snapshots' ? baselineQuery : areaQuery
-    ));
+    const metadataQuery: Record<string, ReturnType<typeof vi.fn>> = {};
+    metadataQuery.select = vi.fn(() => metadataQuery);
+    metadataQuery.eq = vi.fn(() => metadataQuery);
+    metadataQuery.maybeSingle = vi.fn().mockResolvedValue({
+      data: { published_at: metadataPublishedAt },
+      error: null,
+    });
+    fromMock.mockImplementation((table: string) => {
+      if (table === 'shared_project_snapshots') return baselineQuery;
+      if (table === 'shared_project_metadata_snapshots') return metadataQuery;
+      return areaQuery;
+    });
 
     await expect(getSharedProjectSnapshotMetadata('shared-project-1')).resolves.toEqual({
-      publishedAt: areaPublishedAt,
+      publishedAt: metadataPublishedAt,
     });
   });
 

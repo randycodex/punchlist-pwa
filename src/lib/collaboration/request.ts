@@ -32,6 +32,13 @@ export function getCollaborationRequestPolicy(
     };
   }
 
+  if (url.includes('/rpc/publish_shared_project_metadata_snapshot')) {
+    return {
+      operation: 'Syncing shared project details',
+      timeoutMs: COLLABORATION_REQUEST_TIMEOUT_MS,
+    };
+  }
+
   if (url.includes('/rpc/capture_shared_project_backup')) {
     return {
       operation: 'Saving shared backup',
@@ -50,6 +57,13 @@ export function getCollaborationRequestPolicy(
     return {
       operation: 'Pulling shared area updates',
       timeoutMs: COLLABORATION_TRANSFER_TIMEOUT_MS,
+    };
+  }
+
+  if (url.includes('/shared_project_metadata_snapshots')) {
+    return {
+      operation: 'Pulling shared project details',
+      timeoutMs: COLLABORATION_REQUEST_TIMEOUT_MS,
     };
   }
 

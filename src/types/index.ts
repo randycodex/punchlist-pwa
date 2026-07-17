@@ -148,6 +148,8 @@ export interface Project {
   sharedProjectLinkedAt?: Date;
   sharedSnapshotPublishedAt?: Date;
   sharedBaselinePublishedAt?: Date;
+  sharedMetadataVersion?: number;
+  sharedMetadataPublishedAt?: Date;
   detachedSharedProjectId?: string;
   detachedSharedProjectAt?: Date;
   detachedSharedSnapshotPublishedAt?: Date;

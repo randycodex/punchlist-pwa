@@ -73,4 +73,28 @@ describe('manual shared project area merge', () => {
 
     expect(mergeSharedProjectAreas(local, remote).resolutionProject.areas[0].name).toBe('New local area');
   });
+
+  it('keeps queued local project details while advancing their remote revision', () => {
+    const local = project([], '2026-01-01T12:10:00.000Z');
+    local.projectName = 'Local project name';
+    local.address = 'Local address';
+    local.sharedMetadataVersion = 2;
+    const remote = project([], '2026-01-01T12:12:00.000Z');
+    remote.projectName = 'Remote project name';
+    remote.address = 'Remote address';
+    remote.sharedMetadataVersion = 3;
+    remote.sharedMetadataPublishedAt = new Date('2026-01-01T12:12:00.000Z');
+
+    const result = mergeSharedProjectAreas(local, remote, {
+      preserveLocalProjectMetadata: true,
+    });
+
+    expect(result.preservedLocalProjectMetadata).toBe(true);
+    expect(result.resolutionProject).toMatchObject({
+      projectName: 'Local project name',
+      address: 'Local address',
+      sharedMetadataVersion: 3,
+      sharedMetadataPublishedAt: new Date('2026-01-01T12:12:00.000Z'),
+    });
+  });
 });

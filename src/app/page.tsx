@@ -5,13 +5,14 @@ import { Area, Project, checkpointHasIssue, getReviewMetrics } from '@/types';
 import {
   getAllProjects,
   getProject,
+  getProjectMetadata,
   saveProject,
   saveProjectMetadataOnly,
   saveProjectPreserveTimestamps,
   deleteProject,
   createProject,
   createArea,
-  clearPendingSharedAreaSyncsForProject,
+  clearPendingSharedSyncsForProject,
 } from '@/lib/db';
 import {
   markProjectDeleted,
@@ -32,8 +33,9 @@ import {
 import { runManualOneDriveSync } from '@/features/sync/runManualOneDriveSync';
 import {
   formatPendingSharedPullMessage,
+  formatPendingSharedPullSuccessMessage,
   getPendingSharedPullState,
-  mergeSharedProjectAreas,
+  mergeSharedProjectAreasWithPendingMetadata,
   type PendingSharedPullState,
 } from '@/features/collaboration/manualSharedPull';
 import {
@@ -71,10 +73,13 @@ import {
   listSharedProjectBackups,
   publishSharedProjectSnapshot,
   queueSharedProjectAreaSyncs,
+  saveAndQueueSharedProjectMetadataSync,
   runCollaborationHealthCheck,
   subscribeToSharedProjectAreaSnapshotChanges,
   subscribeToSharedProjectAreaClaimChanges,
+  subscribeToSharedProjectMetadataSnapshotChanges,
   subscribeToSharedProjectSnapshotChanges,
+  syncSharedProjectMetadataNow,
   transferSharedProjectOwnership,
 } from '@/lib/collaboration';
 import type { CollaborationHealthReport, CollaborationProjectMember, CollaborationSharedProjectDirectoryEntry, CollaborationSnapshotBackup } from '@/lib/collaboration';
@@ -463,19 +468,24 @@ export default function ProjectsPage() {
   }
 
   async function detectNewerSharedSnapshots(projectsToCheck: Project[]) {
-    await Promise.all(projectsToCheck.map(async (project) => {
-      if (!project.sharedProjectId) return;
-      try {
-        const metadata = await getSharedProjectSnapshotMetadata(project.sharedProjectId);
-        if (metadata && isSharedSnapshotNewer(project, metadata.publishedAt)) {
+    const sharedProjects = projectsToCheck.filter((project) => project.sharedProjectId);
+    if (sharedProjects.length === 0) return;
+    try {
+      const directory = await listMySharedProjects();
+      const publishedAtByProjectId = new Map(
+        directory.map((entry) => [entry.projectId, entry.publishedAt] as const)
+      );
+      for (const project of sharedProjects) {
+        const publishedAt = publishedAtByProjectId.get(project.sharedProjectId!);
+        if (publishedAt && isSharedSnapshotNewer(project, publishedAt.toISOString())) {
           markSharedUpdateAvailable(project.id);
         } else {
           clearSharedUpdateAvailable(project.id);
         }
-      } catch (error) {
-        console.info('Shared update check skipped:', error);
       }
-    }));
+    } catch (error) {
+      console.info('Shared update check skipped:', error);
+    }
   }
 
   const projectMetrics = useMemo(() => {
@@ -593,13 +603,18 @@ export default function ProjectsPage() {
       );
       if (!visibleProject || visibleProject.deletedAt) return;
 
+      const storedProject = await getProjectMetadata(localProjectId);
+      const comparisonProject = storedProject?.sharedProjectId === sharedProjectId
+        ? storedProject
+        : visibleProject;
+
       let remotePublishedAt = publishedAt;
       if (!remotePublishedAt) {
         const metadata = await getSharedProjectSnapshotMetadata(sharedProjectId);
         remotePublishedAt = metadata?.publishedAt;
       }
       if (!remotePublishedAt) return;
-      if (!isSharedSnapshotNewer(visibleProject, remotePublishedAt)) return;
+      if (!isSharedSnapshotNewer(comparisonProject, remotePublishedAt)) return;
       markSharedUpdateAvailable(localProjectId);
     } catch (error) {
       console.info('Live shared update notice skipped:', error);
@@ -618,12 +633,18 @@ export default function ProjectsPage() {
           void noticeLiveSharedDashboardProject(localProjectId, sharedProjectId, change.publishedAt);
         });
         const unsubscribeArea = subscribeToSharedProjectAreaSnapshotChanges(sharedProjectId, (change) => {
-          if (change.publishedByUserId === collaborationAuth.user?.id) return;
           void noticeLiveSharedDashboardProject(localProjectId, sharedProjectId, change.publishedAt);
         });
+        const unsubscribeMetadata = subscribeToSharedProjectMetadataSnapshotChanges(
+          sharedProjectId,
+          (change) => {
+            void noticeLiveSharedDashboardProject(localProjectId, sharedProjectId, change.publishedAt);
+          }
+        );
         return () => {
           unsubscribeSnapshot();
           unsubscribeArea();
+          unsubscribeMetadata();
         };
       });
 
@@ -632,7 +653,6 @@ export default function ProjectsPage() {
     };
   }, [
     collaborationAuth.isSignedIn,
-    collaborationAuth.user?.id,
     multiProjectSharedProjectSubscriptionKey,
     noticeLiveSharedDashboardProject,
   ]);
@@ -655,7 +675,16 @@ export default function ProjectsPage() {
     const unsubscribeAreaChanges = subscribeToSharedProjectAreaSnapshotChanges(
       activeSharedProjectId,
       (change) => {
-        if (change.publishedByUserId === collaborationAuth.user?.id) return;
+        void noticeLiveSharedDashboardProject(
+          localProjectId,
+          activeSharedProjectId,
+          change.publishedAt
+        );
+      }
+    );
+    const unsubscribeMetadataChanges = subscribeToSharedProjectMetadataSnapshotChanges(
+      activeSharedProjectId,
+      (change) => {
         void noticeLiveSharedDashboardProject(
           localProjectId,
           activeSharedProjectId,
@@ -667,10 +696,10 @@ export default function ProjectsPage() {
     return () => {
       unsubscribeSnapshotChanges();
       unsubscribeAreaChanges();
+      unsubscribeMetadataChanges();
     };
   }, [
     collaborationAuth.isSignedIn,
-    collaborationAuth.user?.id,
     noticeLiveSharedDashboardProject,
     singleProject?.id,
     singleProject?.sharedProjectId,
@@ -1186,12 +1215,12 @@ export default function ProjectsPage() {
 
   async function handleEditProject(updates: Partial<Project>) {
     if (!editingProject) return;
-    Object.assign(editingProject, updates);
-    await saveProjectMetadataOnly(editingProject);
-    scheduleSync(editingProject.id);
+    const updatedProject = { ...editingProject, ...updates, areas: [...editingProject.areas] };
+    await saveAndQueueSharedProjectMetadataSync(updatedProject);
+    scheduleSync(updatedProject.id);
     setProjects((prev) =>
       prev.map((project) =>
-        project.id === editingProject.id ? { ...editingProject, areas: [...editingProject.areas] } : project
+        project.id === updatedProject.id ? updatedProject : project
       )
     );
     setEditingProject(null);
@@ -1313,9 +1342,12 @@ export default function ProjectsPage() {
     let pulledSnapshot = false;
     try {
       const snapshot = await getSharedProjectSnapshot(project);
+      const merge = detachedProject
+        ? await mergeSharedProjectAreasWithPendingMetadata(project, snapshot.project)
+        : null;
       projectToSave = detachedProject
         ? clearDetachedSharedProjectMetadata(
-            mergeSharedProjectAreas(project, snapshot.project).resolutionProject
+            merge!.resolutionProject
           )
         : clearDetachedSharedProjectMetadata(snapshot.project);
       pulledSnapshot = true;
@@ -1525,11 +1557,12 @@ export default function ProjectsPage() {
 
       const result = await getSharedProjectSnapshot(fullProject);
       const hasNewerLocalChanges = hasNewerLocalChangesThanSharedSnapshot(fullProject, result.publishedAt);
-      if (hasNewerLocalChanges) {
+      const merge = await mergeSharedProjectAreasWithPendingMetadata(fullProject, result.project);
+      if (hasNewerLocalChanges || merge.preservedLocalProjectMetadata) {
         setPendingPull({
           localProject: fullProject,
           sharedProject: result.project,
-          ...mergeSharedProjectAreas(fullProject, result.project),
+          ...merge,
           publishedAt: result.publishedAt,
           hasNewerLocalChanges,
           reason: 'manual-pull',
@@ -1575,6 +1608,9 @@ export default function ProjectsPage() {
       );
 
       await saveProjectPreserveTimestamps(pullState.resolutionProject);
+      if (pullState.preservedLocalProjectMetadata) {
+        await saveAndQueueSharedProjectMetadataSync(pullState.resolutionProject);
+      }
       clearSharedUpdateAvailable(pullState.localProject.id);
       setProjects((prev) =>
         prev.map((entry) =>
@@ -1583,11 +1619,7 @@ export default function ProjectsPage() {
             : entry
         )
       );
-      showMessage(
-        pullState.conflictingAreaNames.length > 0
-          ? `Team data merged. ${pullState.conflictingAreaNames.length} area${pullState.conflictingAreaNames.length === 1 ? '' : 's'} changed on both sides and kept the local version.`
-          : `Team data merged from ${new Date(pullState.publishedAt).toLocaleString()}.`
-      );
+      showMessage(formatPendingSharedPullSuccessMessage(pullState));
     } catch (error) {
       console.error('Failed to pull shared project:', error);
       showMessage(getCollaborationErrorMessage(error, 'Failed to pull shared data. Please try again.'));
@@ -1650,10 +1682,11 @@ export default function ProjectsPage() {
       );
 
       const result = await getSharedProjectBackupSnapshot(fullProject, backup.id);
-      await clearPendingSharedAreaSyncsForProject(fullProject.id);
+      await clearPendingSharedSyncsForProject(fullProject.id);
       await saveProjectPreserveTimestamps(result.project);
       let publishedAt: string | null = null;
       if (publishAfterRestore && collaborationAuth.user) {
+        await syncSharedProjectMetadataNow(result.project);
         const publishResult = await publishSharedProjectSnapshot(result.project, collaborationAuth.user.id);
         publishedAt = publishResult.publishedAt;
         await saveProjectMetadataOnly(result.project, { touch: false });
@@ -1732,6 +1765,7 @@ export default function ProjectsPage() {
         disconnectAction = result.action;
       }
       const localProject = detachLocalSharedProject(fullProject);
+      await clearPendingSharedSyncsForProject(localProject.id);
       await saveProject(localProject);
       scheduleSync(localProject.id);
       clearSharedUpdateAvailable(localProject.id);

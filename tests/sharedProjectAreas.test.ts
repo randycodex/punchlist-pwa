@@ -109,4 +109,20 @@ describe('shared project area publishing', () => {
       publishedByUserId: 'user-1',
     })).rejects.toBeInstanceOf(SharedProjectAreaConflictError);
   });
+
+  it('rejects malformed server revision responses instead of clearing queued work', async () => {
+    rpcMock.mockResolvedValue({
+      data: [{ area_version: 5, published_at: 'not-a-date' }],
+      error: null,
+    });
+
+    await expect(publishSharedProjectAreaSnapshot({
+      project: project(),
+      areaId: 'area-1',
+      baseVersion: 4,
+      basePublishedAt: timestamp.toISOString(),
+      clientId: 'mutation-3',
+      publishedByUserId: 'user-1',
+    })).rejects.toThrow('without a valid revision');
+  });
 });

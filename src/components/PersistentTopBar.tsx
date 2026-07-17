@@ -16,6 +16,7 @@ import {
   getCollaborationProfileInitials,
   getSharedProjectAccess,
   resumePendingSharedAreaSyncs,
+  resumePendingSharedProjectMetadataSyncs,
 } from '@/lib/collaboration';
 import UserProfileModal from '@/components/UserProfileModal';
 import {
@@ -77,7 +78,7 @@ export default function PersistentTopBar() {
     localSaveError,
     localSaveStatus,
     retryInSeconds,
-    sharedAreaSyncSummary,
+    sharedSyncSummary,
     sharedTransferStatus,
     status,
   } = useSyncStatus();
@@ -125,6 +126,7 @@ export default function PersistentTopBar() {
   useEffect(() => {
     if (collaborationAuth.isSignedIn) {
       resumePendingSharedAreaSyncs();
+      resumePendingSharedProjectMetadataSyncs();
     }
   }, [collaborationAuth.isSignedIn]);
 
@@ -394,16 +396,16 @@ export default function PersistentTopBar() {
     );
   }
 
-  function renderSharedAreaSyncIndicator() {
-    if (sharedAreaSyncSummary.pendingCount === 0) return null;
+  function renderSharedSyncIndicator() {
+    if (sharedSyncSummary.pendingCount === 0) return null;
 
-    const needsReview = sharedAreaSyncSummary.conflictCount > 0;
+    const needsReview = sharedSyncSummary.conflictCount > 0;
     const count = needsReview
-      ? sharedAreaSyncSummary.conflictCount
-      : sharedAreaSyncSummary.pendingCount;
+      ? sharedSyncSummary.conflictCount
+      : sharedSyncSummary.pendingCount;
     const label = needsReview
-      ? `${count} shared area update${count === 1 ? '' : 's'} need review.${sharedAreaSyncSummary.lastConflictError ? ` ${sharedAreaSyncSummary.lastConflictError}` : ''}`
-      : `${count} shared area update${count === 1 ? '' : 's'} waiting to sync`;
+      ? `${count} shared update${count === 1 ? '' : 's'} need review.${sharedSyncSummary.lastConflictError ? ` ${sharedSyncSummary.lastConflictError}` : ''}`
+      : `${count} shared update${count === 1 ? '' : 's'} waiting to sync`;
     const shortLabel = needsReview ? 'Shared issue' : count === 1 ? 'Shared pending' : `Shared ${count}`;
     const SharedSyncIcon = needsReview ? Activity : CloudUpload;
     const classes = needsReview
@@ -415,8 +417,8 @@ export default function PersistentTopBar() {
         type="button"
         onClick={() => {
           window.alert(needsReview
-            ? `Shared area work needs review. Open the affected project, pull the latest shared data, review the preserved local area, then save the next intended edit to resume syncing.${sharedAreaSyncSummary.lastConflictError ? ` ${sharedAreaSyncSummary.lastConflictError}` : ''}`
-            : 'Shared area work is safely queued on this device and will retry automatically when the connection and shared-project account are available.');
+            ? `Shared work needs review. Open the affected project, pull the latest shared data, review the preserved local work, then save the next intended edit to resume syncing.${sharedSyncSummary.lastConflictError ? ` ${sharedSyncSummary.lastConflictError}` : ''}`
+            : 'Shared work is safely queued on this device and will retry automatically when the connection and shared-project account are available.');
         }}
         className={`flex h-10 min-w-10 shrink-0 items-center justify-center gap-2 rounded-[1rem] border px-2.5 transition ${classes}`}
         aria-live="polite"
@@ -467,7 +469,7 @@ export default function PersistentTopBar() {
         {showAppMenuControl && isReady && (!homeMenuState.showTrash || isAreaRoute) && (
           <div ref={menuRef} className="app-menu-top-actions relative flex items-center gap-2">
             {renderSharedTransferIndicator()}
-            {renderSharedAreaSyncIndicator()}
+            {renderSharedSyncIndicator()}
             {renderSyncButton()}
             {!isAreaRoute && (
               <button

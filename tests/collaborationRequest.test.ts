@@ -29,6 +29,14 @@ describe('collaboration request timeout', () => {
     });
 
     expect(getCollaborationRequestPolicy(
+      'https://example.supabase.co/rest/v1/rpc/publish_shared_project_snapshot_v2',
+      { method: 'POST' }
+    )).toEqual({
+      operation: 'Publishing shared data',
+      timeoutMs: COLLABORATION_TRANSFER_TIMEOUT_MS,
+    });
+
+    expect(getCollaborationRequestPolicy(
       'https://example.supabase.co/auth/v1/user',
       { method: 'GET' }
     )).toEqual({
@@ -50,6 +58,14 @@ describe('collaboration request timeout', () => {
     )).toEqual({
       operation: 'Syncing shared area',
       timeoutMs: COLLABORATION_TRANSFER_TIMEOUT_MS,
+    });
+
+    expect(getCollaborationRequestPolicy(
+      'https://example.supabase.co/rest/v1/rpc/publish_shared_project_metadata_snapshot',
+      { method: 'POST' }
+    )).toEqual({
+      operation: 'Syncing shared project details',
+      timeoutMs: COLLABORATION_REQUEST_TIMEOUT_MS,
     });
   });
 });

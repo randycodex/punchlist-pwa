@@ -13,7 +13,7 @@ import {
 import {
   getActiveProjectCount,
   getProjectForArea,
-  saveProject,
+  saveProjectArea,
   saveProjectAreaMetadataOnly,
   createPhotoAttachment,
   createFileAttachment,
@@ -256,10 +256,15 @@ export default function AreaDetailPage() {
       if (!detail.areaVersion || !detail.publishedAt) return;
       const publishedAt = new Date(detail.publishedAt);
       if (Number.isNaN(publishedAt.getTime())) return;
-      currentArea.sharedVersion = Math.max(currentArea.sharedVersion ?? 0, detail.areaVersion);
-      currentArea.sharedPublishedAt = publishedAt;
-      if ((currentProject.sharedSnapshotPublishedAt?.getTime() ?? 0) < publishedAt.getTime()) {
-        currentProject.sharedSnapshotPublishedAt = publishedAt;
+      const currentAreaVersion = currentArea.sharedVersion ?? 0;
+      if (detail.areaVersion >= currentAreaVersion) {
+        currentArea.sharedVersion = detail.areaVersion;
+        if ((currentArea.sharedPublishedAt?.getTime() ?? 0) <= publishedAt.getTime()) {
+          currentArea.sharedPublishedAt = publishedAt;
+        }
+        if ((currentProject.sharedSnapshotPublishedAt?.getTime() ?? 0) < publishedAt.getTime()) {
+          currentProject.sharedSnapshotPublishedAt = publishedAt;
+        }
       }
       setProject({ ...currentProject, areas: [...currentProject.areas] });
       setArea({ ...currentArea });
@@ -623,7 +628,7 @@ export default function AreaDetailPage() {
             inspectionHierarchyChanged = true;
           }
           if (inspectionHierarchyChanged) {
-            await saveProject(nextProject);
+            await saveProjectAreaMetadataOnly(nextProject, areaData.id);
             scheduleSync(nextProject.id);
           }
           setArea(areaData);
@@ -926,7 +931,7 @@ export default function AreaDetailPage() {
     syncAreaCompletion(targetArea);
     targetArea.updatedAt = new Date();
     if (shouldUseFullSave) {
-      await saveProject(project);
+      await saveProjectArea(project, targetArea.id, { includeElevationDrawings: true });
     } else {
       await saveProjectAreaMetadataOnly(project, targetArea.id);
     }
@@ -1210,7 +1215,7 @@ export default function AreaDetailPage() {
 
     syncAreaCompletion(targetArea);
     if (removedStoredMedia) {
-      await saveProject(project);
+      await saveProjectArea(project, targetArea.id);
     } else {
       await saveProjectAreaMetadataOnly(project, targetArea.id);
     }
@@ -1252,7 +1257,7 @@ export default function AreaDetailPage() {
 
     syncAreaCompletion(targetArea);
     if (removedStoredMedia) {
-      await saveProject(project);
+      await saveProjectArea(project, targetArea.id);
     } else {
       await saveProjectAreaMetadataOnly(project, targetArea.id);
     }
@@ -1325,7 +1330,7 @@ export default function AreaDetailPage() {
 
     syncAreaCompletion(targetArea);
     if (removedStoredMedia) {
-      await saveProject(project);
+      await saveProjectArea(project, targetArea.id);
     } else {
       await saveProjectAreaMetadataOnly(project, targetArea.id);
     }
@@ -1365,7 +1370,7 @@ export default function AreaDetailPage() {
     });
 
     syncAreaCompletion(targetArea);
-    await saveProject(project);
+    await saveProjectArea(project, targetArea.id);
     scheduleSync(project.id);
 
     setExpandedLocations(new Set());
@@ -1395,7 +1400,7 @@ export default function AreaDetailPage() {
     checkpoint.photos.push(photo);
     checkpoint.updatedAt = new Date();
     syncAreaCompletion(area);
-    await saveProject(project);
+    await saveProjectArea(project, area.id);
     scheduleSync(project.id);
     setArea({ ...area });
   }
@@ -1419,7 +1424,7 @@ export default function AreaDetailPage() {
     }
     checkpoint.updatedAt = new Date();
     syncAreaCompletion(area);
-    await saveProject(project);
+    await saveProjectArea(project, area.id);
     scheduleSync(project.id);
     setArea({ ...area });
   }
@@ -1439,7 +1444,7 @@ export default function AreaDetailPage() {
     checkpoint.photos = checkpoint.photos.filter((p) => p.id !== photoId);
     checkpoint.updatedAt = new Date();
     syncAreaCompletion(area);
-    await saveProject(project);
+    await saveProjectArea(project, area.id);
     scheduleSync(project.id);
     setArea({ ...area });
   }
@@ -1470,7 +1475,7 @@ export default function AreaDetailPage() {
     }
     checkpoint.updatedAt = new Date();
     syncAreaCompletion(area);
-    await saveProject(project);
+    await saveProjectArea(project, area.id);
     scheduleSync(project.id);
     setArea({ ...area });
   }
@@ -1490,7 +1495,7 @@ export default function AreaDetailPage() {
     checkpoint.files = (checkpoint.files ?? []).filter((f) => f.id !== fileId);
     checkpoint.updatedAt = new Date();
     syncAreaCompletion(area);
-    await saveProject(project);
+    await saveProjectArea(project, area.id);
     scheduleSync(project.id);
     setArea({ ...area });
   }

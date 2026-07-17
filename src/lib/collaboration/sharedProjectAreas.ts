@@ -128,7 +128,15 @@ export async function publishSharedProjectAreaSnapshot(input: {
   }
 
   const result = data?.[0];
-  if (!result || !Number.isSafeInteger(result.area_version) || !result.published_at) {
+  const publishedAtMs = typeof result?.published_at === 'string'
+    ? new Date(result.published_at).getTime()
+    : Number.NaN;
+  if (
+    !result
+    || !Number.isSafeInteger(result.area_version)
+    || result.area_version < 1
+    || !Number.isFinite(publishedAtMs)
+  ) {
     throw new Error('Shared area sync completed without a valid revision.');
   }
   return {
