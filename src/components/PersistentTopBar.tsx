@@ -545,19 +545,19 @@ export default function PersistentTopBar() {
                       {(homeMenuState.context === 'project' || homeMenuState.isSingleProject) && (
                         <button onClick={() => dispatchHomeAction('edit-project')} className={menuItemClass}>
                           <Pencil className="h-4 w-4" />
-                          Edit project
+                          Edit
                         </button>
                       )}
                       {homeMenuState.isSingleProject && (
                         <button onClick={() => dispatchHomeAction('export-project')} className={menuItemClass}>
                           <FileDown className="h-4 w-4" />
-                          Export project
+                          Export
                         </button>
                       )}
                       {homeMenuState.isSingleProject && homeMenuState.canAddArea && (
                         <button onClick={() => dispatchHomeAction('toggle-selection')} className={menuItemClass}>
                           <CheckCircle2 className="h-4 w-4" />
-                          {homeMenuState.selectionMode ? 'Cancel selection' : 'Select areas'}
+                          {homeMenuState.selectionMode ? 'Cancel Selection' : 'Select Areas'}
                         </button>
                       )}
                       {homeMenuState.isSingleProject && collaborationAuth.isSignedIn && !homeMenuState.isSharedProject && (
@@ -575,7 +575,7 @@ export default function PersistentTopBar() {
                 {(showAuth || (homeMenuState.isSingleProject && homeMenuState.isSharedProject)) && collaborationAuth.isSignedIn && (
                   <div className="px-1 py-1">
                     <div className={menuCardClass}>
-                      <div className={menuGroupLabelClass}>Shared project</div>
+                      <div className={menuGroupLabelClass}>Shared Project</div>
                       {homeMenuState.isSingleProject && homeMenuState.isSharedProject && !sharedProjectAccess.isReady && (
                         <div className="px-3 py-2 text-xs text-gray-500 dark:text-gray-400">
                           Checking shared access. Actions remain available while this finishes.
@@ -589,7 +589,7 @@ export default function PersistentTopBar() {
                             className={disabledMenuItemClass}
                           >
                             <UserPlus className="h-4 w-4" />
-                            {homeMenuState.isCreatingJoinCode ? 'Preparing invite...' : 'Invite people'}
+                            {homeMenuState.isCreatingJoinCode ? 'Preparing...' : 'Invite'}
                           </button>
                           <button
                             onClick={() => dispatchHomeAction('shared-members')}
@@ -597,7 +597,7 @@ export default function PersistentTopBar() {
                             className={disabledMenuItemClass}
                           >
                             <Users className="h-4 w-4" />
-                            {homeMenuState.isLoadingSharedMembers ? 'Loading members...' : 'Shared members'}
+                            {homeMenuState.isLoadingSharedMembers ? 'Loading...' : 'Members'}
                           </button>
                           <button
                             onClick={() => dispatchHomeAction('publish-shared-project')}
@@ -605,7 +605,7 @@ export default function PersistentTopBar() {
                             className={disabledMenuItemClass}
                           >
                             <CloudUpload className="h-4 w-4" />
-                            {sharedTransferStatus === 'publishing' ? 'Publishing...' : 'Publish shared data'}
+                            {sharedTransferStatus === 'publishing' ? 'Pushing...' : 'Push'}
                           </button>
                           <button
                             onClick={() => dispatchHomeAction('pull-shared-project')}
@@ -613,11 +613,11 @@ export default function PersistentTopBar() {
                             className={disabledMenuItemClass}
                           >
                             <CloudDownload className="h-4 w-4" />
-                            {sharedTransferStatus === 'pulling' ? 'Pulling...' : 'Pull shared data'}
+                            {sharedTransferStatus === 'pulling' ? 'Pulling...' : 'Pull'}
                           </button>
                           <button onClick={() => dispatchHomeAction('shared-backups')} className={menuItemClass}>
                             <ArchiveRestore className="h-4 w-4" />
-                            Shared backups
+                            Backups
                           </button>
                           {sharedProjectAccess.isReady && sharedProjectAccess.isActiveMember && (
                             <button
@@ -628,7 +628,7 @@ export default function PersistentTopBar() {
                               <LogOut className="h-4 w-4" />
                               {homeMenuState.isDisconnectingSharedProject
                                 ? sharedProjectAccess.isOwner ? 'Stopping...' : 'Leaving...'
-                                : sharedProjectAccess.isOwner ? 'Stop sharing' : 'Leave shared project'}
+                                : sharedProjectAccess.isOwner ? 'Stop Sharing' : 'Leave Shared Project'}
                             </button>
                           )}
                         </>
@@ -663,7 +663,7 @@ export default function PersistentTopBar() {
                         <>
                           <button onClick={() => dispatchHomeAction('join-shared-project')} className={menuItemClass}>
                             <UserPlus className="h-4 w-4" />
-                            Join shared project
+                            Join Project
                           </button>
                         </>
                       )}
@@ -677,7 +677,7 @@ export default function PersistentTopBar() {
                       {homeMenuState.context !== 'project' && (
                         <button onClick={() => dispatchHomeAction('new-project')} className={menuItemClass}>
                           <PlusSquare className="h-4 w-4" />
-                          Add project
+                          New Project
                         </button>
                       )}
                       {homeMenuState.canAddArea && !homeMenuState.isSingleProject && (
@@ -694,7 +694,7 @@ export default function PersistentTopBar() {
                     <div className={menuGroupLabelClass}>Account</div>
                     <button onClick={() => dispatchHomeAction('toggle-trash')} className={menuItemClass}>
                       <Trash2 className="h-4 w-4" />
-                      {homeMenuState.showTrash ? 'Hide trash' : 'Trash'}
+                      Trash
                     </button>
                     {collaborationAuth.isSignedIn && (
                       <button
@@ -711,13 +711,13 @@ export default function PersistentTopBar() {
                         ) : (
                           <UserRound className="h-4 w-4" />
                         )}
-                        {collaborationAuth.profile ? 'Edit profile' : 'Create profile'}
+                        Profile
                       </button>
                     )}
                     {showAuth && collaborationAuth.isSignedIn && (
                       <button onClick={() => dispatchHomeAction('my-shared-projects')} className={menuItemClass}>
                         <Users className="h-4 w-4" />
-                        Manage shared projects
+                        Manage Projects
                       </button>
                     )}
                     {isSignedIn && (
@@ -733,18 +733,18 @@ export default function PersistentTopBar() {
                         className={menuItemClass}
                       >
                         <Users className="h-4 w-4" />
-                        {collaborationAuth.isSignedIn ? 'Leave shared projects' : 'Enable shared projects'}
+                        {collaborationAuth.isSignedIn ? 'Leave Shared Projects' : 'Enable Shared Projects'}
                       </button>
                     )}
                     {!isSignedIn ? (
                       <button onClick={() => void handleMicrosoftAuthAction()} className={menuItemClass}>
                         <LogIn className="h-4 w-4" />
-                        Sign in
+                        Sign In
                       </button>
                     ) : (
                       <button onClick={() => void handleMicrosoftAuthAction()} className={menuItemClass}>
                         <LogOut className="h-4 w-4" />
-                        Sign out
+                        Sign Out
                       </button>
                     )}
                   </div>
