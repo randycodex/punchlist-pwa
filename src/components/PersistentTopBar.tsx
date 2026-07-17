@@ -433,7 +433,7 @@ export default function PersistentTopBar() {
   const menuCardClass = 'app-menu-card rounded-[1.25rem] p-2.5';
   const menuGroupLabelClass = 'px-2 pb-2 pt-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-gray-500 dark:text-gray-400';
   const menuPillGridClass = 'grid grid-cols-2 gap-2 px-1 pb-1';
-  const menuPillClass = 'flex min-h-10 min-w-0 items-center gap-2 rounded-full bg-black/[0.04] px-3 py-2 text-left text-[13px] font-medium leading-tight text-gray-700 transition hover:bg-black/[0.07] dark:bg-white/[0.05] dark:text-gray-300 dark:hover:bg-white/[0.08]';
+  const menuPillClass = 'flex min-h-10 min-w-0 items-center gap-2 rounded-full bg-black/[0.07] px-3 py-2 text-left text-[13px] font-medium leading-tight text-gray-700 transition hover:bg-black/[0.10] dark:bg-white/[0.05] dark:text-gray-300 dark:hover:bg-white/[0.08]';
   const disabledMenuPillClass = `${menuPillClass} disabled:cursor-default disabled:opacity-60`;
 
   return (
