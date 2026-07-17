@@ -9,9 +9,9 @@ import { useMicrosoftAuth } from '@/contexts/MicrosoftAuthContext';
 import { useCollaborationAuth } from '@/contexts/CollaborationAuthContext';
 import { useSyncStatus } from '@/contexts/SyncStatusContext';
 import { useAppSettings } from '@/contexts/AppSettingsContext';
-import { getProject } from '@/lib/db';
+import { getProjectMetadata } from '@/lib/db';
 import { hasPendingSyncState } from '@/lib/pendingSync';
-import { getCachedProjectPreview } from '@/lib/projectNavigationCache';
+import { getCachedProjectName } from '@/lib/projectNavigationCache';
 import { getCollaborationProfileInitials, getSharedProjectAccess } from '@/lib/collaboration';
 import UserProfileModal from '@/components/UserProfileModal';
 import {
@@ -156,7 +156,7 @@ export default function PersistentTopBar() {
         return;
       }
 
-      const cachedTitle = getCachedProjectPreview(projectId)?.projectName ?? projectTitleCache.get(projectId);
+      const cachedTitle = getCachedProjectName(projectId) ?? projectTitleCache.get(projectId);
       if (cachedTitle !== undefined) {
         if (!cancelled) {
           setProjectTitle(cachedTitle);
@@ -164,7 +164,7 @@ export default function PersistentTopBar() {
       }
 
       try {
-        const project = await getProject(projectId);
+        const project = await getProjectMetadata(projectId);
         if (!cancelled) {
           const nextTitle = project?.projectName ?? '';
           projectTitleCache.set(projectId, nextTitle);

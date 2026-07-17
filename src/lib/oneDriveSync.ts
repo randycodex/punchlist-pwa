@@ -1,6 +1,7 @@
 import { Area, Checkpoint, FileAttachment, Item, Location, PhotoAttachment, Project } from '@/types';
 import { splitFacadeLevels } from '@/lib/areas';
 import { parseProjectPayload, serializeProjectPayload } from '@/lib/projectPayload';
+import { readLocalStorage, writeLocalStorage } from '@/lib/browserStorage';
 import {
   getAllProjects,
   getProject,
@@ -68,7 +69,7 @@ const DELETIONS_KEY = 'punchlist-onedrive-deletions';
 const CLOCK_SKEW_TOLERANCE_MS = 2_000;
 
 function setLastSyncTime(date: Date) {
-  localStorage.setItem(STORAGE_KEY, date.toISOString());
+  writeLocalStorage(STORAGE_KEY, date.toISOString());
 }
 
 function timestampMs(value: string | Date | undefined) {
@@ -822,7 +823,7 @@ function normalizeSyncStateMap(raw: unknown): ProjectSyncStateMap {
 
 function getLocalSyncStates(): ProjectSyncStateMap {
   try {
-    const raw = localStorage.getItem(DELETIONS_KEY);
+    const raw = readLocalStorage(DELETIONS_KEY);
     if (!raw) return {};
     return normalizeSyncStateMap(JSON.parse(raw));
   } catch {
@@ -831,7 +832,7 @@ function getLocalSyncStates(): ProjectSyncStateMap {
 }
 
 function setLocalSyncStates(syncStates: ProjectSyncStateMap) {
-  localStorage.setItem(DELETIONS_KEY, JSON.stringify(syncStates));
+  writeLocalStorage(DELETIONS_KEY, JSON.stringify(syncStates));
 }
 
 function isAfterOrEqual(left: string, right: string | undefined) {

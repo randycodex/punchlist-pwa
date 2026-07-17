@@ -89,6 +89,7 @@ import {
   removeCachedProjectPreview,
   replaceProjectPreviewCache,
 } from '@/lib/projectNavigationCache';
+import { readLocalStorage, writeLocalStorage } from '@/lib/browserStorage';
 import {
   buildAreaName,
   buildFacadeLevelOptions,
@@ -155,7 +156,7 @@ type TrashedAreaEntry = {
 
 export default function ProjectsPage() {
   const router = useRouter();
-  const cachedProjects = getCachedProjectPreviews();
+  const cachedProjects = useMemo(() => getCachedProjectPreviews(), []);
   const [projects, setProjects] = useState<Project[]>(() => cachedProjects);
   const [loading, setLoading] = useState(() => cachedProjects.length === 0);
   const [showNewProject, setShowNewProject] = useState(false);
@@ -251,7 +252,7 @@ export default function ProjectsPage() {
   }, [projects]);
 
   useEffect(() => {
-    const savedSort = localStorage.getItem(SORT_STORAGE_KEY);
+    const savedSort = readLocalStorage(SORT_STORAGE_KEY);
     if (savedSort === 'alphabetical' || savedSort === 'issues' || savedSort === 'progress') {
       setSortOption(savedSort);
     } else if (savedSort === 'name') {
@@ -264,7 +265,10 @@ export default function ProjectsPage() {
   }, [quickSort]);
 
   useEffect(() => {
-    const savedRecentAreaTypes = localStorage.getItem(RECENT_AREA_TYPES_STORAGE_KEY);
+    // Start the durable load before reading optional UI preferences so blocked
+    // browser storage can never leave the app on its startup spinner.
+    void loadProjectsRef.current();
+    const savedRecentAreaTypes = readLocalStorage(RECENT_AREA_TYPES_STORAGE_KEY);
     if (savedRecentAreaTypes) {
       try {
         setRecentAreaTypeKeys(JSON.parse(savedRecentAreaTypes) as AreaTypeKey[]);
@@ -272,7 +276,6 @@ export default function ProjectsPage() {
         console.error('Failed to parse recent area types:', error);
       }
     }
-    void loadProjectsRef.current();
   }, []);
 
   useEffect(() => {
@@ -295,7 +298,7 @@ export default function ProjectsPage() {
 
   function handleSortChange(option: SortOption) {
     setSortOption(option);
-    localStorage.setItem(SORT_STORAGE_KEY, option);
+    writeLocalStorage(SORT_STORAGE_KEY, option);
   }
 
   const primeProjectOpen = useCallback(
@@ -444,7 +447,7 @@ export default function ProjectsPage() {
       setSyncConflicts([]);
       setSyncError(null);
       setRetryAt(null);
-      setSyncStatus('idle');
+      setSyncStatus(hasPendingSyncState() ? 'pending' : 'idle');
       markSyncedNow();
       await loadProjects();
     } finally {
@@ -631,17 +634,20 @@ export default function ProjectsPage() {
     const unsubscribeSnapshotChanges = subscribeToSharedProjectSnapshotChanges(
       activeSharedProjectId,
       (change) => {
-        if (!change.publishedAt || isSharedSnapshotNewer(singleProject, change.publishedAt)) {
-          markSharedUpdateAvailable(localProjectId);
-        }
+        void noticeLiveSharedDashboardProject(
+          localProjectId,
+          activeSharedProjectId,
+          change.publishedAt
+        );
       }
     );
 
     return unsubscribeSnapshotChanges;
   }, [
     collaborationAuth.isSignedIn,
-    markSharedUpdateAvailable,
-    singleProject,
+    noticeLiveSharedDashboardProject,
+    singleProject?.id,
+    singleProject?.sharedProjectId,
   ]);
 
   const areaTargetProject =
@@ -863,7 +869,7 @@ export default function ProjectsPage() {
       ...recentAreaTypeKeys.filter((key) => key !== newAreaForm.areaTypeKey),
     ].slice(0, 8);
     setRecentAreaTypeKeys(nextRecentAreaTypeKeys);
-    localStorage.setItem(RECENT_AREA_TYPES_STORAGE_KEY, JSON.stringify(nextRecentAreaTypeKeys));
+    writeLocalStorage(RECENT_AREA_TYPES_STORAGE_KEY, JSON.stringify(nextRecentAreaTypeKeys));
     setNewAreaForm(getDefaultAreaFormValue());
     setAreaTargetProjectId(null);
     setShowAddArea(false);

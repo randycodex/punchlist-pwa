@@ -22,6 +22,7 @@ import {
   createCheckpoint,
 } from '@/lib/db';
 import { cacheProjectPreview, getCachedProjectPreview } from '@/lib/projectNavigationCache';
+import { readLocalStorage, writeLocalStorage } from '@/lib/browserStorage';
 import AreaEditorModal from '@/components/AreaEditorModal';
 import AppConfirmDialog from '@/components/AppConfirmDialog';
 import AppPromptDialog from '@/components/AppPromptDialog';
@@ -137,7 +138,7 @@ export default function AreaDetailPage() {
   const id = Array.isArray(params.id) ? params.id[0] : params.id;
   const areaId = Array.isArray(params.areaId) ? params.areaId[0] : params.areaId;
   const router = useRouter();
-  const cachedProject = getCachedProjectPreview(id);
+  const cachedProject = useMemo(() => getCachedProjectPreview(id), [id]);
   const cachedArea = cachedProject?.areas.find((entry) => entry.id === areaId && !entry.deletedAt) ?? null;
   const [project, setProject] = useState<Project | null>(() => (cachedArea ? cachedProject : null));
   const [area, setArea] = useState<Area | null>(() => cachedArea);
@@ -191,6 +192,7 @@ export default function AreaDetailPage() {
   const [returnToHome, setReturnToHome] = useState(false);
   const notesTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const notesDraftRef = useRef('');
+  const commentDraftRef = useRef('');
   const projectRef = useRef<Project | null>(null);
   const areaRef = useRef<Area | null>(null);
   const areaClaimProblemRef = useRef<SharedAreaLockProblem>(null);
@@ -227,6 +229,15 @@ export default function AreaDetailPage() {
 
   function canEditSharedArea() {
     return !sharedAreaEditsAreBlocked();
+  }
+
+  function replaceCheckpointCommentDraft(value: string) {
+    commentDraftRef.current = value;
+    setCommentText(value);
+  }
+
+  function trackCheckpointCommentDraft(value: string) {
+    commentDraftRef.current = value;
   }
 
   function retrySharedAreaClaim() {
@@ -268,17 +279,18 @@ export default function AreaDetailPage() {
       router.push('/');
       return;
     }
-    const savedRecentComments = localStorage.getItem(RECENT_COMMENTS_STORAGE_KEY);
+    void loadDataRef.current();
+    const savedRecentComments = readLocalStorage(RECENT_COMMENTS_STORAGE_KEY);
     if (savedRecentComments) {
       try {
         const nextRecentComments = (JSON.parse(savedRecentComments) as string[]).slice(0, MAX_RECENT_COMMENTS);
         setRecentComments(nextRecentComments);
-        localStorage.setItem(RECENT_COMMENTS_STORAGE_KEY, JSON.stringify(nextRecentComments));
+        writeLocalStorage(RECENT_COMMENTS_STORAGE_KEY, JSON.stringify(nextRecentComments));
       } catch (error) {
         console.error('Failed to parse recent comments:', error);
       }
     }
-    const savedRecentAreaTypes = localStorage.getItem(RECENT_AREA_TYPES_STORAGE_KEY);
+    const savedRecentAreaTypes = readLocalStorage(RECENT_AREA_TYPES_STORAGE_KEY);
     if (savedRecentAreaTypes) {
       try {
         setRecentAreaTypeKeys(JSON.parse(savedRecentAreaTypes) as AreaTypeKey[]);
@@ -286,7 +298,6 @@ export default function AreaDetailPage() {
         console.error('Failed to parse recent area types:', error);
       }
     }
-    void loadDataRef.current();
   }, [id, areaId, router]);
 
   useEffect(() => {
@@ -355,14 +366,22 @@ export default function AreaDetailPage() {
     const unsubscribeSnapshotChanges = subscribeToSharedProjectSnapshotChanges(
       activeSharedProjectId,
       (change) => {
-        if (!change.publishedAt || isSharedSnapshotNewer(project, change.publishedAt)) {
+        const currentProject = projectRef.current;
+        if (!currentProject || currentProject.id !== localProjectId) return;
+        if (!change.publishedAt || isSharedSnapshotNewer(currentProject, change.publishedAt)) {
           markSharedUpdateAvailable(localProjectId);
         }
       }
     );
 
     return unsubscribeSnapshotChanges;
-  }, [area?.id, collaborationAuth.isSignedIn, markSharedUpdateAvailable, project]);
+  }, [
+    area?.id,
+    collaborationAuth.isSignedIn,
+    markSharedUpdateAvailable,
+    project?.id,
+    project?.sharedProjectId,
+  ]);
 
   useEffect(() => {
     const sharedProjectId = project?.sharedProjectId;
@@ -733,7 +752,7 @@ export default function AreaDetailPage() {
         ...recentComments.filter((comment) => comment !== trimmedComment),
       ].slice(0, MAX_RECENT_COMMENTS);
       setRecentComments(nextRecentComments);
-      localStorage.setItem(RECENT_COMMENTS_STORAGE_KEY, JSON.stringify(nextRecentComments));
+      writeLocalStorage(RECENT_COMMENTS_STORAGE_KEY, JSON.stringify(nextRecentComments));
     }
 
     setArea({ ...area });
@@ -851,7 +870,7 @@ export default function AreaDetailPage() {
       ...recentAreaTypeKeys.filter((key) => key !== areaForm.areaTypeKey),
     ].slice(0, 8);
     setRecentAreaTypeKeys(nextRecentAreaTypeKeys);
-    localStorage.setItem(RECENT_AREA_TYPES_STORAGE_KEY, JSON.stringify(nextRecentAreaTypeKeys));
+    writeLocalStorage(RECENT_AREA_TYPES_STORAGE_KEY, JSON.stringify(nextRecentAreaTypeKeys));
 
     setProject({ ...project, areas: [...project.areas] });
     setArea({ ...targetArea });
@@ -930,7 +949,7 @@ export default function AreaDetailPage() {
     setExpandedLocations(new Set([targetLocation.id]));
     setExpandedItems(new Set([item.id]));
     setExpandedCheckpoint(null);
-    setCommentText('');
+    replaceCheckpointCommentDraft('');
     setProject({ ...project, areas: [...project.areas] });
     setArea({ ...targetArea });
   }
@@ -1113,7 +1132,7 @@ export default function AreaDetailPage() {
 
     if (expandedCheckpoint?.checkpointId === checkpointId) {
       setExpandedCheckpoint(null);
-      setCommentText('');
+      replaceCheckpointCommentDraft('');
     }
     if (editingCustomCheckpoint?.checkpointId === checkpointId) {
       setCustomCheckpointName('');
@@ -1156,7 +1175,7 @@ export default function AreaDetailPage() {
 
     if (expandedCheckpoint?.itemId === itemId) {
       setExpandedCheckpoint(null);
-      setCommentText('');
+      replaceCheckpointCommentDraft('');
     }
     setExpandedItems((prev) => {
       const next = new Set(prev);
@@ -1285,7 +1304,7 @@ export default function AreaDetailPage() {
     setExpandedLocations(new Set());
     setExpandedItems(new Set());
     setExpandedCheckpoint(null);
-    setCommentText('');
+    replaceCheckpointCommentDraft('');
     setDeleteMode(false);
     setSelectedLocationIds(new Set());
     setProject({ ...project, areas: [...project.areas] });
@@ -1444,7 +1463,7 @@ export default function AreaDetailPage() {
       setSyncConflicts([]);
       setSyncError(null);
       setRetryAt(null);
-      setSyncStatus('idle');
+      setSyncStatus(hasPendingSyncState() ? 'pending' : 'idle');
       markSyncedNow();
       await loadData();
     } finally {
@@ -1483,7 +1502,6 @@ export default function AreaDetailPage() {
 
   function handleGeneralNotesChange(value: string) {
     if (!canEditSharedArea()) return;
-    setGeneralNotes(value);
     notesDraftRef.current = value;
     if (notesTimerRef.current) {
       clearTimeout(notesTimerRef.current);
@@ -1525,10 +1543,10 @@ export default function AreaDetailPage() {
       expandedCheckpoint.locationId,
       expandedCheckpoint.itemId,
       expandedCheckpoint.checkpointId,
-      commentText
+      commentDraftRef.current
     );
     setExpandedCheckpoint(null);
-    setCommentText('');
+    replaceCheckpointCommentDraft('');
   }
 
   async function toggleLocation(locationId: string) {
@@ -1726,7 +1744,7 @@ export default function AreaDetailPage() {
     setExpandedLocations(new Set([locationId]));
     setExpandedItems(new Set([targetItem.id]));
     setExpandedCheckpoint({ locationId, itemId: targetItem.id, checkpointId: checkpoint.id });
-    setCommentText(checkpoint.comments);
+    replaceCheckpointCommentDraft(checkpoint.comments);
 
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
@@ -1756,7 +1774,7 @@ export default function AreaDetailPage() {
     }
 
     setExpandedCheckpoint({ locationId, itemId, checkpointId });
-    setCommentText(comments);
+    replaceCheckpointCommentDraft(comments);
   }
 
   if (loading) {
@@ -2092,7 +2110,7 @@ export default function AreaDetailPage() {
                 expandedCheckpointId={expandedCheckpoint?.checkpointId ?? null}
                 commentText={commentText}
                 recentComments={recentComments}
-                onCommentChange={setCommentText}
+                onCommentChange={trackCheckpointCommentDraft}
                 onAddPhoto={(imageData, thumbnail) =>
                   expandedCheckpoint
                     ? handleAddPhoto(
@@ -2283,7 +2301,7 @@ export default function AreaDetailPage() {
               expandedCheckpointId={expandedCheckpoint?.checkpointId ?? null}
               commentText={commentText}
               recentComments={recentComments}
-              onCommentChange={setCommentText}
+              onCommentChange={trackCheckpointCommentDraft}
               onAddPhoto={(imageData, thumbnail) =>
                 expandedCheckpoint
                   ? handleAddPhoto(
@@ -2360,6 +2378,7 @@ export default function AreaDetailPage() {
           )}
           {!deleteMode && (
             <AreaNotesCard
+              key={area.id}
               value={generalNotes}
               isExpanded={generalNotesExpanded}
               onToggle={() => void toggleGeneralNotes()}

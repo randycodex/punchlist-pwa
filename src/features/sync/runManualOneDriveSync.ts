@@ -50,7 +50,7 @@ export async function runManualOneDriveSync(options: {
       };
     }
 
-    clearPendingSyncState();
+    clearPendingSyncState(pendingSyncState.revision);
     return { status: 'success', syncedAt: result.syncedAt };
   } catch (error) {
     console.error('Sync failed:', error);

@@ -83,6 +83,25 @@ it('migrates legacy checkpoint media into the area index', async () => {
             files: [],
             createdAt: now,
             updatedAt: now,
+          }, {
+            id: 'checkpoint-2',
+            itemId: 'item-1',
+            name: 'Legacy inline finish',
+            status: 'pending',
+            fixStatus: 'pending',
+            issueState: 'none',
+            comments: '',
+            sortOrder: 1,
+            photos: [{
+              id: 'photo-2',
+              checkpointId: 'checkpoint-2',
+              imageData: 'legacy-inline-photo-data',
+              thumbnail: 'legacy-inline-thumbnail-data',
+              createdAt: now,
+            }],
+            files: [],
+            createdAt: now,
+            updatedAt: now,
           }],
           createdAt: now,
           updatedAt: now,
@@ -98,10 +117,23 @@ it('migrates legacy checkpoint media into the area index', async () => {
   };
 
   await openLegacyDatabase(project);
-  const { getProjectForArea } = await import('@/lib/db');
+  const { getAllProjects, getProjectForArea, getProjectMetadata } = await import('@/lib/db');
   const migrated = await getProjectForArea(project.id, 'area-1');
+  const metadata = await getProjectMetadata(project.id);
+  const dashboardProject = (await getAllProjects()).find((entry) => entry.id === project.id);
 
   expect(migrated?.areas[0].locations[0].items[0].checkpoints[0].photos[0].imageData).toBe(
     'legacy-photo-data'
   );
+  expect(migrated?.areas[0].locations[0].items[0].checkpoints[1].photos[0].imageData).toBe(
+    'legacy-inline-photo-data'
+  );
+  expect(metadata?.areas[0].locations[0].items[0].checkpoints[1].photos[0]).toMatchObject({
+    imageData: '',
+    thumbnail: undefined,
+  });
+  expect(dashboardProject?.areas[0].locations[0].items[0].checkpoints[1].photos[0]).toMatchObject({
+    imageData: '',
+    thumbnail: undefined,
+  });
 });

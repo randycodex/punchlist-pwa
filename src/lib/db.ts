@@ -152,6 +152,33 @@ function cloneAreaWithoutMediaPayload(area: Area): Area {
   };
 }
 
+function projectHasInlineMediaPayload(project: Project) {
+  if (project.facadeElevationDrawings?.some((drawing) => Boolean(drawing.dataUrl))) {
+    return true;
+  }
+
+  for (const area of project.areas) {
+    for (const location of area.locations) {
+      for (const item of location.items) {
+        for (const checkpoint of item.checkpoints) {
+          if (checkpoint.photos.some((photo) => Boolean(photo.imageData || photo.thumbnail))) {
+            return true;
+          }
+          if ((checkpoint.files ?? []).some((file) => Boolean(file.data))) {
+            return true;
+          }
+        }
+      }
+    }
+  }
+
+  return false;
+}
+
+function stripProjectMediaPayloadsIfNeeded(project: Project) {
+  return projectHasInlineMediaPayload(project) ? cloneProjectWithoutMediaPayload(project) : project;
+}
+
 function serializeProjectForStorage(project: Project): {
   storedProject: Project;
   mediaRecords: CheckpointMediaRecord[];
@@ -258,7 +285,11 @@ async function hydrateMediaRecord(record: CheckpointMediaRecord) {
   };
 }
 
-async function hydrateProjectMedia(project: Project, mediaRecords: CheckpointMediaRecord[]): Promise<Project> {
+async function hydrateProjectMedia(
+  project: Project,
+  mediaRecords: CheckpointMediaRecord[],
+  targetAreaId?: string
+): Promise<Project> {
   if (mediaRecords.length === 0) {
     return project;
   }
@@ -270,24 +301,30 @@ async function hydrateProjectMedia(project: Project, mediaRecords: CheckpointMed
 
   return {
     ...project,
-    areas: project.areas.map((area) => ({
-      ...area,
-      locations: area.locations.map((location) => ({
-        ...location,
-        items: location.items.map((item) => ({
-          ...item,
-          checkpoints: item.checkpoints.map((checkpoint) => {
-            const media = mediaByCheckpoint.get(checkpoint.id);
-            if (!media) return checkpoint;
-            return {
-              ...checkpoint,
-              photos: media.photos,
-              files: media.files,
-            };
-          }),
+    areas: project.areas.map((area) => {
+      if (targetAreaId && area.id !== targetAreaId) {
+        return area;
+      }
+
+      return {
+        ...area,
+        locations: area.locations.map((location) => ({
+          ...location,
+          items: location.items.map((item) => ({
+            ...item,
+            checkpoints: item.checkpoints.map((checkpoint) => {
+              const media = mediaByCheckpoint.get(checkpoint.id);
+              if (!media) return checkpoint;
+              return {
+                ...checkpoint,
+                photos: media.photos,
+                files: media.files,
+              };
+            }),
+          })),
         })),
-      })),
-    })),
+      };
+    }),
   };
 }
 
@@ -443,7 +480,10 @@ function getDB() {
 export async function getAllProjects(): Promise<Project[]> {
   const db = await getDB();
   const projects = await db.getAll('projects');
-  return projects.map(cloneProjectWithoutMediaPayload);
+  // IndexedDB already returns structured clones. Current writes keep binary
+  // payloads in dedicated stores, so only legacy inline records need another
+  // deep clone before they are exposed as dashboard metadata.
+  return projects.map(stripProjectMediaPayloadsIfNeeded);
 }
 
 export async function getProject(id: string): Promise<Project | undefined> {
@@ -466,14 +506,14 @@ export async function getProjectForArea(id: string, areaId: string): Promise<Pro
     db.getAllFromIndex('checkpointMedia', 'by-project-area', [id, areaId]),
     db.getAllFromIndex('elevationDrawings', 'by-project', id),
   ]);
-  const projectWithAreaMedia = await hydrateProjectMedia(project, mediaRecords);
+  const projectWithAreaMedia = await hydrateProjectMedia(project, mediaRecords, areaId);
   return hydrateProjectElevationDrawings(projectWithAreaMedia, drawingRecords);
 }
 
 export async function getProjectMetadata(id: string): Promise<Project | undefined> {
   const db = await getDB();
   const project = await db.get('projects', id);
-  return project ? cloneProjectWithoutMediaPayload(project) : undefined;
+  return project ? stripProjectMediaPayloadsIfNeeded(project) : undefined;
 }
 
 export async function getActiveProjectCount(): Promise<number> {
@@ -507,7 +547,7 @@ export async function saveProjectMetadataOnly(
     if (shouldMarkPending) {
       project.updatedAt = new Date();
     }
-    const { storedProject } = serializeProjectForStorage(project);
+    const storedProject = cloneProjectWithoutMediaPayload(project);
     const tx = db.transaction(['projects', 'syncMetadata'], 'readwrite');
     await tx.objectStore('projects').put(storedProject);
     if (shouldMarkPending) {
@@ -540,7 +580,7 @@ export async function saveProjectAreaMetadataOnly(
     const storedArea = cloneAreaWithoutMediaPayload(area);
 
     if (!existingProject) {
-      const { storedProject } = serializeProjectForStorage(project);
+      const storedProject = cloneProjectWithoutMediaPayload(project);
       await projectStore.put(storedProject);
     } else {
       const existingIndex = existingProject.areas.findIndex((entry) => entry.id === areaId);

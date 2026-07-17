@@ -5,6 +5,7 @@ import { useRouter, useParams } from 'next/navigation';
 import { Area, Project, checkpointHasIssue, getReviewMetrics } from '@/types';
 import { getProject, getProjectMetadata, saveProject, saveProjectMetadataOnly, saveProjectPreserveTimestamps, createArea } from '@/lib/db';
 import { cacheProjectPreview, getCachedProjectPreview } from '@/lib/projectNavigationCache';
+import { readLocalStorage, writeLocalStorage } from '@/lib/browserStorage';
 import AreaEditorModal from '@/components/AreaEditorModal';
 import ProjectEditModal from '@/components/ProjectEditModal';
 import AppMessageDialog from '@/components/AppMessageDialog';
@@ -118,7 +119,7 @@ export default function ProjectDetailPage() {
   const params = useParams<{ id: string }>();
   const id = Array.isArray(params.id) ? params.id[0] : params.id;
   const router = useRouter();
-  const cachedProject = getCachedProjectPreview(id);
+  const cachedProject = useMemo(() => getCachedProjectPreview(id), [id]);
   const [project, setProject] = useState<Project | null>(() => cachedProject);
   const [loading, setLoading] = useState(() => !cachedProject);
   const [showAddArea, setShowAddArea] = useState(false);
@@ -158,6 +159,7 @@ export default function ProjectDetailPage() {
   const [disconnectSharedProjectIsOwner, setDisconnectSharedProjectIsOwner] = useState(false);
   const [disconnectSharedProjectLocalOnly, setDisconnectSharedProjectLocalOnly] = useState(false);
   const [disconnectingSharedProject, setDisconnectingSharedProject] = useState(false);
+  const projectRef = useRef<Project | null>(cachedProject);
   const backgroundAreaClaimKeysRef = useRef(new Set<string>());
   const topMenuActionHandlerRef = useRef<((event: Event) => void) | null>(null);
   const loadProjectRef = useRef<() => Promise<void>>(() => Promise.resolve());
@@ -178,6 +180,10 @@ export default function ProjectDetailPage() {
     setMessageDialog({ title, message });
   }, []);
 
+  useEffect(() => {
+    projectRef.current = project;
+  }, [project]);
+
   async function handleRunCollaborationHealthCheck() {
     setShowCollaborationHealth(true);
     setRunningCollaborationHealth(true);
@@ -194,7 +200,7 @@ export default function ProjectDetailPage() {
 
   useEffect(() => {
     // Load saved sort preference
-    const savedSort = localStorage.getItem(SORT_STORAGE_KEY);
+    const savedSort = readLocalStorage(SORT_STORAGE_KEY);
     if (savedSort === 'alphabetical' || savedSort === 'issues' || savedSort === 'progress') {
       setSortOption(savedSort);
     } else if (savedSort === 'name') {
@@ -211,7 +217,8 @@ export default function ProjectDetailPage() {
       router.push('/');
       return;
     }
-    const savedRecentAreaTypes = localStorage.getItem(RECENT_AREA_TYPES_STORAGE_KEY);
+    void loadProjectRef.current();
+    const savedRecentAreaTypes = readLocalStorage(RECENT_AREA_TYPES_STORAGE_KEY);
     if (savedRecentAreaTypes) {
       try {
         setRecentAreaTypeKeys(JSON.parse(savedRecentAreaTypes) as AreaTypeKey[]);
@@ -219,7 +226,6 @@ export default function ProjectDetailPage() {
         console.error('Failed to parse recent area types:', error);
       }
     }
-    void loadProjectRef.current();
   }, [id, router]);
 
   useEffect(() => {
@@ -320,7 +326,7 @@ export default function ProjectDetailPage() {
 
   function handleSortChange(option: SortOption) {
     setSortOption(option);
-    localStorage.setItem(SORT_STORAGE_KEY, option);
+    writeLocalStorage(SORT_STORAGE_KEY, option);
   }
 
   async function handleEditProject(updates: Partial<Project>) {
@@ -393,14 +399,21 @@ export default function ProjectDetailPage() {
     const unsubscribeSnapshotChanges = subscribeToSharedProjectSnapshotChanges(
       activeSharedProjectId,
       (change) => {
-        if (!change.publishedAt || isSharedSnapshotNewer(project, change.publishedAt)) {
+        const currentProject = projectRef.current;
+        if (!currentProject || currentProject.id !== localProjectId) return;
+        if (!change.publishedAt || isSharedSnapshotNewer(currentProject, change.publishedAt)) {
           markSharedUpdateAvailable(localProjectId);
         }
       }
     );
 
     return unsubscribeSnapshotChanges;
-  }, [collaborationAuth.isSignedIn, markSharedUpdateAvailable, project]);
+  }, [
+    collaborationAuth.isSignedIn,
+    markSharedUpdateAvailable,
+    project?.id,
+    project?.sharedProjectId,
+  ]);
 
   useEffect(() => {
     const sharedProjectId = project?.sharedProjectId;
@@ -586,7 +599,7 @@ export default function ProjectDetailPage() {
       ...recentAreaTypeKeys.filter((key) => key !== newAreaForm.areaTypeKey),
     ].slice(0, 8);
     setRecentAreaTypeKeys(nextRecentAreaTypeKeys);
-    localStorage.setItem(RECENT_AREA_TYPES_STORAGE_KEY, JSON.stringify(nextRecentAreaTypeKeys));
+    writeLocalStorage(RECENT_AREA_TYPES_STORAGE_KEY, JSON.stringify(nextRecentAreaTypeKeys));
     setNewAreaForm(getDefaultAreaFormValue());
     setShowAddArea(false);
     setProject({ ...projectForAreaCreation, areas: [...projectForAreaCreation.areas] });
@@ -760,7 +773,7 @@ export default function ProjectDetailPage() {
       setSyncConflicts([]);
       setSyncError(null);
       setRetryAt(null);
-      setSyncStatus('idle');
+      setSyncStatus(hasPendingSyncState() ? 'pending' : 'idle');
       markSyncedNow();
       await loadProject();
     } finally {

@@ -454,6 +454,7 @@ export default function InspectionLocationCard({
                   />
                   {isExpandedCustomCheckpoint && (
                     <InlineCheckpointEditor
+                      key={customCheckpoint.id}
                       checkpoint={customCheckpoint}
                       locationId={location.id}
                       itemId={item.id}
@@ -581,6 +582,7 @@ export default function InspectionLocationCard({
                         />
                         {isExpandedCheckpoint && (
                           <InlineCheckpointEditor
+                            key={checkpoint.id}
                             checkpoint={checkpoint}
                             locationId={location.id}
                             itemId={item.id}
@@ -859,6 +861,7 @@ export default function InspectionLocationCard({
                           />
                           {isExpandedCheckpoint && (
                             <InlineCheckpointEditor
+                              key={checkpoint.id}
                               checkpoint={checkpoint}
                               locationId={location.id}
                               itemId={item.id}
@@ -1072,7 +1075,13 @@ function InlineCheckpointEditor({
   const editorRef = useRef<HTMLDivElement | null>(null);
   const commentInputRef = useRef<HTMLTextAreaElement | null>(null);
   const voiceNoteActiveRef = useRef(false);
+  const [draft, setDraft] = useState(commentText);
   const [photoLibrarySignal, setPhotoLibrarySignal] = useState(0);
+
+  function updateDraft(value: string) {
+    setDraft(value);
+    onCommentChange(value);
+  }
 
   useEffect(() => {
     function handleDocumentClick(event: MouseEvent) {
@@ -1115,8 +1124,8 @@ function InlineCheckpointEditor({
           <div className="relative">
             <textarea
               ref={commentInputRef}
-              value={commentText}
-              onChange={(e) => onCommentChange(e.target.value)}
+              value={draft}
+              onChange={(e) => updateDraft(e.target.value)}
               onBlur={(e) => void onCommentBlur(locationId, itemId, checkpoint.id, e.target.value)}
               className="field-shell field-shell-with-two-actions min-h-[96px] resize-none text-sm"
               placeholder="Add inspection note"
@@ -1127,9 +1136,9 @@ function InlineCheckpointEditor({
                   voiceNoteActiveRef.current = active;
                 }}
                 onTranscript={(transcript) => {
-                  const separator = commentText.trim() ? ' ' : '';
-                  const nextComment = `${commentText.trimEnd()}${separator}${transcript}`;
-                  onCommentChange(nextComment);
+                  const separator = draft.trim() ? ' ' : '';
+                  const nextComment = `${draft.trimEnd()}${separator}${transcript}`;
+                  updateDraft(nextComment);
                   window.requestAnimationFrame(() => {
                     commentInputRef.current?.focus();
                     commentInputRef.current?.setSelectionRange(nextComment.length, nextComment.length);
@@ -1157,7 +1166,7 @@ function InlineCheckpointEditor({
                 {recentComments.map((comment) => (
                   <button
                     key={comment}
-                    onClick={() => onCommentChange(comment)}
+                    onClick={() => updateDraft(comment)}
                     className="segmented-chip shrink-0 whitespace-nowrap px-3 py-1.5 text-left text-xs transition hover:bg-white hover:text-gray-900 dark:hover:bg-white/[0.1] dark:hover:text-white"
                   >
                     {comment}

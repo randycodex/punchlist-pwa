@@ -88,4 +88,26 @@ describe('pending manual sync state', () => {
       autoRetryPaused: false,
     });
   });
+
+  it('keeps coalescing pending work when local storage is unavailable', () => {
+    const blockedStorage = new MemoryStorage();
+    blockedStorage.setItem('punchlist-pending-sync', JSON.stringify({
+      projectIds: ['project-0'],
+      fullSyncNeeded: false,
+      revision: 1,
+    }));
+    blockedStorage.setItem = () => {
+      throw new DOMException('Storage is blocked.', 'SecurityError');
+    };
+    blockedStorage.removeItem = () => {
+      throw new DOMException('Storage is blocked.', 'SecurityError');
+    };
+    vi.stubGlobal('localStorage', blockedStorage);
+
+    expect(() => {
+      queuePendingSync('project-1');
+      queuePendingSync('project-2');
+    }).not.toThrow();
+    expect(loadPendingSyncState().projectIds).toEqual(['project-0', 'project-1', 'project-2']);
+  });
 });

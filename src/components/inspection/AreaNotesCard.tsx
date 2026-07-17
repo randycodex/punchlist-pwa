@@ -1,6 +1,7 @@
 'use client';
 
 import { ChevronDown, ChevronRight } from 'lucide-react';
+import { useState } from 'react';
 
 type AreaNotesCardProps = {
   value: string;
@@ -11,11 +12,20 @@ type AreaNotesCardProps = {
 };
 
 export default function AreaNotesCard({ value, isExpanded, onToggle, onChange, onBlur }: AreaNotesCardProps) {
+  const [draft, setDraft] = useState(value);
+
+  function handleToggle() {
+    if (!isExpanded) {
+      setDraft(value);
+    }
+    onToggle();
+  }
+
   return (
     <div className="area-notes-card card-surface-subtle overflow-hidden rounded-[1.7rem]">
       <button
         type="button"
-        onClick={onToggle}
+        onClick={handleToggle}
         aria-expanded={isExpanded}
         className="w-full px-4 py-4 text-left transition hover:bg-black/[0.02] dark:hover:bg-white/[0.04]"
       >
@@ -36,8 +46,11 @@ export default function AreaNotesCard({ value, isExpanded, onToggle, onChange, o
       {isExpanded && (
         <div className="px-2.5 pb-2.5 pt-2">
           <textarea
-            value={value}
-            onChange={(e) => onChange(e.target.value)}
+            value={draft}
+            onChange={(e) => {
+              setDraft(e.target.value);
+              onChange(e.target.value);
+            }}
             onBlur={(e) => onBlur(e.target.value)}
             placeholder="Add general notes for this area"
             rows={4}

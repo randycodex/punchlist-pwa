@@ -3,6 +3,7 @@ import { runManualOneDriveSync } from '@/features/sync/runManualOneDriveSync';
 import {
   clearPendingSyncState,
   hasPendingSyncState,
+  loadPendingSyncState,
   queuePendingSync,
 } from '@/lib/pendingSync';
 
@@ -65,5 +66,24 @@ describe('manual OneDrive sync coordinator', () => {
 
     expect(result.status).toBe('conflict');
     expect(hasPendingSyncState()).toBe(true);
+  });
+
+  it('does not clear edits queued while a sync is still running', async () => {
+    queuePendingSync('project-1');
+
+    const result = await runManualOneDriveSync({
+      ensureAccessToken: async () => 'token',
+      syncProjects: async () => {
+        queuePendingSync('project-2');
+        return {
+          conflicts: [],
+          syncedAt: '2026-01-01T12:00:00.000Z',
+          recoveredConflictCount: 0,
+        };
+      },
+    });
+
+    expect(result.status).toBe('success');
+    expect(loadPendingSyncState().projectIds).toEqual(['project-1', 'project-2']);
   });
 });

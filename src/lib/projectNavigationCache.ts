@@ -1,6 +1,21 @@
 import type { Project } from '@/types';
 
 const projectPreviewCache = new Map<string, Project>();
+const cachedSourceVersions = new WeakMap<Project, string>();
+
+function dateValue(value: Date | undefined) {
+  return value?.getTime() ?? null;
+}
+
+function getProjectCacheVersion(project: Project) {
+  return JSON.stringify([
+    project.projectName,
+    project.sharedProjectId,
+    dateValue(project.updatedAt),
+    dateValue(project.deletedAt),
+    dateValue(project.sharedSnapshotPublishedAt),
+  ]);
+}
 
 function cloneProjectPreview(project: Project): Project {
   return {
@@ -31,7 +46,12 @@ function cloneProjectPreview(project: Project): Project {
 }
 
 export function cacheProjectPreview(project: Project) {
+  const version = getProjectCacheVersion(project);
+  if (projectPreviewCache.has(project.id) && cachedSourceVersions.get(project) === version) {
+    return;
+  }
   projectPreviewCache.set(project.id, cloneProjectPreview(project));
+  cachedSourceVersions.set(project, version);
 }
 
 export function cacheProjectPreviews(projects: Project[]) {
@@ -50,6 +70,10 @@ export function removeCachedProjectPreview(projectId: string) {
 export function getCachedProjectPreview(projectId: string): Project | null {
   const project = projectPreviewCache.get(projectId);
   return project ? cloneProjectPreview(project) : null;
+}
+
+export function getCachedProjectName(projectId: string): string | null {
+  return projectPreviewCache.get(projectId)?.projectName ?? null;
 }
 
 export function getCachedProjectPreviews(): Project[] {

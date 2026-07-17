@@ -149,28 +149,51 @@ export default function PhotoCapture({
     cameraInputRef.current?.click();
   }, []);
 
-  const createScaledImageData = useCallback((img: HTMLImageElement, maxSize: number, quality: number) => {
-    const scale = Math.min(1, maxSize / Math.max(img.width, img.height));
-    const width = Math.max(1, Math.round(img.width * scale));
-    const height = Math.max(1, Math.round(img.height * scale));
+  const createScaledImageData = useCallback((
+    source: CanvasImageSource,
+    sourceWidth: number,
+    sourceHeight: number,
+    maxSize: number,
+    quality: number
+  ): string | null => {
+    const scale = Math.min(1, maxSize / Math.max(sourceWidth, sourceHeight));
+    const width = Math.max(1, Math.round(sourceWidth * scale));
+    const height = Math.max(1, Math.round(sourceHeight * scale));
     const canvas = document.createElement('canvas');
     canvas.width = width;
     canvas.height = height;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return img.src;
-    ctx.drawImage(img, 0, 0, width, height);
-    return canvas.toDataURL('image/jpeg', quality);
+    try {
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return null;
+      ctx.drawImage(source, 0, 0, width, height);
+      return canvas.toDataURL('image/jpeg', quality);
+    } catch {
+      return null;
+    } finally {
+      // Release the backing store promptly on memory-constrained mobile browsers.
+      canvas.width = 0;
+      canvas.height = 0;
+    }
   }, []);
 
   const getPhotoPayloadFromDataUrl = useCallback((sourceData: string): Promise<{ imageData: string; thumbnail?: string } | null> => {
     return new Promise((resolve) => {
       const img = new window.Image();
       img.onload = () => {
-        const imageData = createScaledImageData(img, maxImageSize, 0.72);
-        const thumbnail = createScaledImageData(img, thumbnailSize, 0.6);
-        resolve({ imageData, thumbnail });
+        const sourceWidth = img.naturalWidth || img.width;
+        const sourceHeight = img.naturalHeight || img.height;
+        const imageData = createScaledImageData(img, sourceWidth, sourceHeight, maxImageSize, 0.72);
+        const thumbnail = createScaledImageData(img, sourceWidth, sourceHeight, thumbnailSize, 0.6);
+        img.onload = null;
+        img.onerror = null;
+        img.src = '';
+        resolve(imageData && thumbnail ? { imageData, thumbnail } : null);
       };
-      img.onerror = () => resolve(null);
+      img.onerror = () => {
+        img.onload = null;
+        img.onerror = null;
+        resolve(null);
+      };
       img.src = sourceData;
     });
   }, [createScaledImageData]);
@@ -308,23 +331,34 @@ export default function PhotoCapture({
       return false;
     }
 
-    const canvas = document.createElement('canvas');
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return false;
-    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-
+    pendingCaptureRef.current = true;
+    setCapturePending(true);
+    const imageData = createScaledImageData(
+      video,
+      video.videoWidth,
+      video.videoHeight,
+      maxImageSize,
+      0.72
+    );
+    const thumbnail = createScaledImageData(
+      video,
+      video.videoWidth,
+      video.videoHeight,
+      thumbnailSize,
+      0.6
+    );
     pendingCaptureRef.current = false;
     setCapturePending(false);
+
+    if (!imageData || !thumbnail) {
+      setCameraError('Could not process this photo. Try again or use Photo Library.');
+      return true;
+    }
+
     setCameraError(null);
-    const frameData = canvas.toDataURL('image/jpeg', 0.92);
-    void getPhotoPayloadFromDataUrl(frameData).then((payload) => {
-      if (!payload) return;
-      setCapturedBatch((prev) => [...prev, payload]);
-    });
+    setCapturedBatch((prev) => [...prev, { imageData, thumbnail }]);
     return true;
-  }, [getPhotoPayloadFromDataUrl]);
+  }, [createScaledImageData]);
 
   function captureFromVideo() {
     const video = videoRef.current;
@@ -432,10 +466,15 @@ export default function PhotoCapture({
     return new Promise((resolve) => {
       const reader = new FileReader();
       reader.onload = (event) => {
-        const sourceData = event.target?.result as string;
-        void getPhotoPayloadFromDataUrl(sourceData).then(resolve);
+        const sourceData = event.target?.result;
+        if (typeof sourceData !== 'string') {
+          resolve(null);
+          return;
+        }
+        void getPhotoPayloadFromDataUrl(sourceData).then(resolve, () => resolve(null));
       };
       reader.onerror = () => resolve(null);
+      reader.onabort = () => resolve(null);
       reader.readAsDataURL(file);
     });
   }
@@ -448,11 +487,17 @@ export default function PhotoCapture({
 
     setCameraError(null);
     setSavingPhotos(true);
-    const processed = await Promise.all(selected.map((file) => fileToPhotoPayload(file)));
-    const readyPhotos = processed.filter((photo): photo is { imageData: string; thumbnail?: string } => photo !== null);
-    const failedHeicCount = selected.filter((file, index) => processed[index] === null && isHeicFile(file)).length;
-    const failedOtherCount = processed.length - readyPhotos.length - failedHeicCount;
     try {
+      // Decode and resize one source at a time. Concurrent 12–25 MB phone photos
+      // can otherwise multiply canvas and base64 memory until Safari kills the tab.
+      const processed: Array<{ imageData: string; thumbnail?: string } | null> = [];
+      for (const file of selected) {
+        processed.push(await fileToPhotoPayload(file));
+      }
+      const readyPhotos = processed.filter((photo): photo is { imageData: string; thumbnail?: string } => photo !== null);
+      const failedHeicCount = selected.filter((file, index) => processed[index] === null && isHeicFile(file)).length;
+      const failedOtherCount = processed.length - readyPhotos.length - failedHeicCount;
+
       if (readyPhotos.length > 0) {
         if (onAddPhotos) {
           await onAddPhotos(readyPhotos);
@@ -474,6 +519,9 @@ export default function PhotoCapture({
       if (errors.length > 0) {
         setCameraError(errors.join(' '));
       }
+    } catch (error) {
+      console.error('Failed to add selected photos:', error);
+      setCameraError('Could not save the selected photos. Your existing inspection data is unchanged.');
     } finally {
       setSavingPhotos(false);
       if (cameraInputRef.current) cameraInputRef.current.value = '';
