@@ -4,6 +4,7 @@ const {
   fromMock,
   getSessionMock,
   rpcMock,
+  storageFromMock,
   state,
 } = vi.hoisted(() => {
   const state = { active: 0, maxActive: 0 };
@@ -26,6 +27,7 @@ const {
     state,
     fromMock: vi.fn(() => query),
     rpcMock: vi.fn(() => delayedResponse()),
+    storageFromMock: vi.fn(() => ({ list: vi.fn(() => delayedResponse()) })),
     getSessionMock: vi.fn(),
   };
 });
@@ -40,6 +42,7 @@ vi.mock('@/lib/collaboration/supabaseClient', () => ({
     auth: { getSession: getSessionMock },
     from: fromMock,
     rpc: rpcMock,
+    storage: { from: storageFromMock },
   }),
 }));
 
@@ -51,15 +54,17 @@ describe('collaboration health checks', () => {
     state.maxActive = 0;
     fromMock.mockClear();
     rpcMock.mockClear();
+    storageFromMock.mockClear();
     getSessionMock.mockReset();
     getSessionMock.mockResolvedValue({ data: { session: { user: { email: 'person@uai-ny.com' } } }, error: null });
   });
 
   it('runs independent database probes in parallel', async () => {
     const report = await runCollaborationHealthCheck();
-    expect(report.checks).toHaveLength(17);
+    expect(report.checks).toHaveLength(19);
     expect(state.maxActive).toBeGreaterThan(1);
-    expect(fromMock).toHaveBeenCalledTimes(6);
+    expect(fromMock).toHaveBeenCalledTimes(7);
     expect(rpcMock).toHaveBeenCalledTimes(8);
+    expect(storageFromMock).toHaveBeenCalledWith('punchlist-attachments');
   });
 });

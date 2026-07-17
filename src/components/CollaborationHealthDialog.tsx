@@ -39,7 +39,7 @@ export default function CollaborationHealthDialog({
           Collaboration Health
         </h2>
         <p className="mb-5 text-sm text-gray-500 dark:text-gray-400">
-          Checks the shared-project database tables, functions, auth session, and runtime config.
+          Checks shared-project tables, attachment storage, functions, auth, and runtime config.
         </p>
 
         {loading ? (

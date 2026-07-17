@@ -140,7 +140,7 @@ Start simple: no visible roles for the first release.
 ## Decisions still needed
 
 - Backend platform: Supabase/Firebase/Convex/custom Next.js API plus Postgres.
-- Shared media storage: Supabase Storage/Azure Blob/Vercel Blob/S3/SharePoint.
+- Shared media storage is Supabase Storage via the private `punchlist-attachments` bucket; future work should focus on lifecycle cleanup and smaller area-level mutations.
 - UAI email domain or tenant ID that should be accepted for production.
 - Temporary exact-email test allowlist entries, if non-UAI testers need access before the production identity model is widened.
 - Join-code lifetime and whether join requests require approval.
@@ -162,12 +162,9 @@ NEXT_PUBLIC_COLLABORATION_AREA_CLAIM_TIMEOUT_MS=14400000
 
 The join-code, area-claim, and exact-email allowlist values are optional. Defaults are 7 days for join codes and 4 hours for area claims. Keep `NEXT_PUBLIC_COLLABORATION_ALLOWED_EMAILS` to temporary test accounts only; it does not replace a production arbitrary-email identity model.
 
-## Client package
+## Shared snapshot payloads
 
-Runtime integration will use Supabase Auth and database clients. Install the client package before wiring live UI:
-
-```bash
-npm install @supabase/supabase-js
-```
-
-This repository currently has an npm lockfile. Do not add a pnpm lockfile for this dependency.
+Version 1 stores legacy inline project JSON. Version 2 keeps the project
+hierarchy in JSON and stores binary media in the private Supabase attachment
+bucket. New clients read both versions; attachment-bearing publishes use version
+2 so database snapshots and history rows no longer duplicate base64 content.

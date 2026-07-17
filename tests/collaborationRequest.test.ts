@@ -35,5 +35,13 @@ describe('collaboration request timeout', () => {
       operation: 'Collaboration request',
       timeoutMs: COLLABORATION_REQUEST_TIMEOUT_MS,
     });
+
+    expect(getCollaborationRequestPolicy(
+      'https://example.supabase.co/storage/v1/object/punchlist-attachments/project/photo.jpg',
+      { method: 'POST' }
+    )).toEqual({
+      operation: 'Uploading shared attachments',
+      timeoutMs: COLLABORATION_TRANSFER_TIMEOUT_MS,
+    });
   });
 });

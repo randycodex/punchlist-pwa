@@ -2,7 +2,15 @@ import type { Area, Project } from '@/types';
 import type { Json } from './database';
 import type { CollaborationSnapshotBackup, CollaborationSnapshotBackupReason } from './types';
 import { getCollaborationSupabaseClient } from './supabaseClient';
-import { parseProjectPayload } from '@/lib/projectPayload';
+import {
+  getSharedSnapshotProjectName,
+  parseSharedSnapshotPayload,
+} from './sharedSnapshotPayload';
+import {
+  hydrateSharedSnapshotAssets,
+  prepareCompactSharedSnapshotPayload,
+  projectHasSharedSnapshotAttachments,
+} from './sharedSnapshotAssets';
 
 type SnapshotResult = {
   project: Project;
@@ -55,6 +63,28 @@ function isMissingPublishRpcError(error: { code?: string; message?: string }) {
   return error.code === 'PGRST202' || message.includes('publish_shared_project_snapshot');
 }
 
+function isMissingBackupProjectNameError(error: { code?: string; message?: string } | null) {
+  const message = error?.message?.toLowerCase() ?? '';
+  return error?.code === '42703'
+    || error?.code === 'PGRST204'
+    || message.includes('project_name');
+}
+
+async function prepareSnapshotTransfer(project: Project, uploadedByUserId: string) {
+  if (!projectHasSharedSnapshotAttachments(project)) {
+    return {
+      payload: toJson(project),
+      payloadVersion: 1,
+    };
+  }
+
+  const compact = await prepareCompactSharedSnapshotPayload(project, uploadedByUserId);
+  return {
+    payload: toJson(compact.payload),
+    payloadVersion: compact.payloadVersion,
+  };
+}
+
 export function isSharedProjectPublishConflictError(error: unknown): error is SharedProjectPublishConflictError {
   if (error instanceof SharedProjectPublishConflictError) return true;
   if (!error || typeof error !== 'object') return false;
@@ -97,7 +127,8 @@ export async function getSharedProjectPublishConflict(project: Project): Promise
 
 async function publishSnapshotWithUpsert(
   project: Project,
-  publishedByUserId: string
+  publishedByUserId: string,
+  transfer: Awaited<ReturnType<typeof prepareSnapshotTransfer>>
 ): Promise<{ publishedAt: string }> {
   if (!project.sharedProjectId) {
     throw new Error('Share this project before publishing shared data.');
@@ -118,8 +149,8 @@ async function publishSnapshotWithUpsert(
     .from('shared_project_snapshots')
     .upsert({
       project_id: project.sharedProjectId,
-      project_payload: toJson(project),
-      payload_version: 1,
+      project_payload: transfer.payload,
+      payload_version: transfer.payloadVersion,
       published_by_user_id: publishedByUserId,
       published_at: publishedAt,
     });
@@ -147,10 +178,11 @@ export async function publishSharedProjectSnapshot(project: Project, publishedBy
   }
 
   const basePublishedAt = project.sharedSnapshotPublishedAt?.toISOString() ?? null;
+  const transfer = await prepareSnapshotTransfer(project, publishedByUserId);
   const { data, error } = await supabase.rpc('publish_shared_project_snapshot', {
     p_project_id: project.sharedProjectId,
-    p_project_payload: toJson(project),
-    p_payload_version: 1,
+    p_project_payload: transfer.payload,
+    p_payload_version: transfer.payloadVersion,
     p_base_published_at: basePublishedAt,
   });
 
@@ -162,7 +194,7 @@ export async function publishSharedProjectSnapshot(project: Project, publishedBy
     if (!isMissingPublishRpcError(error)) {
       throw error;
     }
-    const fallbackResult = await publishSnapshotWithUpsert(project, publishedByUserId);
+    const fallbackResult = await publishSnapshotWithUpsert(project, publishedByUserId, transfer);
     publishedAt = fallbackResult.publishedAt;
   } else {
     publishedAt = typeof data === 'string' ? data : new Date().toISOString();
@@ -186,10 +218,18 @@ export async function captureSharedProjectBackup(
     throw new Error('Collaboration is not configured.');
   }
 
+  const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+  if (sessionError) throw sessionError;
+  const userId = sessionData.session?.user.id;
+  if (!userId) {
+    throw new Error('Enable shared projects before backing up shared data.');
+  }
+
+  const transfer = await prepareSnapshotTransfer(project, userId);
   const { data, error } = await supabase.rpc('capture_shared_project_backup', {
     p_project_id: project.sharedProjectId,
-    p_project_payload: toJson(project),
-    p_payload_version: 1,
+    p_project_payload: transfer.payload,
+    p_payload_version: transfer.payloadVersion,
     p_reason: reason,
     p_note: note ?? null,
   });
@@ -225,8 +265,13 @@ export async function getSharedProjectSnapshot(localProject: Project): Promise<S
     throw new Error('No shared data has been published for this project yet.');
   }
 
-  const revivedProject = parseProjectPayload(data.project_payload, data.payload_version);
-  const retargetedProject = retargetProject(revivedProject, localProject);
+  const parsed = parseSharedSnapshotPayload(data.project_payload, data.payload_version);
+  const hydratedProject = await hydrateSharedSnapshotAssets(
+    parsed.project,
+    parsed.assets,
+    localProject.sharedProjectId
+  );
+  const retargetedProject = retargetProject(hydratedProject, localProject);
   return {
     project: {
       ...retargetedProject,
@@ -258,17 +303,18 @@ export async function getSharedProjectSnapshotMetadata(sharedProjectId: string):
 function reviveBackup(row: {
   id: string;
   project_id: string;
-  project_payload: Json;
+  project_name?: string | null;
+  project_payload?: Json;
   captured_by_user_id: string;
   captured_at: string;
   reason: CollaborationSnapshotBackupReason;
   note: string | null;
 }): CollaborationSnapshotBackup {
-  const payload = row.project_payload as unknown as Partial<Project>;
   return {
     id: row.id,
     projectId: row.project_id,
-    projectName: payload.projectName ?? 'Shared project backup',
+    projectName: row.project_name?.trim()
+      || getSharedSnapshotProjectName(row.project_payload),
     capturedByUserId: row.captured_by_user_id,
     capturedAt: new Date(row.captured_at),
     reason: row.reason,
@@ -282,18 +328,32 @@ export async function listSharedProjectBackups(sharedProjectId: string): Promise
     throw new Error('Collaboration is not configured.');
   }
 
-  const { data, error } = await supabase
+  const currentResult = await supabase
+    .from('shared_project_snapshot_history')
+    .select('id, project_id, project_name, captured_by_user_id, captured_at, reason, note')
+    .eq('project_id', sharedProjectId)
+    .order('captured_at', { ascending: false })
+    .limit(50);
+
+  if (!currentResult.error) {
+    return (currentResult.data ?? []).map((row) => reviveBackup(row));
+  }
+
+  if (!isMissingBackupProjectNameError(currentResult.error)) {
+    throw currentResult.error;
+  }
+
+  // Allow the client to deploy before the project_name migration. This legacy
+  // fallback is intentionally removed from the normal path because it downloads
+  // every historical project payload just to render the backup list.
+  const legacyResult = await supabase
     .from('shared_project_snapshot_history')
     .select('id, project_id, project_payload, captured_by_user_id, captured_at, reason, note')
     .eq('project_id', sharedProjectId)
     .order('captured_at', { ascending: false })
     .limit(50);
-
-  if (error) {
-    throw error;
-  }
-
-  return (data ?? []).map(reviveBackup);
+  if (legacyResult.error) throw legacyResult.error;
+  return (legacyResult.data ?? []).map((row) => reviveBackup(row));
 }
 
 export async function getSharedProjectBackupSnapshot(localProject: Project, backupId: string): Promise<SnapshotResult> {
@@ -321,8 +381,13 @@ export async function getSharedProjectBackupSnapshot(localProject: Project, back
     throw new Error('Could not find this shared project backup.');
   }
 
-  const revivedProject = parseProjectPayload(data.project_payload, data.payload_version);
-  const retargetedProject = retargetProject(revivedProject, localProject);
+  const parsed = parseSharedSnapshotPayload(data.project_payload, data.payload_version);
+  const hydratedProject = await hydrateSharedSnapshotAssets(
+    parsed.project,
+    parsed.assets,
+    localProject.sharedProjectId
+  );
+  const retargetedProject = retargetProject(hydratedProject, localProject);
   return {
     project: {
       ...retargetedProject,

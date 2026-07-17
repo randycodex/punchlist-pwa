@@ -5,6 +5,8 @@ export * from './diagnostics';
 export * from './profiles';
 export * from './sharedProjectSnapshots';
 export * from './sharedProjects';
+export * from './sharedSnapshotAssets';
+export * from './sharedSnapshotPayload';
 export * from './storage';
 export * from './supabaseClient';
 export * from './types';

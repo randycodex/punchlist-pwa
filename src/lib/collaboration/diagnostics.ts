@@ -1,6 +1,7 @@
 import type { Json } from './database';
 import { getAllowedCollaborationEmailDescription, getCollaborationRuntimeConfig } from './config';
 import { getCollaborationSupabaseClient } from './supabaseClient';
+import { COLLABORATION_ATTACHMENT_BUCKET } from './storage';
 
 export type CollaborationHealthStatus = 'ok' | 'warning' | 'error';
 
@@ -95,6 +96,28 @@ async function checkRpc(
   }
 }
 
+async function checkStorageBucket(
+  probe: () => PromiseLike<{ error: unknown }>
+): Promise<CollaborationHealthCheck> {
+  const key = 'attachment_storage';
+  const label = 'Shared attachment storage';
+  try {
+    const { error: probeError } = await probe();
+    if (!probeError) {
+      return ok(key, label, 'Private attachment bucket is reachable.');
+    }
+
+    const message = getErrorText(probeError);
+    const normalized = message.toLowerCase();
+    if (normalized.includes('bucket') && normalized.includes('not found')) {
+      return error(key, label, message || 'Attachment bucket is missing.');
+    }
+    return warning(key, label, message || 'Attachment storage exists, but access was blocked.');
+  } catch (caughtError) {
+    return warning(key, label, getErrorText(caughtError) || 'Attachment storage check did not finish.');
+  }
+}
+
 export async function runCollaborationHealthCheck(): Promise<CollaborationHealthReport> {
   const checks: CollaborationHealthCheck[] = [];
   const config = getCollaborationRuntimeConfig();
@@ -126,8 +149,10 @@ export async function runCollaborationHealthCheck(): Promise<CollaborationHealth
     checkTable('user_profiles', 'User profiles table', () => supabase.from('user_profiles').select('user_id').limit(1)),
     checkTable('project_members', 'Project members table', () => supabase.from('project_members').select('id').limit(1)),
     checkTable('area_claims', 'Area claims table', () => supabase.from('area_claims').select('id').limit(1)),
+    checkTable('shared_attachments', 'Shared attachments table', () => supabase.from('shared_attachments').select('id').limit(1)),
     checkTable('snapshots', 'Latest snapshot table', () => supabase.from('shared_project_snapshots').select('project_id').limit(1)),
     checkTable('backup_history', 'Backup history table', () => supabase.from('shared_project_snapshot_history').select('id').limit(1)),
+    checkStorageBucket(() => supabase.storage.from(COLLABORATION_ATTACHMENT_BUCKET).list('', { limit: 1 })),
 
     checkRpc('list_my_shared_projects', 'My shared projects function', () => supabase.rpc('list_my_shared_projects')),
     checkRpc('generate_join_code', 'Invite code function', () => supabase.rpc('generate_shared_project_join_code', {

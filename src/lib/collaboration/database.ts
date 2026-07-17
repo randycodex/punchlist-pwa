@@ -241,6 +241,7 @@ export interface CollaborationDatabase {
         Row: {
           id: string;
           project_id: string;
+          project_name: string;
           project_payload: Json;
           payload_version: number;
           captured_by_user_id: string;
@@ -251,6 +252,7 @@ export interface CollaborationDatabase {
         Insert: {
           id?: string;
           project_id: string;
+          project_name?: string;
           project_payload: Json;
           payload_version?: number;
           captured_by_user_id: string;

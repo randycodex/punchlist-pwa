@@ -13,7 +13,12 @@ Apply migrations to the Supabase `punchlist` project after review. The first mig
 - attachment metadata for shared storage
 - Row Level Security policies for project members
 
-The app still needs the Supabase client package and API wiring before these tables are used at runtime.
+The app uses the private `punchlist-attachments` bucket for compact version-2
+shared snapshots. Photos, files, thumbnails, and facade drawings are uploaded
+before the compact JSON snapshot is published; version-1 inline snapshots remain
+readable for backward compatibility. Apply migrations through
+`20260717160000_compact_shared_snapshot_assets.sql` before relying on the
+lightweight backup-list query.
 
 To temporarily allow a non-UAI tester, add the exact lower-case email after applying migrations:
 

@@ -39,6 +39,14 @@ export function getCollaborationRequestPolicy(
     };
   }
 
+  if (url.includes('/storage/v1/object')) {
+    const method = init?.method?.toUpperCase() ?? 'GET';
+    return {
+      operation: method === 'GET' ? 'Downloading shared attachments' : 'Uploading shared attachments',
+      timeoutMs: COLLABORATION_TRANSFER_TIMEOUT_MS,
+    };
+  }
+
   return {
     operation: 'Collaboration request',
     timeoutMs: COLLABORATION_REQUEST_TIMEOUT_MS,
