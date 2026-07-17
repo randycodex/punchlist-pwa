@@ -98,7 +98,7 @@ html:not(.dark) {
 }
 
 .persistent-top-bar {
-  background-color: var(--top-bar-surface) !important;
+  background-color: transparent !important;
   border-bottom: 0 !important;
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
@@ -148,9 +148,15 @@ html:not(.dark) {
 .top-bar-surface {
   background-color: var(--top-bar-surface);
   border-top: 0;
-  box-shadow: none;
+  border-bottom-left-radius: 1.6rem;
+  border-bottom-right-radius: 1.6rem;
+  box-shadow: 0 12px 24px -22px rgba(15, 23, 42, 0.48);
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
+}
+
+.dark .top-bar-surface {
+  box-shadow: 0 14px 26px -22px rgba(0, 0, 0, 0.82);
 }
 
 .page-header-surface {
