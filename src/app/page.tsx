@@ -195,6 +195,8 @@ export default function ProjectsPage() {
   const [loadingMySharedProjects, setLoadingMySharedProjects] = useState(false);
   const [mySharedProjects, setMySharedProjects] = useState<CollaborationSharedProjectDirectoryEntry[]>([]);
   const [addingSharedProjectId, setAddingSharedProjectId] = useState<string | null>(null);
+  const [directoryDisconnectConfirm, setDirectoryDisconnectConfirm] = useState<CollaborationSharedProjectDirectoryEntry | null>(null);
+  const [disconnectingDirectoryProjectId, setDisconnectingDirectoryProjectId] = useState<string | null>(null);
   const [backupProject, setBackupProject] = useState<Project | null>(null);
   const [loadingSharedBackups, setLoadingSharedBackups] = useState(false);
   const [sharedBackups, setSharedBackups] = useState<CollaborationSnapshotBackup[]>([]);
@@ -1465,6 +1467,42 @@ export default function ProjectsPage() {
     }
   }
 
+  function handleDirectoryDisconnect(
+    entry: CollaborationSharedProjectDirectoryEntry,
+    localProject?: Project
+  ) {
+    const isOwner = entry.ownerUserId === collaborationAuth.user?.id;
+    if (localProject) {
+      setShowMySharedProjects(false);
+      setMySharedProjects([]);
+      handleDisconnectSharedProject(localProject, isOwner);
+      return;
+    }
+    setDirectoryDisconnectConfirm(entry);
+  }
+
+  async function confirmDirectoryDisconnect() {
+    const entry = directoryDisconnectConfirm;
+    if (!entry || disconnectingDirectoryProjectId) return;
+
+    setDisconnectingDirectoryProjectId(entry.projectId);
+    try {
+      const result = await disconnectSharedProject(entry.projectId);
+      setMySharedProjects((current) => current.filter((item) => item.projectId !== entry.projectId));
+      setDirectoryDisconnectConfirm(null);
+      showMessage(
+        result.action === 'archived'
+          ? `Sharing stopped for "${entry.projectName}". It is no longer available to project members.`
+          : `You left "${entry.projectName}".`
+      );
+    } catch (error) {
+      console.error('Failed to leave shared project from directory:', error);
+      showMessage(getCollaborationErrorMessage(error, 'Failed to leave this shared project. Please try again.'));
+    } finally {
+      setDisconnectingDirectoryProjectId(null);
+    }
+  }
+
   const handlePublishSharedProject = useCallback(async (project: Project) => {
     if (!project.sharedProjectId) {
       showMessage('Share this project before publishing shared data.');
@@ -2500,6 +2538,27 @@ export default function ProjectsPage() {
         />
       )}
 
+      {directoryDisconnectConfirm && (
+        <AppConfirmDialog
+          title={directoryDisconnectConfirm.ownerUserId === collaborationAuth.user?.id
+            ? 'Stop Sharing'
+            : 'Leave Shared Project'}
+          message={directoryDisconnectConfirm.ownerUserId === collaborationAuth.user?.id
+            ? `Stop sharing "${directoryDisconnectConfirm.projectName}"?\n\nYou own this project, so this will archive it for everyone. This project is not stored on this device.`
+            : `Leave "${directoryDisconnectConfirm.projectName}"?\n\nThis will remove your membership. Other members will keep access, and no local project data will be deleted.`}
+          confirmLabel={disconnectingDirectoryProjectId
+            ? directoryDisconnectConfirm.ownerUserId === collaborationAuth.user?.id ? 'Stopping...' : 'Leaving...'
+            : directoryDisconnectConfirm.ownerUserId === collaborationAuth.user?.id ? 'Stop Sharing' : 'Leave Project'}
+          danger
+          onCancel={() => {
+            if (!disconnectingDirectoryProjectId) {
+              setDirectoryDisconnectConfirm(null);
+            }
+          }}
+          onConfirm={() => void confirmDirectoryDisconnect()}
+        />
+      )}
+
       {deleteProjectConfirm && (
         <AppConfirmDialog
           title="Delete Project"
@@ -2822,6 +2881,8 @@ export default function ProjectsPage() {
                 {mySharedProjects.map((entry) => {
                   const localProject = projects.find((project) => project.sharedProjectId === entry.projectId);
                   const isAdding = addingSharedProjectId === entry.projectId;
+                  const isDisconnecting = disconnectingDirectoryProjectId === entry.projectId;
+                  const isOwner = entry.ownerUserId === collaborationAuth.user?.id;
                   return (
                     <div key={entry.projectId} className="rounded-[1.25rem] border border-[var(--surface-border)] bg-white/70 p-4 dark:bg-white/[0.04]">
                       <div className="min-w-0">
@@ -2835,10 +2896,19 @@ export default function ProjectsPage() {
                       </div>
                       <button
                         onClick={() => void handleAddSharedProjectFromDirectory(entry)}
-                        disabled={!!localProject || !!addingSharedProjectId}
+                        disabled={!!localProject || !!addingSharedProjectId || !!disconnectingDirectoryProjectId}
                         className="mt-4 w-full rounded-2xl bg-zinc-900 px-4 py-3 text-sm font-medium text-white transition hover:bg-black disabled:cursor-not-allowed disabled:opacity-50 dark:bg-white dark:text-gray-900 dark:hover:bg-gray-200"
                       >
                         {localProject ? 'On this device' : isAdding ? 'Adding...' : 'Add to this device'}
+                      </button>
+                      <button
+                        onClick={() => handleDirectoryDisconnect(entry, localProject)}
+                        disabled={!!addingSharedProjectId || !!disconnectingDirectoryProjectId}
+                        className="mt-2 w-full rounded-2xl border border-red-300/90 bg-red-50/80 px-4 py-3 text-sm font-medium text-red-700 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-red-400/20 dark:bg-red-400/[0.08] dark:text-red-300 dark:hover:bg-red-400/[0.14]"
+                      >
+                        {isDisconnecting
+                          ? (isOwner ? 'Stopping...' : 'Leaving...')
+                          : isOwner ? 'Leave project (stops sharing)' : 'Leave project'}
                       </button>
                     </div>
                   );
