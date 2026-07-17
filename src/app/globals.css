@@ -146,7 +146,7 @@ html:not(.dark) {
 }
 
 .top-bar-surface {
-  background-color: transparent;
+  background-color: var(--top-bar-surface);
   border-top: 0;
   box-shadow: none;
   backdrop-filter: none;
