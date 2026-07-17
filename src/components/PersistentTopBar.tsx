@@ -202,19 +202,6 @@ export default function PersistentTopBar() {
   }, [homeMenuState.context, homeMenuState.singleProjectName, projectId]);
 
   useEffect(() => {
-    if (!showHomeMenu) return;
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        setShowHomeMenu(false);
-      }
-    };
-    document.addEventListener('keydown', handleKeyDown);
-    return () => {
-      document.removeEventListener('keydown', handleKeyDown);
-    };
-  }, [showHomeMenu]);
-
-  useEffect(() => {
     let cancelled = false;
     const sharedProjectId = homeMenuState.sharedProjectId;
 
@@ -265,7 +252,6 @@ export default function PersistentTopBar() {
   ]);
 
   async function handleMicrosoftAuthAction() {
-    setShowHomeMenu(false);
     if (!isSignedIn) {
       await signInToMicrosoft();
       return;
@@ -314,7 +300,7 @@ export default function PersistentTopBar() {
     { value: 'progress', label: 'Progress' },
   ];
 
-  function dispatchHomeAction(action: string, sort?: SortOption, options?: { keepMenuOpen?: boolean }) {
+  function dispatchHomeAction(action: string, sort?: SortOption) {
     window.dispatchEvent(new CustomEvent('punchlist-home-menu-action', {
       detail: {
         action,
@@ -324,9 +310,6 @@ export default function PersistentTopBar() {
           : undefined,
       },
     }));
-    if (!options?.keepMenuOpen) {
-      setShowHomeMenu(false);
-    }
   }
 
   function renderSyncButton() {
@@ -359,7 +342,7 @@ export default function PersistentTopBar() {
             );
             return;
           }
-          dispatchHomeAction('sync-now', undefined, { keepMenuOpen: true });
+          dispatchHomeAction('sync-now');
         }}
         disabled={displayStatus === 'syncing' || displayRetryInSeconds > 0}
         className={`flex h-10 min-w-10 shrink-0 items-center justify-center gap-2 rounded-[1rem] border px-2.5 transition ${buttonClasses}`}
@@ -500,7 +483,7 @@ export default function PersistentTopBar() {
                         {quickSortOptions.map((option) => (
                           <button
                             key={option.value}
-                            onClick={() => dispatchHomeAction(`quick-sort:${option.value}`, undefined, { keepMenuOpen: true })}
+                            onClick={() => dispatchHomeAction(`quick-sort:${option.value}`)}
                             className={`rounded-full px-3 py-1.5 text-xs font-medium transition ${
                               quickSort === option.value
                                 ? 'bg-[var(--accent)] text-white'
@@ -524,7 +507,7 @@ export default function PersistentTopBar() {
                       {sortOptions.map(({ value, label, icon: Icon }) => (
                         <button
                           key={value}
-                          onClick={() => dispatchHomeAction('sort', value, { keepMenuOpen: true })}
+                          onClick={() => dispatchHomeAction('sort', value)}
                           className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm transition ${
                             homeMenuState.sortOption === value
                               ? 'bg-[var(--accent)] font-medium text-white'
@@ -705,7 +688,6 @@ export default function PersistentTopBar() {
                       {collaborationAuth.isSignedIn && (
                         <button
                           onClick={() => {
-                            setShowHomeMenu(false);
                             setShowProfile(true);
                           }}
                           className={menuPillClass}
@@ -734,7 +716,6 @@ export default function PersistentTopBar() {
                             } else {
                               void collaborationAuth.signIn();
                             }
-                            setShowHomeMenu(false);
                           }}
                           className={menuPillClass}
                         >
