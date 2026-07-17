@@ -392,6 +392,7 @@ export interface CollaborationDatabase {
         Args: Record<string, never>;
         Returns: {
           project_id: string;
+          local_project_id: string;
           project_name: string;
           owner_user_id: string;
           owner_email: string | null;

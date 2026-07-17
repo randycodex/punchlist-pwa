@@ -175,6 +175,7 @@ export async function listMySharedProjects(): Promise<CollaborationSharedProject
 
   return (data ?? []).map((row) => ({
     projectId: row.project_id,
+    localProjectId: row.local_project_id,
     projectName: row.project_name,
     ownerUserId: row.owner_user_id,
     ownerEmail: row.owner_email ?? undefined,

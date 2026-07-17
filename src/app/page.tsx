@@ -13,6 +13,8 @@ import {
   createProject,
   createArea,
   clearPendingSharedSyncsForProject,
+  getPendingSharedAreaSyncsForProject,
+  getPendingSharedProjectMetadataSyncForProject,
 } from '@/lib/db';
 import {
   markProjectDeleted,
@@ -115,6 +117,7 @@ import {
   Loader2,
   RotateCcw,
   Plus,
+  Users,
 } from 'lucide-react';
 
 type SortOption = 'alphabetical' | 'issues' | 'progress';
@@ -975,15 +978,6 @@ export default function ProjectsPage() {
     });
   }, []);
 
-  const enterAreaSelectionMode = useCallback((areaId: string) => {
-    setShowTrash(false);
-    setDeleteMode(true);
-    setExportMode(false);
-    setExportScope('selected-projects');
-    setSelectedProjectIds(new Set());
-    setSelectedAreaIds(new Set([areaId]));
-  }, []);
-
   async function handleDeleteSelectedProjects() {
     if (selectedProjectIds.size === 0) return;
     if (showTrash) {
@@ -1325,17 +1319,49 @@ export default function ProjectsPage() {
     }
   }, [collaborationAuth.isSignedIn, showMessage]);
 
-  async function addSharedProjectToDevice(sharedProjectId: string, projectName: string) {
+  async function addSharedProjectToDevice(
+    sharedProjectId: string,
+    projectName: string,
+    localProjectId?: string
+  ) {
     const existingProject = projects.find((project) => project.sharedProjectId === sharedProjectId);
     if (existingProject) {
-      return { project: existingProject, alreadyLocal: true };
+      return {
+        project: existingProject,
+        alreadyLocal: true,
+        pulledSnapshot: false,
+        reusedDetached: false,
+        reconnected: false,
+      };
     }
 
     const detachedProject = findDetachedSharedProject(projects, sharedProjectId);
+    const matchingLocalProject = localProjectId
+      ? projects.find((project) => !project.deletedAt && project.id === localProjectId)
+      : undefined;
+    const reusableProject = detachedProject ?? matchingLocalProject;
+    const isReconnecting = Boolean(
+      matchingLocalProject?.sharedProjectId
+      && matchingLocalProject.sharedProjectId !== sharedProjectId
+    );
+    const [pendingAreaSyncs, pendingMetadataSync] = reusableProject
+      ? await Promise.all([
+          getPendingSharedAreaSyncsForProject(reusableProject.id),
+          getPendingSharedProjectMetadataSyncForProject(reusableProject.id),
+        ])
+      : [[], null];
+    const pendingAreaIds = new Set(pendingAreaSyncs.map((record) => record.areaId));
     const project = detachedProject
       ? relinkDetachedSharedProject(detachedProject, sharedProjectId)
+      : reusableProject
+        ? {
+            ...clearDetachedSharedProjectMetadata(reusableProject),
+            areas: [...reusableProject.areas],
+            sharedProjectId,
+            sharedProjectLinkedAt: new Date(),
+          }
       : createProject(projectName);
-    if (!detachedProject) {
+    if (!reusableProject) {
       project.sharedProjectId = sharedProjectId;
       project.sharedProjectLinkedAt = new Date();
     }
@@ -1344,22 +1370,49 @@ export default function ProjectsPage() {
     let pulledSnapshot = false;
     try {
       const snapshot = await getSharedProjectSnapshot(project);
-      const merge = detachedProject
+      const merge = reusableProject
         ? await mergeSharedProjectAreasWithPendingMetadata(project, snapshot.project)
         : null;
-      projectToSave = detachedProject
-        ? clearDetachedSharedProjectMetadata(
-            merge!.resolutionProject
-          )
+      projectToSave = reusableProject
+        ? clearDetachedSharedProjectMetadata(merge!.resolutionProject)
         : clearDetachedSharedProjectMetadata(snapshot.project);
+      if (pendingAreaIds.size > 0 && reusableProject) {
+        const localAreasById = new Map(reusableProject.areas.map((area) => [area.id, area]));
+        const remoteAreasById = new Map(snapshot.project.areas.map((area) => [area.id, area]));
+        projectToSave.areas = projectToSave.areas.map((area) => {
+          if (!pendingAreaIds.has(area.id)) return area;
+          const localArea = localAreasById.get(area.id);
+          if (!localArea) return area;
+          const remoteArea = remoteAreasById.get(area.id);
+          const preservedArea = {
+            ...localArea,
+            projectId: projectToSave.id,
+            sharedVersion: remoteArea?.sharedVersion ?? 0,
+            sharedPublishedAt: remoteArea?.sharedPublishedAt,
+          };
+          if (!remoteArea?.sharedPublishedAt) delete preservedArea.sharedPublishedAt;
+          return preservedArea;
+        });
+      }
       pulledSnapshot = true;
     } catch (error) {
+      if (isReconnecting) throw error;
       console.info('Joined shared project before shared data was published:', error);
     }
 
+    if (reusableProject) {
+      await clearPendingSharedSyncsForProject(reusableProject.id);
+    }
     await saveProject(projectToSave);
-    setProjects((prev) => detachedProject
-      ? prev.map((entry) => entry.id === detachedProject.id ? projectToSave : entry)
+    if (pendingMetadataSync) {
+      await saveAndQueueSharedProjectMetadataSync(projectToSave);
+    }
+    if (pendingAreaIds.size > 0) {
+      await queueSharedProjectAreaSyncs(projectToSave, pendingAreaIds);
+    }
+    scheduleSync(projectToSave.id);
+    setProjects((prev) => reusableProject
+      ? prev.map((entry) => entry.id === reusableProject.id ? projectToSave : entry)
       : [...prev, projectToSave]
     );
     return {
@@ -1367,6 +1420,7 @@ export default function ProjectsPage() {
       alreadyLocal: false,
       pulledSnapshot,
       reusedDetached: !!detachedProject,
+      reconnected: isReconnecting,
     };
   }
 
@@ -1451,9 +1505,19 @@ export default function ProjectsPage() {
 
     setAddingSharedProjectId(entry.projectId);
     try {
-      const { alreadyLocal, pulledSnapshot } = await addSharedProjectToDevice(entry.projectId, entry.projectName);
+      const { alreadyLocal, pulledSnapshot, reconnected } = await addSharedProjectToDevice(
+        entry.projectId,
+        entry.projectName,
+        entry.localProjectId
+      );
       if (alreadyLocal) {
         showMessage(`"${entry.projectName}" is already on this device.`);
+      } else if (reconnected) {
+        showMessage(
+          pulledSnapshot
+            ? `Reconnected "${entry.projectName}" to this account's active shared copy. Preserved local updates will resume syncing.`
+            : `Reconnected "${entry.projectName}" to this account's active shared copy.`
+        );
       } else if (pulledSnapshot) {
         showMessage(`"${entry.projectName}" was added to this device with the latest shared data.`);
       } else {
@@ -2105,9 +2169,17 @@ export default function ProjectsPage() {
               <div className="min-w-0 flex-1">
                 {singleProjectMainView ? (
                   <>
-                    <h1 className="truncate text-[1.2rem] font-semibold tracking-[-0.02em] text-gray-900 dark:text-white">
-                      {singleProject.projectName}
-                    </h1>
+                    <div className="flex min-w-0 items-center gap-2">
+                      <h1 className="min-w-0 truncate text-[1.2rem] font-semibold tracking-[-0.02em] text-gray-900 dark:text-white">
+                        {singleProject.projectName}
+                      </h1>
+                      {singleProject.sharedProjectId && (
+                        <span className="segmented-chip shrink-0 px-2.5 py-1 text-[11px] font-semibold" title="Shared project">
+                          <Users className="h-3.5 w-3.5" />
+                          Shared
+                        </span>
+                      )}
+                    </div>
                     <p className="mt-1 truncate text-sm text-gray-500 dark:text-gray-400">
                       {singleProject.address || 'Project dashboard'}
                     </p>
@@ -2394,7 +2466,6 @@ export default function ProjectsPage() {
                     deleteMode={deleteMode}
                     isSelected={isSelected}
                     onToggleSelection={toggleAreaSelection}
-                    onLongPressSelect={enterAreaSelectionMode}
                     onBlockedByClaim={(message) => showMessage(message, 'Area in use')}
                     onPrimeOpen={primeAreaOpen}
                     onOpenArea={claimAreaOpenInBackground}
@@ -2863,9 +2934,9 @@ export default function ProjectsPage() {
       {showMySharedProjects && (
         <div className="modal-overlay fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="modal-panel max-h-[82dvh] w-full max-w-md overflow-y-auto rounded-[1.9rem] p-6">
-            <h2 className="mb-1 text-xl font-semibold tracking-[-0.02em] text-gray-900 dark:text-white">My Shared Projects</h2>
+            <h2 className="mb-1 text-xl font-semibold tracking-[-0.02em] text-gray-900 dark:text-white">Manage Shared Projects</h2>
             <p className="mb-5 text-sm text-gray-500 dark:text-gray-400">
-              Projects linked to your shared-project account.
+              Add, reconnect, or leave projects linked to your shared-project account.
             </p>
             {loadingMySharedProjects ? (
               <div className="flex items-center gap-3 rounded-[1.25rem] border border-[var(--surface-border)] bg-white/70 px-4 py-5 text-sm text-gray-500 dark:bg-white/[0.04] dark:text-gray-400">
@@ -2879,7 +2950,13 @@ export default function ProjectsPage() {
             ) : (
               <div className="space-y-3">
                 {mySharedProjects.map((entry) => {
-                  const localProject = projects.find((project) => project.sharedProjectId === entry.projectId);
+                  const activeLocalProject = projects.find((project) => project.sharedProjectId === entry.projectId);
+                  const localProject = activeLocalProject
+                    ?? projects.find((project) => project.id === entry.localProjectId);
+                  const needsReconnect = Boolean(
+                    localProject?.sharedProjectId
+                    && localProject.sharedProjectId !== entry.projectId
+                  );
                   const isAdding = addingSharedProjectId === entry.projectId;
                   const isDisconnecting = disconnectingDirectoryProjectId === entry.projectId;
                   const isOwner = entry.ownerUserId === collaborationAuth.user?.id;
@@ -2896,13 +2973,16 @@ export default function ProjectsPage() {
                       </div>
                       <button
                         onClick={() => void handleAddSharedProjectFromDirectory(entry)}
-                        disabled={!!localProject || !!addingSharedProjectId || !!disconnectingDirectoryProjectId}
+                        disabled={(!!localProject && !needsReconnect) || !!addingSharedProjectId || !!disconnectingDirectoryProjectId}
                         className="mt-4 w-full rounded-2xl bg-zinc-900 px-4 py-3 text-sm font-medium text-white transition hover:bg-black disabled:cursor-not-allowed disabled:opacity-50 dark:bg-white dark:text-gray-900 dark:hover:bg-gray-200"
                       >
-                        {localProject ? 'On this device' : isAdding ? 'Adding...' : 'Add to this device'}
+                        {isAdding
+                          ? needsReconnect ? 'Reconnecting...' : 'Adding...'
+                          : needsReconnect ? 'Reconnect on this device'
+                            : localProject ? 'On this device' : 'Add to this device'}
                       </button>
                       <button
-                        onClick={() => handleDirectoryDisconnect(entry, localProject)}
+                        onClick={() => handleDirectoryDisconnect(entry, activeLocalProject)}
                         disabled={!!addingSharedProjectId || !!disconnectingDirectoryProjectId}
                         className="mt-2 w-full rounded-2xl border border-red-300/90 bg-red-50/80 px-4 py-3 text-sm font-medium text-red-700 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-red-400/20 dark:bg-red-400/[0.08] dark:text-red-300 dark:hover:bg-red-400/[0.14]"
                       >

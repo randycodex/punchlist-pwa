@@ -92,6 +92,7 @@ import {
   Trash2,
   RotateCcw,
   Plus,
+  Users,
 } from 'lucide-react';
 
 type SortOption = 'alphabetical' | 'issues' | 'progress';
@@ -620,14 +621,6 @@ export default function ProjectDetailPage() {
       else next.add(areaId);
       return next;
     });
-  }, []);
-
-  const enterAreaSelectionMode = useCallback((areaId: string) => {
-    setShowTrash(false);
-    setActionSheet(null);
-    setExportScope('project');
-    setDeleteMode(true);
-    setSelectedAreaIds(new Set([areaId]));
   }, []);
 
   async function handleDeleteSelectedAreas() {
@@ -1438,9 +1431,17 @@ export default function ProjectDetailPage() {
             </Link>
             <div className="min-w-0 flex-1">
               <div className="section-eyebrow">Project</div>
-              <h1 className="mt-1 truncate text-[1.2rem] font-semibold tracking-[-0.02em] text-gray-900 dark:text-white">
-                {project.projectName}
-              </h1>
+              <div className="mt-1 flex min-w-0 items-center gap-2">
+                <h1 className="min-w-0 truncate text-[1.2rem] font-semibold tracking-[-0.02em] text-gray-900 dark:text-white">
+                  {project.projectName}
+                </h1>
+                {project.sharedProjectId && (
+                  <span className="segmented-chip shrink-0 px-2.5 py-1 text-[11px] font-semibold" title="Shared project">
+                    <Users className="h-3.5 w-3.5" />
+                    Shared
+                  </span>
+                )}
+              </div>
               <p className="mt-1 truncate text-sm text-gray-500 dark:text-gray-400">
                 {project.address || 'Project dashboard'}
               </p>
@@ -1568,7 +1569,6 @@ export default function ProjectDetailPage() {
                     deleteMode={deleteMode}
                     isSelected={isSelected}
                     onToggleSelection={toggleAreaSelection}
-                    onLongPressSelect={enterAreaSelectionMode}
                     onBlockedByClaim={() => showMessage('This shared area is currently locked by another user.')}
                     onPrimeOpen={primeAreaOpen}
                     onOpenArea={claimAreaOpenInBackground}

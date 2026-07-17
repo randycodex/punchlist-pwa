@@ -12,28 +12,16 @@ interface ProjectEditModalProps {
 }
 
 export default function ProjectEditModal({ project, onSave, onDelete, onClose }: ProjectEditModalProps) {
-  function toDateInputValue(value: Date) {
-    const date = new Date(value);
-    const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
-    return local.toISOString().split('T')[0];
-  }
-
   const [projectName, setProjectName] = useState(project.projectName);
   const [address, setAddress] = useState(project.address);
   const [inspector, setInspector] = useState(project.inspector);
   const [gcName, setGcName] = useState(project.gcName);
   const [facadeLevelStart, setFacadeLevelStart] = useState(project.facadeLevelStart?.toString() ?? '');
   const [facadeLevelEnd, setFacadeLevelEnd] = useState(project.facadeLevelEnd?.toString() ?? '');
-  const [date, setDate] = useState(toDateInputValue(project.date));
-  const parsedDate = date ? new Date(`${date}T00:00:00`) : null;
-  const canSave = Boolean(
-    projectName.trim()
-    && parsedDate
-    && !Number.isNaN(parsedDate.getTime())
-  );
+  const canSave = Boolean(projectName.trim());
 
   function handleSave() {
-    if (!canSave || !parsedDate) return;
+    if (!canSave) return;
 
     const nextFacadeLevelStart = Number.parseInt(facadeLevelStart, 10);
     const nextFacadeLevelEnd = Number.parseInt(facadeLevelEnd, 10);
@@ -43,7 +31,6 @@ export default function ProjectEditModal({ project, onSave, onDelete, onClose }:
       address: address.trim(),
       inspector: inspector.trim(),
       gcName: gcName.trim(),
-      date: parsedDate,
       facadeLevelStart: Number.isNaN(nextFacadeLevelStart) ? undefined : nextFacadeLevelStart,
       facadeLevelEnd: Number.isNaN(nextFacadeLevelEnd) ? undefined : nextFacadeLevelEnd,
     });
@@ -85,19 +72,6 @@ export default function ProjectEditModal({ project, onSave, onDelete, onClose }:
               maxLength={500}
               value={address}
               onChange={(e) => setAddress(e.target.value)}
-              className="field-shell"
-            />
-          </div>
-
-          <div>
-            <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
-              Inspection Date
-            </label>
-            <input
-              type="date"
-              required
-              value={date}
-              onChange={(e) => setDate(e.target.value)}
               className="field-shell"
             />
           </div>

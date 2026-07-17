@@ -59,6 +59,7 @@ export interface CollaborationSharedProject {
 
 export interface CollaborationSharedProjectDirectoryEntry {
   projectId: string;
+  localProjectId: string;
   projectName: string;
   ownerUserId: string;
   ownerEmail?: string;

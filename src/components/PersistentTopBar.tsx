@@ -561,18 +561,13 @@ export default function PersistentTopBar() {
                           {homeMenuState.selectionMode ? 'Cancel selection' : 'Select areas'}
                         </button>
                       )}
-                      {homeMenuState.isSingleProject && collaborationAuth.isSignedIn && (
+                      {homeMenuState.isSingleProject && collaborationAuth.isSignedIn && !homeMenuState.isSharedProject && (
                         <button
                           onClick={() => dispatchHomeAction('share-project')}
-                          disabled={!!homeMenuState.isSharedProject}
-                          className={disabledMenuItemClass}
+                          className={menuItemClass}
                         >
-                          {homeMenuState.isSharedProject ? (
-                            <CheckCircle2 className="h-4 w-4" />
-                          ) : (
-                            <Share2 className="h-4 w-4" />
-                          )}
-                          {homeMenuState.isSharedProject ? 'Project shared' : 'Share project'}
+                          <Share2 className="h-4 w-4" />
+                          Share project
                         </button>
                       )}
                     </div>
@@ -655,8 +650,17 @@ export default function PersistentTopBar() {
                         !sharedProjectAccess.isActiveMember && (
                           <>
                             <div className="px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
-                              {sharedProjectAccess.hasError ? 'Shared access could not be verified. You can retry an action or keep the local copy only.' : 'This account is not an active member of this shared project.'}
+                              {sharedProjectAccess.hasError
+                                ? 'Shared access could not be verified. You can retry an action or keep the local copy only.'
+                                : 'This device is linked to a shared copy that is not active for this account. Reconnect it to an active copy or keep the project local only.'}
                             </div>
+                            <button
+                              onClick={() => dispatchHomeAction('my-shared-projects')}
+                              className={menuItemClass}
+                            >
+                              <Users className="h-4 w-4" />
+                              Reconnect shared project
+                            </button>
                             <button
                               onClick={() => dispatchHomeAction('unlink-inactive-shared-project')}
                               className={menuItemClass}
@@ -668,10 +672,6 @@ export default function PersistentTopBar() {
                         )}
                       {showAuth && (
                         <>
-                          <button onClick={() => dispatchHomeAction('my-shared-projects')} className={menuItemClass}>
-                            <Users className="h-4 w-4" />
-                            My shared projects
-                          </button>
                           <button onClick={() => dispatchHomeAction('join-shared-project')} className={menuItemClass}>
                             <UserPlus className="h-4 w-4" />
                             Join shared project
@@ -725,6 +725,12 @@ export default function PersistentTopBar() {
                         {collaborationAuth.profile ? 'Edit profile' : 'Create profile'}
                       </button>
                     )}
+                    {showAuth && collaborationAuth.isSignedIn && (
+                      <button onClick={() => dispatchHomeAction('my-shared-projects')} className={menuItemClass}>
+                        <Users className="h-4 w-4" />
+                        Manage shared projects
+                      </button>
+                    )}
                     {isSignedIn && (
                       <button
                         onClick={() => {
@@ -739,12 +745,6 @@ export default function PersistentTopBar() {
                       >
                         <Users className="h-4 w-4" />
                         {collaborationAuth.isSignedIn ? 'Leave shared projects' : 'Enable shared projects'}
-                      </button>
-                    )}
-                    {isSignedIn && (
-                      <button onClick={() => dispatchHomeAction('collaboration-health')} className={menuItemClass}>
-                        <Activity className="h-4 w-4" />
-                        Collaboration health
                       </button>
                     )}
                     {!isSignedIn ? (

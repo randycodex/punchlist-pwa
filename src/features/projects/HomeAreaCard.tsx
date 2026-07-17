@@ -1,13 +1,10 @@
 'use client';
 
-import { memo, useEffect, useRef } from 'react';
+import { memo } from 'react';
 import Link from 'next/link';
 import { ChevronRight } from 'lucide-react';
 import MetadataLine from '@/components/MetadataLine';
 import type { Area, Project } from '@/types';
-
-const LONG_PRESS_MS = 500;
-const LONG_PRESS_MOVE_THRESHOLD = 12;
 
 export type HomeAreaCardMetrics = {
   stats: { total: number; ok: number; issues: number; areas?: number };
@@ -32,7 +29,6 @@ type HomeAreaCardProps = {
   deleteMode: boolean;
   isSelected: boolean;
   onToggleSelection: (areaId: string) => void;
-  onLongPressSelect: (areaId: string) => void;
   onBlockedByClaim: (message: string) => void;
   onPrimeOpen: (project: Project, areaId: string) => void;
   onOpenArea: (project: Project, areaId: string) => void;
@@ -47,14 +43,10 @@ export const HomeAreaCard = memo(function HomeAreaCard({
   deleteMode,
   isSelected,
   onToggleSelection,
-  onLongPressSelect,
   onBlockedByClaim,
   onPrimeOpen,
   onOpenArea,
 }: HomeAreaCardProps) {
-  const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const longPressStartRef = useRef<{ x: number; y: number } | null>(null);
-  const suppressClickRef = useRef(false);
   const areaStats = metric?.stats ?? { total: 0, ok: 0, issues: 0 };
   const progress = metric?.progress ?? 0;
   const commentCount = metric?.commentCount ?? 0;
@@ -69,58 +61,19 @@ export const HomeAreaCard = memo(function HomeAreaCard({
     ? `${claimStatus.label} is working in this area. Try again when they leave.`
     : 'This shared area is currently in use.';
 
-  const clearLongPressTimer = () => {
-    if (longPressTimerRef.current) {
-      clearTimeout(longPressTimerRef.current);
-      longPressTimerRef.current = null;
-    }
-  };
-
-  useEffect(() => {
-    return () => {
-      if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
-    };
-  }, []);
-
   return (
     <div
       onPointerDown={(event) => {
         if (deleteMode || blockedByClaim) return;
         if (event.pointerType === 'mouse' && event.button !== 0) return;
-
         onPrimeOpen(project, area.id);
-        clearLongPressTimer();
-        longPressStartRef.current = { x: event.clientX, y: event.clientY };
-        suppressClickRef.current = false;
-        longPressTimerRef.current = setTimeout(() => {
-          suppressClickRef.current = true;
-          onLongPressSelect(area.id);
-        }, LONG_PRESS_MS);
       }}
-      onPointerMove={(event) => {
-        const start = longPressStartRef.current;
-        if (!start) return;
-        if (Math.hypot(event.clientX - start.x, event.clientY - start.y) > LONG_PRESS_MOVE_THRESHOLD) {
-          clearLongPressTimer();
-        }
-      }}
-      onPointerUp={clearLongPressTimer}
-      onPointerCancel={clearLongPressTimer}
-      onPointerLeave={clearLongPressTimer}
       onMouseEnter={() => {
         if (!deleteMode && !blockedByClaim) onPrimeOpen(project, area.id);
       }}
       onContextMenu={(event) => {
         if (!deleteMode) {
           event.preventDefault();
-          if (!blockedByClaim) onLongPressSelect(area.id);
-        }
-      }}
-      onClickCapture={(event) => {
-        if (suppressClickRef.current) {
-          event.preventDefault();
-          event.stopPropagation();
-          suppressClickRef.current = false;
         }
       }}
       onClick={() => {

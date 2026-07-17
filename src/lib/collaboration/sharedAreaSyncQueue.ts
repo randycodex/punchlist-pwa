@@ -43,7 +43,14 @@ function dispatchSharedAreaSync(detail: SharedAreaSyncEventDetail) {
 }
 
 function getErrorMessage(error: unknown) {
-  return error instanceof Error ? error.message : 'Shared area sync did not finish.';
+  if (error instanceof Error) return error.message;
+  if (error && typeof error === 'object') {
+    const input = error as { message?: unknown; details?: unknown; hint?: unknown };
+    const parts = [input.message, input.details, input.hint]
+      .filter((part): part is string => typeof part === 'string' && part.trim().length > 0);
+    if (parts.length > 0) return parts.join(' ');
+  }
+  return 'Shared area sync did not finish.';
 }
 
 function shouldPauseAutomaticRetry(error: unknown) {
