@@ -12,6 +12,9 @@ import AppMessageDialog from '@/components/AppMessageDialog';
 import AppConfirmDialog from '@/components/AppConfirmDialog';
 import AppPromptDialog from '@/components/AppPromptDialog';
 import CollaborationHealthDialog from '@/components/CollaborationHealthDialog';
+import InvitePeopleDialog from '@/components/InvitePeopleDialog';
+import SharedMembersDialog from '@/components/SharedMembersDialog';
+import { buildSharedProjectInviteUrl } from '@/features/collaboration/inviteLinks';
 import {
   buildAreaName,
   buildFacadeLevelOptions,
@@ -76,7 +79,7 @@ import {
   syncSharedProjectMetadataNow,
   transferSharedProjectOwnership,
 } from '@/lib/collaboration';
-import type { CollaborationHealthReport, CollaborationSnapshotBackup } from '@/lib/collaboration';
+import type { CollaborationHealthReport, CollaborationProjectMember, CollaborationSnapshotBackup } from '@/lib/collaboration';
 import { getNextOneDriveExportFilename, uploadPdfToOneDrive } from '@/lib/oneDrive';
 import {
   formatDateForExport,
@@ -149,9 +152,12 @@ export default function ProjectDetailPage() {
     projectName: string;
     code: string;
     expiresAt: string;
+    inviteUrl: string;
   } | null>(null);
   const [creatingJoinCode, setCreatingJoinCode] = useState(false);
   const [loadingSharedMembers, setLoadingSharedMembers] = useState(false);
+  const [showSharedMembers, setShowSharedMembers] = useState(false);
+  const [sharedMembers, setSharedMembers] = useState<CollaborationProjectMember[]>([]);
   const [pendingPull, setPendingPull] = useState<PendingSharedPullState | null>(null);
   const [backupProject, setBackupProject] = useState<Project | null>(null);
   const [loadingSharedBackups, setLoadingSharedBackups] = useState(false);
@@ -852,6 +858,7 @@ export default function ProjectDetailPage() {
         projectName: project.projectName,
         code: result.joinCode,
         expiresAt: result.expiresAt,
+        inviteUrl: buildSharedProjectInviteUrl(result.joinCode, window.location.origin),
       });
     } catch (error) {
       console.error('Failed to create shared project code:', error);
@@ -875,24 +882,15 @@ export default function ProjectDetailPage() {
     }
 
     setLoadingSharedMembers(true);
+    setShowSharedMembers(true);
+    setSharedMembers([]);
     try {
       const members = await getSharedProjectMembers(project.sharedProjectId);
-      if (members.length === 0) {
-        showMessage('No shared project members found.', 'Shared Members');
-        return;
-      }
-      showMessage(
-        members
-          .map((member) => {
-            const ownerLabel = member.isOwner ? ' owner' : '';
-            return `${member.email}${member.displayName ? ` (${member.displayName})` : ''} - ${member.accessState}${ownerLabel}`;
-          })
-          .join('\n'),
-        'Shared Members'
-      );
+      setSharedMembers(members);
     } catch (error) {
       console.error('Failed to load shared project members:', error);
       showMessage(getCollaborationErrorMessage(error, 'Failed to load shared project members. Please try again.'));
+      setShowSharedMembers(false);
     } finally {
       setLoadingSharedMembers(false);
     }
@@ -1304,7 +1302,7 @@ export default function ProjectDetailPage() {
       return;
     }
 
-    if (detail.action === 'invite-code') {
+    if (detail.action === 'invite-people') {
       void handleCreateJoinCode();
       return;
     }
@@ -1336,11 +1334,6 @@ export default function ProjectDetailPage() {
 
     if (detail.action === 'unlink-inactive-shared-project') {
       handleUnlinkInactiveSharedProject();
-      return;
-    }
-
-    if (detail.action === 'transfer-shared-project') {
-      handleTransferSharedProjectOwnership();
       return;
     }
 
@@ -1393,7 +1386,6 @@ export default function ProjectDetailPage() {
           isCreatingJoinCode: creatingJoinCode,
           isLoadingSharedMembers: loadingSharedMembers,
           isDisconnectingSharedProject: disconnectingSharedProject,
-          isTransferringSharedProject: transferringSharedProject,
         },
       })
     );
@@ -1405,7 +1397,6 @@ export default function ProjectDetailPage() {
     project,
     showTrash,
     sortOption,
-    transferringSharedProject,
   ]);
 
   if (loading) {
@@ -1629,38 +1620,35 @@ export default function ProjectDetailPage() {
       )}
 
       {sharedProjectCode && (
-        <div className="modal-overlay fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="modal-panel w-full max-w-md rounded-[1.9rem] p-6">
-            <h2 className="mb-1 text-xl font-semibold tracking-[-0.02em] text-gray-900 dark:text-white">Invite Code</h2>
-            <p className="mb-5 text-sm text-gray-500 dark:text-gray-400">
-              {sharedProjectCode.projectName}
-            </p>
-            <div className="rounded-[1.25rem] border border-[var(--surface-border)] bg-white/70 px-4 py-5 text-center dark:bg-white/[0.04]">
-              <div className="select-all font-mono text-3xl font-semibold tracking-[0.18em] text-gray-900 dark:text-white">
-                {sharedProjectCode.code}
-              </div>
-              <div className="mt-3 text-xs text-gray-500 dark:text-gray-400">
-                Expires {new Date(sharedProjectCode.expiresAt).toLocaleString()}
-              </div>
-            </div>
-            <div className="mt-6 flex gap-3">
-              <button
-                onClick={() => setSharedProjectCode(null)}
-                className="flex-1 rounded-2xl border border-gray-300/90 bg-white/70 px-4 py-3 font-medium text-gray-700 transition hover:bg-white dark:border-white/10 dark:bg-white/[0.04] dark:text-gray-300 dark:hover:bg-white/[0.08]"
-              >
-                Done
-              </button>
-              <button
-                onClick={() => {
-                  void navigator.clipboard?.writeText(sharedProjectCode.code);
-                }}
-                className="flex-1 rounded-2xl bg-zinc-900 px-4 py-3 font-medium text-white transition hover:bg-black dark:bg-white dark:text-gray-900 dark:hover:bg-gray-200"
-              >
-                Copy
-              </button>
-            </div>
-          </div>
-        </div>
+        <InvitePeopleDialog
+          projectName={sharedProjectCode.projectName}
+          code={sharedProjectCode.code}
+          expiresAt={sharedProjectCode.expiresAt}
+          inviteUrl={sharedProjectCode.inviteUrl}
+          onClose={() => setSharedProjectCode(null)}
+        />
+      )}
+
+      {showSharedMembers && project && (
+        <SharedMembersDialog
+          projectName={project.projectName}
+          members={sharedMembers}
+          loading={loadingSharedMembers}
+          canTransferOwnership={sharedMembers.some(
+            (member) => member.isOwner && member.userId === collaborationAuth.user?.id
+          )}
+          transferringOwnership={transferringSharedProject}
+          onClose={() => {
+            setShowSharedMembers(false);
+            setSharedMembers([]);
+          }}
+          onRefresh={() => void handleShowSharedMembers()}
+          onTransferOwnership={() => {
+            setShowSharedMembers(false);
+            setSharedMembers([]);
+            handleTransferSharedProjectOwnership();
+          }}
+        />
       )}
 
       {disconnectSharedProjectConfirm && (
@@ -1689,7 +1677,7 @@ export default function ProjectDetailPage() {
       {ownershipTransferProject && (
         <AppPromptDialog
           title="Transfer Ownership"
-          message={ownershipTransferProject.projectName}
+          message={`${ownershipTransferProject.projectName}\n\nEnter the email address of an existing active member. That person will receive owner controls for this shared project.`}
           label="New owner email"
           placeholder="name@example.com"
           inputMode="email"

@@ -91,6 +91,12 @@ import AppMessageDialog from '@/components/AppMessageDialog';
 import AppConfirmDialog from '@/components/AppConfirmDialog';
 import AppPromptDialog from '@/components/AppPromptDialog';
 import CollaborationHealthDialog from '@/components/CollaborationHealthDialog';
+import InvitePeopleDialog from '@/components/InvitePeopleDialog';
+import SharedMembersDialog from '@/components/SharedMembersDialog';
+import {
+  buildSharedProjectInviteUrl,
+  getSharedProjectJoinCodeFromSearch,
+} from '@/features/collaboration/inviteLinks';
 import { applyTemplateToArea } from '@/lib/template';
 import {
   cacheProjectPreview,
@@ -137,16 +143,6 @@ function formatSharedBackupReason(reason: CollaborationSnapshotBackup['reason'])
   return 'Manual backup';
 }
 
-function formatMemberStatus(status: CollaborationProjectMember['accessState']) {
-  if (status === 'active') return 'Active';
-  if (status === 'invited') return 'Invited';
-  return 'Removed';
-}
-
-function formatMemberJoinMethod(method: CollaborationProjectMember['joinedBy']) {
-  return method === 'joinCode' ? 'Joined by code' : 'Email invite';
-}
-
 type MessageDialogState = {
   title: string;
   message: string;
@@ -182,6 +178,7 @@ export default function ProjectsPage() {
     projectName: string;
     code: string;
     expiresAt: string;
+    inviteUrl: string;
   } | null>(null);
   const [creatingJoinCode, setCreatingJoinCode] = useState(false);
   const [loadingSharedMembers, setLoadingSharedMembers] = useState(false);
@@ -255,6 +252,21 @@ export default function ProjectsPage() {
   const showMessage = useCallback((message: string, title = 'Punchlist') => {
     setMessageDialog({ title, message });
   }, []);
+
+  useEffect(() => {
+    const joinCode = getSharedProjectJoinCodeFromSearch(window.location.search);
+    if (!joinCode) return;
+
+    setJoinProjectCode(joinCode);
+    setShowJoinProject(true);
+  }, []);
+
+  function clearJoinInviteFromAddressBar() {
+    const cleanedUrl = new URL(window.location.href);
+    if (!cleanedUrl.searchParams.has('join')) return;
+    cleanedUrl.searchParams.delete('join');
+    window.history.replaceState(null, '', `${cleanedUrl.pathname}${cleanedUrl.search}${cleanedUrl.hash}`);
+  }
 
   scheduleSyncRef.current = scheduleSync;
 
@@ -1278,6 +1290,7 @@ export default function ProjectsPage() {
         projectName: project.projectName,
         code: result.joinCode,
         expiresAt: result.expiresAt,
+        inviteUrl: buildSharedProjectInviteUrl(result.joinCode, window.location.origin),
       });
     } catch (error) {
       console.error('Failed to create shared project code:', error);
@@ -1446,6 +1459,7 @@ export default function ProjectsPage() {
       );
       setShowJoinProject(false);
       setJoinProjectCode('');
+      clearJoinInviteFromAddressBar();
       if (alreadyLocal) {
         showMessage(`You already joined "${result.projectName}".`);
       } else if (reusedDetached && pulledSnapshot) {
@@ -2038,7 +2052,7 @@ export default function ProjectsPage() {
       return;
     }
 
-    if (detail.action === 'invite-code' && singleProject) {
+    if (detail.action === 'invite-people' && singleProject) {
       void handleCreateJoinCode(singleProject);
       return;
     }
@@ -2088,11 +2102,6 @@ export default function ProjectsPage() {
       return;
     }
 
-    if (detail.action === 'transfer-shared-project' && singleProject) {
-      void handleTransferSharedProjectOwnership(singleProject);
-      return;
-    }
-
     if (detail.action === 'auth') {
       if (isSignedIn) signOut();
       else signIn();
@@ -2126,7 +2135,6 @@ export default function ProjectsPage() {
           isCreatingJoinCode: creatingJoinCode,
           isLoadingSharedMembers: loadingSharedMembers,
           isDisconnectingSharedProject: disconnectingSharedProject,
-          isTransferringSharedProject: transferringSharedProject,
         },
       })
     );
@@ -2138,7 +2146,6 @@ export default function ProjectsPage() {
     sortOption,
     showTrash,
     singleProject,
-    transferringSharedProject,
   ]);
 
   function toggleTrashView() {
@@ -2576,7 +2583,7 @@ export default function ProjectsPage() {
       {ownershipTransferProject && (
         <AppPromptDialog
           title="Transfer Ownership"
-          message={ownershipTransferProject.projectName}
+          message={`${ownershipTransferProject.projectName}\n\nEnter the email address of an existing active member. That person will receive owner controls for this shared project.`}
           label="New owner email"
           placeholder="name@example.com"
           inputMode="email"
@@ -2651,77 +2658,26 @@ export default function ProjectsPage() {
       )}
 
       {sharedMembersProject && (
-        <div className="modal-overlay fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="modal-panel max-h-[82dvh] w-full max-w-md overflow-y-auto rounded-[1.9rem] p-6">
-            <h2 className="mb-1 text-xl font-semibold tracking-[-0.02em] text-gray-900 dark:text-white">Shared Members</h2>
-            <p className="mb-5 text-sm text-gray-500 dark:text-gray-400">
-              {sharedMembersProject.projectName}
-            </p>
-            {loadingSharedMembers ? (
-              <div className="flex items-center gap-3 rounded-[1.25rem] border border-[var(--surface-border)] bg-white/70 px-4 py-5 text-sm text-gray-500 dark:bg-white/[0.04] dark:text-gray-400">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Loading members...
-              </div>
-            ) : sharedMembers.length === 0 ? (
-              <div className="rounded-[1.25rem] border border-[var(--surface-border)] bg-white/70 px-4 py-5 text-sm text-gray-500 dark:bg-white/[0.04] dark:text-gray-400">
-                No shared project members found.
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {sharedMembers.map((member) => (
-                  <div key={`${member.projectId}:${member.email}`} className="rounded-[1.25rem] border border-[var(--surface-border)] bg-white/70 p-4 dark:bg-white/[0.04]">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <div className="truncate text-sm font-semibold text-gray-900 dark:text-white">
-                          {member.displayName || member.email}
-                        </div>
-                        <div className="mt-1 truncate text-xs text-gray-500 dark:text-gray-400">
-                          {member.email}
-                        </div>
-                      </div>
-                      <div className="flex shrink-0 flex-col items-end gap-1">
-                        {member.isOwner && (
-                          <span className="rounded-full bg-black/[0.06] px-2.5 py-1 text-[11px] font-semibold text-gray-700 dark:bg-white/[0.08] dark:text-gray-300">
-                            Owner
-                          </span>
-                        )}
-                        <span className="rounded-full bg-green-500/10 px-2.5 py-1 text-[11px] font-semibold text-green-700 dark:bg-green-400/10 dark:text-green-300">
-                          {formatMemberStatus(member.accessState)}
-                        </span>
-                      </div>
-                    </div>
-                    <div className="mt-3 grid grid-cols-1 gap-1 text-xs text-gray-500 dark:text-gray-400">
-                      <div>{formatMemberJoinMethod(member.joinedBy)}</div>
-                      <div>
-                        {member.joinedAt
-                          ? `Joined ${member.joinedAt.toLocaleString()}`
-                          : `Invited ${member.invitedAt.toLocaleString()}`}
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-            <div className="mt-6 flex gap-3">
-              <button
-                onClick={() => {
-                  setSharedMembersProject(null);
-                  setSharedMembers([]);
-                }}
-                className="flex-1 rounded-2xl border border-gray-300/90 bg-white/70 px-4 py-3 font-medium text-gray-700 transition hover:bg-white dark:border-white/10 dark:bg-white/[0.04] dark:text-gray-300 dark:hover:bg-white/[0.08]"
-              >
-                Done
-              </button>
-              <button
-                onClick={() => void handleShowSharedMembers(sharedMembersProject)}
-                disabled={loadingSharedMembers}
-                className="flex-1 rounded-2xl bg-zinc-900 px-4 py-3 font-medium text-white transition hover:bg-black disabled:cursor-not-allowed disabled:opacity-50 dark:bg-white dark:text-gray-900 dark:hover:bg-gray-200"
-              >
-                Refresh
-              </button>
-            </div>
-          </div>
-        </div>
+        <SharedMembersDialog
+          projectName={sharedMembersProject.projectName}
+          members={sharedMembers}
+          loading={loadingSharedMembers}
+          canTransferOwnership={sharedMembers.some(
+            (member) => member.isOwner && member.userId === collaborationAuth.user?.id
+          )}
+          transferringOwnership={transferringSharedProject}
+          onClose={() => {
+            setSharedMembersProject(null);
+            setSharedMembers([]);
+          }}
+          onRefresh={() => void handleShowSharedMembers(sharedMembersProject)}
+          onTransferOwnership={() => {
+            const project = sharedMembersProject;
+            setSharedMembersProject(null);
+            setSharedMembers([]);
+            void handleTransferSharedProjectOwnership(project);
+          }}
+        />
       )}
 
       <AreaEditorModal
@@ -2897,38 +2853,13 @@ export default function ProjectsPage() {
       )}
 
       {sharedProjectCode && (
-        <div className="modal-overlay fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="modal-panel w-full max-w-md rounded-[1.9rem] p-6">
-            <h2 className="mb-1 text-xl font-semibold tracking-[-0.02em] text-gray-900 dark:text-white">Invite Code</h2>
-            <p className="mb-5 text-sm text-gray-500 dark:text-gray-400">
-              {sharedProjectCode.projectName}
-            </p>
-            <div className="rounded-[1.25rem] border border-[var(--surface-border)] bg-white/70 px-4 py-5 text-center dark:bg-white/[0.04]">
-              <div className="select-all font-mono text-3xl font-semibold tracking-[0.18em] text-gray-900 dark:text-white">
-                {sharedProjectCode.code}
-              </div>
-              <div className="mt-3 text-xs text-gray-500 dark:text-gray-400">
-                Expires {new Date(sharedProjectCode.expiresAt).toLocaleString()}
-              </div>
-            </div>
-            <div className="mt-6 flex gap-3">
-              <button
-                onClick={() => setSharedProjectCode(null)}
-                className="flex-1 rounded-2xl border border-gray-300/90 bg-white/70 px-4 py-3 font-medium text-gray-700 transition hover:bg-white dark:border-white/10 dark:bg-white/[0.04] dark:text-gray-300 dark:hover:bg-white/[0.08]"
-              >
-                Done
-              </button>
-              <button
-                onClick={() => {
-                  void navigator.clipboard?.writeText(sharedProjectCode.code);
-                }}
-                className="flex-1 rounded-2xl bg-zinc-900 px-4 py-3 font-medium text-white transition hover:bg-black dark:bg-white dark:text-gray-900 dark:hover:bg-gray-200"
-              >
-                Copy
-              </button>
-            </div>
-          </div>
-        </div>
+        <InvitePeopleDialog
+          projectName={sharedProjectCode.projectName}
+          code={sharedProjectCode.code}
+          expiresAt={sharedProjectCode.expiresAt}
+          inviteUrl={sharedProjectCode.inviteUrl}
+          onClose={() => setSharedProjectCode(null)}
+        />
       )}
 
       {showMySharedProjects && (
@@ -2936,7 +2867,7 @@ export default function ProjectsPage() {
           <div className="modal-panel max-h-[82dvh] w-full max-w-md overflow-y-auto rounded-[1.9rem] p-6">
             <h2 className="mb-1 text-xl font-semibold tracking-[-0.02em] text-gray-900 dark:text-white">Manage Shared Projects</h2>
             <p className="mb-5 text-sm text-gray-500 dark:text-gray-400">
-              Add, reconnect, or leave projects linked to your shared-project account.
+              Download, reconnect, or leave projects linked to your shared-project account.
             </p>
             {loadingMySharedProjects ? (
               <div className="flex items-center gap-3 rounded-[1.25rem] border border-[var(--surface-border)] bg-white/70 px-4 py-5 text-sm text-gray-500 dark:bg-white/[0.04] dark:text-gray-400">
@@ -2977,9 +2908,9 @@ export default function ProjectsPage() {
                         className="mt-4 w-full rounded-2xl bg-zinc-900 px-4 py-3 text-sm font-medium text-white transition hover:bg-black disabled:cursor-not-allowed disabled:opacity-50 dark:bg-white dark:text-gray-900 dark:hover:bg-gray-200"
                       >
                         {isAdding
-                          ? needsReconnect ? 'Reconnecting...' : 'Adding...'
+                          ? needsReconnect ? 'Reconnecting...' : 'Downloading...'
                           : needsReconnect ? 'Reconnect on this device'
-                            : localProject ? 'On this device' : 'Add to this device'}
+                            : localProject ? 'Available on this device' : 'Download to this device'}
                       </button>
                       <button
                         onClick={() => handleDirectoryDisconnect(entry, activeLocalProject)}
@@ -3097,7 +3028,11 @@ export default function ProjectsPage() {
         <div className="modal-overlay fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="modal-panel w-full max-w-md rounded-[1.9rem] p-6">
             <h2 className="mb-1 text-xl font-semibold tracking-[-0.02em] text-gray-900 dark:text-white">Join Shared Project</h2>
-            <p className="mb-5 text-sm text-gray-500 dark:text-gray-400">Enter the code from the project owner.</p>
+            <p className="mb-5 text-sm text-gray-500 dark:text-gray-400">
+              {isSignedIn && collaborationAuth.isSignedIn
+                ? 'Confirm the invitation code from the project owner.'
+                : 'Sign in and enable shared projects to accept this invitation.'}
+            </p>
             <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
               Code
             </label>
@@ -3114,17 +3049,36 @@ export default function ProjectsPage() {
                 onClick={() => {
                   setShowJoinProject(false);
                   setJoinProjectCode('');
+                  clearJoinInviteFromAddressBar();
                 }}
                 className="flex-1 rounded-2xl border border-gray-300/90 bg-white/70 px-4 py-3 font-medium text-gray-700 transition hover:bg-white dark:border-white/10 dark:bg-white/[0.04] dark:text-gray-300 dark:hover:bg-white/[0.08]"
               >
                 Cancel
               </button>
               <button
-                onClick={() => void handleJoinSharedProject()}
-                disabled={!joinProjectCode.trim() || joiningProject}
+                onClick={() => {
+                  if (!isSignedIn) {
+                    void signIn();
+                    return;
+                  }
+                  if (!collaborationAuth.isSignedIn) {
+                    void collaborationAuth.signIn();
+                    return;
+                  }
+                  void handleJoinSharedProject();
+                }}
+                disabled={!joinProjectCode.trim() || joiningProject || collaborationAuth.isSigningIn}
                 className="flex-1 rounded-2xl bg-zinc-900 px-4 py-3 font-medium text-white transition hover:bg-black dark:bg-white dark:text-gray-900 dark:hover:bg-gray-200 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {joiningProject ? 'Joining...' : 'Join'}
+                {joiningProject
+                  ? 'Joining...'
+                  : collaborationAuth.isSigningIn
+                    ? 'Connecting...'
+                    : !isSignedIn
+                      ? 'Sign in to continue'
+                      : !collaborationAuth.isSignedIn
+                        ? 'Enable shared projects'
+                        : 'Join'}
               </button>
             </div>
           </div>

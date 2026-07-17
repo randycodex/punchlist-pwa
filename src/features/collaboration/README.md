@@ -75,6 +75,16 @@ Start simple: no visible roles for the first release.
 - Membership records still track who joined, who invited them, and whether access was removed.
 - More roles can be added later if needed, but do not complicate the first release.
 
+The current invite UI creates one expiring server-side join code and presents it
+as a shareable link, QR code, and copyable fallback code. A link opens the home
+join flow with the code prefilled. Direct email delivery is not implemented yet.
+Ownership transfer belongs in member management and is available only to the
+current owner for an existing active member.
+
+Because each browser keeps its own IndexedDB cache, account membership and local
+availability are separate. `Download to this device` hydrates a project that the
+signed-in member can access but that is not yet stored on the current device.
+
 ## Backend responsibilities
 
 - Authenticate users with the existing Microsoft sign-in identity.

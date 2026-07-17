@@ -62,7 +62,6 @@ type HomeMenuState = {
   isCreatingJoinCode?: boolean;
   isLoadingSharedMembers?: boolean;
   isDisconnectingSharedProject?: boolean;
-  isTransferringSharedProject?: boolean;
 };
 
 export default function PersistentTopBar() {
@@ -585,12 +584,12 @@ export default function PersistentTopBar() {
                       {homeMenuState.isSingleProject && homeMenuState.isSharedProject && (!sharedProjectAccess.isReady || sharedProjectAccess.isActiveMember || sharedProjectAccess.hasError) && (
                         <>
                           <button
-                            onClick={() => dispatchHomeAction('invite-code')}
+                            onClick={() => dispatchHomeAction('invite-people')}
                             disabled={!!homeMenuState.isCreatingJoinCode}
                             className={disabledMenuItemClass}
                           >
-                            <KeyRound className="h-4 w-4" />
-                            {homeMenuState.isCreatingJoinCode ? 'Creating code...' : 'Invite by code'}
+                            <UserPlus className="h-4 w-4" />
+                            {homeMenuState.isCreatingJoinCode ? 'Preparing invite...' : 'Invite people'}
                           </button>
                           <button
                             onClick={() => dispatchHomeAction('shared-members')}
@@ -630,16 +629,6 @@ export default function PersistentTopBar() {
                               {homeMenuState.isDisconnectingSharedProject
                                 ? sharedProjectAccess.isOwner ? 'Stopping...' : 'Leaving...'
                                 : sharedProjectAccess.isOwner ? 'Stop sharing' : 'Leave shared project'}
-                            </button>
-                          )}
-                          {sharedProjectAccess.isOwner && (
-                            <button
-                              onClick={() => dispatchHomeAction('transfer-shared-project')}
-                              disabled={!!homeMenuState.isTransferringSharedProject}
-                              className={disabledMenuItemClass}
-                            >
-                              <Users className="h-4 w-4" />
-                              {homeMenuState.isTransferringSharedProject ? 'Transferring...' : 'Transfer ownership'}
                             </button>
                           )}
                         </>
