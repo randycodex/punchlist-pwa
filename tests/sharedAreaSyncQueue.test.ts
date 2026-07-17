@@ -10,7 +10,9 @@ import {
   queuePendingSharedAreaSync,
   recordPendingSharedAreaSyncFailure,
   saveProjectPreserveTimestamps,
+  summarizePendingSharedAreaSyncs,
 } from '@/lib/db';
+import { queueSharedProjectAreaSyncs } from '@/lib/collaboration/sharedAreaSyncQueue';
 
 describe('durable shared area sync queue', () => {
   it('coalesces rapid edits without deleting a newer edit when an older request finishes', async () => {
@@ -82,7 +84,13 @@ describe('durable shared area sync queue', () => {
       basePublishedAt: '2026-07-17T12:00:00.000Z',
     });
     await recordPendingSharedAreaSyncFailure(queued.key, queued.clientId, 'Newer team data', true);
-    expect((await getPendingSharedAreaSyncs())[0]).toMatchObject({ blockedByConflict: true });
+    const conflictedRecords = await getPendingSharedAreaSyncs();
+    expect(conflictedRecords[0]).toMatchObject({ blockedByConflict: true });
+    expect(summarizePendingSharedAreaSyncs(conflictedRecords)).toEqual({
+      pendingCount: 1,
+      conflictCount: 1,
+      lastConflictError: 'Newer team data',
+    });
 
     const requeued = await queuePendingSharedAreaSync({
       localProjectId: project.id,
@@ -123,5 +131,36 @@ describe('durable shared area sync queue', () => {
     expect(await getPendingSharedAreaSyncsForProject(project.id)).toEqual([newer]);
     await clearPendingSharedAreaSyncsForProject(project.id, [newer]);
     expect(await getPendingSharedAreaSyncsForProject(project.id)).toHaveLength(0);
+  });
+
+  it('queues multiple area lifecycle changes in one durable batch', async () => {
+    const project = createProject('Area lifecycle project');
+    project.sharedProjectId = 'shared-project-lifecycle';
+    project.sharedSnapshotPublishedAt = new Date('2026-07-17T12:00:00.000Z');
+    project.sharedBaselinePublishedAt = project.sharedSnapshotPublishedAt;
+    const createdArea = createArea(project.id, 'Apartment 4A', 0);
+    const deletedArea = createArea(project.id, 'Apartment 4B', 1);
+    deletedArea.deletedAt = new Date('2026-07-17T12:05:00.000Z');
+    project.areas.push(createdArea, deletedArea);
+    await saveProjectPreserveTimestamps(project);
+
+    const result = await queueSharedProjectAreaSyncs(project, [
+      createdArea.id,
+      deletedArea.id,
+      createdArea.id,
+      'missing-area',
+    ]);
+
+    expect(result.queued).toBe(true);
+    expect(result.records).toHaveLength(2);
+    expect(new Set(result.records.map((record) => record.areaId))).toEqual(
+      new Set([createdArea.id, deletedArea.id])
+    );
+    expect(summarizePendingSharedAreaSyncs(await getPendingSharedAreaSyncsForProject(project.id))).toEqual({
+      pendingCount: 2,
+      conflictCount: 0,
+      lastConflictError: null,
+    });
+    await clearPendingSharedAreaSyncsForProject(project.id);
   });
 });

@@ -3,7 +3,7 @@ import {
   discardPendingSharedAreaSync,
   getPendingSharedAreaSyncs,
   getProjectForArea,
-  queuePendingSharedAreaSync,
+  queuePendingSharedAreaSyncs,
   recordPendingSharedAreaSyncFailure,
   type PendingSharedAreaSyncRecord,
 } from '@/lib/db';
@@ -82,31 +82,50 @@ function schedulePendingSharedAreaSyncFlush(delayMs = 700) {
 }
 
 export async function queueSharedProjectAreaSync(project: Project, areaId: string) {
+  const result = await queueSharedProjectAreaSyncs(project, [areaId]);
+  const record = result.records[0];
+  return record
+    ? { queued: true as const, record }
+    : { queued: false as const };
+}
+
+export async function queueSharedProjectAreaSyncs(project: Project, areaIds: Iterable<string>) {
   const sharedProjectId = project.sharedProjectId;
-  const area = project.areas.find((entry) => entry.id === areaId);
-  if (!sharedProjectId || !project.sharedSnapshotPublishedAt || !area) {
-    return { queued: false as const };
+  if (!sharedProjectId || !project.sharedSnapshotPublishedAt) {
+    return { queued: false as const, records: [] };
   }
 
-  const record = await queuePendingSharedAreaSync({
-    localProjectId: project.id,
-    sharedProjectId,
-    areaId,
-    baseVersion: area.sharedVersion ?? 0,
-    basePublishedAt: (
-      area.sharedPublishedAt
-      ?? project.sharedBaselinePublishedAt
-      ?? project.sharedSnapshotPublishedAt
-    ).toISOString(),
+  const projectBasePublishedAt = (
+    project.sharedBaselinePublishedAt
+    ?? project.sharedSnapshotPublishedAt
+  ).toISOString();
+  const uniqueAreaIds = [...new Set(areaIds)];
+  const areasById = new Map(project.areas.map((area) => [area.id, area]));
+  const inputs = uniqueAreaIds.flatMap((areaId) => {
+    const area = areasById.get(areaId);
+    if (!area) return [];
+    return [{
+      localProjectId: project.id,
+      sharedProjectId,
+      areaId,
+      baseVersion: area.sharedVersion ?? 0,
+      basePublishedAt: area.sharedPublishedAt?.toISOString() ?? projectBasePublishedAt,
+    }];
   });
-  dispatchSharedAreaSync({
-    status: 'pending',
-    localProjectId: project.id,
-    sharedProjectId,
-    areaId,
-  });
+  const records = await queuePendingSharedAreaSyncs(inputs);
+  for (const record of records) {
+    dispatchSharedAreaSync({
+      status: 'pending',
+      localProjectId: project.id,
+      sharedProjectId,
+      areaId: record.areaId,
+    });
+  }
+  if (records.length === 0) {
+    return { queued: false as const, records };
+  }
   schedulePendingSharedAreaSyncFlush();
-  return { queued: true as const, record };
+  return { queued: true as const, records };
 }
 
 async function syncRecord(

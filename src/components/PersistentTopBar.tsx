@@ -12,7 +12,11 @@ import { useAppSettings } from '@/contexts/AppSettingsContext';
 import { getProjectMetadata } from '@/lib/db';
 import { hasPendingSyncState } from '@/lib/pendingSync';
 import { getCachedProjectName } from '@/lib/projectNavigationCache';
-import { getCollaborationProfileInitials, getSharedProjectAccess } from '@/lib/collaboration';
+import {
+  getCollaborationProfileInitials,
+  getSharedProjectAccess,
+  resumePendingSharedAreaSyncs,
+} from '@/lib/collaboration';
 import UserProfileModal from '@/components/UserProfileModal';
 import {
   Activity,
@@ -73,6 +77,7 @@ export default function PersistentTopBar() {
     localSaveError,
     localSaveStatus,
     retryInSeconds,
+    sharedAreaSyncSummary,
     sharedTransferStatus,
     status,
   } = useSyncStatus();
@@ -116,6 +121,12 @@ export default function PersistentTopBar() {
     homeMenuState.context === 'project' && homeMenuState.singleProjectName
       ? homeMenuState.singleProjectName
       : projectTitle;
+
+  useEffect(() => {
+    if (collaborationAuth.isSignedIn) {
+      resumePendingSharedAreaSyncs();
+    }
+  }, [collaborationAuth.isSignedIn]);
 
   const syncButtonClasses = {
     idle: 'border-black/5 bg-white/70 text-gray-600 hover:bg-white dark:border-white/10 dark:bg-white/[0.04] dark:text-gray-300 dark:hover:bg-white/[0.08]',
@@ -383,6 +394,42 @@ export default function PersistentTopBar() {
     );
   }
 
+  function renderSharedAreaSyncIndicator() {
+    if (sharedAreaSyncSummary.pendingCount === 0) return null;
+
+    const needsReview = sharedAreaSyncSummary.conflictCount > 0;
+    const count = needsReview
+      ? sharedAreaSyncSummary.conflictCount
+      : sharedAreaSyncSummary.pendingCount;
+    const label = needsReview
+      ? `${count} shared area update${count === 1 ? '' : 's'} need review.${sharedAreaSyncSummary.lastConflictError ? ` ${sharedAreaSyncSummary.lastConflictError}` : ''}`
+      : `${count} shared area update${count === 1 ? '' : 's'} waiting to sync`;
+    const shortLabel = needsReview ? 'Shared issue' : count === 1 ? 'Shared pending' : `Shared ${count}`;
+    const SharedSyncIcon = needsReview ? Activity : CloudUpload;
+    const classes = needsReview
+      ? 'border-red-200 bg-red-50 text-red-600 hover:bg-red-100 dark:border-red-400/25 dark:bg-red-400/10 dark:text-red-300 dark:hover:bg-red-400/15'
+      : 'border-violet-200 bg-violet-50 text-violet-700 hover:bg-violet-100 dark:border-violet-400/25 dark:bg-violet-400/10 dark:text-violet-200 dark:hover:bg-violet-400/15';
+
+    return (
+      <button
+        type="button"
+        onClick={() => {
+          window.alert(needsReview
+            ? `Shared area work needs review. Open the affected project, pull the latest shared data, review the preserved local area, then save the next intended edit to resume syncing.${sharedAreaSyncSummary.lastConflictError ? ` ${sharedAreaSyncSummary.lastConflictError}` : ''}`
+            : 'Shared area work is safely queued on this device and will retry automatically when the connection and shared-project account are available.');
+        }}
+        className={`flex h-10 min-w-10 shrink-0 items-center justify-center gap-2 rounded-[1rem] border px-2.5 transition ${classes}`}
+        aria-live="polite"
+        aria-label={label}
+        title={label}
+      >
+        <SharedSyncIcon className={`h-4 w-4 ${needsReview ? '' : 'animate-pulse'}`} />
+        <span className="text-xs font-bold leading-none sm:hidden">{needsReview ? '!' : count}</span>
+        <span className="hidden text-xs font-bold leading-none tracking-normal sm:inline">{shortLabel}</span>
+      </button>
+    );
+  }
+
   const menuCardClass = 'app-menu-card space-y-1 rounded-[1.25rem] p-2.5';
   const menuGroupLabelClass = 'px-3 pt-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-gray-500 dark:text-gray-400';
   const menuItemClass = 'flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm text-gray-700 transition hover:bg-black/[0.04] dark:text-gray-300 dark:hover:bg-white/[0.04]';
@@ -420,6 +467,7 @@ export default function PersistentTopBar() {
         {showAppMenuControl && isReady && (!homeMenuState.showTrash || isAreaRoute) && (
           <div ref={menuRef} className="app-menu-top-actions relative flex items-center gap-2">
             {renderSharedTransferIndicator()}
+            {renderSharedAreaSyncIndicator()}
             {renderSyncButton()}
             {!isAreaRoute && (
               <button

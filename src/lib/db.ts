@@ -55,6 +55,22 @@ export interface PendingSharedAreaSyncRecord {
   lastError: string | null;
 }
 
+export type PendingSharedAreaSyncInput = {
+  localProjectId: string;
+  sharedProjectId: string;
+  areaId: string;
+  baseVersion: number;
+  basePublishedAt: string;
+};
+
+export type SharedAreaSyncQueueSummary = {
+  pendingCount: number;
+  conflictCount: number;
+  lastConflictError: string | null;
+};
+
+export const SHARED_AREA_SYNC_QUEUE_CHANGED_EVENT = 'punchlist-shared-area-sync-queue-changed';
+
 type SyncMetadataStore = {
   get(key: 'pending'): Promise<SyncMetadataRecord | undefined>;
   put(value: SyncMetadataRecord): Promise<'pending'>;
@@ -97,6 +113,11 @@ type LocalSaveStatusDetail = {
 function reportLocalSaveStatus(detail: LocalSaveStatusDetail) {
   if (typeof window === 'undefined' || typeof window.dispatchEvent !== 'function') return;
   window.dispatchEvent(new CustomEvent('punchlist-local-save-status', { detail }));
+}
+
+function reportSharedAreaSyncQueueChanged() {
+  if (typeof window === 'undefined' || typeof window.dispatchEvent !== 'function') return;
+  window.dispatchEvent(new Event(SHARED_AREA_SYNC_QUEUE_CHANGED_EVENT));
 }
 
 async function runLocalPersistence<T>(operation: () => Promise<T>): Promise<T> {
@@ -765,44 +786,62 @@ export async function persistDurablePendingSyncState(projectIds: string[], fullS
   });
 }
 
-export async function queuePendingSharedAreaSync(input: {
-  localProjectId: string;
-  sharedProjectId: string;
-  areaId: string;
-  baseVersion: number;
-  basePublishedAt: string;
-}): Promise<PendingSharedAreaSyncRecord> {
+export async function queuePendingSharedAreaSync(
+  input: PendingSharedAreaSyncInput
+): Promise<PendingSharedAreaSyncRecord> {
+  const [record] = await queuePendingSharedAreaSyncs([input]);
+  if (!record) {
+    throw new Error('Could not queue the shared area update.');
+  }
+  return record;
+}
+
+export async function queuePendingSharedAreaSyncs(
+  inputs: ReadonlyArray<PendingSharedAreaSyncInput>
+): Promise<PendingSharedAreaSyncRecord[]> {
+  if (inputs.length === 0) return [];
   const db = await getDB();
-  const key = `${input.localProjectId}:${input.sharedProjectId}:${input.areaId}`;
   const tx = db.transaction('sharedAreaSyncQueue', 'readwrite');
   const store = tx.objectStore('sharedAreaSyncQueue');
-  const existing = await store.get(key);
-  const inputBasePublishedAt = new Date(input.basePublishedAt).getTime();
-  const existingBasePublishedAt = existing ? new Date(existing.basePublishedAt).getTime() : 0;
-  const shouldUseInputBase = !existing
-    || input.baseVersion > existing.baseVersion
-    || (
-      input.baseVersion === existing.baseVersion
-      && Number.isFinite(inputBasePublishedAt)
-      && inputBasePublishedAt > existingBasePublishedAt
-    );
-  const record: PendingSharedAreaSyncRecord = {
-    key,
-    localProjectId: input.localProjectId,
-    sharedProjectId: input.sharedProjectId,
-    areaId: input.areaId,
-    baseVersion: shouldUseInputBase ? input.baseVersion : existing!.baseVersion,
-    basePublishedAt: shouldUseInputBase ? input.basePublishedAt : existing!.basePublishedAt,
-    clientId: uuidv4(),
-    revision: (existing?.revision ?? 0) + 1,
-    attemptCount: 0,
-    blockedByConflict: false,
-    queuedAt: new Date(),
-    lastError: null,
-  };
-  await store.put(record);
+  const uniqueInputs = [...new Map(
+    inputs.map((input) => [
+      `${input.localProjectId}:${input.sharedProjectId}:${input.areaId}`,
+      input,
+    ])
+  ).values()];
+  const records: PendingSharedAreaSyncRecord[] = [];
+  for (const input of uniqueInputs) {
+    const key = `${input.localProjectId}:${input.sharedProjectId}:${input.areaId}`;
+    const existing = await store.get(key);
+    const inputBasePublishedAt = new Date(input.basePublishedAt).getTime();
+    const existingBasePublishedAt = existing ? new Date(existing.basePublishedAt).getTime() : 0;
+    const shouldUseInputBase = !existing
+      || input.baseVersion > existing.baseVersion
+      || (
+        input.baseVersion === existing.baseVersion
+        && Number.isFinite(inputBasePublishedAt)
+        && inputBasePublishedAt > existingBasePublishedAt
+      );
+    const record: PendingSharedAreaSyncRecord = {
+      key,
+      localProjectId: input.localProjectId,
+      sharedProjectId: input.sharedProjectId,
+      areaId: input.areaId,
+      baseVersion: shouldUseInputBase ? input.baseVersion : existing!.baseVersion,
+      basePublishedAt: shouldUseInputBase ? input.basePublishedAt : existing!.basePublishedAt,
+      clientId: uuidv4(),
+      revision: (existing?.revision ?? 0) + 1,
+      attemptCount: 0,
+      blockedByConflict: false,
+      queuedAt: new Date(),
+      lastError: null,
+    };
+    await store.put(record);
+    records.push(record);
+  }
   await tx.done;
-  return record;
+  reportSharedAreaSyncQueueChanged();
+  return records;
 }
 
 export async function getPendingSharedAreaSyncs(): Promise<PendingSharedAreaSyncRecord[]> {
@@ -813,6 +852,17 @@ export async function getPendingSharedAreaSyncs(): Promise<PendingSharedAreaSync
 export async function getPendingSharedAreaSyncsForProject(localProjectId: string) {
   const db = await getDB();
   return db.getAllFromIndex('sharedAreaSyncQueue', 'by-local-project', localProjectId);
+}
+
+export function summarizePendingSharedAreaSyncs(
+  records: ReadonlyArray<PendingSharedAreaSyncRecord>
+): SharedAreaSyncQueueSummary {
+  const conflicts = records.filter((record) => record.blockedByConflict);
+  return {
+    pendingCount: records.length,
+    conflictCount: conflicts.length,
+    lastConflictError: conflicts.find((record) => record.lastError)?.lastError ?? null,
+  };
 }
 
 export async function completePendingSharedAreaSync(input: {
@@ -861,7 +911,9 @@ export async function completePendingSharedAreaSync(input: {
   }
 
   await tx.done;
-  return { stillPending: Boolean(await db.get('sharedAreaSyncQueue', input.key)) };
+  const stillPending = Boolean(await db.get('sharedAreaSyncQueue', input.key));
+  reportSharedAreaSyncQueueChanged();
+  return { stillPending };
 }
 
 export async function recordPendingSharedAreaSyncFailure(
@@ -883,11 +935,13 @@ export async function recordPendingSharedAreaSyncFailure(
     });
   }
   await tx.done;
+  reportSharedAreaSyncQueueChanged();
 }
 
 export async function discardPendingSharedAreaSync(key: string) {
   const db = await getDB();
   await db.delete('sharedAreaSyncQueue', key);
+  reportSharedAreaSyncQueueChanged();
 }
 
 export async function clearPendingSharedAreaSyncsForProject(
@@ -913,6 +967,7 @@ export async function clearPendingSharedAreaSyncsForProject(
     await Promise.all(keys.map((key) => store.delete(key)));
   }
   await tx.done;
+  reportSharedAreaSyncQueueChanged();
 }
 
 export function createProject(name: string, address: string = '', inspector: string = ''): Project {

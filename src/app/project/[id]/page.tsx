@@ -58,7 +58,6 @@ import {
   getCollaborationErrorMessage,
   getSharedProjectMembers,
   getSharedProjectBackupSnapshot,
-  getSharedProjectPublishConflict,
   getSharedProjectSnapshot,
   getSharedProjectSnapshotMetadata,
   hasNewerLocalChangesThanSharedSnapshot,
@@ -66,6 +65,7 @@ import {
   isSharedProjectPublishConflictError,
   listSharedProjectBackups,
   publishSharedProjectSnapshot,
+  queueSharedProjectAreaSyncs,
   runCollaborationHealthCheck,
   subscribeToSharedProjectAreaClaimChanges,
   subscribeToSharedProjectAreaSnapshotChanges,
@@ -544,29 +544,7 @@ export default function ProjectDetailPage() {
   async function handleAddArea(submittedForms?: AreaFormValue[]) {
     if (!project) return;
 
-    let projectForAreaCreation = project;
-    if (project.sharedProjectId && collaborationAuth.isSignedIn) {
-      try {
-        const fullProject = await getProject(project.id);
-        if (!fullProject) {
-          throw new Error('Could not load this project.');
-        }
-        fullProject.sharedProjectId = project.sharedProjectId;
-        fullProject.sharedProjectLinkedAt = project.sharedProjectLinkedAt;
-
-        const conflict = await getSharedProjectPublishConflict(fullProject);
-        if (conflict) {
-          setPendingPull(await getPendingSharedPullState(fullProject, 'area-create-conflict'));
-          return;
-        }
-
-        projectForAreaCreation = fullProject;
-      } catch (error) {
-        console.error('Failed to verify shared project before adding area:', error);
-        showMessage(getCollaborationErrorMessage(error, 'Could not verify the latest shared data before adding this area.'));
-        return;
-      }
-    }
+    const projectForAreaCreation = project;
 
     const areaForms = submittedForms ?? getAreaCreationForms(newAreaForm, buildFacadeLevelOptions(projectForAreaCreation));
     if (areaForms.length === 0) return;
@@ -609,6 +587,12 @@ export default function ProjectDetailPage() {
         claimAreaOpenInBackground(area.id);
       }
     }
+    await queueSharedProjectAreaSyncs(
+      projectForAreaCreation,
+      createdAreas.map((area) => area.id)
+    ).catch((error) => {
+      console.info('New shared areas remain local until they can be queued:', error);
+    });
     scheduleSync(projectForAreaCreation.id);
     const nextRecentAreaTypeKeys = [
       newAreaForm.areaTypeKey,
@@ -645,6 +629,7 @@ export default function ProjectDetailPage() {
       setExportScope('project');
       return;
     }
+    const deletedAreaIds = [...selectedAreaIds];
     const now = new Date();
     project.areas.forEach((area) => {
       if (selectedAreaIds.has(area.id)) {
@@ -653,6 +638,9 @@ export default function ProjectDetailPage() {
       }
     });
     await saveProjectMetadataOnly(project);
+    await queueSharedProjectAreaSyncs(project, deletedAreaIds).catch((error) => {
+      console.info('Deleted shared areas remain local until they can be queued:', error);
+    });
     scheduleSync(project.id);
     setSelectedAreaIds(new Set());
     setDeleteMode(false);
@@ -750,6 +738,9 @@ export default function ProjectDetailPage() {
     delete area.deletedAt;
     area.updatedAt = new Date();
     await saveProjectMetadataOnly(project);
+    await queueSharedProjectAreaSyncs(project, [area.id]).catch((error) => {
+      console.info('Restored shared area remains local until it can be queued:', error);
+    });
     scheduleSync(project.id);
     setProject({ ...project, areas: [...project.areas] });
   }

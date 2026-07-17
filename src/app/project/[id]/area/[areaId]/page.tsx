@@ -1605,8 +1605,7 @@ export default function AreaDetailPage() {
     const currentProject = projectRef.current;
     const currentArea = areaRef.current;
     if (
-      collaborationAuth.isSignedIn
-      && currentProject?.sharedProjectId
+      currentProject?.sharedProjectId
       && currentArea
       && (!projectId || projectId === currentProject.id)
     ) {

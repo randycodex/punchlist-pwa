@@ -120,6 +120,8 @@ Start simple: no visible roles for the first release.
 
 - Area edits now save locally first, coalesce in the durable IndexedDB
   `sharedAreaSyncQueue`, and publish compact current-area rows in the background.
+- Area creation, trash, and restore actions from project lists use the same
+  compact queue instead of loading and checking an entire project snapshot.
 - Area RPC retries use client-generated idempotency keys and optimistic versions;
   stale updates pause for review instead of overwriting team data.
 - Extend the same queue contract to project, location, item, and checkpoint audit
@@ -132,7 +134,8 @@ Start simple: no visible roles for the first release.
 - Subscribe open project pages to backend project channels.
 - Apply accepted remote mutations into IndexedDB and React state.
 - Show lightweight presence: who is currently in the project and which areas are claimed.
-- Surface sync status per project.
+- The persistent top bar surfaces durable shared-area work that is pending or
+  blocked for review; per-project history remains a later refinement.
 
 ### Phase 5: conflict and audit UI
 

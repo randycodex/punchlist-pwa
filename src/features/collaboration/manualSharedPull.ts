@@ -1,7 +1,7 @@
 import { getSharedProjectSnapshot, hasNewerLocalChangesThanSharedSnapshot } from '@/lib/collaboration';
 import type { Area, Project } from '@/types';
 
-export type PendingSharedPullReason = 'manual-pull' | 'publish-conflict' | 'area-create-conflict';
+export type PendingSharedPullReason = 'manual-pull' | 'publish-conflict';
 
 export type PendingSharedPullState = {
   localProject: Project;
@@ -128,9 +128,6 @@ export function formatPendingSharedPullMessage(pendingPull: PendingSharedPullSta
 
   if (pendingPull.reason === 'publish-conflict') {
     return `Publishing now would overwrite newer team data from ${sourceTime}.\n\n${mergeSummary}${conflictSummary}`;
-  }
-  if (pendingPull.reason === 'area-create-conflict') {
-    return `Team data changed before this area could be added.\n\n${mergeSummary}${conflictSummary}`;
   }
   return `Team data from ${sourceTime} is ready.\n\n${mergeSummary}${conflictSummary}`;
 }
