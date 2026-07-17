@@ -354,14 +354,13 @@ export default function PersistentTopBar() {
       <button
         type="button"
         onClick={() => {
-          setShowHomeMenu(false);
           if (localSaveStatus === 'error') {
             window.alert(
               `This device could not save the latest change. Keep the app open and try the action again.${localSaveError ? ` ${localSaveError}` : ''}`
             );
             return;
           }
-          dispatchHomeAction('sync-now');
+          dispatchHomeAction('sync-now', undefined, { keepMenuOpen: true });
         }}
         disabled={displayStatus === 'syncing' || displayRetryInSeconds > 0}
         className={`flex h-10 min-w-10 shrink-0 items-center justify-center gap-2 rounded-[1rem] border px-2.5 transition ${buttonClasses}`}
