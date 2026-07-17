@@ -95,6 +95,7 @@ import {
   Trash2,
   RotateCcw,
   Plus,
+  CloudUpload,
 } from 'lucide-react';
 
 type SortOption = 'alphabetical' | 'issues' | 'progress';
@@ -1427,10 +1428,13 @@ export default function ProjectDetailPage() {
                 </h1>
                 {project.sharedProjectId && (
                   <span
-                    className="h-2.5 w-2.5 shrink-0 rounded-full bg-emerald-500 ring-2 ring-emerald-500/15"
+                    className="inline-flex shrink-0 items-center justify-center text-emerald-500"
                     title="Shared project"
                     aria-label="Shared project"
-                  />
+                    role="img"
+                  >
+                    <CloudUpload className="h-4 w-4" aria-hidden="true" />
+                  </span>
                 )}
               </div>
               <p className="mt-1 truncate text-sm text-gray-500 dark:text-gray-400">
