@@ -117,7 +117,6 @@ import {
   Loader2,
   RotateCcw,
   Plus,
-  Users,
 } from 'lucide-react';
 
 type SortOption = 'alphabetical' | 'issues' | 'progress';
@@ -2174,10 +2173,11 @@ export default function ProjectsPage() {
                         {singleProject.projectName}
                       </h1>
                       {singleProject.sharedProjectId && (
-                        <span className="segmented-chip shrink-0 px-2.5 py-1 text-[11px] font-semibold" title="Shared project">
-                          <Users className="h-3.5 w-3.5" />
-                          Shared
-                        </span>
+                        <span
+                          className="h-2.5 w-2.5 shrink-0 rounded-full bg-emerald-500 ring-2 ring-emerald-500/15"
+                          title="Shared project"
+                          aria-label="Shared project"
+                        />
                       )}
                     </div>
                     <p className="mt-1 truncate text-sm text-gray-500 dark:text-gray-400">
