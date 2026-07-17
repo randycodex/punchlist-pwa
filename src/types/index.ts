@@ -112,6 +112,8 @@ export interface Location {
 export interface Area {
   id: string;
   projectId: string;
+  sharedVersion?: number;
+  sharedPublishedAt?: Date;
   name: string;
   areaTypeKey?: string;
   unitType?: string;
@@ -145,6 +147,7 @@ export interface Project {
   sharedProjectId?: string;
   sharedProjectLinkedAt?: Date;
   sharedSnapshotPublishedAt?: Date;
+  sharedBaselinePublishedAt?: Date;
   detachedSharedProjectId?: string;
   detachedSharedProjectAt?: Date;
   detachedSharedSnapshotPublishedAt?: Date;

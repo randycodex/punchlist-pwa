@@ -4,6 +4,8 @@ export * from './database';
 export * from './diagnostics';
 export * from './profiles';
 export * from './sharedProjectSnapshots';
+export * from './sharedProjectAreas';
+export * from './sharedAreaSyncQueue';
 export * from './sharedProjects';
 export * from './sharedSnapshotAssets';
 export * from './sharedSnapshotPayload';

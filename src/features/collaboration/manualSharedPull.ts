@@ -32,6 +32,14 @@ function maxDate(left: Date, right: Date) {
   return new Date(Math.max(new Date(left).getTime(), new Date(right).getTime()));
 }
 
+function preserveLocalAreaWithRemoteRevision(localArea: Area, remoteArea: Area) {
+  return {
+    ...localArea,
+    sharedVersion: remoteArea.sharedVersion,
+    sharedPublishedAt: remoteArea.sharedPublishedAt,
+  };
+}
+
 export function mergeSharedProjectAreas(
   localProject: Project,
   sharedProject: Project
@@ -66,11 +74,11 @@ export function mergeSharedProjectAreas(
     if (localChanged && remoteChanged) {
       conflictingAreaNames.push(localArea.name || remoteArea.name);
       preservedLocalAreaCount += 1;
-      return localArea;
+      return preserveLocalAreaWithRemoteRevision(localArea, remoteArea);
     }
     if (localChanged) {
       preservedLocalAreaCount += 1;
-      return localArea;
+      return preserveLocalAreaWithRemoteRevision(localArea, remoteArea);
     }
 
     appliedRemoteAreaCount += 1;
@@ -85,6 +93,7 @@ export function mergeSharedProjectAreas(
       sharedProjectId: localProject.sharedProjectId,
       sharedProjectLinkedAt: localProject.sharedProjectLinkedAt,
       sharedSnapshotPublishedAt: sharedProject.sharedSnapshotPublishedAt,
+      sharedBaselinePublishedAt: sharedProject.sharedBaselinePublishedAt,
       updatedAt: maxDate(localProject.updatedAt, sharedProject.updatedAt),
       areas,
     },

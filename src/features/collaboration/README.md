@@ -118,10 +118,14 @@ Start simple: no visible roles for the first release.
 
 ### Phase 3: mutation queue
 
-- Add local mutation records for project, area, location, item, checkpoint, and attachment edits.
-- Replace direct collaboration-bound saves with "save local + enqueue mutation".
-- Add idempotency keys so retries do not duplicate edits.
-- Add conflict-safe tombstones for deleted entities.
+- Area edits now save locally first, coalesce in the durable IndexedDB
+  `sharedAreaSyncQueue`, and publish compact current-area rows in the background.
+- Area RPC retries use client-generated idempotency keys and optimistic versions;
+  stale updates pause for review instead of overwriting team data.
+- Extend the same queue contract to project, location, item, and checkpoint audit
+  records only when finer history is needed; area payloads are the current merge
+  boundary.
+- Conflict-safe tombstones remain required before hard-deleting shared entities.
 
 ### Phase 4: project session updates
 
@@ -168,3 +172,9 @@ Version 1 stores legacy inline project JSON. Version 2 keeps the project
 hierarchy in JSON and stores binary media in the private Supabase attachment
 bucket. New clients read both versions; attachment-bearing publishes use version
 2 so database snapshots and history rows no longer duplicate base64 content.
+
+The full snapshot is now the initial baseline and recovery point. Subsequent
+field edits publish to `shared_project_area_snapshots`, one current compact row
+per `Area.id`. Pulls fetch only rows newer than the baseline, while full and
+area publishes share a short database lock and optimistic checks so neither can
+erase a concurrent update.

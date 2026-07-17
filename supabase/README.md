@@ -20,6 +20,17 @@ readable for backward compatibility. Apply migrations through
 `20260717160000_compact_shared_snapshot_assets.sql` before relying on the
 lightweight backup-list query.
 
+`20260717190000_area_scoped_collaboration.sql` adds current area snapshots,
+idempotent optimistic area publishing, realtime area events, and a full-publish
+guard against concurrent area commits. Apply it before enabling background area
+sync in the client.
+
+`20260717203000_harden_area_scoped_collaboration.sql` makes idempotent retries
+return their original accepted revision and prevents a full-project publish from
+superseding any newer area revision that is missing or stale in its payload.
+`20260717210000_order_collaboration_publish_timestamps.sql` makes full and area
+publish timestamps follow the same serialized project-lock order.
+
 To temporarily allow a non-UAI tester, add the exact lower-case email after applying migrations:
 
 ```sql

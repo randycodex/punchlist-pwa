@@ -237,6 +237,32 @@ export interface CollaborationDatabase {
         Update: Partial<CollaborationDatabase['public']['Tables']['shared_project_snapshots']['Insert']>;
         Relationships: [];
       };
+      shared_project_area_snapshots: {
+        Row: {
+          project_id: string;
+          area_id: string;
+          area_payload: Json;
+          payload_version: number;
+          version: number;
+          published_by_user_id: string;
+          published_at: string;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          project_id: string;
+          area_id: string;
+          area_payload: Json;
+          payload_version?: number;
+          version?: number;
+          published_by_user_id: string;
+          published_at?: string;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: Partial<CollaborationDatabase['public']['Tables']['shared_project_area_snapshots']['Insert']>;
+        Relationships: [];
+      };
       shared_project_snapshot_history: {
         Row: {
           id: string;
@@ -289,6 +315,21 @@ export interface CollaborationDatabase {
           p_base_published_at?: string | null;
         };
         Returns: string;
+      };
+      publish_shared_project_area_snapshot: {
+        Args: {
+          p_project_id: string;
+          p_area_id: string;
+          p_area_payload: Json;
+          p_payload_version?: number;
+          p_base_version?: number;
+          p_base_published_at?: string;
+          p_client_id: string;
+        };
+        Returns: {
+          area_version: number;
+          published_at: string;
+        }[];
       };
       capture_shared_project_backup: {
         Args: {

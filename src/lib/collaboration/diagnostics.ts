@@ -151,6 +151,7 @@ export async function runCollaborationHealthCheck(): Promise<CollaborationHealth
     checkTable('area_claims', 'Area claims table', () => supabase.from('area_claims').select('id').limit(1)),
     checkTable('shared_attachments', 'Shared attachments table', () => supabase.from('shared_attachments').select('id').limit(1)),
     checkTable('snapshots', 'Latest snapshot table', () => supabase.from('shared_project_snapshots').select('project_id').limit(1)),
+    checkTable('area_snapshots', 'Area snapshot table', () => supabase.from('shared_project_area_snapshots').select('project_id').limit(1)),
     checkTable('backup_history', 'Backup history table', () => supabase.from('shared_project_snapshot_history').select('id').limit(1)),
     checkStorageBucket(() => supabase.storage.from(COLLABORATION_ATTACHMENT_BUCKET).list('', { limit: 1 })),
 
@@ -168,6 +169,15 @@ export async function runCollaborationHealthCheck(): Promise<CollaborationHealth
       p_project_payload: {} as Json,
       p_payload_version: 1,
       p_base_published_at: null,
+    })),
+    checkRpc('publish_area_snapshot', 'Publish area function', () => supabase.rpc('publish_shared_project_area_snapshot', {
+      p_project_id: ZERO_UUID,
+      p_area_id: ZERO_UUID,
+      p_area_payload: {} as Json,
+      p_payload_version: 1,
+      p_base_version: 0,
+      p_base_published_at: ZERO_DATE,
+      p_client_id: ZERO_UUID,
     })),
     checkRpc('backup_snapshot', 'Backup function', () => supabase.rpc('capture_shared_project_backup', {
       p_project_id: ZERO_UUID,

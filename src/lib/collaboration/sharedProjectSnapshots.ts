@@ -1,16 +1,26 @@
 import type { Area, Project } from '@/types';
 import type { Json } from './database';
 import type { CollaborationSnapshotBackup, CollaborationSnapshotBackupReason } from './types';
+import {
+  clearPendingSharedAreaSyncsForProject,
+  getPendingSharedAreaSyncsForProject,
+  type PendingSharedAreaSyncRecord,
+} from '@/lib/db';
 import { getCollaborationSupabaseClient } from './supabaseClient';
 import {
   getSharedSnapshotProjectName,
   parseSharedSnapshotPayload,
+  type SharedSnapshotAssetManifest,
 } from './sharedSnapshotPayload';
 import {
   hydrateSharedSnapshotAssets,
   prepareCompactSharedSnapshotPayload,
   projectHasSharedSnapshotAttachments,
 } from './sharedSnapshotAssets';
+import {
+  parseSharedProjectAreaSnapshot,
+  type SharedProjectAreaSnapshotRow,
+} from './sharedProjectAreas';
 
 type SnapshotResult = {
   project: Project;
@@ -70,6 +80,70 @@ function isMissingBackupProjectNameError(error: { code?: string; message?: strin
     || message.includes('project_name');
 }
 
+function isMissingAreaSnapshotsTableError(error: { code?: string; message?: string } | null) {
+  const message = error?.message?.toLowerCase() ?? '';
+  return error?.code === '42P01'
+    || error?.code === 'PGRST205'
+    || message.includes('shared_project_area_snapshots');
+}
+
+function laterTimestamp(left: string, right: string) {
+  const leftMs = new Date(left).getTime();
+  const rightMs = new Date(right).getTime();
+  if (!Number.isFinite(leftMs)) return right;
+  if (!Number.isFinite(rightMs)) return left;
+  return rightMs > leftMs ? right : left;
+}
+
+async function listChangedSharedProjectAreaSnapshots(
+  sharedProjectId: string,
+  baselinePublishedAt: string
+): Promise<SharedProjectAreaSnapshotRow[]> {
+  const supabase = getCollaborationSupabaseClient();
+  if (!supabase) throw new Error('Collaboration is not configured.');
+  const { data, error } = await supabase
+    .from('shared_project_area_snapshots')
+    .select('project_id, area_id, area_payload, payload_version, version, published_by_user_id, published_at')
+    .eq('project_id', sharedProjectId)
+    .gt('published_at', baselinePublishedAt)
+    .order('published_at', { ascending: true });
+  if (error) {
+    if (isMissingAreaSnapshotsTableError(error)) return [];
+    throw error;
+  }
+  return data ?? [];
+}
+
+function omitChangedAreaAssets(
+  project: Project,
+  assets: SharedSnapshotAssetManifest,
+  changedAreaIds: ReadonlySet<string>
+): SharedSnapshotAssetManifest {
+  if (changedAreaIds.size === 0) return assets;
+  const omittedPhotoIds = new Set<string>();
+  const omittedFileIds = new Set<string>();
+  for (const area of project.areas) {
+    if (!changedAreaIds.has(area.id)) continue;
+    for (const location of area.locations) {
+      for (const item of location.items) {
+        for (const checkpoint of item.checkpoints) {
+          checkpoint.photos.forEach((photo) => omittedPhotoIds.add(photo.id));
+          (checkpoint.files ?? []).forEach((file) => omittedFileIds.add(file.id));
+        }
+      }
+    }
+  }
+  return {
+    photos: Object.fromEntries(
+      Object.entries(assets.photos).filter(([id]) => !omittedPhotoIds.has(id))
+    ),
+    files: Object.fromEntries(
+      Object.entries(assets.files).filter(([id]) => !omittedFileIds.has(id))
+    ),
+    drawings: assets.drawings,
+  };
+}
+
 async function prepareSnapshotTransfer(project: Project, uploadedByUserId: string) {
   if (!projectHasSharedSnapshotAttachments(project)) {
     return {
@@ -111,7 +185,10 @@ export function isSharedProjectPublishStale(project: Project, remotePublishedAt:
   const basePublishedMs = new Date(basePublishedAt).getTime();
   if (!Number.isFinite(basePublishedMs)) return true;
 
-  return remotePublishedMs > basePublishedMs + SHARED_SNAPSHOT_CLOCK_SKEW_MS;
+  // Both timestamps come from the collaboration database, so allowing clock
+  // skew here can admit a genuinely newer server revision. UI freshness checks
+  // still keep their tolerance for local device clocks below.
+  return remotePublishedMs > basePublishedMs;
 }
 
 export async function getSharedProjectPublishConflict(project: Project): Promise<SnapshotMetadata | null> {
@@ -177,6 +254,12 @@ export async function publishSharedProjectSnapshot(project: Project, publishedBy
     throw new SharedProjectPublishConflictError(conflict.publishedAt);
   }
 
+  let queuedAreaSyncsAtStart: PendingSharedAreaSyncRecord[] = [];
+  try {
+    queuedAreaSyncsAtStart = await getPendingSharedAreaSyncsForProject(project.id);
+  } catch (queueReadError) {
+    console.info('Shared publish queue snapshot was unavailable:', queueReadError);
+  }
   const basePublishedAt = project.sharedSnapshotPublishedAt?.toISOString() ?? null;
   const transfer = await prepareSnapshotTransfer(project, publishedByUserId);
   const { data, error } = await supabase.rpc('publish_shared_project_snapshot', {
@@ -201,6 +284,12 @@ export async function publishSharedProjectSnapshot(project: Project, publishedBy
   }
 
   project.sharedSnapshotPublishedAt = new Date(publishedAt);
+  project.sharedBaselinePublishedAt = new Date(publishedAt);
+  try {
+    await clearPendingSharedAreaSyncsForProject(project.id, queuedAreaSyncsAtStart);
+  } catch (cleanupError) {
+    console.info('Published shared data, but local area sync cleanup was skipped:', cleanupError);
+  }
   return { publishedAt };
 }
 
@@ -266,18 +355,44 @@ export async function getSharedProjectSnapshot(localProject: Project): Promise<S
   }
 
   const parsed = parseSharedSnapshotPayload(data.project_payload, data.payload_version);
-  const hydratedProject = await hydrateSharedSnapshotAssets(
+  const changedAreaSnapshots = await listChangedSharedProjectAreaSnapshots(
+    localProject.sharedProjectId,
+    data.published_at
+  );
+  const changedAreaIds = new Set(changedAreaSnapshots.map((row) => row.area_id));
+  let hydratedProject = await hydrateSharedSnapshotAssets(
     parsed.project,
-    parsed.assets,
+    omitChangedAreaAssets(parsed.project, parsed.assets, changedAreaIds),
     localProject.sharedProjectId
   );
+  let latestPublishedAt = data.published_at;
+  const drawingsById = new Map(
+    (hydratedProject.facadeElevationDrawings ?? []).map((drawing) => [drawing.id, drawing])
+  );
+  for (const row of changedAreaSnapshots) {
+    const parsedArea = await parseSharedProjectAreaSnapshot(
+      row,
+      localProject.id,
+      localProject.sharedProjectId
+    );
+    const existingIndex = hydratedProject.areas.findIndex((area) => area.id === parsedArea.area.id);
+    if (existingIndex === -1) hydratedProject.areas.push(parsedArea.area);
+    else hydratedProject.areas[existingIndex] = parsedArea.area;
+    for (const drawing of parsedArea.drawings) drawingsById.set(drawing.id, drawing);
+    latestPublishedAt = laterTimestamp(latestPublishedAt, row.published_at);
+  }
+  hydratedProject = {
+    ...hydratedProject,
+    facadeElevationDrawings: drawingsById.size > 0 ? [...drawingsById.values()] : undefined,
+  };
   const retargetedProject = retargetProject(hydratedProject, localProject);
   return {
     project: {
       ...retargetedProject,
-      sharedSnapshotPublishedAt: new Date(data.published_at),
+      sharedBaselinePublishedAt: new Date(data.published_at),
+      sharedSnapshotPublishedAt: new Date(latestPublishedAt),
     },
-    publishedAt: data.published_at,
+    publishedAt: latestPublishedAt,
   };
 }
 
@@ -287,17 +402,31 @@ export async function getSharedProjectSnapshotMetadata(sharedProjectId: string):
     throw new Error('Collaboration is not configured.');
   }
 
-  const { data, error } = await supabase
-    .from('shared_project_snapshots')
-    .select('published_at')
-    .eq('project_id', sharedProjectId)
-    .maybeSingle();
+  const [snapshotResult, areaResult] = await Promise.all([
+    supabase
+      .from('shared_project_snapshots')
+      .select('published_at')
+      .eq('project_id', sharedProjectId)
+      .maybeSingle(),
+    supabase
+      .from('shared_project_area_snapshots')
+      .select('published_at')
+      .eq('project_id', sharedProjectId)
+      .order('published_at', { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+  ]);
 
-  if (error) {
-    throw error;
+  if (snapshotResult.error) throw snapshotResult.error;
+  if (areaResult.error && !isMissingAreaSnapshotsTableError(areaResult.error)) {
+    throw areaResult.error;
   }
-
-  return data ? { publishedAt: data.published_at } : null;
+  if (!snapshotResult.data) return null;
+  return {
+    publishedAt: areaResult.data?.published_at
+      ? laterTimestamp(snapshotResult.data.published_at, areaResult.data.published_at)
+      : snapshotResult.data.published_at,
+  };
 }
 
 function reviveBackup(row: {

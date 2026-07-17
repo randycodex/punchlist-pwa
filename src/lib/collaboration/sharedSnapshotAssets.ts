@@ -318,7 +318,8 @@ export function buildSharedSnapshotAssetPlan(
 
 export async function prepareCompactSharedSnapshotPayload(
   project: Project,
-  uploadedByUserId: string
+  uploadedByUserId: string,
+  options: { areaId?: string } = {}
 ) {
   if (!project.sharedProjectId) {
     throw new Error('Share this project before publishing shared data.');
@@ -329,11 +330,14 @@ export async function prepareCompactSharedSnapshotPayload(
     throw new Error('Collaboration is not configured.');
   }
 
-  const { data, error } = await supabase
+  let metadataQuery = supabase
     .from('shared_attachments')
     .select('storage_bucket, storage_path, file_name, mime_type, size_bytes, deleted_at, updated_at')
-    .eq('project_id', project.sharedProjectId)
-    .is('deleted_at', null);
+    .eq('project_id', project.sharedProjectId);
+  if (options.areaId) {
+    metadataQuery = metadataQuery.or(`area_id.eq.${options.areaId},area_id.is.null`);
+  }
+  const { data, error } = await metadataQuery.is('deleted_at', null);
   if (error) throw error;
 
   const plan = buildSharedSnapshotAssetPlan(project, data ?? []);

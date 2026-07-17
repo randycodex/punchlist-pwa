@@ -121,6 +121,11 @@ it('migrates legacy checkpoint media into the area index', async () => {
   const migrated = await getProjectForArea(project.id, 'area-1');
   const metadata = await getProjectMetadata(project.id);
   const dashboardProject = (await getAllProjects()).find((entry) => entry.id === project.id);
+  const upgradedDatabase = await new Promise<IDBDatabase>((resolve, reject) => {
+    const request = indexedDB.open('punchlist-db');
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
 
   expect(migrated?.areas[0].locations[0].items[0].checkpoints[0].photos[0].imageData).toBe(
     'legacy-photo-data'
@@ -136,4 +141,6 @@ it('migrates legacy checkpoint media into the area index', async () => {
     imageData: '',
     thumbnail: undefined,
   });
+  expect(upgradedDatabase.objectStoreNames.contains('sharedAreaSyncQueue')).toBe(true);
+  upgradedDatabase.close();
 });

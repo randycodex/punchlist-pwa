@@ -3,7 +3,7 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { Area, Project, checkpointHasIssue, getReviewMetrics } from '@/types';
-import { getProject, getProjectMetadata, saveProject, saveProjectMetadataOnly, saveProjectPreserveTimestamps, createArea } from '@/lib/db';
+import { clearPendingSharedAreaSyncsForProject, getProject, getProjectMetadata, saveProject, saveProjectMetadataOnly, saveProjectPreserveTimestamps, createArea } from '@/lib/db';
 import { cacheProjectPreview, getCachedProjectPreview } from '@/lib/projectNavigationCache';
 import { readLocalStorage, writeLocalStorage } from '@/lib/browserStorage';
 import AreaEditorModal from '@/components/AreaEditorModal';
@@ -68,6 +68,7 @@ import {
   publishSharedProjectSnapshot,
   runCollaborationHealthCheck,
   subscribeToSharedProjectAreaClaimChanges,
+  subscribeToSharedProjectAreaSnapshotChanges,
   subscribeToSharedProjectSnapshotChanges,
   transferSharedProjectOwnership,
 } from '@/lib/collaboration';
@@ -406,10 +407,25 @@ export default function ProjectDetailPage() {
         }
       }
     );
+    const unsubscribeAreaChanges = subscribeToSharedProjectAreaSnapshotChanges(
+      activeSharedProjectId,
+      (change) => {
+        if (change.publishedByUserId === collaborationAuth.user?.id) return;
+        const currentProject = projectRef.current;
+        if (!currentProject || currentProject.id !== localProjectId) return;
+        if (!change.publishedAt || isSharedSnapshotNewer(currentProject, change.publishedAt)) {
+          markSharedUpdateAvailable(localProjectId);
+        }
+      }
+    );
 
-    return unsubscribeSnapshotChanges;
+    return () => {
+      unsubscribeSnapshotChanges();
+      unsubscribeAreaChanges();
+    };
   }, [
     collaborationAuth.isSignedIn,
+    collaborationAuth.user?.id,
     markSharedUpdateAvailable,
     project?.id,
     project?.sharedProjectId,
@@ -1101,6 +1117,7 @@ export default function ProjectDetailPage() {
       );
 
       const result = await getSharedProjectBackupSnapshot(fullProject, backup.id);
+      await clearPendingSharedAreaSyncsForProject(fullProject.id);
       await saveProjectPreserveTimestamps(result.project);
       let publishedAt: string | null = null;
       if (publishAfterRestore && collaborationAuth.user) {

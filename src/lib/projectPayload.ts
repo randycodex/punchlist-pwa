@@ -199,6 +199,8 @@ function parseArea(value: unknown, path: string): Area {
   return {
     id: requiredString(input.id, `${path}.id`),
     projectId: requiredString(input.projectId, `${path}.projectId`),
+    sharedVersion: optionalFiniteNumber(input.sharedVersion, `${path}.sharedVersion`),
+    sharedPublishedAt: optionalDate(input.sharedPublishedAt, `${path}.sharedPublishedAt`),
     name: requiredString(input.name, `${path}.name`),
     areaTypeKey: optionalString(input.areaTypeKey, `${path}.areaTypeKey`),
     unitType: optionalString(input.unitType, `${path}.unitType`) as Area['unitType'],
@@ -253,6 +255,7 @@ export function parseProjectPayload(value: unknown, payloadVersion = CURRENT_PRO
     sharedProjectId: optionalString(input.sharedProjectId, 'project.sharedProjectId'),
     sharedProjectLinkedAt: optionalDate(input.sharedProjectLinkedAt, 'project.sharedProjectLinkedAt'),
     sharedSnapshotPublishedAt: optionalDate(input.sharedSnapshotPublishedAt, 'project.sharedSnapshotPublishedAt'),
+    sharedBaselinePublishedAt: optionalDate(input.sharedBaselinePublishedAt, 'project.sharedBaselinePublishedAt'),
     detachedSharedProjectId: optionalString(input.detachedSharedProjectId, 'project.detachedSharedProjectId'),
     detachedSharedProjectAt: optionalDate(input.detachedSharedProjectAt, 'project.detachedSharedProjectAt'),
     detachedSharedSnapshotPublishedAt: optionalDate(

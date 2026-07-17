@@ -43,5 +43,13 @@ describe('collaboration request timeout', () => {
       operation: 'Uploading shared attachments',
       timeoutMs: COLLABORATION_TRANSFER_TIMEOUT_MS,
     });
+
+    expect(getCollaborationRequestPolicy(
+      'https://example.supabase.co/rest/v1/rpc/publish_shared_project_area_snapshot',
+      { method: 'POST' }
+    )).toEqual({
+      operation: 'Syncing shared area',
+      timeoutMs: COLLABORATION_TRANSFER_TIMEOUT_MS,
+    });
   });
 });

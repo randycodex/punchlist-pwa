@@ -53,10 +53,17 @@ describe('manual shared project area merge', () => {
 
   it('keeps the local area and reports when both sides changed it', () => {
     const local = project([area('a', 'Apartment 1A', '2026-01-01T12:10:00.000Z')], '2026-01-01T12:10:00.000Z');
-    const remote = project([area('a', 'Apartment 1A remote', '2026-01-01T12:12:00.000Z')], '2026-01-01T12:12:00.000Z');
+    const remoteArea = area('a', 'Apartment 1A remote', '2026-01-01T12:12:00.000Z');
+    remoteArea.sharedVersion = 4;
+    remoteArea.sharedPublishedAt = new Date('2026-01-01T12:12:00.000Z');
+    const remote = project([remoteArea], '2026-01-01T12:12:00.000Z');
 
     const result = mergeSharedProjectAreas(local, remote);
     expect(result.resolutionProject.areas[0].name).toBe('Apartment 1A');
+    expect(result.resolutionProject.areas[0]).toMatchObject({
+      sharedVersion: 4,
+      sharedPublishedAt: new Date('2026-01-01T12:12:00.000Z'),
+    });
     expect(result.conflictingAreaNames).toEqual(['Apartment 1A']);
   });
 

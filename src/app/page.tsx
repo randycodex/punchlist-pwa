@@ -11,6 +11,7 @@ import {
   deleteProject,
   createProject,
   createArea,
+  clearPendingSharedAreaSyncsForProject,
 } from '@/lib/db';
 import {
   markProjectDeleted,
@@ -71,6 +72,7 @@ import {
   listSharedProjectBackups,
   publishSharedProjectSnapshot,
   runCollaborationHealthCheck,
+  subscribeToSharedProjectAreaSnapshotChanges,
   subscribeToSharedProjectAreaClaimChanges,
   subscribeToSharedProjectSnapshotChanges,
   transferSharedProjectOwnership,
@@ -612,9 +614,17 @@ export default function ProjectsPage() {
       .map((entry) => {
         const [localProjectId, sharedProjectId] = entry.split(':');
         if (!localProjectId || !sharedProjectId) return () => {};
-        return subscribeToSharedProjectSnapshotChanges(sharedProjectId, (change) => {
+        const unsubscribeSnapshot = subscribeToSharedProjectSnapshotChanges(sharedProjectId, (change) => {
           void noticeLiveSharedDashboardProject(localProjectId, sharedProjectId, change.publishedAt);
         });
+        const unsubscribeArea = subscribeToSharedProjectAreaSnapshotChanges(sharedProjectId, (change) => {
+          if (change.publishedByUserId === collaborationAuth.user?.id) return;
+          void noticeLiveSharedDashboardProject(localProjectId, sharedProjectId, change.publishedAt);
+        });
+        return () => {
+          unsubscribeSnapshot();
+          unsubscribeArea();
+        };
       });
 
     return () => {
@@ -622,6 +632,7 @@ export default function ProjectsPage() {
     };
   }, [
     collaborationAuth.isSignedIn,
+    collaborationAuth.user?.id,
     multiProjectSharedProjectSubscriptionKey,
     noticeLiveSharedDashboardProject,
   ]);
@@ -641,10 +652,25 @@ export default function ProjectsPage() {
         );
       }
     );
+    const unsubscribeAreaChanges = subscribeToSharedProjectAreaSnapshotChanges(
+      activeSharedProjectId,
+      (change) => {
+        if (change.publishedByUserId === collaborationAuth.user?.id) return;
+        void noticeLiveSharedDashboardProject(
+          localProjectId,
+          activeSharedProjectId,
+          change.publishedAt
+        );
+      }
+    );
 
-    return unsubscribeSnapshotChanges;
+    return () => {
+      unsubscribeSnapshotChanges();
+      unsubscribeAreaChanges();
+    };
   }, [
     collaborationAuth.isSignedIn,
+    collaborationAuth.user?.id,
     noticeLiveSharedDashboardProject,
     singleProject?.id,
     singleProject?.sharedProjectId,
@@ -1633,6 +1659,7 @@ export default function ProjectsPage() {
       );
 
       const result = await getSharedProjectBackupSnapshot(fullProject, backup.id);
+      await clearPendingSharedAreaSyncsForProject(fullProject.id);
       await saveProjectPreserveTimestamps(result.project);
       let publishedAt: string | null = null;
       if (publishAfterRestore && collaborationAuth.user) {

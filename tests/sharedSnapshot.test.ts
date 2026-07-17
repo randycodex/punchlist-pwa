@@ -39,6 +39,11 @@ describe('shared snapshot revision safety', () => {
     expect(isSharedSnapshotNewer(local, '2026-01-01T12:00:01.000Z')).toBe(false);
   });
 
+  it('rejects a full publish for any newer server revision, even inside UI clock tolerance', () => {
+    const local = project();
+    expect(isSharedProjectPublishStale(local, '2026-01-01T12:00:00.001Z')).toBe(true);
+  });
+
   it('protects local edits made after the last published team snapshot', () => {
     const local = project({ updatedAt: new Date('2026-01-01T12:00:10.000Z') });
     expect(hasNewerLocalChangesThanSharedSnapshot(local, '2026-01-01T12:00:05.000Z')).toBe(true);

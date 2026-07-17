@@ -71,9 +71,15 @@ import {
   getCollaborationRuntimeConfig,
   getAreaClaimExpiry,
   getSharedProjectSnapshotMetadata,
+  flushPendingSharedAreaSyncs,
   isSharedSnapshotNewer,
+  queueSharedProjectAreaSync,
   releaseSharedProjectArea,
+  resumePendingSharedAreaSyncs,
+  SHARED_AREA_SYNC_EVENT,
+  subscribeToSharedProjectAreaSnapshotChanges,
   subscribeToSharedProjectSnapshotChanges,
+  type SharedAreaSyncEventDetail,
 } from '@/lib/collaboration';
 import AreaNotesCard from '@/components/inspection/AreaNotesCard';
 import CustomItemComposer from '@/components/inspection/CustomItemComposer';
@@ -222,6 +228,48 @@ export default function AreaDetailPage() {
     scheduleSyncRef.current = scheduleSync;
     loadDataRef.current = loadData;
   });
+
+  useEffect(() => {
+    if (!collaborationAuth.isSignedIn) return;
+    resumePendingSharedAreaSyncs();
+  }, [collaborationAuth.isSignedIn]);
+
+  useEffect(() => {
+    function handleSharedAreaSync(event: Event) {
+      const detail = (event as CustomEvent<SharedAreaSyncEventDetail>).detail;
+      const currentProject = projectRef.current;
+      const currentArea = areaRef.current;
+      if (
+        !detail
+        || !currentProject
+        || !currentArea
+        || detail.localProjectId !== currentProject.id
+        || detail.areaId !== currentArea.id
+      ) {
+        return;
+      }
+
+      if (detail.status === 'conflict') {
+        markSharedUpdateAvailable(currentProject.id);
+        return;
+      }
+      if (!detail.areaVersion || !detail.publishedAt) return;
+      const publishedAt = new Date(detail.publishedAt);
+      if (Number.isNaN(publishedAt.getTime())) return;
+      currentArea.sharedVersion = Math.max(currentArea.sharedVersion ?? 0, detail.areaVersion);
+      currentArea.sharedPublishedAt = publishedAt;
+      if ((currentProject.sharedSnapshotPublishedAt?.getTime() ?? 0) < publishedAt.getTime()) {
+        currentProject.sharedSnapshotPublishedAt = publishedAt;
+      }
+      setProject({ ...currentProject, areas: [...currentProject.areas] });
+      setArea({ ...currentArea });
+    }
+
+    window.addEventListener(SHARED_AREA_SYNC_EVENT, handleSharedAreaSync as EventListener);
+    return () => {
+      window.removeEventListener(SHARED_AREA_SYNC_EVENT, handleSharedAreaSync as EventListener);
+    };
+  }, [markSharedUpdateAvailable]);
 
   function sharedAreaEditsAreBlocked() {
     return Boolean(projectRef.current?.sharedProjectId && areaClaimProblemRef.current);
@@ -373,11 +421,27 @@ export default function AreaDetailPage() {
         }
       }
     );
+    const unsubscribeAreaChanges = subscribeToSharedProjectAreaSnapshotChanges(
+      activeSharedProjectId,
+      (change) => {
+        if (change.publishedByUserId === collaborationAuth.user?.id) return;
+        const currentProject = projectRef.current;
+        if (!currentProject || currentProject.id !== localProjectId) return;
+        if (!change.publishedAt || isSharedSnapshotNewer(currentProject, change.publishedAt)) {
+          markSharedUpdateAvailable(localProjectId);
+        }
+      },
+      area.id
+    );
 
-    return unsubscribeSnapshotChanges;
+    return () => {
+      unsubscribeSnapshotChanges();
+      unsubscribeAreaChanges();
+    };
   }, [
     area?.id,
     collaborationAuth.isSignedIn,
+    collaborationAuth.user?.id,
     markSharedUpdateAvailable,
     project?.id,
     project?.sharedProjectId,
@@ -412,8 +476,10 @@ export default function AreaDetailPage() {
     setAreaClaimExpiresAt(optimisticExpiresAt);
 
     const releaseClaim = () => {
-      void releaseSharedProjectArea(sharedProjectId, currentAreaId).catch((error) => {
-        console.error('Failed to release shared area claim:', error);
+      void flushPendingSharedAreaSyncs().finally(() => {
+        void releaseSharedProjectArea(sharedProjectId, currentAreaId).catch((error) => {
+          console.error('Failed to release shared area claim:', error);
+        });
       });
     };
 
@@ -423,6 +489,7 @@ export default function AreaDetailPage() {
           setAreaClaimError(null);
           setAreaClaimProblem(null);
           setAreaClaimExpiresAt(claim.expiresAt ?? null);
+          resumePendingSharedAreaSyncs();
           claimRenewTimer = setInterval(() => {
             void claimSharedProjectArea(sharedProjectId, currentAreaId)
               .then((renewedClaim) => {
@@ -1488,6 +1555,7 @@ export default function AreaDetailPage() {
     setSyncError(null);
     try {
       await closeExpandedCheckpoint();
+      await flushPendingSharedAreaSyncs();
       await releaseSharedProjectArea(project.sharedProjectId, area.id);
       setAreaClaimExpiresAt(null);
       setAreaClaimError(null);
@@ -1534,6 +1602,18 @@ export default function AreaDetailPage() {
   function scheduleSync(projectId?: string, options?: ScheduleSyncOptions) {
     queuePendingSync(projectId, options);
     setSyncStatus('pending');
+    const currentProject = projectRef.current;
+    const currentArea = areaRef.current;
+    if (
+      collaborationAuth.isSignedIn
+      && currentProject?.sharedProjectId
+      && currentArea
+      && (!projectId || projectId === currentProject.id)
+    ) {
+      void queueSharedProjectAreaSync(currentProject, currentArea.id).catch((error) => {
+        console.info('Shared area update remains local until it can be queued:', error);
+      });
+    }
   }
 
   async function closeExpandedCheckpoint() {

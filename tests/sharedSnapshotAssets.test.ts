@@ -3,22 +3,26 @@ import type { Project } from '@/types';
 
 const {
   attachmentIsMock,
+  attachmentOrMock,
   attachmentUpsertMock,
   fromMock,
   storageFromMock,
   storageUploadMock,
 } = vi.hoisted(() => {
-  const attachmentIsMock = vi.fn();
-  const attachmentUpsertMock = vi.fn();
   const query: Record<string, ReturnType<typeof vi.fn>> = {};
+  const attachmentIsMock = vi.fn();
+  const attachmentOrMock = vi.fn(() => query);
+  const attachmentUpsertMock = vi.fn();
   query.select = vi.fn(() => query);
   query.eq = vi.fn(() => query);
   query.is = attachmentIsMock;
+  query.or = attachmentOrMock;
   query.upsert = attachmentUpsertMock;
 
   const storageUploadMock = vi.fn();
   return {
     attachmentIsMock,
+    attachmentOrMock,
     attachmentUpsertMock,
     fromMock: vi.fn(() => query),
     storageFromMock: vi.fn(() => ({ upload: storageUploadMock })),
@@ -102,6 +106,7 @@ describe('shared snapshot attachment transfer', () => {
     fromMock.mockClear();
     storageFromMock.mockClear();
     attachmentIsMock.mockReset();
+    attachmentOrMock.mockClear();
     attachmentUpsertMock.mockReset();
     storageUploadMock.mockReset();
     attachmentIsMock.mockResolvedValue({ data: [], error: null });
@@ -132,5 +137,11 @@ describe('shared snapshot attachment transfer', () => {
 
     const compactPhoto = prepared.payload.project.areas[0].locations[0].items[0].checkpoints[0].photos[0];
     expect(compactPhoto.imageData).toBe('');
+  });
+
+  it('limits area publishes to the selected area and project-level attachment metadata', async () => {
+    await prepareCompactSharedSnapshotPayload(project(), 'user-1', { areaId: 'area-1' });
+
+    expect(attachmentOrMock).toHaveBeenCalledWith('area_id.eq.area-1,area_id.is.null');
   });
 });

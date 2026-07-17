@@ -40,6 +40,21 @@ interface SyncMetadataRecord {
   updatedAt: Date;
 }
 
+export interface PendingSharedAreaSyncRecord {
+  key: string;
+  localProjectId: string;
+  sharedProjectId: string;
+  areaId: string;
+  baseVersion: number;
+  basePublishedAt: string;
+  clientId: string;
+  revision: number;
+  attemptCount: number;
+  blockedByConflict: boolean;
+  queuedAt: Date;
+  lastError: string | null;
+}
+
 type SyncMetadataStore = {
   get(key: 'pending'): Promise<SyncMetadataRecord | undefined>;
   put(value: SyncMetadataRecord): Promise<'pending'>;
@@ -64,6 +79,11 @@ interface PunchListDB extends DBSchema {
   syncMetadata: {
     key: 'pending';
     value: SyncMetadataRecord;
+  };
+  sharedAreaSyncQueue: {
+    key: string;
+    value: PendingSharedAreaSyncRecord;
+    indexes: { 'by-local-project': string; 'by-queued-at': Date };
   };
 }
 
@@ -392,7 +412,7 @@ function preserveExistingMediaPayloads(
 
 function getDB() {
   if (!dbPromise) {
-    dbPromise = openDB<PunchListDB>('punchlist-db', 5, {
+    dbPromise = openDB<PunchListDB>('punchlist-db', 6, {
       async upgrade(db, oldVersion, _newVersion, transaction) {
         if (!db.objectStoreNames.contains('projects')) {
           const projectStore = db.createObjectStore('projects', { keyPath: 'id' });
@@ -413,6 +433,12 @@ function getDB() {
 
         if (!db.objectStoreNames.contains('syncMetadata')) {
           db.createObjectStore('syncMetadata', { keyPath: 'key' });
+        }
+
+        if (!db.objectStoreNames.contains('sharedAreaSyncQueue')) {
+          const sharedAreaSyncStore = db.createObjectStore('sharedAreaSyncQueue', { keyPath: 'key' });
+          sharedAreaSyncStore.createIndex('by-local-project', 'localProjectId');
+          sharedAreaSyncStore.createIndex('by-queued-at', 'queuedAt');
         }
 
         if (oldVersion < 3 && db.objectStoreNames.contains('projects')) {
@@ -737,6 +763,156 @@ export async function persistDurablePendingSyncState(projectIds: string[], fullS
     fullSyncNeeded,
     updatedAt: new Date(),
   });
+}
+
+export async function queuePendingSharedAreaSync(input: {
+  localProjectId: string;
+  sharedProjectId: string;
+  areaId: string;
+  baseVersion: number;
+  basePublishedAt: string;
+}): Promise<PendingSharedAreaSyncRecord> {
+  const db = await getDB();
+  const key = `${input.localProjectId}:${input.sharedProjectId}:${input.areaId}`;
+  const tx = db.transaction('sharedAreaSyncQueue', 'readwrite');
+  const store = tx.objectStore('sharedAreaSyncQueue');
+  const existing = await store.get(key);
+  const inputBasePublishedAt = new Date(input.basePublishedAt).getTime();
+  const existingBasePublishedAt = existing ? new Date(existing.basePublishedAt).getTime() : 0;
+  const shouldUseInputBase = !existing
+    || input.baseVersion > existing.baseVersion
+    || (
+      input.baseVersion === existing.baseVersion
+      && Number.isFinite(inputBasePublishedAt)
+      && inputBasePublishedAt > existingBasePublishedAt
+    );
+  const record: PendingSharedAreaSyncRecord = {
+    key,
+    localProjectId: input.localProjectId,
+    sharedProjectId: input.sharedProjectId,
+    areaId: input.areaId,
+    baseVersion: shouldUseInputBase ? input.baseVersion : existing!.baseVersion,
+    basePublishedAt: shouldUseInputBase ? input.basePublishedAt : existing!.basePublishedAt,
+    clientId: uuidv4(),
+    revision: (existing?.revision ?? 0) + 1,
+    attemptCount: 0,
+    blockedByConflict: false,
+    queuedAt: new Date(),
+    lastError: null,
+  };
+  await store.put(record);
+  await tx.done;
+  return record;
+}
+
+export async function getPendingSharedAreaSyncs(): Promise<PendingSharedAreaSyncRecord[]> {
+  const db = await getDB();
+  return db.getAllFromIndex('sharedAreaSyncQueue', 'by-queued-at');
+}
+
+export async function getPendingSharedAreaSyncsForProject(localProjectId: string) {
+  const db = await getDB();
+  return db.getAllFromIndex('sharedAreaSyncQueue', 'by-local-project', localProjectId);
+}
+
+export async function completePendingSharedAreaSync(input: {
+  key: string;
+  clientId: string;
+  revision: number;
+  areaVersion: number;
+  publishedAt: string;
+}): Promise<{ stillPending: boolean }> {
+  const db = await getDB();
+  const tx = db.transaction(['sharedAreaSyncQueue', 'projects'], 'readwrite');
+  const queueStore = tx.objectStore('sharedAreaSyncQueue');
+  const projectStore = tx.objectStore('projects');
+  const current = await queueStore.get(input.key);
+
+  if (current) {
+    if (current.clientId === input.clientId && current.revision === input.revision) {
+      await queueStore.delete(input.key);
+    } else if (current.baseVersion < input.areaVersion) {
+      await queueStore.put({
+        ...current,
+        baseVersion: input.areaVersion,
+        basePublishedAt: input.publishedAt,
+        attemptCount: 0,
+        blockedByConflict: false,
+        lastError: null,
+      });
+    }
+
+    const project = await projectStore.get(current.localProjectId);
+    if (project) {
+      const area = project.areas.find((entry) => entry.id === current.areaId);
+      if (area) {
+        area.sharedVersion = Math.max(area.sharedVersion ?? 0, input.areaVersion);
+        const publishedAt = new Date(input.publishedAt);
+        if (!Number.isNaN(publishedAt.getTime())) {
+          area.sharedPublishedAt = publishedAt;
+          const currentProjectPublishedAt = project.sharedSnapshotPublishedAt?.getTime() ?? 0;
+          if (publishedAt.getTime() > currentProjectPublishedAt) {
+            project.sharedSnapshotPublishedAt = publishedAt;
+          }
+        }
+        await projectStore.put(project);
+      }
+    }
+  }
+
+  await tx.done;
+  return { stillPending: Boolean(await db.get('sharedAreaSyncQueue', input.key)) };
+}
+
+export async function recordPendingSharedAreaSyncFailure(
+  key: string,
+  clientId: string,
+  message: string,
+  blockedByConflict = false
+) {
+  const db = await getDB();
+  const tx = db.transaction('sharedAreaSyncQueue', 'readwrite');
+  const store = tx.objectStore('sharedAreaSyncQueue');
+  const current = await store.get(key);
+  if (current?.clientId === clientId) {
+    await store.put({
+      ...current,
+      attemptCount: current.attemptCount + 1,
+      blockedByConflict,
+      lastError: message,
+    });
+  }
+  await tx.done;
+}
+
+export async function discardPendingSharedAreaSync(key: string) {
+  const db = await getDB();
+  await db.delete('sharedAreaSyncQueue', key);
+}
+
+export async function clearPendingSharedAreaSyncsForProject(
+  localProjectId: string,
+  expectedRecords?: ReadonlyArray<Pick<PendingSharedAreaSyncRecord, 'key' | 'clientId' | 'revision'>>
+) {
+  const db = await getDB();
+  const tx = db.transaction('sharedAreaSyncQueue', 'readwrite');
+  const store = tx.objectStore('sharedAreaSyncQueue');
+  if (expectedRecords) {
+    for (const expected of expectedRecords) {
+      const current = await store.get(expected.key);
+      if (
+        current?.localProjectId === localProjectId
+        && current.clientId === expected.clientId
+        && current.revision === expected.revision
+      ) {
+        await store.delete(expected.key);
+      }
+    }
+  } else {
+    const keys = await store.index('by-local-project').getAllKeys(localProjectId);
+    await Promise.all(keys.map((key) => store.delete(key)));
+  }
+  await tx.done;
 }
 
 export function createProject(name: string, address: string = '', inspector: string = ''): Project {

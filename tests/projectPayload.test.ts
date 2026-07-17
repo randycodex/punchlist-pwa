@@ -45,6 +45,31 @@ describe('project payload validation', () => {
     expect(parsed.detachedSharedSnapshotPublishedAt).toEqual(timestamp);
   });
 
+  it('revives shared baseline and area revision metadata', () => {
+    const project = validProject();
+    project.sharedBaselinePublishedAt = timestamp;
+    project.areas = [{
+      id: 'area-1',
+      projectId: project.id,
+      sharedVersion: 7,
+      sharedPublishedAt: timestamp,
+      name: 'Area',
+      sortOrder: 0,
+      isComplete: false,
+      notes: '',
+      locations: [],
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    }];
+
+    const parsed = parseProjectPayload(JSON.parse(JSON.stringify(project)));
+    expect(parsed.sharedBaselinePublishedAt).toEqual(timestamp);
+    expect(parsed.areas[0]).toMatchObject({
+      sharedVersion: 7,
+      sharedPublishedAt: timestamp,
+    });
+  });
+
   it('rejects unsupported versions before touching local data', () => {
     expect(() =>
       parseProjectPayload({ payloadVersion: 99, project: validProject() })
