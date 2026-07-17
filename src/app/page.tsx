@@ -2182,7 +2182,7 @@ export default function ProjectsPage() {
                       </h1>
                       {singleProject.sharedProjectId && (
                         <span
-                          className="inline-flex shrink-0 items-center justify-center text-emerald-500"
+                          className="inline-flex -translate-y-px shrink-0 items-center justify-center text-emerald-500"
                           title="Shared project"
                           aria-label="Shared project"
                           role="img"
