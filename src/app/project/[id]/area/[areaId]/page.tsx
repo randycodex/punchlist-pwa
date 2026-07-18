@@ -1873,7 +1873,7 @@ export default function AreaDetailPage() {
         : 'Shared area claimed';
 
   return (
-    <div className="app-page h-[calc(100dvh-env(safe-area-inset-top)-3.5rem)] flex flex-col overflow-hidden">
+    <div className="app-page flex h-full flex-col overflow-hidden">
       <header className="header-stable shrink-0 border-b z-20">
         <div className="page-header-surface mx-auto flex min-h-[4.9rem] w-full max-w-6xl items-center px-4 py-3 sm:px-5">
           <div className="flex w-full items-center gap-3">

@@ -2278,7 +2278,7 @@ export default function ProjectsPage() {
   }
 
   return (
-    <div className="app-page h-[calc(100dvh-env(safe-area-inset-top)-3.5rem)] flex flex-col overflow-hidden">
+    <div className="app-page flex h-full flex-col overflow-hidden">
       {(singleProjectMainView || showTrash || selectionMode) && (
         <header className="header-stable shrink-0 border-b z-20">
           {(singleProjectMainView || showTrash) && (
