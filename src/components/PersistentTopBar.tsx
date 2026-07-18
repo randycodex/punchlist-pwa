@@ -337,28 +337,6 @@ export default function PersistentTopBar() {
     );
   }
 
-  function renderSharedTransferIndicator() {
-    if (!sharedTransferStatus) return null;
-
-    const isPublishing = sharedTransferStatus === 'publishing';
-    const label = isPublishing ? 'Pushing shared data' : 'Pulling shared data';
-    const shortLabel = isPublishing ? 'Pushing' : 'Pulling';
-    const TransferIcon = isPublishing ? CloudUpload : CloudDownload;
-
-    return (
-      <div
-        className="flex h-10 min-w-10 shrink-0 items-center justify-center gap-2 rounded-[1rem] border border-violet-200 bg-violet-50 px-2.5 text-violet-700 dark:border-violet-400/25 dark:bg-violet-400/10 dark:text-violet-200"
-        role="status"
-        aria-live="polite"
-        aria-label={label}
-        title={label}
-      >
-        <TransferIcon className="h-4 w-4 animate-pulse" />
-        <span className="text-xs font-bold leading-none tracking-normal">{shortLabel}</span>
-      </div>
-    );
-  }
-
   function renderSharedSyncIndicator() {
     if (sharedSyncSummary.pendingCount === 0) return null;
 
@@ -400,6 +378,7 @@ export default function PersistentTopBar() {
   const menuPillGridClass = 'grid grid-cols-2 gap-2 px-1 pb-1';
   const menuPillClass = 'flex min-h-10 min-w-0 items-center gap-2 rounded-full bg-black/[0.07] px-3 py-2 text-left text-[13px] font-medium leading-tight text-gray-700 transition hover:bg-black/[0.10] dark:bg-white/[0.05] dark:text-gray-300 dark:hover:bg-white/[0.08]';
   const disabledMenuPillClass = `${menuPillClass} disabled:cursor-default disabled:opacity-60`;
+  const activeTransferMenuPillClass = 'flex min-h-10 min-w-0 cursor-wait items-center gap-2 rounded-full border border-violet-300 bg-violet-100 px-3 py-2 text-left text-[13px] font-semibold leading-tight text-violet-700 transition dark:border-violet-400/35 dark:bg-violet-400/20 dark:text-violet-100';
   return (
     <div className="persistent-top-bar fixed top-0 left-0 right-0 z-30 pt-[env(safe-area-inset-top)] md:border-b">
       <div className="top-bar-surface mx-auto flex h-14 w-full max-w-6xl items-center justify-between px-4 sm:px-5">
@@ -431,7 +410,6 @@ export default function PersistentTopBar() {
         </div>
         {showAppMenuControl && isReady && (!homeMenuState.showTrash || isAreaRoute) && (
           <div ref={menuRef} className="app-menu-top-actions relative flex items-center gap-2">
-            {renderSharedTransferIndicator()}
             {renderSharedSyncIndicator()}
             {renderSyncButton()}
             {!isAreaRoute && (
@@ -526,17 +504,19 @@ export default function PersistentTopBar() {
                           <button
                             onClick={() => dispatchHomeAction('publish-shared-project')}
                             disabled={sharedTransferStatus !== null}
-                            className={disabledMenuPillClass}
+                            className={sharedTransferStatus === 'publishing' ? activeTransferMenuPillClass : disabledMenuPillClass}
+                            aria-busy={sharedTransferStatus === 'publishing'}
                           >
-                            <CloudUpload className="h-4 w-4 shrink-0" />
+                            <CloudUpload className={`h-4 w-4 shrink-0 ${sharedTransferStatus === 'publishing' ? 'animate-pulse' : ''}`} />
                             {sharedTransferStatus === 'publishing' ? 'Pushing...' : 'Push Changes'}
                           </button>
                           <button
                             onClick={() => dispatchHomeAction('pull-shared-project')}
                             disabled={sharedTransferStatus !== null}
-                            className={disabledMenuPillClass}
+                            className={sharedTransferStatus === 'pulling' ? activeTransferMenuPillClass : disabledMenuPillClass}
+                            aria-busy={sharedTransferStatus === 'pulling'}
                           >
-                            <CloudDownload className="h-4 w-4 shrink-0" />
+                            <CloudDownload className={`h-4 w-4 shrink-0 ${sharedTransferStatus === 'pulling' ? 'animate-pulse' : ''}`} />
                             {sharedTransferStatus === 'pulling' ? 'Pulling...' : 'Pull Changes'}
                           </button>
                           <button
