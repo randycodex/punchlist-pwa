@@ -17,7 +17,13 @@ const persistentTopBar = readFileSync(
 );
 
 describe('mobile top-bar safe area', () => {
-  it('uses the top-bar surface token behind the translucent iOS status bar', () => {
+  it('uses the document canvas and top-bar surface token behind the translucent iOS status bar', () => {
+    expect(globalStyles).toMatch(
+      /html\s*\{[\s\S]*?background-color:\s*var\(--top-bar-surface\);/
+    );
+    expect(globalStyles).toMatch(
+      /body\s*\{[\s\S]*?background-color:\s*var\(--background\);/
+    );
     expect(globalStyles).toMatch(
       /\.persistent-top-bar::before\s*\{[\s\S]*?height:\s*env\(safe-area-inset-top\);[\s\S]*?background-color:\s*var\(--top-bar-surface\);/
     );
@@ -36,15 +42,18 @@ describe('mobile top-bar safe area', () => {
     }
   });
 
-  it('keeps the mobile menu scrollable without covering its bottom safe area', () => {
+  it('keeps the mobile menu scrollable through the bottom safe area without a fixed band', () => {
     expect(globalStyles).toMatch(
-      /\.app-menu-drawer\.menu-surface\s*\{[\s\S]*?bottom:\s*calc\(-1 \* env\(safe-area-inset-bottom\)\);[\s\S]*?height:\s*auto;/
+      /@media \(max-width: 767px\)[\s\S]*?\.app-menu-drawer\.menu-surface\s*\{[\s\S]*?bottom:\s*0;[\s\S]*?height:\s*auto;[\s\S]*?background:\s*var\(--background\);/
+    );
+    expect(globalStyles).not.toMatch(
+      /@media \(max-width: 767px\)[\s\S]*?html\[data-app-menu-open="true"\] body/
+    );
+    expect(globalStyles).not.toMatch(
+      /@media \(max-width: 767px\)[\s\S]*?html\[data-app-menu-open="true"\] \.app-shell/
     );
     expect(globalStyles).toMatch(
-      /html\[data-app-menu-open="true"\][\s\S]*?background-color:\s*var\(--top-bar-surface\)\s*!important;/
-    );
-    expect(globalStyles).toMatch(
-      /\.app-menu-drawer \.app-menu-scroll\s*\{[\s\S]*?position:\s*absolute;[\s\S]*?inset:\s*0 0 env\(safe-area-inset-bottom\);[\s\S]*?background:\s*transparent;/
+      /\.app-menu-drawer \.app-menu-scroll\s*\{[\s\S]*?position:\s*absolute;[\s\S]*?inset:\s*0;[\s\S]*?background:\s*var\(--background\);/
     );
     expect(globalStyles).not.toContain('transparent calc(100% - env(safe-area-inset-bottom))');
     expect(persistentTopBar).toContain(

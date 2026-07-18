@@ -42,11 +42,23 @@ body {
 
 html,
 body {
-  background-color: var(--background);
   height: 100%;
   overflow: hidden;
   overscroll-behavior-y: none;
   -webkit-tap-highlight-color: transparent;
+}
+
+/*
+ * iOS standalone mode paints the translucent status-bar safe area from the
+ * document canvas, not reliably from a fixed child. Keep that canvas on the
+ * exact top-bar token while the body and app shell retain the page color.
+ */
+html {
+  background-color: var(--top-bar-surface);
+}
+
+body {
+  background-color: var(--background);
 }
 
 * {
@@ -379,9 +391,6 @@ html:not(.dark) {
 }
 
 @media (max-width: 767px) {
-  html[data-app-menu-open="true"],
-  html[data-app-menu-open="true"] body,
-  html[data-app-menu-open="true"] .app-shell,
   html[data-app-menu-open="true"] .top-bar-surface {
     background-color: var(--top-bar-surface) !important;
   }
@@ -389,15 +398,15 @@ html:not(.dark) {
   .app-menu-drawer.menu-surface {
     border-top: 0;
     top: calc(env(safe-area-inset-top) + 3.5rem);
-    bottom: calc(-1 * env(safe-area-inset-bottom));
+    bottom: 0;
     height: auto;
-    background: transparent;
+    background: var(--background);
   }
 
   .app-menu-drawer .app-menu-scroll {
     position: absolute;
-    inset: 0 0 env(safe-area-inset-bottom);
-    background: transparent;
+    inset: 0;
+    background: var(--background);
   }
 }
 
