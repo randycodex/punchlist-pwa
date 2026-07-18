@@ -136,16 +136,16 @@ export default function PersistentTopBar() {
   } as const;
 
   const syncButtonLabel = {
-    idle: 'Sync with OneDrive',
-    syncing: 'Syncing now',
-    pending: 'Sync with OneDrive',
-    'needs-auth': 'Sign in required to finish syncing',
-    error: 'Sync needs attention',
+    idle: 'Back up project data and photos to OneDrive',
+    syncing: 'Backing up to OneDrive now',
+    pending: 'Back up pending changes to OneDrive',
+    'needs-auth': 'Sign in required to back up to OneDrive',
+    error: 'OneDrive backup needs attention',
   } as const;
   const syncButtonShortLabel = {
-    idle: 'Sync',
-    syncing: 'Syncing',
-    pending: 'Sync',
+    idle: 'OneDrive Backup',
+    syncing: 'Backing up',
+    pending: 'OneDrive Backup',
     'needs-auth': 'Sign in',
     error: 'Error',
   } as const;
@@ -311,11 +311,11 @@ export default function PersistentTopBar() {
     }));
   }
 
-  function renderSyncButton() {
+  function renderOneDriveBackupButton() {
     const label = localSaveStatus === 'error'
       ? 'Local save needs attention'
       : displayRetryInSeconds > 0
-      ? `Sync available in ${displayRetryInSeconds} seconds`
+      ? `Backup available in ${displayRetryInSeconds} seconds`
       : syncButtonLabel[displayStatus];
     const shortLabel = localSaveStatus === 'error'
       ? 'Save error'
@@ -478,7 +478,7 @@ export default function PersistentTopBar() {
                           <Pencil className="h-4 w-4 shrink-0" />
                           Edit
                         </button>
-                        {renderSyncButton()}
+                        {renderOneDriveBackupButton()}
                         {homeMenuState.canAddArea && (
                           <button
                             onClick={() => {
@@ -616,7 +616,19 @@ export default function PersistentTopBar() {
                             New Project
                           </button>
                         )}
-                        {showAuth && isSignedIn && !homeMenuState.isSingleProject && renderSyncButton()}
+                        {showAuth && isSignedIn && !homeMenuState.isSingleProject && homeMenuState.hasProjects && renderOneDriveBackupButton()}
+                        {showAuth && isSignedIn && !homeMenuState.isSingleProject && (
+                          <button
+                            type="button"
+                            onClick={() => dispatchHomeAction('restore-onedrive-backup')}
+                            disabled={displayStatus === 'syncing'}
+                            className={disabledMenuPillClass}
+                            aria-label="Restore missing projects and photos from OneDrive"
+                          >
+                            <ArchiveRestore className="h-4 w-4 shrink-0" />
+                            Restore Backup
+                          </button>
+                        )}
                         {showAuth &&
                           isSignedIn &&
                           collaborationAuth.canUseCollaboration &&

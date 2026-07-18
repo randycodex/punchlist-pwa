@@ -44,6 +44,17 @@ export type PushSyncResult = {
   conflicts: SyncConflict[];
 };
 
+export type OneDriveBackupResult = {
+  conflicts: SyncConflict[];
+  backedUpProjectIds: string[];
+  syncedAt: string;
+};
+
+export type OneDriveRestoreResult = {
+  restoredProjectIds: string[];
+  skippedProjectIds: string[];
+};
+
 type RemoteProjectFile = {
   id: string;
   name: string;
@@ -729,6 +740,37 @@ async function syncProjectPhotosToOneDrive(
       }
     }
   );
+}
+
+async function backupProjectPhotosToOneDrive(
+  token: string,
+  project: Project,
+  targetFolderName = projectFolderName(project),
+  remoteIndex?: OneDriveSyncRemoteIndex
+): Promise<void> {
+  const localPhotos = getProjectPhotos(project);
+  const remoteFolders = await getPhotoProjectFoldersForSync(token, remoteIndex);
+  const matchingFolder = remoteFolders.find(
+    (folder) => folder.name === targetFolderName && !isRemoteProjectFolderInTrash(folder)
+  );
+  const remotePhotos = matchingFolder
+    ? await listProjectPhotoFiles(token, matchingFolder.name, false, false)
+    : [];
+  const remoteNames = new Set(remotePhotos.map((photo) => photo.name));
+  const remotePhotoIds = new Set(
+    remotePhotos
+      .map((photo) => getPhotoIdFromFilename(photo.name))
+      .filter((photoId): photoId is string => Boolean(photoId))
+  );
+
+  await runWithConcurrency(localPhotos.map((photo, index) => ({ photo, index })), 3, async ({ photo, index }) => {
+    const filename = projectPhotoFilename(project, photo, index);
+    if (remoteNames.has(filename) || remotePhotoIds.has(photo.id) || !photo.imageData) {
+      return;
+    }
+    const blob = await dataUrlToBlob(photo.imageData);
+    await uploadProjectPhotoFile(token, targetFolderName, filename, blob, false);
+  });
 }
 
 async function syncProjectStorageToOneDriveState(
@@ -1453,6 +1495,152 @@ export async function pushProjectsToOneDrive(token: string, projectIds: string[]
   });
 
     return { conflicts: [...conflictsById.values()] };
+  } finally {
+    await releaseSyncLease();
+  }
+}
+
+/**
+ * Creates a one-way personal OneDrive backup. This deliberately never pulls,
+ * merges, moves, or deletes local/remote project data. Supabase remains the
+ * source of truth for shared collaboration.
+ */
+export async function backupProjectsToOneDrive(
+  token: string,
+  projectIds?: string[]
+): Promise<OneDriveBackupResult> {
+  const releaseSyncLease = await acquireSyncLease(token);
+
+  try {
+    await ensurePunchListFolders(token);
+    const localProjectEntries = projectIds?.length
+      ? await Promise.all([...new Set(projectIds)].map((projectId) => getProject(projectId)))
+      : await Promise.all(
+          (await getAllProjects())
+            .filter((project) => !project.deletedAt)
+            .map((project) => getProject(project.id))
+        );
+    const localProjects = localProjectEntries.filter(
+      (project): project is Project => Boolean(project && !project.deletedAt)
+    );
+    const remoteFilesById = buildRemoteProjectFileIndex(
+      (await listProjectFiles(token)).filter((entry) => !isRemoteProjectFileInTrash(entry))
+    );
+    const remoteIndex: OneDriveSyncRemoteIndex = {};
+    const conflictsById = new Map<string, SyncConflict>();
+    const backedUpProjectIds: string[] = [];
+
+    await runWithConcurrency(localProjects, 2, async (localProject) => {
+      const remoteEntries = remoteFilesById.get(localProject.id) ?? [];
+      const targetFolderName = resolveRemoteProjectFolderName(localProject, remoteEntries);
+      const canonicalRemote = remoteEntries.find((entry) =>
+        isCanonicalRemoteProjectFile(localProject, entry, targetFolderName)
+      );
+      const remote = canonicalRemote ?? pickPrimaryRemoteProjectFile(remoteEntries);
+      const localUpdatedAt = getProjectUpdatedAt(localProject);
+      const remoteUpdatedAt = await getRemoteProjectPayloadUpdatedAt(token, remote);
+      const freshnessComparison = compareTimestampsWithTolerance(localUpdatedAt, remoteUpdatedAt);
+
+      // A personal backup from another device may be newer. Preserve it and
+      // ask the user to restore/review instead of silently overwriting it.
+      if (freshnessComparison < 0) {
+        conflictsById.set(localProject.id, {
+          id: localProject.id,
+          name: localProject.projectName,
+        });
+        return;
+      }
+
+      const projectForBackup = withProjectFolderName(localProject, targetFolderName);
+      await saveProjectPreserveTimestamps(projectForBackup);
+
+      try {
+        if (freshnessComparison > 0 || !canonicalRemote) {
+          await uploadProjectFileRecoveringMissingRemote(
+            token,
+            targetFolderName,
+            projectJsonFilename(projectForBackup),
+            serializeProjectPayload(stripProjectMediaPayload(projectForBackup)),
+            false,
+            canonicalRemote?.eTag
+          );
+        }
+
+        // Photo backups are append-only. Deleting a photo on the device does not
+        // remove the computer-accessible JPEG from OneDrive.
+        await backupProjectPhotosToOneDrive(token, projectForBackup, targetFolderName, remoteIndex);
+        backedUpProjectIds.push(projectForBackup.id);
+      } catch (error) {
+        if (isConflictError(error)) {
+          conflictsById.set(projectForBackup.id, {
+            id: projectForBackup.id,
+            name: projectForBackup.projectName,
+          });
+          return;
+        }
+        throw error;
+      }
+    });
+
+    const syncedAt = new Date();
+    setLastSyncTime(syncedAt);
+    return {
+      conflicts: [...conflictsById.values()],
+      backedUpProjectIds,
+      syncedAt: syncedAt.toISOString(),
+    };
+  } finally {
+    await releaseSyncLease();
+  }
+}
+
+/**
+ * Restores only projects that do not exist on this device. Existing local
+ * projects are never merged or overwritten by this recovery action.
+ */
+export async function restoreMissingProjectsFromOneDrive(
+  token: string
+): Promise<OneDriveRestoreResult> {
+  const releaseSyncLease = await acquireSyncLease(token);
+
+  try {
+    await ensurePunchListFolders(token);
+    const [localProjects, remoteFiles] = await Promise.all([
+      getAllProjects(),
+      listProjectFiles(token),
+    ]);
+    const localProjectIds = new Set(localProjects.map((project) => project.id));
+    const remoteFilesById = buildRemoteProjectFileIndex(
+      remoteFiles.filter((entry) => !isRemoteProjectFileInTrash(entry))
+    );
+    const remoteIndex: OneDriveSyncRemoteIndex = {};
+    const restoredProjectIds: string[] = [];
+    const skippedProjectIds: string[] = [];
+
+    await runWithConcurrency([...remoteFilesById.entries()], 2, async ([projectId, remoteEntries]) => {
+      if (localProjectIds.has(projectId)) {
+        skippedProjectIds.push(projectId);
+        return;
+      }
+
+      const remote = pickPrimaryRemoteProjectFile(remoteEntries);
+      if (!remote?.id || !remote.name.endsWith('.json')) return;
+      const remoteProject = await downloadRemoteProject(token, remote.id);
+      if (!remoteProject) return;
+      const folderName = getProjectFolderNameFromRemoteFile(remote);
+      const projectWithFolder = withProjectFolderName(remoteProject, folderName);
+      const hydratedProject = await hydrateProjectPhotosFromOneDrive(
+        token,
+        projectWithFolder,
+        folderName ?? undefined,
+        remoteIndex
+      );
+      await saveProjectPreserveTimestamps(hydratedProject);
+      localProjectIds.add(projectId);
+      restoredProjectIds.push(projectId);
+    });
+
+    return { restoredProjectIds, skippedProjectIds };
   } finally {
     await releaseSyncLease();
   }

@@ -32,7 +32,10 @@ import {
   getOneDriveProjectFolderName,
   sanitizeExportNamePart,
 } from '@/lib/projectNaming';
-import { runManualOneDriveSync } from '@/features/sync/runManualOneDriveSync';
+import {
+  runManualOneDriveRestore,
+  runManualOneDriveSync,
+} from '@/features/sync/runManualOneDriveSync';
 import {
   formatPendingSharedPullMessage,
   formatPendingSharedPullSuccessMessage,
@@ -477,9 +480,10 @@ export default function ProjectsPage() {
     try {
       const result = await runManualOneDriveSync({
         ensureAccessToken: () => ensureAccessToken({ interactive: true }),
+        projectIds: projects.filter((project) => !project.deletedAt).map((project) => project.id),
       });
       if (result.status === 'needs-auth') {
-        setSyncError('Please sign in to sync.');
+        setSyncError('Please sign in to back up to OneDrive.');
         setSyncStatus('needs-auth');
         await signIn({ selectAccount: true });
         return;
@@ -506,6 +510,45 @@ export default function ProjectsPage() {
       setSyncStatus(hasPendingSyncState() ? 'pending' : 'idle');
       markSyncedNow();
       await loadProjects();
+      showMessage(
+        result.backedUpProjectCount === 1
+          ? 'OneDrive backup complete. Project data and photos are available in your PunchList folder.'
+          : `OneDrive backup complete for ${result.backedUpProjectCount} projects. Project data and photos are available in your PunchList folder.`
+      );
+    } finally {
+      setSyncing(false);
+    }
+  }
+
+  async function handleRestoreOneDriveBackup() {
+    if (syncing) return;
+    setSyncing(true);
+    setSyncError(null);
+    setRetryAt(null);
+    setSyncStatus('syncing');
+    try {
+      const result = await runManualOneDriveRestore({
+        ensureAccessToken: () => ensureAccessToken({ interactive: true }),
+      });
+      if (result.status === 'needs-auth') {
+        setSyncError('Please sign in to restore a OneDrive backup.');
+        setSyncStatus('needs-auth');
+        await signIn({ selectAccount: true });
+        return;
+      }
+      if (result.status === 'retry' || result.status === 'error') {
+        setSyncError(result.message);
+        setSyncStatus(result.status === 'retry' ? 'pending' : 'error');
+        return;
+      }
+      setSyncError(null);
+      setSyncStatus(hasPendingSyncState() ? 'pending' : 'idle');
+      await loadProjects();
+      showMessage(
+        result.restoredProjectCount > 0
+          ? `Restored ${result.restoredProjectCount} project${result.restoredProjectCount === 1 ? '' : 's'} and its OneDrive photo backup to this device.`
+          : 'No missing OneDrive project backups were found. Shared projects are restored from Manage Projects.'
+      );
     } finally {
       setSyncing(false);
     }
@@ -2114,6 +2157,11 @@ export default function ProjectsPage() {
       return;
     }
 
+    if (detail.action === 'restore-onedrive-backup') {
+      void handleRestoreOneDriveBackup();
+      return;
+    }
+
     if (detail.action.startsWith('quick-sort:')) {
       const nextQuickSort = detail.action.replace('quick-sort:', '');
       if (nextQuickSort === 'issues' || nextQuickSort === 'alphabetical' || nextQuickSort === 'progress') {
@@ -2464,7 +2512,7 @@ export default function ProjectsPage() {
       )}
       {syncConflicts.length > 0 && (
         <div className="shrink-0 border-b border-gray-200/80 bg-white/70 px-4 py-3 text-sm dark:border-zinc-700 dark:bg-white/[0.03]">
-          <div className="text-gray-700 dark:text-gray-200">Sync needs review:</div>
+          <div className="text-gray-700 dark:text-gray-200">OneDrive backup needs review:</div>
           <div className="mt-2 flex flex-wrap gap-2">
             {syncConflicts.map((conflict) => (
               <span

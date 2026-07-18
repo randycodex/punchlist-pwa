@@ -825,7 +825,7 @@ export async function acquireSyncLease(token: string): Promise<() => Promise<voi
     const now = Date.now();
     if (lease && lease.leaseId !== leaseId && expiresAtMs > now) {
       if (now >= waitDeadline) {
-        throw new Error('Another OneDrive sync is still running. Try Sync again after it finishes.');
+        throw new Error('Another OneDrive backup or restore is still running. Try again after it finishes.');
       }
       await wait(Math.min(Math.max(expiresAtMs - now + 250, 1_000), 3_000, waitDeadline - now));
       continue;
@@ -846,7 +846,7 @@ export async function acquireSyncLease(token: string): Promise<() => Promise<voi
         throw error;
       }
       if (Date.now() >= waitDeadline) {
-        throw new Error('Another OneDrive sync is still running. Try Sync again after it finishes.');
+        throw new Error('Another OneDrive backup or restore is still running. Try again after it finishes.');
       }
       await wait(1_000);
     }

@@ -12,10 +12,11 @@ describe('new device project restoration menu', () => {
     expect(persistentTopBar).toContain('{homeMenuState.hasProjects && (');
   });
 
-  it('offers OneDrive sync before a local project exists', () => {
+  it('offers an explicit OneDrive restore before a local project exists', () => {
     expect(persistentTopBar).toContain(
-      'showAuth && isSignedIn && !homeMenuState.isSingleProject && renderSyncButton()'
+      "dispatchHomeAction('restore-onedrive-backup')"
     );
+    expect(persistentTopBar).toContain('Restore Backup');
   });
 
   it('offers shared-project authentication after Microsoft sign-in', () => {

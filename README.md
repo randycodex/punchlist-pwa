@@ -20,10 +20,16 @@ You can start editing the page by modifying `app/page.tsx`. The page auto-update
 
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
 
-## Microsoft OneDrive Sync
+## Microsoft OneDrive Backup and Exports
 
-This app uses each signed-in user's own OneDrive account. Projects stay local in the browser until
-the user signs in, then sync is done against that user's `PunchList` folder in OneDrive.
+OneDrive is the signed-in user's personal backup and export destination. The app uploads project
+data plus computer-accessible JPEG photos into that user's `PunchList/<project>/` folder and saves
+PDF reports under the project's `exports` folder. Backup is one-way: it never pulls or merges over
+an existing local project.
+
+`Restore Backup` is a separate recovery action for a new device. It downloads only projects that
+are missing on that device and never overwrites an existing local project. Shared-project teamwork,
+members, area locks, Push Changes, and Pull Changes use Supabase instead of OneDrive.
 
 For multi-user use on phones or desktops inside UAI, configure one Microsoft Entra app for the
 UAI tenant, then set:
@@ -40,7 +46,8 @@ Notes:
   in.
 - The app registration should stay single-tenant and include every production and development
   redirect URI you plan to use.
-- Users will sync to their own OneDrive files. This is per-user storage, not a shared team drive.
+- Users back up to their own OneDrive files. This is per-user storage, not a shared team drive or
+  the source of truth for team collaboration.
 
 After updating env vars, restart the dev server or redeploy.
 

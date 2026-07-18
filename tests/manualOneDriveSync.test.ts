@@ -1,5 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { runManualOneDriveSync } from '@/features/sync/runManualOneDriveSync';
+import {
+  runManualOneDriveRestore,
+  runManualOneDriveSync,
+} from '@/features/sync/runManualOneDriveSync';
 import {
   clearPendingSyncState,
   hasPendingSyncState,
@@ -23,44 +26,48 @@ beforeEach(() => {
   clearPendingSyncState();
 });
 
-describe('manual OneDrive sync coordinator', () => {
+describe('manual OneDrive backup coordinator', () => {
   it('requires an explicit authenticated action', async () => {
-    const syncProjects = vi.fn();
+    const backupProjects = vi.fn();
     const result = await runManualOneDriveSync({
       ensureAccessToken: async () => null,
-      syncProjects,
+      backupProjects,
     });
 
     expect(result).toEqual({ status: 'needs-auth' });
-    expect(syncProjects).not.toHaveBeenCalled();
+    expect(backupProjects).not.toHaveBeenCalled();
   });
 
-  it('syncs only queued projects and clears them after remote confirmation', async () => {
+  it('backs up only queued projects and clears them after remote confirmation', async () => {
     queuePendingSync('project-1');
-    const syncProjects = vi.fn(async () => ({
+    const backupProjects = vi.fn(async () => ({
       conflicts: [],
+      backedUpProjectIds: ['project-1'],
       syncedAt: '2026-01-01T12:00:00.000Z',
-      recoveredConflictCount: 0,
     }));
 
     const result = await runManualOneDriveSync({
       ensureAccessToken: async () => 'token',
-      syncProjects,
+      backupProjects,
     });
 
-    expect(syncProjects).toHaveBeenCalledWith('token', { pushProjectIds: ['project-1'] });
-    expect(result).toEqual({ status: 'success', syncedAt: '2026-01-01T12:00:00.000Z' });
+    expect(backupProjects).toHaveBeenCalledWith('token', ['project-1']);
+    expect(result).toEqual({
+      status: 'success',
+      syncedAt: '2026-01-01T12:00:00.000Z',
+      backedUpProjectCount: 1,
+    });
     expect(hasPendingSyncState()).toBe(false);
   });
 
-  it('keeps local work pending when OneDrive reports a conflict', async () => {
+  it('keeps local work pending when OneDrive has a newer backup', async () => {
     queuePendingSync('project-1');
     const result = await runManualOneDriveSync({
       ensureAccessToken: async () => 'token',
-      syncProjects: async () => ({
+      backupProjects: async () => ({
         conflicts: [{ id: 'project-1', name: 'Project 1' }],
+        backedUpProjectIds: [],
         syncedAt: '2026-01-01T12:00:00.000Z',
-        recoveredConflictCount: 0,
       }),
     });
 
@@ -73,17 +80,31 @@ describe('manual OneDrive sync coordinator', () => {
 
     const result = await runManualOneDriveSync({
       ensureAccessToken: async () => 'token',
-      syncProjects: async () => {
+      backupProjects: async () => {
         queuePendingSync('project-2');
         return {
           conflicts: [],
+          backedUpProjectIds: ['project-1'],
           syncedAt: '2026-01-01T12:00:00.000Z',
-          recoveredConflictCount: 0,
         };
       },
     });
 
     expect(result.status).toBe('success');
     expect(loadPendingSyncState().projectIds).toEqual(['project-1', 'project-2']);
+  });
+
+  it('restores missing projects without invoking backup', async () => {
+    const restoreProjects = vi.fn(async () => ({
+      restoredProjectIds: ['project-2'],
+      skippedProjectIds: ['project-1'],
+    }));
+    const result = await runManualOneDriveRestore({
+      ensureAccessToken: async () => 'token',
+      restoreProjects,
+    });
+
+    expect(restoreProjects).toHaveBeenCalledWith('token');
+    expect(result).toEqual({ status: 'success', restoredProjectCount: 1 });
   });
 });

@@ -49,7 +49,7 @@ export function getMicrosoftErrorMessage(error: unknown, fallback: string): stri
     message.includes('forbidden') ||
     message.includes('insufficient privileges')
   ) {
-    return 'Microsoft sign-in expired or lost permission. Please sign in again and retry sync.';
+    return 'Microsoft sign-in expired or lost permission. Please sign in again and retry the OneDrive action.';
   }
 
   if (isMicrosoftTransientSyncError(error)) {
@@ -98,7 +98,7 @@ export function getMicrosoftRetryDelayMs(error: unknown): number | null {
 
 export function formatMicrosoftManualRetryMessage(retryInSeconds?: number) {
   if (retryInSeconds && retryInSeconds > 0) {
-    return `Saved locally. OneDrive is still catching up. Tap Sync to try again in about ${retryInSeconds} seconds.`;
+    return `Saved locally. OneDrive is still catching up. Tap Backup to try again in about ${retryInSeconds} seconds.`;
   }
-  return 'Saved locally. OneDrive needs a manual retry. Tap Sync when you are ready.';
+  return 'Saved locally. OneDrive needs a manual retry. Tap Backup when you are ready.';
 }

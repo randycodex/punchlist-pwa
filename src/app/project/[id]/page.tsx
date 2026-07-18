@@ -776,9 +776,10 @@ export default function ProjectDetailPage() {
     try {
       const result = await runManualOneDriveSync({
         ensureAccessToken: () => ensureAccessToken({ interactive: true }),
+        projectIds: project ? [project.id] : [],
       });
       if (result.status === 'needs-auth') {
-        setSyncError('Please sign in to sync.');
+        setSyncError('Please sign in to back up to OneDrive.');
         setSyncStatus('needs-auth');
         await signIn({ selectAccount: true });
         return;
@@ -805,6 +806,7 @@ export default function ProjectDetailPage() {
       setSyncStatus(hasPendingSyncState() ? 'pending' : 'idle');
       markSyncedNow();
       await loadProject();
+      showMessage('OneDrive backup complete. Project data and photos are available in your PunchList folder.');
     } finally {
       setSyncing(false);
     }
