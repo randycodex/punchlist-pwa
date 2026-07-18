@@ -1424,6 +1424,7 @@ export default function ProjectDetailPage() {
           sortOption,
           showTrash,
           canAddArea: true,
+          hasProjects: true,
           isSingleProject: true,
           singleProjectName: project.projectName,
           selectionMode: deleteMode,

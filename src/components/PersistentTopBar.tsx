@@ -51,6 +51,7 @@ type HomeMenuState = {
   sortOption: SortOption;
   showTrash: boolean;
   canAddArea: boolean;
+  hasProjects: boolean;
   isSingleProject: boolean;
   singleProjectName: string;
   selectionMode?: boolean;
@@ -96,6 +97,7 @@ export default function PersistentTopBar() {
     sortOption: 'alphabetical',
     showTrash: false,
     canAddArea: false,
+    hasProjects: false,
     isSingleProject: false,
     singleProjectName: '',
     selectionMode: false,
@@ -436,22 +438,24 @@ export default function PersistentTopBar() {
                 aria-label="App menu"
               >
                 <div className="app-menu-scroll min-h-0 flex-1 overflow-y-auto overscroll-y-contain touch-pan-y px-3 pb-[calc(env(safe-area-inset-bottom)+1rem)] pt-2 md:pt-[calc(env(safe-area-inset-top)+0.5rem)]">
-                  <div className="px-1 py-1">
-                    <div className={menuCardClass}>
-                      <div className="px-1 py-1">
-                        <ListSortPills
-                          value={homeMenuState.sortOption}
-                          onChange={(option) => {
-                            if (showAuth) {
-                              dispatchHomeAction(`quick-sort:${option}`);
-                            } else {
-                              dispatchHomeAction('sort', option);
-                            }
-                          }}
-                        />
+                  {homeMenuState.hasProjects && (
+                    <div className="px-1 py-1">
+                      <div className={menuCardClass}>
+                        <div className="px-1 py-1">
+                          <ListSortPills
+                            value={homeMenuState.sortOption}
+                            onChange={(option) => {
+                              if (showAuth) {
+                                dispatchHomeAction(`quick-sort:${option}`);
+                              } else {
+                                dispatchHomeAction('sort', option);
+                              }
+                            }}
+                          />
+                        </div>
                       </div>
                     </div>
-                  </div>
+                  )}
                 {homeMenuState.isSingleProject && (
                   <div className="px-1 py-1">
                     <div className={menuCardClass}>
@@ -599,6 +603,21 @@ export default function PersistentTopBar() {
                             New Project
                           </button>
                         )}
+                        {showAuth && isSignedIn && !homeMenuState.isSingleProject && renderSyncButton()}
+                        {showAuth &&
+                          isSignedIn &&
+                          collaborationAuth.canUseCollaboration &&
+                          !collaborationAuth.isSignedIn && (
+                            <button
+                              type="button"
+                              onClick={() => void collaborationAuth.signIn()}
+                              disabled={!collaborationAuth.isReady || collaborationAuth.isSigningIn}
+                              className={disabledMenuPillClass}
+                            >
+                              <Users className="h-4 w-4 shrink-0" />
+                              {collaborationAuth.isSigningIn ? 'Connecting...' : 'Connect Projects'}
+                            </button>
+                          )}
                         {showAuth && collaborationAuth.isSignedIn && (
                           <button onClick={() => dispatchHomeAction('join-shared-project')} className={menuPillClass}>
                             <UserPlus className="h-4 w-4 shrink-0" />
@@ -622,6 +641,14 @@ export default function PersistentTopBar() {
                             Trash
                           </button>
                         )}
+                        {showAuth &&
+                          isSignedIn &&
+                          !collaborationAuth.isSignedIn &&
+                          collaborationAuth.errorMessage && (
+                            <div className="col-span-2 px-2 py-1 text-xs text-red-600 dark:text-red-300">
+                              {collaborationAuth.errorMessage}
+                            </div>
+                          )}
                       </div>
                     </div>
                   </div>

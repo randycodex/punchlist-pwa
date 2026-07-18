@@ -2253,6 +2253,7 @@ export default function ProjectsPage() {
           sortOption,
           showTrash,
           canAddArea: !!singleProject,
+          hasProjects: activeProjects.length > 0,
           isSingleProject: !!singleProject,
           singleProjectName: singleProject?.projectName ?? '',
           selectionMode: deleteMode,
@@ -2266,6 +2267,7 @@ export default function ProjectsPage() {
     );
   }, [
     creatingJoinCode,
+    activeProjects.length,
     deleteMode,
     disconnectingSharedProject,
     loadingSharedMembers,
