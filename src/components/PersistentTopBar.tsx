@@ -484,7 +484,16 @@ export default function PersistentTopBar() {
                           Export
                         </button>
                         {homeMenuState.canAddArea && (
-                          <button onClick={() => dispatchHomeAction('toggle-selection')} className={menuPillClass}>
+                          <button
+                            onClick={() => {
+                              const enteringSelectionMode = !homeMenuState.selectionMode;
+                              dispatchHomeAction('toggle-selection');
+                              if (enteringSelectionMode && window.matchMedia('(max-width: 767px)').matches) {
+                                setShowHomeMenu(false);
+                              }
+                            }}
+                            className={menuPillClass}
+                          >
                             <CheckCircle2 className="h-4 w-4 shrink-0" />
                             {homeMenuState.selectionMode ? 'Cancel Selection' : 'Select Areas'}
                           </button>
