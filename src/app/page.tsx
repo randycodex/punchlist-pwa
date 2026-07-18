@@ -1676,8 +1676,9 @@ export default function ProjectsPage() {
     setDisconnectingDirectoryProjectId(entry.projectId);
     try {
       const result = await disconnectSharedProject(entry.projectId);
-      setMySharedProjects((current) => current.filter((item) => item.projectId !== entry.projectId));
       setDirectoryDisconnectConfirm(null);
+      setShowMySharedProjects(false);
+      setMySharedProjects([]);
       showMessage(
         result.action === 'archived'
           ? `Sharing stopped for "${entry.projectName}". It is no longer available to project members.`
