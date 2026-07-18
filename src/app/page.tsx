@@ -3119,6 +3119,7 @@ export default function ProjectsPage() {
                     localProject?.sharedProjectId
                     && localProject.sharedProjectId !== entry.projectId
                   );
+                  const isInTrash = Boolean(localProject?.deletedAt);
                   const isAdding = addingSharedProjectId === entry.projectId;
                   const isDisconnecting = disconnectingDirectoryProjectId === entry.projectId;
                   const isOwner = entry.ownerUserId === collaborationAuth.user?.id;
@@ -3141,7 +3142,8 @@ export default function ProjectsPage() {
                         {isAdding
                           ? needsReconnect ? 'Reconnecting...' : 'Downloading...'
                           : needsReconnect ? 'Reconnect on this device'
-                            : localProject ? 'Available on this device' : 'Download to this device'}
+                            : isInTrash ? 'In Trash — restore from Trash'
+                              : localProject ? 'Available on this device' : 'Download to this device'}
                       </button>
                       <button
                         onClick={() => handleDirectoryDisconnect(entry, activeLocalProject)}
