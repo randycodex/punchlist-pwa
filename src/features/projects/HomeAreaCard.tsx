@@ -54,11 +54,6 @@ export const HomeAreaCard = memo(function HomeAreaCard({
   const commentCount = metric?.commentCount ?? 0;
   const photoCount = metric?.photoCount ?? 0;
   const blockedByClaim = claimStatus?.ownership === 'other';
-  const claimLabel = claimStatus
-    ? claimStatus.ownership === 'mine'
-      ? 'In use by you'
-      : `In use by ${claimStatus.label}`
-    : null;
   const blockedClaimMessage = claimStatus?.ownership === 'other'
     ? `${claimStatus.label} is working in this area. Try again when they leave.`
     : 'This shared area is currently in use.';
@@ -108,14 +103,6 @@ export const HomeAreaCard = memo(function HomeAreaCard({
           <div className="min-w-0">
             <div className="flex items-center gap-2 min-w-0">
               <h3 className="truncate text-[1.03rem] font-semibold tracking-[-0.02em] text-gray-900 dark:text-white">{displayName}</h3>
-              {claimStatus && (
-                <CollaborationAvatar
-                  name={claimStatus.label}
-                  src={claimStatus.avatarUrl}
-                  size="sm"
-                />
-              )}
-              {claimLabel && <span className="segmented-chip shrink-0 px-2.5 py-1 text-[11px]">{claimLabel}</span>}
             </div>
             <MetadataLine className="mt-2" issues={areaStats.issues} notes={commentCount} photos={photoCount} />
             <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-gray-200 dark:bg-white/[0.12]">
@@ -126,32 +113,42 @@ export const HomeAreaCard = memo(function HomeAreaCard({
             </div>
           </div>
         </Link>
-        <Link
-          href={deleteMode || blockedByClaim ? '#' : `/project/${project.id}/area/${area.id}`}
-          onClick={(event) => {
-            if (deleteMode || blockedByClaim) {
-              event.preventDefault();
-              if (blockedByClaim) onBlockedByClaim(blockedClaimMessage);
-              return;
-            }
-            onOpenArea(project, area.id);
-          }}
-          onContextMenu={(event) => {
-            if (!deleteMode) event.preventDefault();
-          }}
-          onPointerDown={(event) => {
-            event.stopPropagation();
-            if (!deleteMode && !blockedByClaim) onPrimeOpen(project, area.id);
-          }}
-          onMouseEnter={() => {
-            if (!deleteMode && !blockedByClaim) onPrimeOpen(project, area.id);
-          }}
-          className="mt-0.5 rounded-[1rem] border border-transparent p-1.5 text-gray-400 transition hover:border-black/5 hover:bg-white hover:text-gray-700 dark:hover:border-white/10 dark:hover:bg-white/[0.06] dark:hover:text-gray-200 [-webkit-touch-callout:none]"
-          style={{ WebkitTapHighlightColor: 'transparent' }}
-          aria-label={`Open ${displayName}`}
-        >
-          <ChevronRight className="w-5 h-5" />
-        </Link>
+        <div className="flex shrink-0 self-stretch flex-col items-center">
+          <Link
+            href={deleteMode || blockedByClaim ? '#' : `/project/${project.id}/area/${area.id}`}
+            onClick={(event) => {
+              if (deleteMode || blockedByClaim) {
+                event.preventDefault();
+                if (blockedByClaim) onBlockedByClaim(blockedClaimMessage);
+                return;
+              }
+              onOpenArea(project, area.id);
+            }}
+            onContextMenu={(event) => {
+              if (!deleteMode) event.preventDefault();
+            }}
+            onPointerDown={(event) => {
+              event.stopPropagation();
+              if (!deleteMode && !blockedByClaim) onPrimeOpen(project, area.id);
+            }}
+            onMouseEnter={() => {
+              if (!deleteMode && !blockedByClaim) onPrimeOpen(project, area.id);
+            }}
+            className="mt-0.5 rounded-[1rem] border border-transparent p-1.5 text-gray-400 transition hover:border-black/5 hover:bg-white hover:text-gray-700 dark:hover:border-white/10 dark:hover:bg-white/[0.06] dark:hover:text-gray-200 [-webkit-touch-callout:none]"
+            style={{ WebkitTapHighlightColor: 'transparent' }}
+            aria-label={`Open ${displayName}`}
+          >
+            <ChevronRight className="w-5 h-5" />
+          </Link>
+          {claimStatus && (
+            <CollaborationAvatar
+              name={claimStatus.label}
+              src={claimStatus.avatarUrl}
+              size="sm"
+              className="mt-auto"
+            />
+          )}
+        </div>
       </div>
     </div>
   );

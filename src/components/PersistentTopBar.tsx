@@ -469,26 +469,28 @@ export default function PersistentTopBar() {
                 aria-modal="false"
                 aria-label="App menu"
               >
-                <div
-                  ref={menuScrollRef}
-                  className={`scrollbar-hidden min-h-0 flex-1 overflow-x-hidden px-3 pb-[calc(env(safe-area-inset-bottom)+1rem)] pt-2 md:pt-[calc(env(safe-area-inset-top)+0.5rem)] ${menuCanScroll ? 'overflow-y-auto overscroll-contain' : 'overflow-y-hidden overscroll-none'}`}
-                >
-                <div className="px-1 py-1">
-                  <div className={menuCardClass}>
-                    <div className="px-1 py-1">
-                      <ListSortPills
-                        value={homeMenuState.sortOption}
-                        onChange={(option) => {
-                          if (showAuth) {
-                            dispatchHomeAction(`quick-sort:${option}`);
-                          } else {
-                            dispatchHomeAction('sort', option);
-                          }
-                        }}
-                      />
+                <div className="shrink-0 px-3 pt-2 md:pt-[calc(env(safe-area-inset-top)+0.5rem)]">
+                  <div className="px-1 py-1">
+                    <div className={menuCardClass}>
+                      <div className="px-1 py-1">
+                        <ListSortPills
+                          value={homeMenuState.sortOption}
+                          onChange={(option) => {
+                            if (showAuth) {
+                              dispatchHomeAction(`quick-sort:${option}`);
+                            } else {
+                              dispatchHomeAction('sort', option);
+                            }
+                          }}
+                        />
+                      </div>
                     </div>
                   </div>
                 </div>
+                <div
+                  ref={menuScrollRef}
+                  className={`scrollbar-hidden min-h-0 flex-1 overflow-x-hidden px-3 pb-[calc(env(safe-area-inset-bottom)+1rem)] ${menuCanScroll ? 'touch-pan-y overflow-y-auto overscroll-none' : 'touch-pan-x overflow-y-hidden overscroll-none'}`}
+                >
                 {homeMenuState.isSingleProject && (
                   <div className="px-1 py-1">
                     <div className={menuCardClass}>

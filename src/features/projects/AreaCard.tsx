@@ -56,11 +56,6 @@ export const AreaCard = memo(function AreaCard({
   const commentCount = metric?.commentCount ?? 0;
   const photoCount = metric?.photoCount ?? 0;
   const blockedByClaim = claimStatus?.ownership === 'other';
-  const claimLabel = claimStatus
-    ? claimStatus.ownership === 'mine'
-      ? 'Locked by you'
-      : `Locked by ${claimStatus.label}`
-    : null;
 
   return (
     <div
@@ -105,14 +100,6 @@ export const AreaCard = memo(function AreaCard({
           <div className="min-w-0">
             <div className="min-w-0 flex items-center gap-2">
               <h3 className="truncate text-[1.05rem] font-semibold tracking-[-0.02em] text-gray-900 dark:text-white">{displayName}</h3>
-              {claimStatus && (
-                <CollaborationAvatar
-                  name={claimStatus.label}
-                  src={claimStatus.avatarUrl}
-                  size="sm"
-                />
-              )}
-              {claimLabel && <span className="segmented-chip shrink-0 px-2.5 py-1 text-[11px]">{claimLabel}</span>}
             </div>
             <MetadataLine className="mt-2" issues={areaStats.issues} notes={commentCount} photos={photoCount} />
             <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-gray-200 dark:bg-white/[0.12]">
@@ -123,31 +110,41 @@ export const AreaCard = memo(function AreaCard({
             </div>
           </div>
         </Link>
-        <Link
-          href={deleteMode || blockedByClaim ? '#' : `/project/${projectId}/area/${area.id}`}
-          onClick={(event) => {
-            if (deleteMode || blockedByClaim) {
-              event.preventDefault();
-              if (blockedByClaim) onBlockedByClaim();
-              return;
-            }
-            onOpenArea(area.id);
-          }}
-          onContextMenu={(event) => {
-            if (!deleteMode) event.preventDefault();
-          }}
-          onPointerDown={(event) => {
-            event.stopPropagation();
-            if (!deleteMode && !blockedByClaim) onPrimeOpen(area.id);
-          }}
-          onMouseEnter={() => {
-            if (!deleteMode && !blockedByClaim) onPrimeOpen(area.id);
-          }}
-          className="mt-1 flex h-10 w-10 items-center justify-center rounded-[1rem] border border-black/5 bg-white/70 text-gray-500 transition hover:bg-white hover:text-gray-700 dark:border-white/10 dark:bg-white/[0.04] dark:text-gray-300 dark:hover:bg-white/[0.12] dark:hover:text-white"
-          aria-label={`Open ${displayName}`}
-        >
-          <ChevronRight className="w-5 h-5 text-gray-400" />
-        </Link>
+        <div className="flex shrink-0 self-stretch flex-col items-center">
+          <Link
+            href={deleteMode || blockedByClaim ? '#' : `/project/${projectId}/area/${area.id}`}
+            onClick={(event) => {
+              if (deleteMode || blockedByClaim) {
+                event.preventDefault();
+                if (blockedByClaim) onBlockedByClaim();
+                return;
+              }
+              onOpenArea(area.id);
+            }}
+            onContextMenu={(event) => {
+              if (!deleteMode) event.preventDefault();
+            }}
+            onPointerDown={(event) => {
+              event.stopPropagation();
+              if (!deleteMode && !blockedByClaim) onPrimeOpen(area.id);
+            }}
+            onMouseEnter={() => {
+              if (!deleteMode && !blockedByClaim) onPrimeOpen(area.id);
+            }}
+            className="mt-1 flex h-10 w-10 items-center justify-center rounded-[1rem] border border-black/5 bg-white/70 text-gray-500 transition hover:bg-white hover:text-gray-700 dark:border-white/10 dark:bg-white/[0.04] dark:text-gray-300 dark:hover:bg-white/[0.12] dark:hover:text-white"
+            aria-label={`Open ${displayName}`}
+          >
+            <ChevronRight className="w-5 h-5 text-gray-400" />
+          </Link>
+          {claimStatus && (
+            <CollaborationAvatar
+              name={claimStatus.label}
+              src={claimStatus.avatarUrl}
+              size="sm"
+              className="mt-auto"
+            />
+          )}
+        </div>
       </div>
     </div>
   );
