@@ -36,12 +36,17 @@ describe('mobile top-bar safe area', () => {
     }
   });
 
-  it('keeps the mobile menu scrollable and makes its bottom safe area transparent', () => {
+  it('keeps the mobile menu scrollable without covering its bottom safe area', () => {
     expect(globalStyles).toMatch(
-      /\.app-menu-drawer\.menu-surface\s*\{[\s\S]*?bottom:\s*0;[\s\S]*?height:\s*auto;/
+      /\.app-menu-drawer\.menu-surface\s*\{[\s\S]*?bottom:\s*calc\(-1 \* env\(safe-area-inset-bottom\)\);[\s\S]*?height:\s*auto;/
     );
-    expect(globalStyles).toContain('background-color: transparent;');
-    expect(globalStyles).toContain('transparent calc(100% - env(safe-area-inset-bottom))');
+    expect(globalStyles).toMatch(
+      /html\[data-app-menu-open="true"\][\s\S]*?background-color:\s*var\(--top-bar-surface\)\s*!important;/
+    );
+    expect(globalStyles).toMatch(
+      /\.app-menu-drawer \.app-menu-scroll\s*\{[\s\S]*?position:\s*absolute;[\s\S]*?inset:\s*0 0 env\(safe-area-inset-bottom\);[\s\S]*?background:\s*transparent;/
+    );
+    expect(globalStyles).not.toContain('transparent calc(100% - env(safe-area-inset-bottom))');
     expect(persistentTopBar).toContain(
       'app-menu-scroll min-h-0 flex-1 overflow-y-auto overscroll-y-contain touch-pan-y'
     );

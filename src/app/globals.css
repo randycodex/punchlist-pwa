@@ -379,23 +379,25 @@ html:not(.dark) {
 }
 
 @media (max-width: 767px) {
+  html[data-app-menu-open="true"],
+  html[data-app-menu-open="true"] body,
+  html[data-app-menu-open="true"] .app-shell,
   html[data-app-menu-open="true"] .top-bar-surface {
-    background-color: var(--surface) !important;
+    background-color: var(--top-bar-surface) !important;
   }
 
   .app-menu-drawer.menu-surface {
     border-top: 0;
     top: calc(env(safe-area-inset-top) + 3.5rem);
-    bottom: 0;
+    bottom: calc(-1 * env(safe-area-inset-bottom));
     height: auto;
-    background-color: transparent;
-    background-image: linear-gradient(
-      to bottom,
-      var(--surface) 0,
-      var(--surface) calc(100% - env(safe-area-inset-bottom)),
-      transparent calc(100% - env(safe-area-inset-bottom)),
-      transparent 100%
-    );
+    background: transparent;
+  }
+
+  .app-menu-drawer .app-menu-scroll {
+    position: absolute;
+    inset: 0 0 env(safe-area-inset-bottom);
+    background: transparent;
   }
 }
 
