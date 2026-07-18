@@ -1,30 +1,21 @@
 import type { CollaborationAreaClaim, CollaborationAreaClaimSummary } from './types';
 import type { Json } from './database';
-import { getCollaborationRuntimeConfig } from './config';
 import { getCollaborationAvatarUrl } from './profileAvatars';
 import { getCollaborationSupabaseClient } from './supabaseClient';
 
 export function isAreaClaimActive(
-  claim: Pick<CollaborationAreaClaim, 'status' | 'expiresAt'>,
-  now = new Date()
+  claim: Pick<CollaborationAreaClaim, 'status' | 'expiresAt'>
 ) {
-  if (claim.status !== 'active') return false;
-  if (!claim.expiresAt) return true;
-  return claim.expiresAt.getTime() > now.getTime();
+  return claim.status === 'active';
 }
 
 export function canUserEditClaimedArea(
   claim: Pick<CollaborationAreaClaim, 'claimedByUserId' | 'status' | 'expiresAt'> | null | undefined,
-  userId: string,
-  now = new Date()
+  userId: string
 ) {
   if (!claim) return true;
-  if (!isAreaClaimActive(claim, now)) return true;
+  if (!isAreaClaimActive(claim)) return true;
   return claim.claimedByUserId === userId;
-}
-
-export function getAreaClaimExpiry(claimTimeoutMs: number, now = new Date()) {
-  return new Date(now.getTime() + claimTimeoutMs);
 }
 
 function reviveAreaClaim(
@@ -78,12 +69,10 @@ export async function claimSharedProjectArea(sharedProjectId: string, areaId: st
     throw new Error('Collaboration is not configured.');
   }
 
-  const config = getCollaborationRuntimeConfig();
-  const expiresAt = getAreaClaimExpiry(config?.areaClaimTimeoutMs ?? 4 * 60 * 60 * 1000);
   const { data, error } = await supabase.rpc('claim_shared_project_area', {
     p_project_id: sharedProjectId,
     p_area_id: areaId,
-    p_expires_at: expiresAt.toISOString(),
+    p_expires_at: null,
   });
 
   if (error) {
@@ -110,11 +99,11 @@ export async function claimSharedProjectArea(sharedProjectId: string, areaId: st
           areaId,
           claimedByUserId: revivedClaim.claimedByUserId,
           status: 'active' as const,
-          expiresAt: revivedClaim.expiresAt ?? expiresAt,
+          expiresAt: revivedClaim.expiresAt,
         };
       }
 
-      throw new Error('This area is currently claimed by another user.');
+      throw new Error('This area is locked by another user until they release it.');
     }
     throw error;
   }
@@ -131,7 +120,6 @@ export async function claimSharedProjectArea(sharedProjectId: string, areaId: st
     areaId,
     claimedByUserId,
     status: 'active' as const,
-    expiresAt,
   };
 }
 

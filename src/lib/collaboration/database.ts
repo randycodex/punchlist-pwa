@@ -417,7 +417,7 @@ export interface CollaborationDatabase {
         Args: {
           p_project_id: string;
           p_area_id: string;
-          p_expires_at: string;
+          p_expires_at: string | null;
         };
         Returns: Json;
       };

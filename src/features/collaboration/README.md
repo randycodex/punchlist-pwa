@@ -174,10 +174,9 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_publishable_key
 NEXT_PUBLIC_UAI_EMAIL_DOMAIN=uai-ny.com
 NEXT_PUBLIC_COLLABORATION_ALLOWED_EMAILS=tester@gmail.com
 NEXT_PUBLIC_COLLABORATION_JOIN_CODE_TTL_MS=604800000
-NEXT_PUBLIC_COLLABORATION_AREA_CLAIM_TIMEOUT_MS=14400000
 ```
 
-The join-code, area-claim, and exact-email allowlist values are optional. Defaults are 7 days for join codes and 4 hours for area claims. Keep `NEXT_PUBLIC_COLLABORATION_ALLOWED_EMAILS` to temporary test accounts only; it does not replace a production arbitrary-email identity model.
+The join-code and exact-email allowlist values are optional. Join codes default to 7 days. Area claims remain active until the claimant explicitly releases them from the area's actions menu. Keep `NEXT_PUBLIC_COLLABORATION_ALLOWED_EMAILS` to temporary test accounts only; it does not replace a production arbitrary-email identity model.
 
 ## Shared snapshot payloads
 

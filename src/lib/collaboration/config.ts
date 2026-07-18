@@ -1,5 +1,4 @@
 const DEFAULT_JOIN_CODE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
-const DEFAULT_AREA_CLAIM_TIMEOUT_MS = 4 * 60 * 60 * 1000;
 
 export interface CollaborationRuntimeConfig {
   supabaseUrl: string;
@@ -7,7 +6,6 @@ export interface CollaborationRuntimeConfig {
   uaiEmailDomain: string | null;
   allowedEmails: string[];
   joinCodeTtlMs: number;
-  areaClaimTimeoutMs: number;
 }
 
 export interface CollaborationEmailAccess {
@@ -75,10 +73,6 @@ export function getCollaborationRuntimeConfig(): CollaborationRuntimeConfig | nu
     joinCodeTtlMs: readPositiveIntegerEnv(
       process.env.NEXT_PUBLIC_COLLABORATION_JOIN_CODE_TTL_MS,
       DEFAULT_JOIN_CODE_TTL_MS
-    ),
-    areaClaimTimeoutMs: readPositiveIntegerEnv(
-      process.env.NEXT_PUBLIC_COLLABORATION_AREA_CLAIM_TIMEOUT_MS,
-      DEFAULT_AREA_CLAIM_TIMEOUT_MS
     ),
   };
 }

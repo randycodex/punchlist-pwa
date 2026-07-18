@@ -1594,7 +1594,7 @@ export default function ProjectDetailPage() {
                     deleteMode={deleteMode}
                     isSelected={isSelected}
                     onToggleSelection={toggleAreaSelection}
-                    onBlockedByClaim={() => showMessage('This shared area is currently locked by another user.')}
+                    onBlockedByClaim={() => showMessage('This shared area is locked until the other user releases it.')}
                     onPrimeOpen={primeAreaOpen}
                     onOpenArea={claimAreaOpenInBackground}
                   />

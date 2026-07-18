@@ -68,8 +68,6 @@ import { useAppSettings } from '@/contexts/AppSettingsContext';
 import {
   claimSharedProjectArea,
   getCollaborationErrorMessage,
-  getCollaborationRuntimeConfig,
-  getAreaClaimExpiry,
   getSharedProjectSnapshotMetadata,
   flushPendingSharedAreaSyncs,
   isSharedSnapshotNewer,
@@ -130,7 +128,7 @@ type SharedAreaLockProblem =
   | null;
 
 const SHARED_AREA_LOCK_BLOCKED_MESSAGE =
-  'This shared area is in use by someone else. Try again when they leave, or return to the project.';
+  'This shared area is locked by someone else. Try again after they release it, or return to the project.';
 const SHARED_AREA_LOCK_LOST_MESSAGE =
   'Shared area lock lost. Try again before editing so your changes do not conflict.';
 
@@ -189,7 +187,7 @@ export default function AreaDetailPage() {
   const [areaClaimError, setAreaClaimError] = useState<string | null>(null);
   const [claimingArea, setClaimingArea] = useState(false);
   const [releasingAreaClaim, setReleasingAreaClaim] = useState(false);
-  const [areaClaimExpiresAt, setAreaClaimExpiresAt] = useState<Date | null>(null);
+  const [hasAreaClaim, setHasAreaClaim] = useState(false);
   const [areaClaimProblem, setAreaClaimProblem] = useState<SharedAreaLockProblem>(null);
   const [areaClaimRetryNonce, setAreaClaimRetryNonce] = useState(0);
   const [confirmDialog, setConfirmDialog] = useState<ConfirmDialogState | null>(null);
@@ -458,7 +456,7 @@ export default function AreaDetailPage() {
     if (!sharedProjectId || !currentAreaId) {
       setAreaClaimError(null);
       setAreaClaimProblem(null);
-      setAreaClaimExpiresAt(null);
+      setHasAreaClaim(false);
       setClaimingArea(false);
       return;
     }
@@ -466,63 +464,31 @@ export default function AreaDetailPage() {
     if (!collaborationAuth.isSignedIn) {
       setAreaClaimError('Enable shared projects before working in this shared area.');
       setAreaClaimProblem({ kind: 'lost', message: 'Enable shared projects before editing this shared area.' });
-      setAreaClaimExpiresAt(null);
+      setHasAreaClaim(false);
       setClaimingArea(false);
       return;
     }
 
     let cancelled = false;
-    let claimRenewTimer: ReturnType<typeof setInterval> | null = null;
-    const config = getCollaborationRuntimeConfig();
-    const optimisticExpiresAt = getAreaClaimExpiry(config?.areaClaimTimeoutMs ?? 4 * 60 * 60 * 1000);
     setClaimingArea(true);
     setAreaClaimError(null);
     setAreaClaimProblem(null);
-    setAreaClaimExpiresAt(optimisticExpiresAt);
-
-    const releaseClaim = () => {
-      void flushPendingSharedAreaSyncs().finally(() => {
-        void releaseSharedProjectArea(sharedProjectId, currentAreaId).catch((error) => {
-          console.error('Failed to release shared area claim:', error);
-        });
-      });
-    };
+    setHasAreaClaim(true);
 
     void claimSharedProjectArea(sharedProjectId, currentAreaId)
-      .then((claim) => {
+      .then(() => {
         if (!cancelled) {
           setAreaClaimError(null);
           setAreaClaimProblem(null);
-          setAreaClaimExpiresAt(claim.expiresAt ?? null);
+          setHasAreaClaim(true);
           resumePendingSharedAreaSyncs();
-          claimRenewTimer = setInterval(() => {
-            void claimSharedProjectArea(sharedProjectId, currentAreaId)
-              .then((renewedClaim) => {
-                if (cancelled) return;
-                setAreaClaimError(null);
-                setAreaClaimProblem(null);
-                setAreaClaimExpiresAt(renewedClaim.expiresAt ?? null);
-              })
-              .catch((error) => {
-                if (cancelled) return;
-                const message = getCollaborationErrorMessage(error, 'Could not renew this shared area claim.');
-                setAreaClaimError(message);
-                setAreaClaimExpiresAt(null);
-                setAreaClaimProblem({
-                  kind: isSharedAreaClaimBlockedMessage(message) ? 'blocked' : 'lost',
-                  message: isSharedAreaClaimBlockedMessage(message)
-                    ? SHARED_AREA_LOCK_BLOCKED_MESSAGE
-                    : SHARED_AREA_LOCK_LOST_MESSAGE,
-                });
-              });
-          }, 2 * 60 * 1000);
         }
       })
       .catch((error) => {
         if (cancelled) return;
         const message = getCollaborationErrorMessage(error, 'Could not claim this shared area.');
         setAreaClaimError(message);
-        setAreaClaimExpiresAt(null);
+        setHasAreaClaim(false);
         setAreaClaimProblem({
           kind: isSharedAreaClaimBlockedMessage(message) ? 'blocked' : 'lost',
           message: isSharedAreaClaimBlockedMessage(message)
@@ -536,18 +502,10 @@ export default function AreaDetailPage() {
         }
       });
 
-    window.addEventListener('pagehide', releaseClaim);
-
     return () => {
       cancelled = true;
-      if (claimRenewTimer) {
-        clearInterval(claimRenewTimer);
-      }
-      setAreaClaimExpiresAt(null);
-      window.removeEventListener('pagehide', releaseClaim);
-      releaseClaim();
     };
-  }, [area?.id, areaClaimRetryNonce, collaborationAuth.isSignedIn, id, project?.sharedProjectId, router]);
+  }, [area?.id, areaClaimRetryNonce, collaborationAuth.isSignedIn, project?.sharedProjectId]);
 
   useEffect(() => {
     if (!areaClaimProblem) return;
@@ -1562,7 +1520,7 @@ export default function AreaDetailPage() {
       await closeExpandedCheckpoint();
       await flushPendingSharedAreaSyncs();
       await releaseSharedProjectArea(project.sharedProjectId, area.id);
-      setAreaClaimExpiresAt(null);
+      setHasAreaClaim(false);
       setAreaClaimError(null);
       router.push(`/project/${project.id}`);
     } catch (error) {
@@ -1887,7 +1845,13 @@ export default function AreaDetailPage() {
   const supportsGlobalCustomItems = !supportsInlineLocationCustomItems && !deleteMode && !areaEditingLocked;
   const flattenSingleStairsLocation =
     !deleteMode && !isApartmentArea(area) && sortedStandardLocations.length === 1;
-  const canReleaseAreaClaim = Boolean(project.sharedProjectId && areaClaimExpiresAt && !areaClaimError && !areaClaimProblem);
+  const canReleaseAreaClaim = Boolean(
+    project.sharedProjectId &&
+    hasAreaClaim &&
+    !claimingArea &&
+    !areaClaimError &&
+    !areaClaimProblem
+  );
   const visibleLiveSharedUpdate = Boolean(
     collaborationAuth.isSignedIn &&
     project.sharedProjectId &&
@@ -1901,10 +1865,10 @@ export default function AreaDetailPage() {
     ? 'Shared claim needs attention'
     : releasingAreaClaim
       ? 'Releasing shared lock...'
-      : areaClaimExpiresAt
-        ? `Locked to you until ${areaClaimExpiresAt.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`
-        : claimingArea
+      : claimingArea
         ? 'Claiming shared area...'
+      : hasAreaClaim
+        ? 'Locked to you until you release it'
         : 'Shared area claimed';
 
   return (
