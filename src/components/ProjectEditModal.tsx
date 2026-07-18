@@ -38,7 +38,7 @@ export default function ProjectEditModal({ project, onSave, onDelete, onClose }:
 
   return (
     <div className="modal-overlay fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="modal-panel max-h-[90vh] w-full max-w-md overflow-y-auto rounded-[1.9rem]">
+      <div className="modal-panel max-h-[calc(100dvh-env(safe-area-inset-top)-env(safe-area-inset-bottom)-2rem)] w-full max-w-md overflow-y-auto rounded-[1.9rem]">
         <div className="sticky sticky-surface top-0 flex items-center justify-between border-b px-5 py-4">
           <div>
             <h2 className="text-xl font-semibold tracking-[-0.02em] text-gray-900 dark:text-white">Edit Project</h2>
