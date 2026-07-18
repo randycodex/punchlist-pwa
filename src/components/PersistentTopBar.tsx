@@ -379,7 +379,9 @@ export default function PersistentTopBar() {
   const menuPillClass = 'flex min-h-10 min-w-0 items-center gap-2 rounded-full bg-black/[0.07] px-3 py-2 text-left text-[13px] font-medium leading-tight text-gray-700 transition hover:bg-black/[0.10] dark:bg-white/[0.05] dark:text-gray-300 dark:hover:bg-white/[0.08]';
   const syncMenuPillBaseClass = 'flex min-h-10 min-w-0 items-center gap-2 rounded-full border px-3 py-2 text-left text-[13px] font-medium leading-tight transition disabled:cursor-default';
   const disabledMenuPillClass = `${menuPillClass} disabled:cursor-default disabled:opacity-60`;
-  const activeTransferMenuPillClass = 'flex min-h-10 min-w-0 cursor-wait items-center gap-2 rounded-full border border-violet-300 bg-violet-100 px-3 py-2 text-left text-[13px] font-semibold leading-tight text-violet-700 transition dark:border-violet-400/35 dark:bg-violet-400/20 dark:text-violet-100';
+  const activeTransferMenuPillBaseClass = 'flex min-h-10 min-w-0 cursor-wait items-center gap-2 rounded-full border px-3 py-2 text-left text-[13px] font-semibold leading-tight transition';
+  const activePushMenuPillClass = `${activeTransferMenuPillBaseClass} border-violet-300 bg-violet-100 text-violet-700 dark:border-violet-400/35 dark:bg-violet-400/20 dark:text-violet-100`;
+  const activePullMenuPillClass = `${activeTransferMenuPillBaseClass} border-sky-300 bg-sky-100 text-sky-700 dark:border-sky-400/35 dark:bg-sky-400/20 dark:text-sky-100`;
   return (
     <div className="persistent-top-bar fixed top-0 left-0 right-0 z-30 pt-[env(safe-area-inset-top)] md:border-b">
       <div className="top-bar-surface mx-auto flex h-14 w-full max-w-6xl items-center justify-between px-4 sm:px-5">
@@ -505,7 +507,7 @@ export default function PersistentTopBar() {
                           <button
                             onClick={() => dispatchHomeAction('publish-shared-project')}
                             disabled={sharedTransferStatus !== null}
-                            className={sharedTransferStatus === 'publishing' ? activeTransferMenuPillClass : disabledMenuPillClass}
+                            className={sharedTransferStatus === 'publishing' ? activePushMenuPillClass : disabledMenuPillClass}
                             aria-busy={sharedTransferStatus === 'publishing'}
                           >
                             <CloudUpload className={`h-4 w-4 shrink-0 ${sharedTransferStatus === 'publishing' ? 'animate-pulse' : ''}`} />
@@ -514,7 +516,7 @@ export default function PersistentTopBar() {
                           <button
                             onClick={() => dispatchHomeAction('pull-shared-project')}
                             disabled={sharedTransferStatus !== null}
-                            className={sharedTransferStatus === 'pulling' ? activeTransferMenuPillClass : disabledMenuPillClass}
+                            className={sharedTransferStatus === 'pulling' ? activePullMenuPillClass : disabledMenuPillClass}
                             aria-busy={sharedTransferStatus === 'pulling'}
                           >
                             <CloudDownload className={`h-4 w-4 shrink-0 ${sharedTransferStatus === 'pulling' ? 'animate-pulse' : ''}`} />
