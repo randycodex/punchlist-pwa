@@ -286,6 +286,19 @@ export default function PersistentTopBar() {
     };
   }, []);
 
+  useEffect(() => {
+    function handleCloseHomeMenuOnMobile() {
+      if (window.matchMedia('(max-width: 767px)').matches) {
+        setShowHomeMenu(false);
+      }
+    }
+
+    window.addEventListener('punchlist-close-home-menu-on-mobile', handleCloseHomeMenuOnMobile);
+    return () => {
+      window.removeEventListener('punchlist-close-home-menu-on-mobile', handleCloseHomeMenuOnMobile);
+    };
+  }, []);
+
   function dispatchHomeAction(action: string, sort?: SortOption) {
     window.dispatchEvent(new CustomEvent('punchlist-home-menu-action', {
       detail: {

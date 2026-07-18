@@ -1655,6 +1655,14 @@ export default function ProjectsPage() {
     }
   }
 
+  function openTrashFromSharedProjectDirectory() {
+    setShowMySharedProjects(false);
+    setMySharedProjects([]);
+    setShowTrash(true);
+    cancelSelectionMode();
+    window.dispatchEvent(new CustomEvent('punchlist-close-home-menu-on-mobile'));
+  }
+
   function handleDirectoryDisconnect(
     entry: CollaborationSharedProjectDirectoryEntry,
     localProject?: Project
@@ -3135,8 +3143,14 @@ export default function ProjectsPage() {
                         </div>
                       </div>
                       <button
-                        onClick={() => void handleAddSharedProjectFromDirectory(entry)}
-                        disabled={(!!localProject && !needsReconnect) || !!addingSharedProjectId || !!disconnectingDirectoryProjectId}
+                        onClick={() => {
+                          if (isInTrash) {
+                            openTrashFromSharedProjectDirectory();
+                            return;
+                          }
+                          void handleAddSharedProjectFromDirectory(entry);
+                        }}
+                        disabled={(!isInTrash && !!localProject && !needsReconnect) || !!addingSharedProjectId || !!disconnectingDirectoryProjectId}
                         className="mt-4 w-full rounded-2xl bg-zinc-900 px-4 py-3 text-sm font-medium text-white transition hover:bg-black disabled:cursor-not-allowed disabled:opacity-50 dark:bg-white dark:text-gray-900 dark:hover:bg-gray-200"
                       >
                         {isAdding
