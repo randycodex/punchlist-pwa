@@ -145,7 +145,6 @@ export default function ProjectDetailPage() {
   const [syncing, setSyncing] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
   const [editingProject, setEditingProject] = useState<Project | null>(null);
-  const [moveProjectToTrashConfirm, setMoveProjectToTrashConfirm] = useState(false);
   const [sharedAreaClaims, setSharedAreaClaims] = useState<Map<string, AreaClaimDisplay>>(new Map());
   const [messageDialog, setMessageDialog] = useState<MessageDialogState | null>(null);
   const [showCollaborationHealth, setShowCollaborationHealth] = useState(false);
@@ -353,16 +352,6 @@ export default function ProjectDetailPage() {
     scheduleSync(updatedProject.id);
     setProject(updatedProject);
     setEditingProject(null);
-  }
-
-  async function confirmMoveProjectToTrash() {
-    if (!project) return;
-    const deletedAt = new Date();
-    const projectToTrash = { ...project, deletedAt, updatedAt: deletedAt };
-    await saveProjectMetadataOnly(projectToTrash);
-    scheduleSync(projectToTrash.id);
-    setMoveProjectToTrashConfirm(false);
-    router.push('/');
   }
 
   async function loadProject() {
@@ -1318,11 +1307,6 @@ export default function ProjectDetailPage() {
       return;
     }
 
-    if (detail.action === 'move-project-to-trash') {
-      setMoveProjectToTrashConfirm(true);
-      return;
-    }
-
     if (detail.action === 'toggle-selection') {
       if (deleteMode) {
         cancelSelectionMode();
@@ -1632,17 +1616,6 @@ export default function ProjectDetailPage() {
             Area
           </button>
         </div>
-      )}
-
-      {moveProjectToTrashConfirm && project && (
-        <AppConfirmDialog
-          title="Move Project to Trash"
-          message={`Move "${project.projectName}" to Trash?\n\nYou can restore it later from Trash.`}
-          confirmLabel="Move to Trash"
-          danger
-          onCancel={() => setMoveProjectToTrashConfirm(false)}
-          onConfirm={() => void confirmMoveProjectToTrash()}
-        />
       )}
 
       {messageDialog && (

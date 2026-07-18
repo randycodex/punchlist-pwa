@@ -489,10 +489,6 @@ export default function PersistentTopBar() {
                             {homeMenuState.selectionMode ? 'Cancel Selection' : 'Select Areas'}
                           </button>
                         )}
-                        <button onClick={() => dispatchHomeAction('move-project-to-trash')} className={menuPillClass}>
-                          <Trash2 className="h-4 w-4 shrink-0" />
-                          Move to Trash
-                        </button>
                       </div>
                     </div>
                   </div>
@@ -519,22 +515,6 @@ export default function PersistentTopBar() {
                         {homeMenuState.isSingleProject && homeMenuState.isSharedProject && (!sharedProjectAccess.isReady || sharedProjectAccess.isActiveMember || sharedProjectAccess.hasError) && (
                           <>
                           <button
-                            onClick={() => dispatchHomeAction('invite-people')}
-                            disabled={!!homeMenuState.isCreatingJoinCode}
-                            className={disabledMenuPillClass}
-                          >
-                            <UserPlus className="h-4 w-4 shrink-0" />
-                            {homeMenuState.isCreatingJoinCode ? 'Preparing...' : 'Invite'}
-                          </button>
-                          <button
-                            onClick={() => dispatchHomeAction('shared-members')}
-                            disabled={!!homeMenuState.isLoadingSharedMembers}
-                            className={disabledMenuPillClass}
-                          >
-                            <Users className="h-4 w-4 shrink-0" />
-                            {homeMenuState.isLoadingSharedMembers ? 'Loading...' : 'Members'}
-                          </button>
-                          <button
                             onClick={() => dispatchHomeAction('publish-shared-project')}
                             disabled={sharedTransferStatus !== null}
                             className={disabledMenuPillClass}
@@ -549,6 +529,22 @@ export default function PersistentTopBar() {
                           >
                             <CloudDownload className="h-4 w-4 shrink-0" />
                             {sharedTransferStatus === 'pulling' ? 'Pulling...' : 'Pull Changes'}
+                          </button>
+                          <button
+                            onClick={() => dispatchHomeAction('invite-people')}
+                            disabled={!!homeMenuState.isCreatingJoinCode}
+                            className={disabledMenuPillClass}
+                          >
+                            <UserPlus className="h-4 w-4 shrink-0" />
+                            {homeMenuState.isCreatingJoinCode ? 'Preparing...' : 'Invite'}
+                          </button>
+                          <button
+                            onClick={() => dispatchHomeAction('shared-members')}
+                            disabled={!!homeMenuState.isLoadingSharedMembers}
+                            className={disabledMenuPillClass}
+                          >
+                            <Users className="h-4 w-4 shrink-0" />
+                            {homeMenuState.isLoadingSharedMembers ? 'Loading...' : 'Members'}
                           </button>
                           <button onClick={() => dispatchHomeAction('shared-backups')} className={menuPillClass}>
                             <ArchiveRestore className="h-4 w-4 shrink-0" />

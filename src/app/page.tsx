@@ -2130,11 +2130,6 @@ export default function ProjectsPage() {
       return;
     }
 
-    if (detail.action === 'move-project-to-trash' && singleProject) {
-      setDeleteProjectConfirm(singleProject);
-      return;
-    }
-
     if (detail.action === 'toggle-selection' && singleProject) {
       setShowTrash(false);
       setExportMode(false);
