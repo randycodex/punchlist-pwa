@@ -64,6 +64,7 @@ import {
   generateSharedProjectJoinCode,
   getActiveSharedProjectAreaClaimSummaries,
   getCollaborationErrorMessage,
+  getCollaborationProfileDisplayName,
   getSharedProjectMembers,
   getSharedProjectBackupSnapshot,
   getSharedProjectSnapshot,
@@ -282,11 +283,15 @@ export default function ProjectDetailPage() {
   );
 
   const markAreaClaimedByCurrentUser = useCallback((areaId: string, expiresAt?: Date) => {
+    const profileLabel = getCollaborationProfileDisplayName(collaborationAuth.profile) || 'Your profile';
+    const avatarUrl = collaborationAuth.profile?.avatarUrl;
     setSharedAreaClaims((current) => {
       const existing = current.get(areaId);
       if (
         existing?.ownership === 'mine' &&
-        existing.expiresAt?.getTime() === expiresAt?.getTime()
+        existing.expiresAt?.getTime() === expiresAt?.getTime() &&
+        existing.label === profileLabel &&
+        existing.avatarUrl === avatarUrl
       ) {
         return current;
       }
@@ -294,12 +299,13 @@ export default function ProjectDetailPage() {
       const next = new Map(current);
       next.set(areaId, {
         ownership: 'mine',
-        label: 'you',
+        label: profileLabel,
+        avatarUrl,
         expiresAt,
       });
       return next;
     });
-  }, []);
+  }, [collaborationAuth.profile]);
 
   const clearOptimisticAreaClaim = useCallback((areaId: string) => {
     setSharedAreaClaims((current) => {
