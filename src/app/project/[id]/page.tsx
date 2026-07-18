@@ -11,6 +11,7 @@ import ProjectEditModal from '@/components/ProjectEditModal';
 import AppMessageDialog from '@/components/AppMessageDialog';
 import AppConfirmDialog from '@/components/AppConfirmDialog';
 import AppPromptDialog from '@/components/AppPromptDialog';
+import ListSortPills from '@/components/ListSortPills';
 import CollaborationHealthDialog from '@/components/CollaborationHealthDialog';
 import InvitePeopleDialog from '@/components/InvitePeopleDialog';
 import SharedMembersDialog from '@/components/SharedMembersDialog';
@@ -145,6 +146,7 @@ export default function ProjectDetailPage() {
   const [syncing, setSyncing] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
   const [editingProject, setEditingProject] = useState<Project | null>(null);
+  const [moveProjectToTrashConfirm, setMoveProjectToTrashConfirm] = useState(false);
   const [sharedAreaClaims, setSharedAreaClaims] = useState<Map<string, AreaClaimDisplay>>(new Map());
   const [messageDialog, setMessageDialog] = useState<MessageDialogState | null>(null);
   const [showCollaborationHealth, setShowCollaborationHealth] = useState(false);
@@ -352,6 +354,16 @@ export default function ProjectDetailPage() {
     scheduleSync(updatedProject.id);
     setProject(updatedProject);
     setEditingProject(null);
+  }
+
+  async function confirmMoveProjectToTrash() {
+    if (!project) return;
+    const deletedAt = new Date();
+    const projectToTrash = { ...project, deletedAt, updatedAt: deletedAt };
+    await saveProjectMetadataOnly(projectToTrash);
+    scheduleSync(projectToTrash.id);
+    setMoveProjectToTrashConfirm(false);
+    router.push('/');
   }
 
   async function loadProject() {
@@ -1307,6 +1319,11 @@ export default function ProjectDetailPage() {
       return;
     }
 
+    if (detail.action === 'move-project-to-trash') {
+      setMoveProjectToTrashConfirm(true);
+      return;
+    }
+
     if (detail.action === 'toggle-selection') {
       if (deleteMode) {
         cancelSelectionMode();
@@ -1523,6 +1540,11 @@ export default function ProjectDetailPage() {
       <main
         className="flex-1 min-h-0 overflow-y-scroll overscroll-y-contain touch-pan-y px-4 pt-5 pb-[calc(env(safe-area-inset-bottom)+6.5rem)] sm:px-5"
       >
+        {!showTrash && !deleteMode && activeAreas.length > 0 && (
+          <div className="mx-auto mb-4 w-full max-w-6xl px-1">
+            <ListSortPills value={sortOption} onChange={handleSortChange} />
+          </div>
+        )}
         {!showTrash && activeAreas.length === 0 ? (
           <div className="mx-auto flex min-h-[calc(100%+1px)] w-full max-w-6xl flex-col">
             <div className="flex flex-1 items-center justify-center py-12">
@@ -1616,6 +1638,17 @@ export default function ProjectDetailPage() {
             Area
           </button>
         </div>
+      )}
+
+      {moveProjectToTrashConfirm && project && (
+        <AppConfirmDialog
+          title="Move Project to Trash"
+          message={`Move "${project.projectName}" to Trash?\n\nYou can restore it later from Trash.`}
+          confirmLabel="Move to Trash"
+          danger
+          onCancel={() => setMoveProjectToTrashConfirm(false)}
+          onConfirm={() => void confirmMoveProjectToTrash()}
+        />
       )}
 
       {messageDialog && (
