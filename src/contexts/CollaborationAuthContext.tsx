@@ -1,13 +1,15 @@
 'use client';
 
-import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import type { Session, User } from '@supabase/supabase-js';
 import { useMicrosoftAuth } from '@/contexts/MicrosoftAuthContext';
 import {
   collaborationEmailsMatch,
   getCollaborationSupabaseClient,
   getMyCollaborationProfile,
+  MICROSOFT_PROFILE_PHOTO_SYNC_INTERVAL_MS,
   saveMyCollaborationProfile,
+  syncMyMicrosoftProfilePhoto,
   type CollaborationUserProfile,
   type CollaborationUserProfileInput,
 } from '@/lib/collaboration';
@@ -35,6 +37,8 @@ const CollaborationAuthContext = createContext<CollaborationAuthContextValue | u
 
 export function CollaborationAuthProvider({ children }: { children: ReactNode }) {
   const microsoftAuth = useMicrosoftAuth();
+  const microsoftAccessToken = microsoftAuth.accessToken;
+  const ensureMicrosoftAccessToken = microsoftAuth.ensureAccessToken;
   const supabase = useMemo(() => getCollaborationSupabaseClient(), []);
   const [session, setSession] = useState<Session | null>(null);
   const [user, setUser] = useState<User | null>(null);
@@ -44,6 +48,7 @@ export function CollaborationAuthProvider({ children }: { children: ReactNode })
   const [isProfileLoading, setIsProfileLoading] = useState(false);
   const [profileErrorMessage, setProfileErrorMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const attemptedAvatarSyncUsersRef = useRef(new Set<string>());
   const isIdentityAligned =
     !!session &&
     microsoftAuth.isSignedIn &&
@@ -101,6 +106,39 @@ export function CollaborationAuthProvider({ children }: { children: ReactNode })
   useEffect(() => {
     void refreshProfile();
   }, [refreshProfile]);
+
+  useEffect(() => {
+    if (!isIdentityAligned || !user || !profile) return;
+    if (
+      profile.avatarSyncedAt &&
+      Date.now() - profile.avatarSyncedAt.getTime() < MICROSOFT_PROFILE_PHOTO_SYNC_INTERVAL_MS
+    ) {
+      return;
+    }
+    if (attemptedAvatarSyncUsersRef.current.has(user.id)) return;
+
+    const userId = user.id;
+    attemptedAvatarSyncUsersRef.current.add(userId);
+
+    async function syncMicrosoftAvatar() {
+      try {
+        const token = microsoftAccessToken ?? await ensureMicrosoftAccessToken();
+        if (!token) {
+          attemptedAvatarSyncUsersRef.current.delete(userId);
+          return;
+        }
+        const syncedProfile = await syncMyMicrosoftProfilePhoto(token);
+        setProfile((currentProfile) =>
+          currentProfile?.userId === userId ? syncedProfile : currentProfile
+        );
+      } catch (error) {
+        attemptedAvatarSyncUsersRef.current.delete(userId);
+        console.info('Microsoft profile photo sync is temporarily unavailable:', error);
+      }
+    }
+
+    void syncMicrosoftAvatar();
+  }, [ensureMicrosoftAccessToken, isIdentityAligned, microsoftAccessToken, profile, user]);
 
   useEffect(() => {
     if (!supabase || !microsoftAuth.isReady || !session) return;

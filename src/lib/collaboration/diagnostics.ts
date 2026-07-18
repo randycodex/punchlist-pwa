@@ -1,5 +1,6 @@
 import type { Json } from './database';
 import { getAllowedCollaborationEmailDescription, getCollaborationRuntimeConfig } from './config';
+import { COLLABORATION_AVATAR_BUCKET } from './profileAvatars';
 import { getCollaborationSupabaseClient } from './supabaseClient';
 import { COLLABORATION_ATTACHMENT_BUCKET } from './storage';
 
@@ -97,24 +98,24 @@ async function checkRpc(
 }
 
 async function checkStorageBucket(
+  key: string,
+  label: string,
   probe: () => PromiseLike<{ error: unknown }>
 ): Promise<CollaborationHealthCheck> {
-  const key = 'attachment_storage';
-  const label = 'Shared attachment storage';
   try {
     const { error: probeError } = await probe();
     if (!probeError) {
-      return ok(key, label, 'Private attachment bucket is reachable.');
+      return ok(key, label, 'Private storage bucket is reachable.');
     }
 
     const message = getErrorText(probeError);
     const normalized = message.toLowerCase();
     if (normalized.includes('bucket') && normalized.includes('not found')) {
-      return error(key, label, message || 'Attachment bucket is missing.');
+      return error(key, label, message || 'Storage bucket is missing.');
     }
-    return warning(key, label, message || 'Attachment storage exists, but access was blocked.');
+    return warning(key, label, message || 'Storage exists, but access was blocked.');
   } catch (caughtError) {
-    return warning(key, label, getErrorText(caughtError) || 'Attachment storage check did not finish.');
+    return warning(key, label, getErrorText(caughtError) || 'Storage check did not finish.');
   }
 }
 
@@ -154,7 +155,16 @@ export async function runCollaborationHealthCheck(): Promise<CollaborationHealth
     checkTable('area_snapshots', 'Area snapshot table', () => supabase.from('shared_project_area_snapshots').select('project_id').limit(1)),
     checkTable('metadata_snapshots', 'Project metadata table', () => supabase.from('shared_project_metadata_snapshots').select('project_id').limit(1)),
     checkTable('backup_history', 'Backup history table', () => supabase.from('shared_project_snapshot_history').select('id').limit(1)),
-    checkStorageBucket(() => supabase.storage.from(COLLABORATION_ATTACHMENT_BUCKET).list('', { limit: 1 })),
+    checkStorageBucket(
+      'attachment_storage',
+      'Shared attachment storage',
+      () => supabase.storage.from(COLLABORATION_ATTACHMENT_BUCKET).list('', { limit: 1 })
+    ),
+    checkStorageBucket(
+      'avatar_storage',
+      'Profile avatar storage',
+      () => supabase.storage.from(COLLABORATION_AVATAR_BUCKET).list('', { limit: 1 })
+    ),
 
     checkRpc('list_my_shared_projects', 'My shared projects function', () => supabase.rpc('list_my_shared_projects')),
     checkRpc('generate_join_code', 'Invite code function', () => supabase.rpc('generate_shared_project_join_code', {

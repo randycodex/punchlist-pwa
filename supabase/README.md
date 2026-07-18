@@ -20,6 +20,10 @@ readable for backward compatibility. Apply migrations through
 `20260717160000_compact_shared_snapshot_assets.sql` before relying on the
 lightweight backup-list query.
 
+`20260717234000_profile_avatars.sql` adds private Microsoft profile-photo
+storage. Each user can update only their own avatar, while signed URLs are
+available only to active collaborators who may read that user's profile.
+
 `20260717190000_area_scoped_collaboration.sql` adds current area snapshots,
 idempotent optimistic area publishing, realtime area events, and a full-publish
 guard against concurrent area commits. Apply it before enabling background area

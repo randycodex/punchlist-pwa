@@ -16,6 +16,8 @@ export interface CollaborationDatabase {
           first_name: string;
           last_name: string;
           job_title: string;
+          avatar_path: string | null;
+          avatar_synced_at: string | null;
           created_at: string;
           updated_at: string;
         };
@@ -25,6 +27,8 @@ export interface CollaborationDatabase {
           first_name: string;
           last_name: string;
           job_title: string;
+          avatar_path?: string | null;
+          avatar_synced_at?: string | null;
           created_at?: string;
           updated_at?: string;
         };

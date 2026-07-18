@@ -1,6 +1,7 @@
 import type { CollaborationAreaClaim, CollaborationAreaClaimSummary } from './types';
 import type { Json } from './database';
 import { getCollaborationRuntimeConfig } from './config';
+import { getCollaborationAvatarUrl } from './profileAvatars';
 import { getCollaborationSupabaseClient } from './supabaseClient';
 
 export function isAreaClaimActive(
@@ -194,17 +195,42 @@ export async function getActiveSharedProjectAreaClaimSummaries(sharedProjectId: 
       ])
   );
 
-  return (claimsResult.data ?? [])
+  const activeClaims = (claimsResult.data ?? [])
     .map(reviveAreaClaim)
-    .filter((claim) => isAreaClaimActive(claim))
-    .map((claim) => {
-      const member = membersByUserId.get(claim.claimedByUserId);
-      return {
-        ...claim,
-        claimedByEmail: member?.email,
-        claimedByDisplayName: member?.displayName,
-      };
-    });
+    .filter((claim) => isAreaClaimActive(claim));
+  const claimantUserIds = [...new Set(activeClaims.map((claim) => claim.claimedByUserId))];
+  const avatarsByUserId = new Map<string, string>();
+
+  if (claimantUserIds.length > 0) {
+    const { data: profiles, error: profilesError } = await supabase
+      .from('user_profiles')
+      .select('user_id, avatar_path')
+      .in('user_id', claimantUserIds);
+
+    if (!profilesError) {
+      await Promise.all(
+        (profiles ?? []).map(async (profile) => {
+          if (!profile.avatar_path) return;
+          try {
+            const avatarUrl = await getCollaborationAvatarUrl(profile.avatar_path);
+            if (avatarUrl) avatarsByUserId.set(profile.user_id, avatarUrl);
+          } catch (error) {
+            console.info('Area claim avatar is temporarily unavailable:', error);
+          }
+        })
+      );
+    }
+  }
+
+  return activeClaims.map((claim) => {
+    const member = membersByUserId.get(claim.claimedByUserId);
+    return {
+      ...claim,
+      claimedByEmail: member?.email,
+      claimedByDisplayName: member?.displayName,
+      claimedByAvatarUrl: avatarsByUserId.get(claim.claimedByUserId),
+    };
+  });
 }
 
 export async function releaseSharedProjectArea(sharedProjectId: string, areaId: string) {

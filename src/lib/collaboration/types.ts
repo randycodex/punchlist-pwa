@@ -8,6 +8,9 @@ export interface CollaborationUserProfile {
   firstName: string;
   lastName: string;
   jobTitle: string;
+  avatarPath?: string;
+  avatarUrl?: string;
+  avatarSyncedAt?: Date;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -122,6 +125,7 @@ export interface CollaborationAreaClaim {
 export interface CollaborationAreaClaimSummary extends CollaborationAreaClaim {
   claimedByEmail?: string;
   claimedByDisplayName?: string;
+  claimedByAvatarUrl?: string;
 }
 
 export interface CollaborationMutation {

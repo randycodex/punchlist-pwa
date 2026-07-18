@@ -3,6 +3,7 @@
 import { memo } from 'react';
 import Link from 'next/link';
 import { ChevronRight } from 'lucide-react';
+import CollaborationAvatar from '@/components/CollaborationAvatar';
 import MetadataLine from '@/components/MetadataLine';
 import type { Area, Project } from '@/types';
 
@@ -17,6 +18,7 @@ export type HomeAreaCardMetrics = {
 export type HomeAreaClaimDisplay = {
   ownership: 'mine' | 'other';
   label: string;
+  avatarUrl?: string;
   expiresAt?: Date;
 };
 
@@ -106,6 +108,13 @@ export const HomeAreaCard = memo(function HomeAreaCard({
           <div className="min-w-0">
             <div className="flex items-center gap-2 min-w-0">
               <h3 className="truncate text-[1.03rem] font-semibold tracking-[-0.02em] text-gray-900 dark:text-white">{displayName}</h3>
+              {claimStatus && (
+                <CollaborationAvatar
+                  name={claimStatus.label}
+                  src={claimStatus.avatarUrl}
+                  size="sm"
+                />
+              )}
               {claimLabel && <span className="segmented-chip shrink-0 px-2.5 py-1 text-[11px]">{claimLabel}</span>}
             </div>
             <MetadataLine className="mt-2" issues={areaStats.issues} notes={commentCount} photos={photoCount} />

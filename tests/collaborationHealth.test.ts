@@ -61,10 +61,12 @@ describe('collaboration health checks', () => {
 
   it('runs independent database probes in parallel', async () => {
     const report = await runCollaborationHealthCheck();
-    expect(report.checks).toHaveLength(23);
+    expect(report.checks).toHaveLength(24);
     expect(state.maxActive).toBeGreaterThan(1);
     expect(fromMock).toHaveBeenCalledTimes(9);
     expect(rpcMock).toHaveBeenCalledTimes(10);
+    expect(storageFromMock).toHaveBeenCalledTimes(2);
     expect(storageFromMock).toHaveBeenCalledWith('punchlist-attachments');
+    expect(storageFromMock).toHaveBeenCalledWith('punchlist-avatars');
   });
 });

@@ -12,11 +12,13 @@ import { getProjectMetadata } from '@/lib/db';
 import { hasPendingSyncState } from '@/lib/pendingSync';
 import { getCachedProjectName } from '@/lib/projectNavigationCache';
 import {
+  getCollaborationProfileDisplayName,
   getCollaborationProfileInitials,
   getSharedProjectAccess,
   resumePendingSharedAreaSyncs,
   resumePendingSharedProjectMetadataSyncs,
 } from '@/lib/collaboration';
+import CollaborationAvatar from '@/components/CollaborationAvatar';
 import UserProfileModal from '@/components/UserProfileModal';
 import ListSortPills from '@/components/ListSortPills';
 import {
@@ -636,9 +638,12 @@ export default function PersistentTopBar() {
                           className={menuPillClass}
                         >
                           {collaborationAuth.profile ? (
-                            <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-[var(--accent)] text-[9px] font-bold text-white">
-                              {getCollaborationProfileInitials(collaborationAuth.profile)}
-                            </span>
+                            <CollaborationAvatar
+                              name={getCollaborationProfileDisplayName(collaborationAuth.profile) || 'Your account'}
+                              src={collaborationAuth.profile.avatarUrl}
+                              initials={getCollaborationProfileInitials(collaborationAuth.profile)}
+                              size="xs"
+                            />
                           ) : (
                             <UserRound className="h-4 w-4 shrink-0" />
                           )}

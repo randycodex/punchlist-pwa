@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { createPortal } from 'react-dom';
+import CollaborationAvatar from '@/components/CollaborationAvatar';
 import { useCollaborationAuth } from '@/contexts/CollaborationAuthContext';
 import { getCollaborationProfileInitials } from '@/lib/collaboration';
 
@@ -85,15 +86,18 @@ export default function UserProfileModal({ open, onClose }: UserProfileModalProp
         aria-labelledby="profile-modal-title"
       >
         <div className="flex items-start gap-4">
-          <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-[var(--accent)] text-lg font-bold text-white">
-            {initials}
-          </div>
+          <CollaborationAvatar
+            name={[firstName, lastName].filter(Boolean).join(' ') || 'Your account'}
+            src={collaborationAuth.profile?.avatarUrl}
+            initials={initials}
+            size="lg"
+          />
           <div className="min-w-0 flex-1">
             <h2 id="profile-modal-title" className="text-xl font-semibold tracking-[-0.02em] text-gray-900 dark:text-white">
               {collaborationAuth.profile ? 'Edit Profile' : 'Create Profile'}
             </h2>
             <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-              Your name identifies you in shared projects. Initials are generated automatically.
+              Your Microsoft account photo and name identify you in shared projects. Initials appear when no photo is available.
             </p>
           </div>
         </div>

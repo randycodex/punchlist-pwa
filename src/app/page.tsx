@@ -788,6 +788,7 @@ export default function ProjectsPage() {
                 {
                   ownership: isMine ? 'mine' : 'other',
                   label: claim.claimedByDisplayName || claim.claimedByEmail || 'another user',
+                  avatarUrl: claim.claimedByAvatarUrl,
                   expiresAt: claim.expiresAt,
                 },
               ];
