@@ -2307,8 +2307,7 @@ export default function ProjectsPage() {
                   </>
                 ) : (
                   <>
-                    <div className="section-eyebrow">Archive</div>
-                    <h1 className="mt-1 text-[1.2rem] font-semibold tracking-[-0.02em] text-gray-900 dark:text-white">
+                    <h1 className="text-[1.2rem] font-semibold tracking-[-0.02em] text-gray-900 dark:text-white">
                       Trash
                     </h1>
                     <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
