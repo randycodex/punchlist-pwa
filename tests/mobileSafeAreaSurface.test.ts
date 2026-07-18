@@ -36,10 +36,12 @@ describe('mobile top-bar safe area', () => {
     }
   });
 
-  it('extends the mobile menu through the bottom inset and allows touch scrolling', () => {
+  it('keeps the mobile menu scrollable and makes its bottom safe area transparent', () => {
     expect(globalStyles).toMatch(
-      /\.app-menu-drawer\.menu-surface\s*\{[\s\S]*?bottom:\s*calc\(-1 \* env\(safe-area-inset-bottom\)\);[\s\S]*?height:\s*auto;/
+      /\.app-menu-drawer\.menu-surface\s*\{[\s\S]*?bottom:\s*0;[\s\S]*?height:\s*auto;/
     );
+    expect(globalStyles).toContain('background-color: transparent;');
+    expect(globalStyles).toContain('transparent calc(100% - env(safe-area-inset-bottom))');
     expect(persistentTopBar).toContain(
       'app-menu-scroll min-h-0 flex-1 overflow-y-auto overscroll-y-contain touch-pan-y'
     );
