@@ -15,6 +15,7 @@
   --accent-soft: rgba(239, 78, 36, 0.08);
   --accent-soft-strong: rgba(239, 78, 36, 0.14);
   --app-menu-drawer-width: 100vw;
+  --app-menu-drawer-gap: 0px;
 }
 
 .dark {
@@ -121,14 +122,15 @@ html:not(.dark) {
 @media (min-width: 768px) {
   :root {
     --app-menu-drawer-width: min(88vw, 24rem);
+    --app-menu-drawer-gap: 1rem;
   }
 
   html[data-app-menu-open="true"] .app-shell {
-    padding-right: var(--app-menu-drawer-width);
+    padding-right: calc(var(--app-menu-drawer-width) + var(--app-menu-drawer-gap));
   }
 
   html[data-app-menu-open="true"] .persistent-top-bar {
-    right: var(--app-menu-drawer-width);
+    right: calc(var(--app-menu-drawer-width) + var(--app-menu-drawer-gap));
   }
 
 }
@@ -445,7 +447,7 @@ html:not(.dark) {
 
 @media (min-width: 768px) {
   html[data-app-menu-open="true"] .floating-action-rail {
-    right: var(--app-menu-drawer-width);
+    right: calc(var(--app-menu-drawer-width) + var(--app-menu-drawer-gap));
   }
 }
 
