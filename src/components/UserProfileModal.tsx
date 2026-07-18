@@ -83,7 +83,8 @@ export default function UserProfileModal({ open, onClose }: UserProfileModalProp
         className="modal-panel my-4 w-full max-w-lg rounded-[1.9rem] p-6"
         role="dialog"
         aria-modal="true"
-        aria-labelledby="profile-modal-title"
+        aria-label={collaborationAuth.profile ? 'Profile' : undefined}
+        aria-labelledby={collaborationAuth.profile ? undefined : 'profile-modal-title'}
       >
         <div className="flex items-start gap-4">
           <CollaborationAvatar
@@ -92,14 +93,11 @@ export default function UserProfileModal({ open, onClose }: UserProfileModalProp
             initials={initials}
             size="lg"
           />
-          <div className="min-w-0 flex-1">
+          {!collaborationAuth.profile && (
             <h2 id="profile-modal-title" className="text-xl font-semibold tracking-[-0.02em] text-gray-900 dark:text-white">
-              {collaborationAuth.profile ? 'Edit Profile' : 'Create Profile'}
+              Create Profile
             </h2>
-            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-              Your Microsoft account photo and name identify you in shared projects. Initials appear when no photo is available.
-            </p>
-          </div>
+          )}
         </div>
 
         <div className="mt-6 space-y-4">
@@ -121,9 +119,6 @@ export default function UserProfileModal({ open, onClose }: UserProfileModalProp
               placeholder="randy.s"
               required
             />
-            <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
-              3–30 letters, numbers, periods, underscores, or hyphens.
-            </p>
           </div>
 
           <div className="grid gap-4 sm:grid-cols-2">
