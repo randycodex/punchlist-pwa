@@ -43,6 +43,7 @@ import {
   buildElevationMarkerReferences,
 } from '@/lib/elevationMarkers';
 import { applyTemplateToArea } from '@/lib/template';
+import { getAreaReturnPath } from '@/lib/projectNavigation';
 import {
   hasPendingSyncState,
   queuePendingSync,
@@ -300,7 +301,7 @@ export default function AreaDetailPage() {
 
   function returnToProjectFromSharedLock() {
     const currentProjectId = projectRef.current?.id ?? id;
-    router.push(`/project/${currentProjectId}`);
+    router.push(getAreaReturnPath(currentProjectId, returnToHome));
   }
 
   useEffect(() => {
@@ -1522,7 +1523,7 @@ export default function AreaDetailPage() {
       await releaseSharedProjectArea(project.sharedProjectId, area.id);
       setHasAreaClaim(false);
       setAreaClaimError(null);
-      router.push(`/project/${project.id}`);
+      router.push(getAreaReturnPath(project.id, returnToHome));
     } catch (error) {
       console.error('Failed to release shared area claim:', error);
       setSyncError(getCollaborationErrorMessage(error, 'Failed to release this shared area lock.'));
@@ -1877,7 +1878,7 @@ export default function AreaDetailPage() {
         <div className="page-header-surface mx-auto flex min-h-[4.9rem] w-full max-w-6xl items-center px-4 py-3 sm:px-5">
           <div className="flex w-full items-center gap-3">
             <Link
-              href={returnToHome ? '/' : `/project/${project.id}`}
+              href={getAreaReturnPath(project.id, returnToHome)}
               className="flex h-10 w-10 items-center justify-center rounded-[1rem] border border-black/5 bg-white/70 text-gray-600 transition hover:bg-white dark:border-white/10 dark:bg-white/[0.04] dark:text-gray-300 dark:hover:bg-white/[0.08]"
             >
               <ArrowLeft className="w-5 h-5" />
