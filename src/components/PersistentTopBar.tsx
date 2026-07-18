@@ -12,7 +12,6 @@ import { getProjectMetadata } from '@/lib/db';
 import { hasPendingSyncState } from '@/lib/pendingSync';
 import { getCachedProjectName } from '@/lib/projectNavigationCache';
 import {
-  getCollaborationProfileDisplayName,
   getCollaborationProfileInitials,
   getSharedProjectAccess,
   resumePendingSharedAreaSyncs,
@@ -65,8 +64,6 @@ export default function PersistentTopBar() {
   const {
     isReady,
     isSignedIn,
-    accountEmail,
-    accountName,
     signIn: signInToMicrosoft,
     signOut: signOutOfMicrosoft,
   } = useMicrosoftAuth();
@@ -403,20 +400,6 @@ export default function PersistentTopBar() {
   const menuPillGridClass = 'grid grid-cols-2 gap-2 px-1 pb-1';
   const menuPillClass = 'flex min-h-10 min-w-0 items-center gap-2 rounded-full bg-black/[0.07] px-3 py-2 text-left text-[13px] font-medium leading-tight text-gray-700 transition hover:bg-black/[0.10] dark:bg-white/[0.05] dark:text-gray-300 dark:hover:bg-white/[0.08]';
   const disabledMenuPillClass = `${menuPillClass} disabled:cursor-default disabled:opacity-60`;
-  const profileName = getCollaborationProfileDisplayName(collaborationAuth.profile)
-    || accountName
-    || collaborationAuth.user?.email
-    || accountEmail
-    || 'Your account';
-  const profileEmail = collaborationAuth.user?.email || accountEmail || '';
-  const profileInitials = getCollaborationProfileInitials(collaborationAuth.profile)
-    || profileName
-      .split(/\s+/)
-      .slice(0, 2)
-      .map((part) => part.charAt(0))
-      .join('')
-      .toUpperCase();
-
   return (
     <div className="persistent-top-bar fixed top-0 left-0 right-0 z-30 pt-[env(safe-area-inset-top)] md:border-b">
       <div className="top-bar-surface mx-auto flex h-14 w-full max-w-6xl items-center justify-between px-4 sm:px-5">
@@ -471,31 +454,6 @@ export default function PersistentTopBar() {
                 aria-label="App menu"
               >
                 <div className="scrollbar-hidden min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain px-3 pb-[calc(env(safe-area-inset-bottom)+1rem)] pt-2 md:pt-[calc(env(safe-area-inset-top)+0.5rem)]">
-                {isSignedIn && (
-                  <div className="px-1 py-1">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (collaborationAuth.isSignedIn) setShowProfile(true);
-                      }}
-                      className="app-menu-card flex w-full items-center gap-3 rounded-[1.25rem] p-3 text-left transition hover:bg-black/[0.04] dark:hover:bg-white/[0.05]"
-                    >
-                      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[var(--accent)] text-xs font-bold text-white">
-                        {profileInitials || <UserRound className="h-4 w-4" />}
-                      </span>
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate text-sm font-semibold text-gray-900 dark:text-white">
-                          {profileName}
-                        </span>
-                        {profileEmail && (
-                          <span className="mt-0.5 block truncate text-xs text-gray-500 dark:text-gray-400">
-                            {profileEmail}
-                          </span>
-                        )}
-                      </span>
-                    </button>
-                  </div>
-                )}
                 <div className="px-1 py-1">
                   <div className={menuCardClass}>
                     <div className="px-1 py-1">
