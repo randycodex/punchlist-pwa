@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
@@ -101,8 +101,6 @@ export default function PersistentTopBar() {
     selectionMode: false,
   });
   const menuRef = useRef<HTMLDivElement | null>(null);
-  const menuScrollRef = useRef<HTMLDivElement | null>(null);
-  const [menuCanScroll, setMenuCanScroll] = useState(false);
   const projectId = useMemo(() => {
     if (!pathname.startsWith('/project/')) {
       return '';
@@ -272,38 +270,6 @@ export default function PersistentTopBar() {
     };
   }, [showHomeMenu]);
 
-  useLayoutEffect(() => {
-    if (!showHomeMenu) return;
-
-    const scrollContainer = menuScrollRef.current;
-    if (!scrollContainer) return;
-
-    const updateScrollState = () => {
-      const nextCanScroll = scrollContainer.scrollHeight > scrollContainer.clientHeight + 1;
-      setMenuCanScroll((current) => current === nextCanScroll ? current : nextCanScroll);
-      if (!nextCanScroll && scrollContainer.scrollTop !== 0) {
-        scrollContainer.scrollTop = 0;
-      }
-    };
-
-    updateScrollState();
-    const resizeObserver = new ResizeObserver(updateScrollState);
-    resizeObserver.observe(scrollContainer);
-    const mutationObserver = new MutationObserver(updateScrollState);
-    mutationObserver.observe(scrollContainer, {
-      childList: true,
-      subtree: true,
-      characterData: true,
-    });
-    window.visualViewport?.addEventListener('resize', updateScrollState);
-
-    return () => {
-      resizeObserver.disconnect();
-      mutationObserver.disconnect();
-      window.visualViewport?.removeEventListener('resize', updateScrollState);
-    };
-  }, [showHomeMenu]);
-
   useEffect(() => {
     function handleHomeMenuState(event: Event) {
       const customEvent = event as CustomEvent<HomeMenuState>;
@@ -469,7 +435,7 @@ export default function PersistentTopBar() {
                 aria-modal="false"
                 aria-label="App menu"
               >
-                <div className="shrink-0 px-3 pt-2 md:pt-[calc(env(safe-area-inset-top)+0.5rem)]">
+                <div className="min-h-0 flex-1 touch-none overflow-hidden px-3 pb-[calc(env(safe-area-inset-bottom)+1rem)] pt-2 md:pt-[calc(env(safe-area-inset-top)+0.5rem)]">
                   <div className="px-1 py-1">
                     <div className={menuCardClass}>
                       <div className="px-1 py-1">
@@ -486,11 +452,6 @@ export default function PersistentTopBar() {
                       </div>
                     </div>
                   </div>
-                </div>
-                <div
-                  ref={menuScrollRef}
-                  className={`scrollbar-hidden min-h-0 flex-1 overflow-x-hidden px-3 pb-[calc(env(safe-area-inset-bottom)+1rem)] ${menuCanScroll ? 'touch-pan-y overflow-y-auto overscroll-none' : 'touch-pan-x overflow-y-hidden overscroll-none'}`}
-                >
                 {homeMenuState.isSingleProject && (
                   <div className="px-1 py-1">
                     <div className={menuCardClass}>
