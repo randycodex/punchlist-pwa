@@ -359,6 +359,13 @@ html:not(.dark) {
 }
 
 @media (max-width: 767px) {
+  html[data-app-menu-open="true"],
+  html[data-app-menu-open="true"] body,
+  html[data-app-menu-open="true"] .app-shell,
+  html[data-app-menu-open="true"] .top-bar-surface {
+    background-color: var(--surface-strong) !important;
+  }
+
   .app-menu-drawer.menu-surface {
     border-top: 0;
     top: calc(env(safe-area-inset-top) + 3.5rem);
