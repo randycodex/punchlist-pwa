@@ -859,13 +859,17 @@ function maxDate(left: Date | undefined, right: Date | undefined) {
   return left.getTime() >= right.getTime() ? left : right;
 }
 
-function entityChangedAt(value: { updatedAt?: Date; deletedAt?: Date }) {
-  return Math.max(timestampMs(value.updatedAt), timestampMs(value.deletedAt));
+function entityChangedAt(value: { updatedAt?: Date; deletedAt?: Date; purgedAt?: Date }) {
+  return Math.max(
+    timestampMs(value.updatedAt),
+    timestampMs(value.deletedAt),
+    timestampMs(value.purgedAt)
+  );
 }
 
 function isRightNewer(
-  left: { updatedAt?: Date; deletedAt?: Date },
-  right: { updatedAt?: Date; deletedAt?: Date }
+  left: { updatedAt?: Date; deletedAt?: Date; purgedAt?: Date },
+  right: { updatedAt?: Date; deletedAt?: Date; purgedAt?: Date }
 ) {
   return entityChangedAt(right) > entityChangedAt(left) + CLOCK_SKEW_TOLERANCE_MS;
 }
@@ -948,6 +952,21 @@ function mergeLocations(localLocation: Location, remoteLocation: Location): Loca
 }
 
 function mergeAreas(localArea: Area, remoteArea: Area): Area {
+  if (localArea.purgedAt || remoteArea.purgedAt) {
+    const purgedArea = !localArea.purgedAt
+      ? remoteArea
+      : !remoteArea.purgedAt
+        ? localArea
+        : timestampMs(remoteArea.purgedAt) > timestampMs(localArea.purgedAt)
+          ? remoteArea
+          : localArea;
+    return {
+      ...purgedArea,
+      deletedAt: purgedArea.deletedAt ?? purgedArea.purgedAt,
+      locations: [],
+      notes: '',
+    };
+  }
   const base = isRightNewer(localArea, remoteArea) ? remoteArea : localArea;
   const locations = sortBySortOrder(
     mergeById(localArea.locations, remoteArea.locations, mergeLocations)

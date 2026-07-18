@@ -19,10 +19,11 @@ export type PendingSharedPullState = {
 
 const CLOCK_SKEW_MS = 2_000;
 
-function entityChangedAt(entity: Pick<Area, 'updatedAt' | 'deletedAt'>) {
+function entityChangedAt(entity: Pick<Area, 'updatedAt' | 'deletedAt' | 'purgedAt'>) {
   return Math.max(
     new Date(entity.updatedAt).getTime(),
-    entity.deletedAt ? new Date(entity.deletedAt).getTime() : 0
+    entity.deletedAt ? new Date(entity.deletedAt).getTime() : 0,
+    entity.purgedAt ? new Date(entity.purgedAt).getTime() : 0
   );
 }
 
@@ -70,6 +71,23 @@ export function mergeSharedProjectAreas(
     if (!remoteArea) {
       preservedLocalAreaCount += 1;
       return localArea;
+    }
+
+    if (localArea.purgedAt || remoteArea.purgedAt) {
+      if (!localArea.purgedAt) {
+        appliedRemoteAreaCount += 1;
+        return remoteArea;
+      }
+      if (!remoteArea.purgedAt) {
+        preservedLocalAreaCount += 1;
+        return preserveLocalAreaWithRemoteRevision(localArea, remoteArea);
+      }
+      if (new Date(remoteArea.purgedAt).getTime() > new Date(localArea.purgedAt).getTime()) {
+        appliedRemoteAreaCount += 1;
+        return remoteArea;
+      }
+      preservedLocalAreaCount += 1;
+      return preserveLocalAreaWithRemoteRevision(localArea, remoteArea);
     }
 
     const localChanged = changedAfter(localArea, baselineMs);

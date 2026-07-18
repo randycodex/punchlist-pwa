@@ -162,6 +162,23 @@ type TrashedAreaEntry = {
   deletedAt: Date;
 };
 
+function getReferencedDrawingIds(areas: Area[]) {
+  const drawingIds = new Set<string>();
+  for (const area of areas) {
+    if (area.elevationDrawingId) drawingIds.add(area.elevationDrawingId);
+    for (const location of area.locations) {
+      for (const item of location.items) {
+        for (const checkpoint of item.checkpoints) {
+          if (checkpoint.elevationMarker?.drawingId) {
+            drawingIds.add(checkpoint.elevationMarker.drawingId);
+          }
+        }
+      }
+    }
+  }
+  return drawingIds;
+}
+
 export default function ProjectsPage() {
   const router = useRouter();
   const cachedProjects = useMemo(() => getCachedProjectPreviews(), []);
@@ -567,17 +584,13 @@ export default function ProjectsPage() {
     [projects]
   );
 
-  const allTrashedProjectsSelected =
-    trashedProjects.length > 0 &&
-    trashedProjects.every((project) => selectedProjectIds.has(project.id));
-
   const trashedAreaEntries = useMemo<TrashedAreaEntry[]>(
     () =>
       projects
         .flatMap((project) => {
           if (project.deletedAt) return [];
           return project.areas
-            .filter((area) => area.deletedAt)
+            .filter((area) => area.deletedAt && !area.purgedAt)
             .map((area) => ({
               project,
               area,
@@ -587,6 +600,12 @@ export default function ProjectsPage() {
         .sort((a, b) => b.deletedAt.getTime() - a.deletedAt.getTime()),
     [projects]
   );
+
+  const selectedTrashItemCount = selectedProjectIds.size + selectedAreaIds.size;
+  const allTrashItemsSelected =
+    trashedProjects.length + trashedAreaEntries.length > 0 &&
+    trashedProjects.every((project) => selectedProjectIds.has(project.id)) &&
+    trashedAreaEntries.every(({ area }) => selectedAreaIds.has(area.id));
 
   const sortedProjects = useMemo(() => {
     return [...activeProjects].sort((a, b) => {
@@ -1000,10 +1019,50 @@ export default function ProjectsPage() {
   }, []);
 
   async function handleDeleteSelectedProjects() {
-    if (selectedProjectIds.size === 0) return;
     if (showTrash) {
       const projectsToDelete = trashedProjects.filter((project) => selectedProjectIds.has(project.id));
-      if (projectsToDelete.length === 0) return;
+      const areaEntriesToDelete = trashedAreaEntries.filter(({ area }) => selectedAreaIds.has(area.id));
+      if (projectsToDelete.length === 0 && areaEntriesToDelete.length === 0) return;
+
+      const purgedProjects = new Map<string, Project>();
+      const selectedAreaIdsByProject = new Map<string, Set<string>>();
+      for (const { project, area } of areaEntriesToDelete) {
+        const ids = selectedAreaIdsByProject.get(project.id) ?? new Set<string>();
+        ids.add(area.id);
+        selectedAreaIdsByProject.set(project.id, ids);
+      }
+
+      for (const [projectId, areaIds] of selectedAreaIdsByProject) {
+        const project = projects.find((entry) => entry.id === projectId);
+        if (!project) continue;
+        const now = new Date();
+        const nextAreas = project.areas.map((area) =>
+          areaIds.has(area.id)
+            ? {
+                ...area,
+                elevationDrawingId: undefined,
+                notes: '',
+                locations: [],
+                deletedAt: area.deletedAt ?? now,
+                purgedAt: now,
+                updatedAt: now,
+              }
+            : area
+        );
+        const referencedDrawingIds = getReferencedDrawingIds(nextAreas);
+        const nextProject: Project = {
+          ...project,
+          areas: nextAreas,
+          facadeElevationDrawings: project.facadeElevationDrawings?.filter((drawing) =>
+            referencedDrawingIds.has(drawing.id)
+          ),
+        };
+        await saveProject(nextProject);
+        await queueSharedProjectAreaSyncs(nextProject, areaIds).catch((error) => {
+          console.info('Permanently deleted shared areas remain local until they can be queued:', error);
+        });
+        purgedProjects.set(projectId, nextProject);
+      }
 
       for (const project of projectsToDelete) {
         markProjectDeleted(project.id);
@@ -1011,8 +1070,13 @@ export default function ProjectsPage() {
         removeCachedProjectPreview(project.id);
       }
       scheduleSync(undefined, { fullSync: true });
-      setProjects((prev) => prev.filter((project) => !selectedProjectIds.has(project.id)));
+      setProjects((prev) =>
+        prev
+          .filter((project) => !selectedProjectIds.has(project.id))
+          .map((project) => purgedProjects.get(project.id) ?? project)
+      );
     } else {
+      if (selectedProjectIds.size === 0) return;
       const projectsToTrash = activeProjects.filter((project) => selectedProjectIds.has(project.id));
       if (projectsToTrash.length === 0) return;
 
@@ -1030,6 +1094,7 @@ export default function ProjectsPage() {
     }
 
     setSelectedProjectIds(new Set());
+    setSelectedAreaIds(new Set());
     setDeleteMode(false);
     setExportMode(false);
     setActionSheet(null);
@@ -1995,12 +2060,14 @@ export default function ProjectsPage() {
     setSelectedAreaIds(new Set());
   }
 
-  function toggleSelectAllTrashedProjects() {
-    setSelectedProjectIds(
-      allTrashedProjectsSelected
-        ? new Set()
-        : new Set(trashedProjects.map((project) => project.id))
-    );
+  function toggleSelectAllTrashItems() {
+    if (allTrashItemsSelected) {
+      setSelectedProjectIds(new Set());
+      setSelectedAreaIds(new Set());
+      return;
+    }
+    setSelectedProjectIds(new Set(trashedProjects.map((project) => project.id)));
+    setSelectedAreaIds(new Set(trashedAreaEntries.map(({ area }) => area.id)));
   }
 
   homeMenuActionHandlerRef.current = (event: Event) => {
@@ -2287,7 +2354,7 @@ export default function ProjectsPage() {
                   )}
                 </div>
               )}
-              {showTrash && trashedProjects.length > 0 && !selectionMode && (
+              {showTrash && trashedProjects.length + trashedAreaEntries.length > 0 && !selectionMode && (
                 <button
                   type="button"
                   onClick={() => {
@@ -2315,13 +2382,13 @@ export default function ProjectsPage() {
               <>
                 <button
                   type="button"
-                  onClick={toggleSelectAllTrashedProjects}
+                  onClick={toggleSelectAllTrashItems}
                   className="rounded-full px-3 py-2 text-sm font-medium text-gray-700 transition hover:bg-black/[0.04] dark:text-gray-200 dark:hover:bg-white/[0.06]"
                 >
-                  {allTrashedProjectsSelected ? 'Clear All' : 'Select All'}
+                  {allTrashItemsSelected ? 'Clear All' : 'Select All'}
                 </button>
                 <span className="mr-auto text-sm text-gray-500 dark:text-gray-400">
-                  {selectedProjectIds.size} selected
+                  {selectedTrashItemCount} selected
                 </span>
               </>
             )}
@@ -2345,7 +2412,7 @@ export default function ProjectsPage() {
                   if (selectedAreaIds.size === 0) return;
                   void handleDeleteSelectedAreas();
                   return;
-                } else if (selectedProjectIds.size === 0) {
+                } else if (showTrash ? selectedTrashItemCount === 0 : selectedProjectIds.size === 0) {
                   return;
                 }
                 if (showTrash) {
@@ -2355,8 +2422,8 @@ export default function ProjectsPage() {
                 void handleDeleteSelectedProjects();
               }}
               className="accent-text accent-tint hover:accent-tint-strong flex h-10 w-10 items-center justify-center rounded-full transition disabled:opacity-40"
-              aria-label={singleProjectMainView ? 'Delete selected areas' : 'Delete selected projects'}
-              disabled={singleProjectMainView ? selectedAreaIds.size === 0 : selectedProjectIds.size === 0}
+              aria-label={singleProjectMainView ? 'Delete selected areas' : showTrash ? 'Delete selected trash items' : 'Delete selected projects'}
+              disabled={singleProjectMainView ? selectedAreaIds.size === 0 : showTrash ? selectedTrashItemCount === 0 : selectedProjectIds.size === 0}
             >
               <Trash2 className="w-4 h-4" />
             </button>
@@ -2498,10 +2565,19 @@ export default function ProjectsPage() {
                   Deleted Areas
                 </div>
               )}
-              {trashedAreaEntries.map(({ project, area, deletedAt }) => (
+              {trashedAreaEntries.map(({ project, area, deletedAt }) => {
+                const isSelected = selectedAreaIds.has(area.id);
+                return (
                 <div
                   key={`${project.id}:${area.id}`}
-                  className="card-surface-subtle rounded-[1.5rem] p-4 transition-all sm:p-5"
+                  onClick={() => {
+                    if (deleteMode) toggleAreaSelection(area.id);
+                  }}
+                  className={`card-surface-subtle rounded-[1.5rem] p-4 transition-all sm:p-5 ${
+                    isSelected
+                      ? '!border-gray-400 !bg-gray-100 dark:!border-gray-500 dark:!bg-white/[0.08]'
+                      : 'hover:-translate-y-px hover:border-black/10 dark:hover:border-white/[0.08]'
+                  } ${deleteMode ? 'cursor-pointer' : ''} select-none touch-manipulation`}
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0 flex-1">
@@ -2534,9 +2610,28 @@ export default function ProjectsPage() {
                         Restore
                       </button>
                     )}
+                    {deleteMode && (
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          toggleAreaSelection(area.id);
+                        }}
+                        className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full border transition ${
+                          isSelected
+                            ? 'border-[var(--accent)] bg-[var(--accent)] text-white'
+                            : 'border-gray-300 bg-white/70 text-transparent dark:border-white/20 dark:bg-white/[0.04]'
+                        }`}
+                        aria-label={`${isSelected ? 'Deselect' : 'Select'} ${area.name}`}
+                        aria-pressed={isSelected}
+                      >
+                        <Check className="h-4 w-4" />
+                      </button>
+                    )}
                   </div>
                 </div>
-              ))}
+              );
+              })}
             </div>
           )
         ) : singleProjectMainView ? (
@@ -3302,10 +3397,10 @@ export default function ProjectsPage() {
                   {showTrash && (
                     <div className="px-4 pb-2 pt-3 text-center">
                       <div className="text-sm font-semibold text-gray-900 dark:text-white">
-                        Permanently Delete {selectedProjectIds.size === 1 ? 'Project' : 'Projects'}?
+                        Permanently Delete {selectedTrashItemCount === 1 ? 'Item' : 'Items'}?
                       </div>
                       <div className="mt-1 text-xs leading-5 text-gray-500 dark:text-gray-400">
-                        {selectedProjectIds.size} selected. This cannot be undone.
+                        {selectedTrashItemCount} selected. This cannot be undone.
                       </div>
                     </div>
                   )}

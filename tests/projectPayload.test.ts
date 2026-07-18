@@ -45,7 +45,7 @@ describe('project payload validation', () => {
     expect(parsed.detachedSharedSnapshotPublishedAt).toEqual(timestamp);
   });
 
-  it('revives shared baseline and area revision metadata', () => {
+  it('revives shared baseline, area revision metadata, and purge markers', () => {
     const project = validProject();
     project.sharedBaselinePublishedAt = timestamp;
     project.areas = [{
@@ -58,6 +58,8 @@ describe('project payload validation', () => {
       isComplete: false,
       notes: '',
       locations: [],
+      deletedAt: timestamp,
+      purgedAt: timestamp,
       createdAt: timestamp,
       updatedAt: timestamp,
     }];
@@ -67,6 +69,8 @@ describe('project payload validation', () => {
     expect(parsed.areas[0]).toMatchObject({
       sharedVersion: 7,
       sharedPublishedAt: timestamp,
+      deletedAt: timestamp,
+      purgedAt: timestamp,
     });
   });
 

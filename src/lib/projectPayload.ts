@@ -215,6 +215,7 @@ function parseArea(value: unknown, path: string): Area {
       parseLocation(location, `${path}.locations[${index}]`)
     ),
     deletedAt: optionalDate(input.deletedAt, `${path}.deletedAt`),
+    purgedAt: optionalDate(input.purgedAt, `${path}.purgedAt`),
     createdAt: date(input.createdAt, `${path}.createdAt`),
     updatedAt: date(input.updatedAt, `${path}.updatedAt`),
   };

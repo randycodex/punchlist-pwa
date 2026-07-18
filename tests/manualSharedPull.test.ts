@@ -74,6 +74,50 @@ describe('manual shared project area merge', () => {
     expect(mergeSharedProjectAreas(local, remote).resolutionProject.areas[0].name).toBe('New local area');
   });
 
+  it('does not restore remote area contents after a local purge', () => {
+    const localArea = area('a', 'Purged area', '2026-01-01T12:10:00.000Z');
+    localArea.deletedAt = new Date('2026-01-01T12:10:00.000Z');
+    localArea.purgedAt = new Date('2026-01-01T12:10:00.000Z');
+    localArea.locations = [];
+    const remoteArea = area('a', 'Remote area', '2026-01-01T12:12:00.000Z');
+    remoteArea.locations = [{
+      id: 'location-1',
+      areaId: 'a',
+      name: 'Room',
+      sortOrder: 0,
+      items: [],
+      createdAt: base,
+      updatedAt: new Date('2026-01-01T12:12:00.000Z'),
+    }];
+
+    const result = mergeSharedProjectAreas(
+      project([localArea], '2026-01-01T12:10:00.000Z'),
+      project([remoteArea], '2026-01-01T12:12:00.000Z')
+    );
+
+    expect(result.resolutionProject.areas[0]).toMatchObject({
+      name: 'Purged area',
+      purgedAt: new Date('2026-01-01T12:10:00.000Z'),
+      locations: [],
+    });
+  });
+
+  it('applies a remote purge over local area contents', () => {
+    const localArea = area('a', 'Local area', '2026-01-01T12:12:00.000Z');
+    const remoteArea = area('a', 'Purged area', '2026-01-01T12:10:00.000Z');
+    remoteArea.deletedAt = new Date('2026-01-01T12:10:00.000Z');
+    remoteArea.purgedAt = new Date('2026-01-01T12:10:00.000Z');
+
+    const result = mergeSharedProjectAreas(
+      project([localArea], '2026-01-01T12:12:00.000Z'),
+      project([remoteArea], '2026-01-01T12:10:00.000Z')
+    );
+
+    expect(result.resolutionProject.areas[0].purgedAt).toEqual(
+      new Date('2026-01-01T12:10:00.000Z')
+    );
+  });
+
   it('keeps queued local project details while advancing their remote revision', () => {
     const local = project([], '2026-01-01T12:10:00.000Z');
     local.projectName = 'Local project name';

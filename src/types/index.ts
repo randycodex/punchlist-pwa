@@ -126,6 +126,7 @@ export interface Area {
   notes: string;
   locations: Location[];
   deletedAt?: Date;
+  purgedAt?: Date;
   createdAt: Date;
   updatedAt: Date;
 }
