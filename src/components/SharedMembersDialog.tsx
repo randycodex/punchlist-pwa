@@ -1,6 +1,6 @@
 'use client';
 
-import { ArrowRightLeft, Loader2 } from 'lucide-react';
+import { ArrowRightLeft, Loader2, UserMinus } from 'lucide-react';
 import type { CollaborationProjectMember } from '@/lib/collaboration';
 
 type SharedMembersDialogProps = {
@@ -8,10 +8,14 @@ type SharedMembersDialogProps = {
   members: CollaborationProjectMember[];
   loading: boolean;
   canTransferOwnership: boolean;
+  canRemoveMembers: boolean;
   transferringOwnership: boolean;
+  removingMemberEmail?: string;
+  removalError?: string;
   onClose: () => void;
   onRefresh: () => void;
   onTransferOwnership: () => void;
+  onRemoveMember: (member: CollaborationProjectMember) => void;
 };
 
 function formatMemberStatus(status: CollaborationProjectMember['accessState']) {
@@ -29,10 +33,14 @@ export default function SharedMembersDialog({
   members,
   loading,
   canTransferOwnership,
+  canRemoveMembers,
   transferringOwnership,
+  removingMemberEmail,
+  removalError,
   onClose,
   onRefresh,
   onTransferOwnership,
+  onRemoveMember,
 }: SharedMembersDialogProps) {
   return (
     <div
@@ -44,6 +52,11 @@ export default function SharedMembersDialog({
       <div className="modal-panel max-h-[82dvh] w-full max-w-md overflow-y-auto rounded-[1.9rem] p-6">
         <h2 id="shared-members-title" className="mb-1 text-xl font-semibold tracking-[-0.02em] text-gray-900 dark:text-white">Shared Members</h2>
         <p className="mb-5 text-sm text-gray-500 dark:text-gray-400">{projectName}</p>
+        {removalError && (
+          <div className="mb-4 rounded-[1.15rem] border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-400/20 dark:bg-red-400/10 dark:text-red-300">
+            {removalError}
+          </div>
+        )}
         {loading ? (
           <div className="flex items-center gap-3 rounded-[1.25rem] border border-[var(--surface-border)] bg-white/70 px-4 py-5 text-sm text-gray-500 dark:bg-white/[0.04] dark:text-gray-400">
             <Loader2 className="h-4 w-4 animate-spin" />
@@ -83,6 +96,21 @@ export default function SharedMembersDialog({
                       : `Invited ${member.invitedAt.toLocaleString()}`}
                   </div>
                 </div>
+                {canRemoveMembers && !member.isOwner && (
+                  <button
+                    type="button"
+                    onClick={() => onRemoveMember(member)}
+                    disabled={!!removingMemberEmail}
+                    className="mt-4 flex w-full items-center justify-center gap-2 rounded-2xl border border-red-200 bg-red-50 px-4 py-2.5 text-sm font-medium text-red-700 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-red-400/20 dark:bg-red-400/10 dark:text-red-300 dark:hover:bg-red-400/15"
+                  >
+                    {removingMemberEmail === member.email ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <UserMinus className="h-4 w-4" />
+                    )}
+                    {removingMemberEmail === member.email ? 'Removing...' : 'Remove member'}
+                  </button>
+                )}
               </div>
             ))}
           </div>

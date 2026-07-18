@@ -20,6 +20,12 @@ type OwnershipTransferResult = {
   ownerEmail: string;
 };
 
+type MemberRemovalResult = {
+  projectId: string;
+  memberEmail: string;
+  inviteInvalidated: boolean;
+};
+
 type DisconnectSharedProjectResult = {
   action: 'archived' | 'left';
   projectId: string;
@@ -327,6 +333,44 @@ export async function transferSharedProjectOwnership(
   }
 
   return { projectId, ownerUserId, ownerEmail };
+}
+
+export async function removeSharedProjectMember(
+  sharedProjectId: string,
+  memberEmail: string
+): Promise<MemberRemovalResult> {
+  const supabase = getCollaborationSupabaseClient();
+  if (!supabase) {
+    throw new Error('Collaboration is not configured.');
+  }
+
+  const email = memberEmail.trim().toLowerCase();
+  if (!email) {
+    throw new Error('Choose a project member to remove.');
+  }
+
+  const { data, error } = await supabase.rpc('remove_shared_project_member', {
+    p_project_id: sharedProjectId,
+    p_member_email: email,
+  });
+
+  if (error) {
+    throw error;
+  }
+
+  const projectId = getStringFromJsonObject(data, 'project_id');
+  const removedEmail = getStringFromJsonObject(data, 'member_email');
+  const inviteInvalidated = !!(
+    data
+    && typeof data === 'object'
+    && !Array.isArray(data)
+    && data.invite_invalidated === true
+  );
+  if (!projectId || !removedEmail) {
+    throw new Error('Member removal did not return a valid result.');
+  }
+
+  return { projectId, memberEmail: removedEmail, inviteInvalidated };
 }
 
 export async function disconnectSharedProject(sharedProjectId: string): Promise<DisconnectSharedProjectResult> {

@@ -5,6 +5,7 @@ const {
   memberNeqMock,
   memberOrderMock,
   projectMaybeSingleMock,
+  rpcMock,
 } = vi.hoisted(() => {
   const projectMaybeSingleMock = vi.fn();
   const memberNeqMock = vi.fn();
@@ -26,14 +27,15 @@ const {
     memberNeqMock,
     memberOrderMock,
     projectMaybeSingleMock,
+    rpcMock: vi.fn(),
   };
 });
 
 vi.mock('@/lib/collaboration/supabaseClient', () => ({
-  getCollaborationSupabaseClient: () => ({ from: fromMock }),
+  getCollaborationSupabaseClient: () => ({ from: fromMock, rpc: rpcMock }),
 }));
 
-import { getSharedProjectMembers } from '@/lib/collaboration/sharedProjects';
+import { getSharedProjectMembers, removeSharedProjectMember } from '@/lib/collaboration/sharedProjects';
 
 describe('shared project member list', () => {
   beforeEach(() => {
@@ -41,6 +43,7 @@ describe('shared project member list', () => {
     memberNeqMock.mockClear();
     memberOrderMock.mockReset();
     projectMaybeSingleMock.mockReset();
+    rpcMock.mockReset();
   });
 
   it('shows current members without rendering removed membership history', async () => {
@@ -73,6 +76,30 @@ describe('shared project member list', () => {
       displayName: 'Project Owner',
       accessState: 'active',
       isOwner: true,
+    });
+  });
+
+  it('removes a member through the owner-only RPC and reports invite invalidation', async () => {
+    rpcMock.mockResolvedValue({
+      data: {
+        project_id: 'shared-project-id',
+        member_email: 'member@uai-ny.com',
+        invite_invalidated: true,
+      },
+      error: null,
+    });
+
+    await expect(removeSharedProjectMember(
+      'shared-project-id',
+      ' Member@UAI-NY.com '
+    )).resolves.toEqual({
+      projectId: 'shared-project-id',
+      memberEmail: 'member@uai-ny.com',
+      inviteInvalidated: true,
+    });
+    expect(rpcMock).toHaveBeenCalledWith('remove_shared_project_member', {
+      p_project_id: 'shared-project-id',
+      p_member_email: 'member@uai-ny.com',
     });
   });
 });

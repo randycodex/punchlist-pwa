@@ -70,6 +70,7 @@ import {
   listSharedProjectBackups,
   publishSharedProjectSnapshot,
   queueSharedProjectAreaSyncs,
+  removeSharedProjectMember,
   saveAndQueueSharedProjectMetadataSync,
   runCollaborationHealthCheck,
   subscribeToSharedProjectAreaClaimChanges,
@@ -159,6 +160,9 @@ export default function ProjectDetailPage() {
   const [loadingSharedMembers, setLoadingSharedMembers] = useState(false);
   const [showSharedMembers, setShowSharedMembers] = useState(false);
   const [sharedMembers, setSharedMembers] = useState<CollaborationProjectMember[]>([]);
+  const [memberRemovalConfirm, setMemberRemovalConfirm] = useState<CollaborationProjectMember | null>(null);
+  const [removingMemberEmail, setRemovingMemberEmail] = useState('');
+  const [memberRemovalError, setMemberRemovalError] = useState('');
   const [pendingPull, setPendingPull] = useState<PendingSharedPullState | null>(null);
   const [backupProject, setBackupProject] = useState<Project | null>(null);
   const [loadingSharedBackups, setLoadingSharedBackups] = useState(false);
@@ -885,6 +889,7 @@ export default function ProjectDetailPage() {
     setLoadingSharedMembers(true);
     setShowSharedMembers(true);
     setSharedMembers([]);
+    setMemberRemovalError('');
     try {
       const members = await getSharedProjectMembers(project.sharedProjectId);
       setSharedMembers(members);
@@ -896,6 +901,30 @@ export default function ProjectDetailPage() {
       setLoadingSharedMembers(false);
     }
   }, [collaborationAuth.isSignedIn, project, showMessage]);
+
+  async function confirmRemoveSharedProjectMember() {
+    const targetProject = project;
+    const member = memberRemovalConfirm;
+    if (!targetProject?.sharedProjectId || !member || removingMemberEmail) return;
+
+    setMemberRemovalConfirm(null);
+    setRemovingMemberEmail(member.email);
+    setMemberRemovalError('');
+    try {
+      await removeSharedProjectMember(targetProject.sharedProjectId, member.email);
+      setSharedMembers((currentMembers) => currentMembers.filter(
+        (currentMember) => currentMember.email.toLowerCase() !== member.email.toLowerCase()
+      ));
+    } catch (error) {
+      console.error('Failed to remove shared project member:', error);
+      setMemberRemovalError(getCollaborationErrorMessage(
+        error,
+        'Failed to remove this project member. Please try again.'
+      ));
+    } finally {
+      setRemovingMemberEmail('');
+    }
+  }
 
   const handlePublishSharedProject = useCallback(async () => {
     if (!project) return;
@@ -1641,17 +1670,43 @@ export default function ProjectDetailPage() {
           canTransferOwnership={sharedMembers.some(
             (member) => member.isOwner && member.userId === collaborationAuth.user?.id
           )}
+          canRemoveMembers={sharedMembers.some(
+            (member) => member.isOwner && member.userId === collaborationAuth.user?.id
+          )}
           transferringOwnership={transferringSharedProject}
+          removingMemberEmail={removingMemberEmail}
+          removalError={memberRemovalError}
           onClose={() => {
             setShowSharedMembers(false);
             setSharedMembers([]);
+            setMemberRemovalConfirm(null);
+            setMemberRemovalError('');
           }}
           onRefresh={() => void handleShowSharedMembers()}
+          onRemoveMember={(member) => {
+            setMemberRemovalError('');
+            setMemberRemovalConfirm(member);
+          }}
           onTransferOwnership={() => {
             setShowSharedMembers(false);
             setSharedMembers([]);
             handleTransferSharedProjectOwnership();
           }}
+        />
+      )}
+
+      {memberRemovalConfirm && project && (
+        <AppConfirmDialog
+          title="Remove Member"
+          message={`Remove ${memberRemovalConfirm.displayName || memberRemovalConfirm.email} from “${project.projectName}”?\n\nThey will lose shared access. Their local project copy will remain on their device. The current invite link and code will also be invalidated.`}
+          confirmLabel={removingMemberEmail ? 'Removing...' : 'Remove Member'}
+          danger
+          onCancel={() => {
+            if (!removingMemberEmail) {
+              setMemberRemovalConfirm(null);
+            }
+          }}
+          onConfirm={() => void confirmRemoveSharedProjectMember()}
         />
       )}
 

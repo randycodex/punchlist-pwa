@@ -431,6 +431,13 @@ export interface CollaborationDatabase {
         };
         Returns: Json;
       };
+      remove_shared_project_member: {
+        Args: {
+          p_project_id: string;
+          p_member_email: string;
+        };
+        Returns: Json;
+      };
       disconnect_shared_project: {
         Args: {
           p_project_id: string;
