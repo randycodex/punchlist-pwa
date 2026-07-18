@@ -115,7 +115,7 @@ html:not(.dark) {
   width: var(--app-menu-drawer-width);
   max-width: 100vw;
   border-radius: 0;
-  background: var(--surface-strong);
+  background: var(--surface);
   box-shadow: none;
 }
 
@@ -345,7 +345,7 @@ html:not(.dark) {
 }
 
 .app-menu-drawer.menu-surface {
-  background: var(--surface-strong);
+  background: var(--surface);
   border: 0;
 }
 
@@ -365,7 +365,7 @@ html:not(.dark) {
   html[data-app-menu-open="true"] body,
   html[data-app-menu-open="true"] .app-shell,
   html[data-app-menu-open="true"] .top-bar-surface {
-    background-color: var(--surface-strong) !important;
+    background-color: var(--surface) !important;
   }
 
   .app-menu-drawer.menu-surface {
