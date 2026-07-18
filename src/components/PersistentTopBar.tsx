@@ -327,12 +327,12 @@ export default function PersistentTopBar() {
           dispatchHomeAction('sync-now');
         }}
         disabled={displayStatus === 'syncing' || displayRetryInSeconds > 0}
-        className={`flex h-10 min-w-10 shrink-0 items-center justify-center gap-2 rounded-[1rem] border px-2.5 transition ${buttonClasses}`}
+        className={`${syncMenuPillBaseClass} ${buttonClasses}`}
         aria-label={label}
         title={label}
       >
-        <SyncIcon className={`h-4 w-4 ${displayStatus === 'syncing' && displayRetryInSeconds === 0 ? 'animate-spin' : ''}`} />
-        <span className="text-xs font-bold leading-none tracking-normal">{shortLabel}</span>
+        <SyncIcon className={`h-4 w-4 shrink-0 ${displayStatus === 'syncing' && displayRetryInSeconds === 0 ? 'animate-spin' : ''}`} />
+        <span>{shortLabel}</span>
       </button>
     );
   }
@@ -377,6 +377,7 @@ export default function PersistentTopBar() {
   const menuGroupLabelClass = 'px-2 pb-2 pt-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-gray-500 dark:text-gray-400';
   const menuPillGridClass = 'grid grid-cols-2 gap-2 px-1 pb-1';
   const menuPillClass = 'flex min-h-10 min-w-0 items-center gap-2 rounded-full bg-black/[0.07] px-3 py-2 text-left text-[13px] font-medium leading-tight text-gray-700 transition hover:bg-black/[0.10] dark:bg-white/[0.05] dark:text-gray-300 dark:hover:bg-white/[0.08]';
+  const syncMenuPillBaseClass = 'flex min-h-10 min-w-0 items-center gap-2 rounded-full border px-3 py-2 text-left text-[13px] font-medium leading-tight transition disabled:cursor-default';
   const disabledMenuPillClass = `${menuPillClass} disabled:cursor-default disabled:opacity-60`;
   const activeTransferMenuPillClass = 'flex min-h-10 min-w-0 cursor-wait items-center gap-2 rounded-full border border-violet-300 bg-violet-100 px-3 py-2 text-left text-[13px] font-semibold leading-tight text-violet-700 transition dark:border-violet-400/35 dark:bg-violet-400/20 dark:text-violet-100';
   return (
@@ -411,7 +412,6 @@ export default function PersistentTopBar() {
         {showAppMenuControl && isReady && (!homeMenuState.showTrash || isAreaRoute) && (
           <div ref={menuRef} className="app-menu-top-actions relative flex items-center gap-2">
             {renderSharedSyncIndicator()}
-            {renderSyncButton()}
             {!isAreaRoute && (
               <button
                 type="button"
@@ -457,10 +457,7 @@ export default function PersistentTopBar() {
                           <Pencil className="h-4 w-4 shrink-0" />
                           Edit
                         </button>
-                        <button onClick={() => dispatchHomeAction('export-project')} className={menuPillClass}>
-                          <FileDown className="h-4 w-4 shrink-0" />
-                          Export
-                        </button>
+                        {renderSyncButton()}
                         {homeMenuState.canAddArea && (
                           <button
                             onClick={() => {
@@ -476,6 +473,10 @@ export default function PersistentTopBar() {
                             {homeMenuState.selectionMode ? 'Cancel Selection' : 'Select Areas'}
                           </button>
                         )}
+                        <button onClick={() => dispatchHomeAction('export-project')} className={menuPillClass}>
+                          <FileDown className="h-4 w-4 shrink-0" />
+                          Export
+                        </button>
                       </div>
                     </div>
                   </div>
