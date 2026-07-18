@@ -133,6 +133,10 @@ html:not(.dark) {
   box-shadow: none;
 }
 
+.app-menu-scroll {
+  -webkit-overflow-scrolling: touch;
+}
+
 @media (min-width: 768px) {
   :root {
     --app-menu-drawer-width: min(88vw, 24rem);
@@ -385,7 +389,8 @@ html:not(.dark) {
   .app-menu-drawer.menu-surface {
     border-top: 0;
     top: calc(env(safe-area-inset-top) + 3.5rem);
-    height: calc(100dvh - env(safe-area-inset-top) - 3.5rem);
+    bottom: calc(-1 * env(safe-area-inset-bottom));
+    height: auto;
   }
 }
 

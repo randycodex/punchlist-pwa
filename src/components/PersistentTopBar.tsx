@@ -435,7 +435,7 @@ export default function PersistentTopBar() {
                 aria-modal="false"
                 aria-label="App menu"
               >
-                <div className="min-h-0 flex-1 touch-none overflow-hidden px-3 pb-[calc(env(safe-area-inset-bottom)+1rem)] pt-2 md:pt-[calc(env(safe-area-inset-top)+0.5rem)]">
+                <div className="app-menu-scroll min-h-0 flex-1 overflow-y-auto overscroll-y-contain touch-pan-y px-3 pb-[calc(env(safe-area-inset-bottom)+1rem)] pt-2 md:pt-[calc(env(safe-area-inset-top)+0.5rem)]">
                   <div className="px-1 py-1">
                     <div className={menuCardClass}>
                       <div className="px-1 py-1">
