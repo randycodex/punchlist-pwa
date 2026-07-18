@@ -41,6 +41,10 @@ import {
   type PendingSharedPullState,
 } from '@/features/collaboration/manualSharedPull';
 import {
+  formatQueuedSharedPushMessage,
+  pushQueuedSharedChanges,
+} from '@/features/collaboration/pushQueuedSharedChanges';
+import {
   clearDetachedSharedProjectMetadata,
   detachLocalSharedProject,
 } from '@/features/collaboration/detachedSharedProject';
@@ -951,15 +955,20 @@ export default function ProjectDetailPage() {
       const loadedProject = fullProject;
       loadedProject.sharedProjectId = project.sharedProjectId;
       loadedProject.sharedProjectLinkedAt = project.sharedProjectLinkedAt;
-      const result = await publishSharedProjectSnapshot(loadedProject, collaborationAuth.user.id);
-      await saveProjectMetadataOnly(loadedProject, { touch: false });
-      clearSharedUpdateAvailable(loadedProject.id);
-      setProject((currentProject) =>
-        currentProject?.id === loadedProject.id
-          ? { ...currentProject, sharedSnapshotPublishedAt: loadedProject.sharedSnapshotPublishedAt }
-          : currentProject
-      );
-      showMessage(`Shared data published at ${new Date(result.publishedAt).toLocaleTimeString()}.`);
+      if (loadedProject.sharedSnapshotPublishedAt) {
+        const result = await pushQueuedSharedChanges(loadedProject.id);
+        showMessage(formatQueuedSharedPushMessage(result));
+      } else {
+        const result = await publishSharedProjectSnapshot(loadedProject, collaborationAuth.user.id);
+        await saveProjectMetadataOnly(loadedProject, { touch: false });
+        clearSharedUpdateAvailable(loadedProject.id);
+        setProject((currentProject) =>
+          currentProject?.id === loadedProject.id
+            ? { ...currentProject, sharedSnapshotPublishedAt: loadedProject.sharedSnapshotPublishedAt }
+            : currentProject
+        );
+        showMessage(`Initial shared data published at ${new Date(result.publishedAt).toLocaleTimeString()}.`);
+      }
     } catch (error) {
       if (fullProject && isSharedProjectPublishConflictError(error)) {
         console.info('Publish blocked because shared data is newer:', error);

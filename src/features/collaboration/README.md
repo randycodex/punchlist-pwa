@@ -134,6 +134,9 @@ signed-in member can access but that is not yet stored on the current device.
   compact queue instead of loading and checking an entire project snapshot.
 - Area RPC retries use client-generated idempotency keys and optimistic versions;
   stale updates pause for review instead of overwriting team data.
+- For an established shared project, the manual `Push Changes` action flushes
+  the versioned area and project-metadata queues. Whole-project snapshots are
+  reserved for the initial shared baseline and explicit backup recovery.
 - Extend the same queue contract to project, location, item, and checkpoint audit
   records only when finer history is needed; area payloads are the current merge
   boundary.
