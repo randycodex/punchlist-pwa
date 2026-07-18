@@ -124,9 +124,9 @@ export default function PersistentTopBar() {
   }, [collaborationAuth.isSignedIn]);
 
   const syncButtonClasses = {
-    idle: 'border-black/5 bg-white/70 text-gray-600 hover:bg-white dark:border-white/10 dark:bg-white/[0.04] dark:text-gray-300 dark:hover:bg-white/[0.08]',
+    idle: 'border-transparent bg-black/[0.07] text-gray-700 hover:bg-black/[0.10] dark:border-transparent dark:bg-white/[0.05] dark:text-gray-300 dark:hover:bg-white/[0.08]',
     syncing: 'animate-pulse border-sky-300 bg-sky-100 text-sky-700 hover:bg-sky-100 dark:border-sky-300/35 dark:bg-sky-400/15 dark:text-sky-200',
-    pending: 'border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100 dark:border-amber-400/25 dark:bg-amber-400/10 dark:text-amber-200 dark:hover:bg-amber-400/15',
+    pending: 'border-transparent bg-black/[0.07] text-gray-700 hover:bg-black/[0.10] dark:border-transparent dark:bg-white/[0.05] dark:text-gray-300 dark:hover:bg-white/[0.08]',
     'needs-auth': 'border-red-200 bg-red-50 text-red-600 hover:bg-red-100 dark:border-red-400/25 dark:bg-red-400/10 dark:text-red-300 dark:hover:bg-red-400/15',
     error: 'border-red-200 bg-red-50 text-red-600 hover:bg-red-100 dark:border-red-400/25 dark:bg-red-400/10 dark:text-red-300 dark:hover:bg-red-400/15',
   } as const;
@@ -134,21 +134,21 @@ export default function PersistentTopBar() {
   const syncButtonLabel = {
     idle: 'Sync with OneDrive',
     syncing: 'Syncing now',
-    pending: 'Sync pending',
+    pending: 'Sync with OneDrive',
     'needs-auth': 'Sign in required to finish syncing',
     error: 'Sync needs attention',
   } as const;
   const syncButtonShortLabel = {
     idle: 'Sync',
     syncing: 'Syncing',
-    pending: 'Pending',
+    pending: 'Sync',
     'needs-auth': 'Sign in',
     error: 'Error',
   } as const;
   const syncButtonIcons = {
     idle: RefreshCw,
     syncing: RefreshCw,
-    pending: CloudUpload,
+    pending: RefreshCw,
     'needs-auth': KeyRound,
     error: Activity,
   } as const;
