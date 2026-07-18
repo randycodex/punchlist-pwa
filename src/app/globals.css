@@ -106,6 +106,20 @@ html:not(.dark) {
   transition: right 220ms ease;
 }
 
+/*
+ * iOS standalone mode uses a translucent status bar, so the safe-area pixels
+ * come from our page. Paint only that strip with the same token as the top bar;
+ * keeping the wrapper itself transparent preserves the rounded bar below it.
+ */
+.persistent-top-bar::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto;
+  height: env(safe-area-inset-top);
+  background-color: var(--top-bar-surface);
+  pointer-events: none;
+}
+
 .app-menu-top-actions {
   transition: none;
 }
