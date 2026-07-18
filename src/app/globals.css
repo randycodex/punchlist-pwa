@@ -491,6 +491,10 @@ html:not(.dark) {
   -webkit-backdrop-filter: blur(10px);
 }
 
+.modal-overlay-confirm {
+  z-index: 170;
+}
+
 .modal-panel {
   background: var(--surface-elevated);
   border: 1px solid var(--surface-border);
