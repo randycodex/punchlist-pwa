@@ -29,7 +29,6 @@ import {
   CloudDownload,
   CloudUpload,
   FileDown,
-  FolderPlus,
   KeyRound,
   LogIn,
   LogOut,
@@ -522,7 +521,7 @@ export default function PersistentTopBar() {
                   </div>
                   </>
                 )}
-                {(homeMenuState.context === 'project' || homeMenuState.isSingleProject) && (
+                {(showAuth || homeMenuState.context === 'project' || homeMenuState.isSingleProject) && (
                   <div className="px-1 py-1">
                     <div className={menuCardClass}>
                       <div className={menuGroupLabelClass}>Project</div>
@@ -543,6 +542,12 @@ export default function PersistentTopBar() {
                           <button onClick={() => dispatchHomeAction('toggle-selection')} className={menuPillClass}>
                             <CheckCircle2 className="h-4 w-4 shrink-0" />
                             {homeMenuState.selectionMode ? 'Cancel Selection' : 'Select Areas'}
+                          </button>
+                        )}
+                        {showAuth && (
+                          <button onClick={() => dispatchHomeAction('new-project')} className={menuPillClass}>
+                            <PlusSquare className="h-4 w-4 shrink-0" />
+                            New Project
                           </button>
                         )}
                         {homeMenuState.isSingleProject && collaborationAuth.isSignedIn && !homeMenuState.isSharedProject && (
@@ -650,27 +655,6 @@ export default function PersistentTopBar() {
                           <button onClick={() => dispatchHomeAction('join-shared-project')} className={menuPillClass}>
                             <UserPlus className="h-4 w-4 shrink-0" />
                             Join Project
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                )}
-                {(homeMenuState.context !== 'project' || (homeMenuState.canAddArea && !homeMenuState.isSingleProject)) && (
-                  <div className="px-1 py-1">
-                    <div className={menuCardClass}>
-                      <div className={menuGroupLabelClass}>Create</div>
-                      <div className={menuPillGridClass}>
-                        {homeMenuState.context !== 'project' && (
-                          <button onClick={() => dispatchHomeAction('new-project')} className={menuPillClass}>
-                            <PlusSquare className="h-4 w-4 shrink-0" />
-                            New Project
-                          </button>
-                        )}
-                        {homeMenuState.canAddArea && !homeMenuState.isSingleProject && (
-                          <button onClick={() => dispatchHomeAction('new-area')} className={menuPillClass}>
-                            <FolderPlus className="h-4 w-4 shrink-0" />
-                            Add Area
                           </button>
                         )}
                       </div>
