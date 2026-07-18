@@ -1079,7 +1079,7 @@ export function unmarkProjectDeleted(projectId: string) {
   setLocalSyncStates(syncStates);
 }
 
-function resolveProjectSyncStates(
+export function resolveProjectSyncStates(
   syncStates: ProjectSyncStateMap,
   localProjectMap: Map<string, Project>,
   remoteFilesById: Map<string, Array<{ id: string; name: string; eTag?: string; lastModifiedDateTime?: string }>>
@@ -1087,7 +1087,7 @@ function resolveProjectSyncStates(
   const next: ProjectSyncStateMap = { ...syncStates };
   const revivedRemoteProjectIds = new Set<string>();
 
-  for (const [projectId] of Object.entries(syncStates)) {
+  for (const [projectId, syncState] of Object.entries(syncStates)) {
     const localProject = localProjectMap.get(projectId);
     // Hard-delete tombstones apply only after the local project record is gone.
     // App-trash projects still exist locally and should sync to OneDrive's Trash Bin.
@@ -1097,10 +1097,13 @@ function resolveProjectSyncStates(
     }
 
     const remote = pickPrimaryRemoteProjectFile(remoteFilesById.get(projectId) ?? []);
-    if (remote) {
-      // A project file reappearing in the live OneDrive folder cancels any stale hard-delete
-      // tombstone, but the project payload itself still decides whether the project is active
-      // or sitting in the app trash via its own deletedAt + updatedAt fields.
+    if (
+      remote &&
+      compareTimestampsWithTolerance(remote.lastModifiedDateTime, syncState.updatedAt) > 0
+    ) {
+      // Only a project file recreated after the hard delete cancels its tombstone. Keeping a
+      // newer tombstone lets the deletion phase remove an older OneDrive file before the pull
+      // phase has a chance to restore it locally.
       revivedRemoteProjectIds.add(projectId);
       delete next[projectId];
       continue;
