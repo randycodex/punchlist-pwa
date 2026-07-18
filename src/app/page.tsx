@@ -119,6 +119,7 @@ import {
 } from '@/lib/areas';
 import { useRouter } from 'next/navigation';
 import {
+  Check,
   Trash2,
   FileDown,
   Loader2,
@@ -565,6 +566,10 @@ export default function ProjectsPage() {
         ),
     [projects]
   );
+
+  const allTrashedProjectsSelected =
+    trashedProjects.length > 0 &&
+    trashedProjects.every((project) => selectedProjectIds.has(project.id));
 
   const trashedAreaEntries = useMemo<TrashedAreaEntry[]>(
     () =>
@@ -1990,6 +1995,14 @@ export default function ProjectsPage() {
     setSelectedAreaIds(new Set());
   }
 
+  function toggleSelectAllTrashedProjects() {
+    setSelectedProjectIds(
+      allTrashedProjectsSelected
+        ? new Set()
+        : new Set(trashedProjects.map((project) => project.id))
+    );
+  }
+
   homeMenuActionHandlerRef.current = (event: Event) => {
     const customEvent = event as CustomEvent<{
       action: string;
@@ -2274,6 +2287,20 @@ export default function ProjectsPage() {
                   )}
                 </div>
               )}
+              {showTrash && trashedProjects.length > 0 && !selectionMode && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDeleteMode(true);
+                    setExportMode(false);
+                    setSelectedProjectIds(new Set());
+                    setSelectedAreaIds(new Set());
+                  }}
+                  className="segmented-chip ml-3 shrink-0 px-4 py-2 text-sm font-medium"
+                >
+                  Select
+                </button>
+              )}
             </div>
           )}
           {selectionMode && !singleProjectMainView && (
@@ -2284,6 +2311,20 @@ export default function ProjectsPage() {
             >
               Cancel
             </button>
+            {showTrash && (
+              <>
+                <button
+                  type="button"
+                  onClick={toggleSelectAllTrashedProjects}
+                  className="rounded-full px-3 py-2 text-sm font-medium text-gray-700 transition hover:bg-black/[0.04] dark:text-gray-200 dark:hover:bg-white/[0.06]"
+                >
+                  {allTrashedProjectsSelected ? 'Clear All' : 'Select All'}
+                </button>
+                <span className="mr-auto text-sm text-gray-500 dark:text-gray-400">
+                  {selectedProjectIds.size} selected
+                </span>
+              </>
+            )}
             {!singleProjectMainView && !showTrash && (
               <button
                 onClick={() => void handleExportSelectedConfirm()}
@@ -2429,6 +2470,24 @@ export default function ProjectsPage() {
                             Restore
                           </button>
                         </div>
+                      )}
+                      {deleteMode && (
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            toggleProjectSelection(project.id);
+                          }}
+                          className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full border transition ${
+                            isSelected
+                              ? 'border-[var(--accent)] bg-[var(--accent)] text-white'
+                              : 'border-gray-300 bg-white/70 text-transparent dark:border-white/20 dark:bg-white/[0.04]'
+                          }`}
+                          aria-label={`${isSelected ? 'Deselect' : 'Select'} ${project.projectName}`}
+                          aria-pressed={isSelected}
+                        >
+                          <Check className="h-4 w-4" />
+                        </button>
                       )}
                     </div>
                   </div>
@@ -3240,6 +3299,16 @@ export default function ProjectsPage() {
                 </>
               ) : (
                 <>
+                  {showTrash && (
+                    <div className="px-4 pb-2 pt-3 text-center">
+                      <div className="text-sm font-semibold text-gray-900 dark:text-white">
+                        Permanently Delete {selectedProjectIds.size === 1 ? 'Project' : 'Projects'}?
+                      </div>
+                      <div className="mt-1 text-xs leading-5 text-gray-500 dark:text-gray-400">
+                        {selectedProjectIds.size} selected. This cannot be undone.
+                      </div>
+                    </div>
+                  )}
                   <button
                     onClick={() => {
                       if (singleProjectMainView) {
@@ -3250,7 +3319,7 @@ export default function ProjectsPage() {
                     }}
                     className="accent-text w-full rounded-[1.1rem] px-4 py-3 text-center text-[17px] transition hover:bg-black/[0.04] dark:hover:bg-white/[0.05]"
                   >
-                    Delete
+                    {showTrash ? 'Delete Permanently' : 'Delete'}
                   </button>
                   <button
                     onClick={() => setActionSheet(null)}
