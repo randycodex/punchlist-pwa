@@ -19,6 +19,7 @@ import {
   resumePendingSharedProjectMetadataSyncs,
 } from '@/lib/collaboration';
 import UserProfileModal from '@/components/UserProfileModal';
+import ListSortPills from '@/components/ListSortPills';
 import {
   Activity,
   ArchiveRestore,
@@ -495,6 +496,22 @@ export default function PersistentTopBar() {
                     </button>
                   </div>
                 )}
+                <div className="px-1 py-1">
+                  <div className={menuCardClass}>
+                    <div className="px-1 py-1">
+                      <ListSortPills
+                        value={homeMenuState.sortOption}
+                        onChange={(option) => {
+                          if (showAuth) {
+                            dispatchHomeAction(`quick-sort:${option}`);
+                          } else {
+                            dispatchHomeAction('sort', option);
+                          }
+                        }}
+                      />
+                    </div>
+                  </div>
+                </div>
                 {homeMenuState.isSingleProject && (
                   <div className="px-1 py-1">
                     <div className={menuCardClass}>

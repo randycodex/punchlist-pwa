@@ -106,7 +106,6 @@ import {
   replaceProjectPreviewCache,
 } from '@/lib/projectNavigationCache';
 import { readLocalStorage, writeLocalStorage } from '@/lib/browserStorage';
-import ListSortPills from '@/components/ListSortPills';
 import {
   buildAreaName,
   buildFacadeLevelOptions,
@@ -2462,17 +2461,6 @@ export default function ProjectsPage() {
       <main
         className="flex-1 min-h-0 overflow-y-auto overscroll-y-contain px-4 pt-5 pb-[calc(env(safe-area-inset-bottom)+6.5rem)] sm:px-5"
       >
-        {!showTrash && !selectionMode && (singleProjectMainView ? sortedAreas.length > 0 : sortedProjects.length > 0) && (
-          <div className="mx-auto mb-4 w-full max-w-6xl px-1">
-            <ListSortPills
-              value={sortOption}
-              onChange={(option) => {
-                setQuickSort(option);
-                handleSortChange(option);
-              }}
-            />
-          </div>
-        )}
         {showTrash ? (
           trashedProjects.length === 0 && trashedAreaEntries.length === 0 ? (
             <div className="empty-state-card mx-auto max-w-md rounded-[2rem] p-10 text-center">

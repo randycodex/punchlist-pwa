@@ -11,7 +11,6 @@ import ProjectEditModal from '@/components/ProjectEditModal';
 import AppMessageDialog from '@/components/AppMessageDialog';
 import AppConfirmDialog from '@/components/AppConfirmDialog';
 import AppPromptDialog from '@/components/AppPromptDialog';
-import ListSortPills from '@/components/ListSortPills';
 import CollaborationHealthDialog from '@/components/CollaborationHealthDialog';
 import InvitePeopleDialog from '@/components/InvitePeopleDialog';
 import SharedMembersDialog from '@/components/SharedMembersDialog';
@@ -1540,11 +1539,6 @@ export default function ProjectDetailPage() {
       <main
         className="flex-1 min-h-0 overflow-y-scroll overscroll-y-contain touch-pan-y px-4 pt-5 pb-[calc(env(safe-area-inset-bottom)+6.5rem)] sm:px-5"
       >
-        {!showTrash && !deleteMode && activeAreas.length > 0 && (
-          <div className="mx-auto mb-4 w-full max-w-6xl px-1">
-            <ListSortPills value={sortOption} onChange={handleSortChange} />
-          </div>
-        )}
         {!showTrash && activeAreas.length === 0 ? (
           <div className="mx-auto flex min-h-[calc(100%+1px)] w-full max-w-6xl flex-col">
             <div className="flex flex-1 items-center justify-center py-12">
