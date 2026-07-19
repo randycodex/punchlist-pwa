@@ -391,9 +391,9 @@ export default function PersistentTopBar() {
   }
 
   const menuCardClass = 'app-menu-card overflow-hidden rounded-[1.1rem] px-2 py-1 md:px-2.5 md:py-1.5';
-  const menuGroupShellClass = 'px-1 py-0.5 md:py-1';
+  const menuGroupShellClass = 'app-menu-group px-1 py-0.5 md:py-1';
   const menuGroupLabelClass = 'px-2 pb-1.5 pt-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-gray-500 dark:text-gray-400';
-  const menuListGridClass = 'grid grid-cols-2 overflow-hidden px-1 pb-1';
+  const menuListGridClass = 'app-menu-list grid grid-cols-2 overflow-hidden px-1 pb-1';
   const menuRowClass = 'flex min-h-10 min-w-0 items-center gap-2 border-t border-black/[0.08] px-2.5 py-2 text-left text-[13px] font-medium leading-tight text-gray-700 transition-colors hover:bg-black/[0.04] even:border-l dark:border-white/[0.08] dark:text-gray-300 dark:hover:bg-white/[0.05]';
   const syncMenuRowBaseClass = `${menuRowClass} disabled:cursor-default`;
   const disabledMenuRowClass = `${menuRowClass} disabled:cursor-default disabled:opacity-60`;
@@ -451,11 +451,11 @@ export default function PersistentTopBar() {
                 aria-modal="false"
                 aria-label="App menu"
               >
-                <div className="app-menu-scroll min-h-0 flex-1 touch-none overflow-hidden px-3 pb-2 pt-1 md:overflow-y-auto md:overscroll-y-contain md:touch-pan-y md:pb-[calc(env(safe-area-inset-bottom)+1rem)] md:pt-[calc(env(safe-area-inset-top)+0.5rem)]">
+                <div className="app-menu-scroll min-h-0 flex flex-1 flex-col touch-none overflow-hidden px-3 pt-1 md:block md:overflow-y-auto md:overscroll-y-contain md:touch-pan-y md:pb-[calc(env(safe-area-inset-bottom)+1rem)] md:pt-[calc(env(safe-area-inset-top)+0.5rem)]">
                   {homeMenuState.hasProjects && (
                     <div className={menuGroupShellClass}>
                       <div className={menuCardClass}>
-                        <div className="px-1 pb-1">
+                        <div className="app-menu-sort-content flex-1 px-1 pb-1">
                           <ListSortMenu
                             value={homeMenuState.sortOption}
                             onChange={(option) => {
