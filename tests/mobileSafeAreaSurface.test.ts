@@ -15,9 +15,13 @@ const persistentTopBar = readFileSync(
   resolve(process.cwd(), 'src/components/PersistentTopBar.tsx'),
   'utf8'
 );
+const rootLayout = readFileSync(
+  resolve(process.cwd(), 'src/app/layout.tsx'),
+  'utf8'
+);
 
 describe('mobile top-bar safe area', () => {
-  it('uses the document canvas and top-bar surface token behind the translucent iOS status bar', () => {
+  it('uses the document canvas and top-bar surface token behind the iOS status bar', () => {
     expect(globalStyles).toMatch(
       /html\s*\{[\s\S]*?background-color:\s*var\(--top-bar-surface\);/
     );
@@ -27,6 +31,13 @@ describe('mobile top-bar safe area', () => {
     expect(globalStyles).toMatch(
       /\.persistent-top-bar::before\s*\{[\s\S]*?height:\s*env\(safe-area-inset-top\);[\s\S]*?background-color:\s*var\(--top-bar-surface\);/
     );
+  });
+
+  it('lets theme-color control iOS chrome without the broken black-translucent viewport mode', () => {
+    expect(rootLayout).not.toContain('statusBarStyle: "black-translucent"');
+    expect(rootLayout).toContain('statusBarStyle: "default"');
+    expect(rootLayout).toContain('{ media: "(prefers-color-scheme: dark)", color: "#191d22" }');
+    expect(rootLayout).toContain('viewportFit: "cover"');
   });
 
   it('keeps the wrapper transparent so the rounded top bar remains visible', () => {

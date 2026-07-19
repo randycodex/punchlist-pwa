@@ -49,8 +49,8 @@ body {
 }
 
 /*
- * iOS standalone mode paints the translucent status-bar safe area from the
- * document canvas, not reliably from a fixed child. Keep that canvas on the
+ * iOS standalone mode paints the status-bar and overscroll canvas from the
+ * document root, not reliably from a fixed child. Keep that canvas on the
  * exact top-bar token while the body and app shell retain the page color.
  */
 html {
@@ -119,8 +119,8 @@ html:not(.dark) {
 }
 
 /*
- * iOS standalone mode uses a translucent status bar, so the safe-area pixels
- * come from our page. Paint only that strip with the same token as the top bar;
+ * iOS standalone safe-area pixels can come from our page. Paint that strip
+ * with the same token as the top bar;
  * keeping the wrapper itself transparent preserves the rounded bar below it.
  */
 .persistent-top-bar::before {
