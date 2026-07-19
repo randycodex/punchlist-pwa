@@ -1550,13 +1550,11 @@ export default function ProjectDetailPage() {
                   </span>
                 )}
               </div>
-              <p className="mt-1 truncate text-sm text-gray-500 dark:text-gray-400">
-                {project.sharedProjectId
-                  ? (project.address
-                    ? `${project.address} · Team project`
-                    : 'Team project · open an area to inspect')
-                  : (project.address || 'Open an area to inspect')}
-              </p>
+              {project.address ? (
+                <p className="mt-1 truncate text-sm text-gray-500 dark:text-gray-400">
+                  {project.address}
+                </p>
+              ) : null}
             </div>
           </div>
         </div>
@@ -1708,7 +1706,14 @@ export default function ProjectDetailPage() {
                     deleteMode={deleteMode}
                     isSelected={isSelected}
                     onToggleSelection={toggleAreaSelection}
-                    onBlockedByClaim={() => showMessage('This shared area is locked until the other user releases it.')}
+                    onBlockedByClaim={() => {
+                      const claim = sharedAreaClaims.get(area.id);
+                      showMessage(
+                        claim?.label
+                          ? `${claim.label} is working in this area. Try another area, or wait until they release it.`
+                          : 'This area is locked until the current person releases it.'
+                      );
+                    }}
                     onPrimeOpen={primeAreaOpen}
                     onOpenArea={claimAreaOpenInBackground}
                   />

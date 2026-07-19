@@ -94,7 +94,7 @@ describe('mobile top-bar safe area', () => {
   it('uses pill controls within the extended grouped menu', () => {
     expect(persistentTopBar).toContain("const menuListGridClass = 'app-menu-list grid grid-cols-2 gap-2");
     expect(persistentTopBar).toContain("const menuRowClass = 'flex min-h-10");
-    expect(persistentTopBar).toContain('rounded-full bg-black/[0.07]');
+    expect(persistentTopBar).toContain('rounded-full bg-black/[0.08]');
     expect(listSortMenu).toContain('grid grid-cols-3 gap-2');
     expect(listSortMenu).toContain('role="group" aria-label="Sort list"');
     expect(listSortMenu).toContain('aria-pressed={isSelected}');

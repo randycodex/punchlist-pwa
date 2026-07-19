@@ -1,6 +1,6 @@
 'use client';
 
-import { AlertTriangle, Camera, MessageSquare, type LucideIcon } from 'lucide-react';
+import { AlertTriangle, Camera, type LucideIcon } from 'lucide-react';
 
 function formatPart(value: number, singular: string, plural: string) {
   return `${value} ${value === 1 ? singular : plural}`;
@@ -19,6 +19,9 @@ export default function MetadataLine({
   issuesOnly?: boolean;
   className?: string;
 }) {
+  // `notes` kept in the API for call-site compatibility; list UI stays minimal.
+  void notes;
+
   const parts: Array<{ key: string; text: string; className: string; icon: LucideIcon }> = [];
 
   if (issues > 0) {
@@ -27,15 +30,6 @@ export default function MetadataLine({
       text: formatPart(issues, 'issue', 'issues'),
       className: 'accent-text',
       icon: AlertTriangle,
-    });
-  }
-
-  if (!issuesOnly && notes > 0) {
-    parts.push({
-      key: 'notes',
-      text: formatPart(notes, 'note', 'notes'),
-      className: 'metric-secondary',
-      icon: MessageSquare,
     });
   }
 

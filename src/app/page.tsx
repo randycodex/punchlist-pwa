@@ -2442,13 +2442,11 @@ export default function ProjectsPage() {
                         </span>
                       )}
                     </div>
-                    <p className="mt-1 truncate text-sm text-gray-500 dark:text-gray-400">
-                      {singleProject.sharedProjectId
-                        ? (singleProject.address
-                          ? `${singleProject.address} · Team project`
-                          : 'Team project · open an area to inspect')
-                        : (singleProject.address || 'Open an area to inspect')}
-                    </p>
+                    {singleProject.address ? (
+                      <p className="mt-1 truncate text-sm text-gray-500 dark:text-gray-400">
+                        {singleProject.address}
+                      </p>
+                    ) : null}
                   </>
                 ) : (
                   <>
@@ -2475,7 +2473,7 @@ export default function ProjectsPage() {
                       setActionSheet('export');
                     }}
                     disabled={exportingSelectedAreas || selectedAreaIds.size === 0}
-                    className="flex h-10 w-10 items-center justify-center soft-control rounded-full text-gray-700 transition hover:bg-white dark:text-gray-200 dark:hover:bg-white/[0.08] disabled:opacity-40"
+                    className="soft-control inline-flex h-10 items-center gap-2 rounded-full px-3 text-sm font-medium text-gray-700 transition hover:bg-white dark:text-gray-200 dark:hover:bg-white/[0.08] disabled:opacity-40"
                     aria-label="Export selected areas"
                   >
                     {exportingSelectedAreas ? (
@@ -2483,6 +2481,7 @@ export default function ProjectsPage() {
                     ) : (
                       <FileDown className="w-4 h-4" />
                     )}
+                    <span>Export</span>
                   </button>
                   {exportScope !== 'selected-areas' && (
                     <button
@@ -2490,11 +2489,12 @@ export default function ProjectsPage() {
                         if (selectedAreaIds.size === 0) return;
                         void handleDeleteSelectedAreas();
                       }}
-                      className="accent-text accent-tint hover:accent-tint-strong flex h-10 w-10 items-center justify-center rounded-full transition disabled:opacity-40"
+                      className="accent-text accent-tint hover:accent-tint-strong inline-flex h-10 items-center gap-2 rounded-full px-3 text-sm font-medium transition disabled:opacity-40"
                       aria-label="Delete selected areas"
                       disabled={selectedAreaIds.size === 0}
                     >
                       <Trash2 className="w-4 h-4" />
+                      <span>Delete</span>
                     </button>
                   )}
                 </div>
@@ -2605,7 +2605,7 @@ export default function ProjectsPage() {
         >
           <div className="mx-auto flex w-full max-w-6xl flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <p className="min-w-0 flex-1 font-medium">
-              Team updates are ready. Your work on this device stays until you choose to apply them.
+              Team updates are ready.
             </p>
             <button
               type="button"
@@ -2852,7 +2852,7 @@ export default function ProjectsPage() {
                 <div className="empty-state-card w-full max-w-md rounded-[1.9rem] p-8 text-center">
                   <h2 className="text-lg font-semibold text-gray-900 dark:text-white">No projects yet</h2>
                   <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
-                    Start a new job, join a team project, or restore a personal backup on this device.
+                    Start a new job, join a team project, or restore a personal backup.
                   </p>
                   <div className="mt-5 flex flex-col gap-2">
                     <button
@@ -2901,28 +2901,35 @@ export default function ProjectsPage() {
                 </div>
               </div>
             ) : (
-              sortedProjects.map((project) => {
-                const metric = projectMetrics.get(project.id);
-                const isSelected = selectedProjectIds.has(project.id);
-                return (
-                  <ProjectCard
-                    key={project.id}
-                    project={project}
-                    metric={metric}
-                    selectionMode={selectionMode}
-                    isSelected={isSelected}
-                    hasTeamUpdate={sharedUpdateProjectIds.has(project.id)}
-                    menuOpen={showProjectMenuId === project.id}
-                    onToggleSelection={toggleProjectSelection}
-                    onToggleMenu={handleToggleProjectMenu}
-                    onCloseMenu={handleCloseProjectMenu}
-                    onEditProject={handleOpenProjectEditor}
-                    onDeleteProject={handleTrashProject}
-                    onLongPressSelect={handleProjectCardLongPress}
-                    onPrimeOpen={primeProjectOpen}
-                  />
-                );
-              })
+              <>
+                {sortedProjects.length > 1 && (
+                  <div className="px-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-gray-500 dark:text-gray-400">
+                    {sortedProjects.length} projects
+                  </div>
+                )}
+                {sortedProjects.map((project) => {
+                  const metric = projectMetrics.get(project.id);
+                  const isSelected = selectedProjectIds.has(project.id);
+                  return (
+                    <ProjectCard
+                      key={project.id}
+                      project={project}
+                      metric={metric}
+                      selectionMode={selectionMode}
+                      isSelected={isSelected}
+                      hasTeamUpdate={sharedUpdateProjectIds.has(project.id)}
+                      menuOpen={showProjectMenuId === project.id}
+                      onToggleSelection={toggleProjectSelection}
+                      onToggleMenu={handleToggleProjectMenu}
+                      onCloseMenu={handleCloseProjectMenu}
+                      onEditProject={handleOpenProjectEditor}
+                      onDeleteProject={handleTrashProject}
+                      onLongPressSelect={handleProjectCardLongPress}
+                      onPrimeOpen={primeProjectOpen}
+                    />
+                  );
+                })}
+              </>
             )}
           </div>
         )}
@@ -3487,7 +3494,7 @@ export default function ProjectsPage() {
             <h2 className="mb-1 text-xl font-semibold tracking-[-0.02em] text-gray-900 dark:text-white">Join Team Project</h2>
             <p className="mb-5 text-sm text-gray-500 dark:text-gray-400">
               {isSignedIn && collaborationAuth.isSignedIn
-                ? 'Enter the invite code from the project owner to add it on this device.'
+                ? 'Need a code from the project owner. Enter it below to add the project on this device.'
                 : 'Sign in with Microsoft, then enable team projects to accept this invitation.'}
             </p>
             <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">

@@ -622,19 +622,19 @@ select.field-shell option {
 /* Soft secondary control — same fill language as menu pills (no edge stroke). */
 .soft-control {
   border: 0;
-  background: rgba(0, 0, 0, 0.07);
+  background: rgba(0, 0, 0, 0.08);
 }
 
 .dark .soft-control {
-  background: rgba(255, 255, 255, 0.05);
+  background: rgba(255, 255, 255, 0.08);
 }
 
 .soft-control:hover {
-  background: rgba(0, 0, 0, 0.1);
+  background: rgba(0, 0, 0, 0.12);
 }
 
 .dark .soft-control:hover {
-  background: rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.12);
 }
 
 /* In dark mode, force pinned utility surfaces to match the page background tone. */

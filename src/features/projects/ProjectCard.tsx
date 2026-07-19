@@ -50,10 +50,7 @@ export const ProjectCard = memo(function ProjectCard({
   onPrimeOpen,
 }: ProjectCardProps) {
   const stats = metric?.stats ?? { total: 0, ok: 0, issues: 0, areas: project.areas.length };
-  const progress = metric?.progress ?? 0;
-  const commentCount = metric?.commentCount ?? 0;
   const photoCount = metric?.photoCount ?? 0;
-  const hasContent = stats.total > 0 || stats.areas > 0;
   const longPressRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   function clearLongPress() {
@@ -111,8 +108,10 @@ export const ProjectCard = memo(function ProjectCard({
           className="flex-1 min-w-0 [-webkit-touch-callout:none]"
         >
           <div className="min-w-0">
-            <div className="flex items-center gap-2 min-w-0">
-              <h3 className="truncate text-[1.05rem] font-semibold tracking-[-0.02em] text-gray-900 dark:text-white">{project.projectName}</h3>
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
+              <h3 className="truncate text-[1.05rem] font-semibold tracking-[-0.02em] text-gray-900 dark:text-white">
+                {project.projectName}
+              </h3>
               {project.sharedProjectId && (
                 <span className="shrink-0 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-emerald-700 dark:text-emerald-300">
                   Team
@@ -124,18 +123,12 @@ export const ProjectCard = memo(function ProjectCard({
                 </span>
               )}
             </div>
-            <p className={`mt-1 truncate text-sm ${project.address ? 'text-gray-500 dark:text-gray-300' : 'text-gray-400 dark:text-gray-400'}`}>
-              {project.address || 'No address added'}
-            </p>
-            <MetadataLine className="mt-3" issues={stats.issues} notes={commentCount} photos={photoCount} />
-            <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-gray-200 dark:bg-white/[0.12]">
-              <div
-                className={`h-full rounded-full transition-all ${
-                  stats.issues > 0 ? 'accent-bg' : 'bg-gray-900 dark:bg-white'
-                } ${!hasContent ? 'opacity-40' : ''}`}
-                style={{ width: `${hasContent ? Math.max(progress, 4) : 4}%` }}
-              />
-            </div>
+            {project.address ? (
+              <p className="mt-1 truncate text-sm text-gray-500 dark:text-gray-300">
+                {project.address}
+              </p>
+            ) : null}
+            <MetadataLine className="mt-3" issues={stats.issues} photos={photoCount} />
           </div>
         </Link>
         <div className="flex items-center gap-2">

@@ -50,13 +50,13 @@ export const HomeAreaCard = memo(function HomeAreaCard({
   onOpenArea,
 }: HomeAreaCardProps) {
   const areaStats = metric?.stats ?? { total: 0, ok: 0, issues: 0 };
-  const progress = metric?.progress ?? 0;
-  const commentCount = metric?.commentCount ?? 0;
   const photoCount = metric?.photoCount ?? 0;
   const blockedByClaim = claimStatus?.ownership === 'other';
   const blockedClaimMessage = claimStatus?.ownership === 'other'
     ? `${claimStatus.label} is working in this area. Try another area, or wait until they release it.`
     : 'This area is locked until the current person releases it.';
+  // Main stays minimal: only surface locks that block this user.
+  const showOtherClaim = claimStatus?.ownership === 'other';
 
   return (
     <div
@@ -79,7 +79,9 @@ export const HomeAreaCard = memo(function HomeAreaCard({
       className={`main-card-surface card-surface-subtle select-none touch-manipulation [-webkit-touch-callout:none] rounded-[1.6rem] p-4 transition-all sm:p-5 ${
         isSelected
           ? '!bg-gray-100 dark:!bg-white/[0.1]'
-          : 'hover:-translate-y-px dark:hover:bg-white/[0.06]'
+          : blockedByClaim
+            ? 'opacity-80'
+            : 'hover:-translate-y-px dark:hover:bg-white/[0.06]'
       } ${deleteMode ? 'cursor-pointer' : ''}`}
       style={{ WebkitTapHighlightColor: 'transparent' }}
     >
@@ -101,16 +103,22 @@ export const HomeAreaCard = memo(function HomeAreaCard({
           style={{ WebkitTapHighlightColor: 'transparent' }}
         >
           <div className="min-w-0">
-            <div className="flex items-center gap-2 min-w-0">
-              <h3 className="truncate text-[1.03rem] font-semibold tracking-[-0.02em] text-gray-900 dark:text-white">{displayName}</h3>
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
+              <h3 className="truncate text-[1.03rem] font-semibold tracking-[-0.02em] text-gray-900 dark:text-white">
+                {displayName}
+              </h3>
+              {showOtherClaim && (
+                <span className="inline-flex max-w-full items-center gap-1.5 rounded-full bg-amber-500/15 px-2 py-0.5 text-[11px] font-semibold text-amber-800 dark:text-amber-200">
+                  <CollaborationAvatar
+                    name={claimStatus.label}
+                    src={claimStatus.avatarUrl}
+                    size="xs"
+                  />
+                  <span className="truncate">{claimStatus.label}</span>
+                </span>
+              )}
             </div>
-            <MetadataLine className="mt-2" issues={areaStats.issues} notes={commentCount} photos={photoCount} />
-            <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-gray-200 dark:bg-white/[0.12]">
-              <div
-                className={`${areaStats.issues > 0 ? 'accent-bg' : 'bg-gray-900 dark:bg-white'} h-full rounded-full transition-all`}
-                style={{ width: `${Math.max(progress, 4)}%` }}
-              />
-            </div>
+            <MetadataLine className="mt-2" issues={areaStats.issues} photos={photoCount} issuesOnly={false} />
           </div>
         </Link>
         <div className="flex shrink-0 self-stretch flex-col items-center">
@@ -140,14 +148,6 @@ export const HomeAreaCard = memo(function HomeAreaCard({
           >
             <ChevronRight className="w-5 h-5" />
           </Link>
-          {claimStatus && (
-            <CollaborationAvatar
-              name={claimStatus.label}
-              src={claimStatus.avatarUrl}
-              size="sm"
-              className="mt-auto"
-            />
-          )}
         </div>
       </div>
     </div>

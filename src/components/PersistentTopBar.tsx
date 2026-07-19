@@ -20,6 +20,7 @@ import {
 } from '@/lib/collaboration';
 import CollaborationAvatar from '@/components/CollaborationAvatar';
 import UserProfileModal from '@/components/UserProfileModal';
+import AppMessageDialog from '@/components/AppMessageDialog';
 import ListSortMenu from '@/components/ListSortMenu';
 import {
   Activity,
@@ -102,6 +103,8 @@ export default function PersistentTopBar() {
   const [projectTitle, setProjectTitle] = useState('');
   const [showHomeMenu, setShowHomeMenu] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
+  const [infoDialog, setInfoDialog] = useState<{ title: string; message: string } | null>(null);
+  const [showTeamMore, setShowTeamMore] = useState(false);
   const [sharedProjectAccessSnapshot, setSharedProjectAccessSnapshot] = useState<{
     projectId: string;
     isActiveMember: boolean;
@@ -243,6 +246,9 @@ export default function PersistentTopBar() {
     // (top bar / drawer chrome) does not paint one frame without it.
     setAppMenuOpenAttribute(open);
     setShowHomeMenu(open);
+    if (!open) {
+      setShowTeamMore(false);
+    }
   }
 
   useEffect(() => {
@@ -379,9 +385,10 @@ export default function PersistentTopBar() {
         type="button"
         onClick={() => {
           if (localSaveStatus === 'error') {
-            window.alert(
-              `This device could not save the latest change. Keep the app open and try the action again.${localSaveError ? ` ${localSaveError}` : ''}`
-            );
+            setInfoDialog({
+              title: 'Local save needs attention',
+              message: `This device could not save the latest change. Keep the app open and try the action again.${localSaveError ? `\n\n${localSaveError}` : ''}`,
+            });
             return;
           }
           dispatchHomeAction('sync-now');
@@ -410,18 +417,21 @@ export default function PersistentTopBar() {
     const shortLabel = needsReview ? 'Needs review' : count === 1 ? 'Sending…' : `${count} to send`;
     const SharedSyncIcon = needsReview ? Activity : CloudUpload;
     const classes = needsReview
-      ? 'border-red-200 bg-red-50 text-red-600 hover:bg-red-100 dark:border-red-400/25 dark:bg-red-400/10 dark:text-red-300 dark:hover:bg-red-400/15'
-      : 'border-violet-200 bg-violet-50 text-violet-700 hover:bg-violet-100 dark:border-violet-400/25 dark:bg-violet-400/10 dark:text-violet-200 dark:hover:bg-violet-400/15';
+      ? 'bg-red-50 text-red-600 hover:bg-red-100 dark:bg-red-400/10 dark:text-red-300 dark:hover:bg-red-400/15'
+      : 'bg-violet-50 text-violet-700 hover:bg-violet-100 dark:bg-violet-400/10 dark:text-violet-200 dark:hover:bg-violet-400/15';
 
     return (
       <button
         type="button"
         onClick={() => {
-          window.alert(needsReview
-            ? `Some of your work needs a quick review before it can reach the team.\n\n1. Open the project\n2. Tap Get Team Updates\n3. Review anything that stayed on this device\n4. Tap Send to Team when you are ready${sharedSyncSummary.lastConflictError ? `\n\n${sharedSyncSummary.lastConflictError}` : ''}`
-            : 'Your team changes are saved on this device and will send automatically when you have a connection and team projects are enabled.');
+          setInfoDialog({
+            title: needsReview ? 'Team updates need review' : 'Team changes queued',
+            message: needsReview
+              ? `Some of your work needs a quick review before it can reach the team.\n\n1. Open the project\n2. Tap Get Team Updates\n3. Review anything that stayed on this device\n4. Tap Send to Team when you are ready${sharedSyncSummary.lastConflictError ? `\n\n${sharedSyncSummary.lastConflictError}` : ''}`
+              : 'Your team changes are saved on this device and will send automatically when you have a connection and team projects are enabled.',
+          });
         }}
-        className={`flex h-10 min-w-10 shrink-0 items-center justify-center gap-2 rounded-[1rem] border px-2.5 transition ${classes}`}
+        className={`flex h-10 min-w-10 shrink-0 items-center justify-center gap-2 rounded-[1rem] px-2.5 transition ${classes}`}
         aria-live="polite"
         aria-label={label}
         title={label}
@@ -437,9 +447,11 @@ export default function PersistentTopBar() {
   const menuGroupShellClass = 'app-menu-group px-1 py-0.5 md:py-1';
   const menuGroupLabelClass = 'px-2 pb-1.5 pt-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-gray-500 dark:text-gray-400';
   const menuListGridClass = 'app-menu-list grid grid-cols-2 gap-2 px-1 pb-1';
-  const menuRowClass = 'flex min-h-10 min-w-0 items-center gap-2 rounded-full bg-black/[0.07] px-3 py-2 text-left text-[13px] font-medium leading-tight text-gray-700 transition-colors hover:bg-black/[0.10] dark:bg-white/[0.05] dark:text-gray-300 dark:hover:bg-white/[0.08]';
+  const menuRowClass = 'flex min-h-10 min-w-0 items-center gap-2 rounded-full bg-black/[0.08] px-3 py-2 text-left text-[13px] font-medium leading-tight text-gray-800 transition-colors hover:bg-black/[0.12] dark:bg-white/[0.08] dark:text-gray-200 dark:hover:bg-white/[0.12]';
+  const menuRowSecondaryClass = 'flex min-h-10 min-w-0 items-center gap-2 rounded-full bg-black/[0.04] px-3 py-2 text-left text-[13px] font-medium leading-tight text-gray-600 transition-colors hover:bg-black/[0.08] dark:bg-white/[0.04] dark:text-gray-400 dark:hover:bg-white/[0.08]';
   const syncMenuRowBaseClass = `${menuRowClass} disabled:cursor-default`;
   const disabledMenuRowClass = `${menuRowClass} disabled:cursor-default disabled:opacity-60`;
+  const disabledMenuRowSecondaryClass = `${menuRowSecondaryClass} disabled:cursor-default disabled:opacity-60`;
   const activeTransferMenuRowBaseClass = `${menuRowClass} cursor-wait font-semibold`;
   const activePushMenuRowClass = `${activeTransferMenuRowBaseClass} bg-violet-100 text-violet-700 dark:bg-violet-400/20 dark:text-violet-100`;
   const activePullMenuRowClass = `${activeTransferMenuRowBaseClass} bg-sky-100 text-sky-700 dark:bg-sky-400/20 dark:text-sky-100`;
@@ -589,36 +601,49 @@ export default function PersistentTopBar() {
                             {homeMenuState.isCreatingJoinCode ? 'Preparing…' : 'Invite'}
                           </button>
                           <button
-                            onClick={() => dispatchHomeAction('shared-members')}
-                            disabled={!!homeMenuState.isLoadingSharedMembers}
-                            className={disabledMenuRowClass}
+                            type="button"
+                            onClick={() => setShowTeamMore((current) => !current)}
+                            className={menuRowSecondaryClass}
+                            aria-expanded={showTeamMore}
                           >
                             <Users className="h-4 w-4 shrink-0" />
-                            {homeMenuState.isLoadingSharedMembers ? 'Loading…' : 'Members'}
+                            {showTeamMore ? 'Less' : 'More'}
                           </button>
-                          <button onClick={() => dispatchHomeAction('shared-backups')} className={menuRowClass}>
-                            <ArchiveRestore className="h-4 w-4 shrink-0" />
-                            Team Backups
-                          </button>
-                          <button
-                            onClick={() => dispatchHomeAction('release-my-area-locks')}
-                            disabled={!!homeMenuState.isReleasingMyAreaLocks || sharedTransferStatus !== null}
-                            className={disabledMenuRowClass}
-                          >
-                            <UnlockKeyhole className="h-4 w-4 shrink-0" />
-                            {homeMenuState.isReleasingMyAreaLocks ? 'Releasing…' : 'Release My Locks'}
-                          </button>
-                          {sharedProjectAccess.isReady && sharedProjectAccess.isActiveMember && (
-                            <button
-                              onClick={() => dispatchHomeAction('disconnect-shared-project')}
-                              disabled={!!homeMenuState.isDisconnectingSharedProject}
-                              className={disabledMenuRowClass}
-                            >
-                              <LogOut className="h-4 w-4 shrink-0" />
-                              {homeMenuState.isDisconnectingSharedProject
-                                ? sharedProjectAccess.isOwner ? 'Stopping…' : 'Leaving…'
-                                : sharedProjectAccess.isOwner ? 'Stop Team Sharing' : 'Leave Team Project'}
-                            </button>
+                          {showTeamMore && (
+                            <>
+                              <button
+                                onClick={() => dispatchHomeAction('shared-members')}
+                                disabled={!!homeMenuState.isLoadingSharedMembers}
+                                className={disabledMenuRowSecondaryClass}
+                              >
+                                <Users className="h-4 w-4 shrink-0" />
+                                {homeMenuState.isLoadingSharedMembers ? 'Loading…' : 'Members'}
+                              </button>
+                              <button onClick={() => dispatchHomeAction('shared-backups')} className={menuRowSecondaryClass}>
+                                <ArchiveRestore className="h-4 w-4 shrink-0" />
+                                Team Backups
+                              </button>
+                              <button
+                                onClick={() => dispatchHomeAction('release-my-area-locks')}
+                                disabled={!!homeMenuState.isReleasingMyAreaLocks || sharedTransferStatus !== null}
+                                className={disabledMenuRowSecondaryClass}
+                              >
+                                <UnlockKeyhole className="h-4 w-4 shrink-0" />
+                                {homeMenuState.isReleasingMyAreaLocks ? 'Releasing…' : 'Release My Locks'}
+                              </button>
+                              {sharedProjectAccess.isReady && sharedProjectAccess.isActiveMember && (
+                                <button
+                                  onClick={() => dispatchHomeAction('disconnect-shared-project')}
+                                  disabled={!!homeMenuState.isDisconnectingSharedProject}
+                                  className={disabledMenuRowSecondaryClass}
+                                >
+                                  <LogOut className="h-4 w-4 shrink-0" />
+                                  {homeMenuState.isDisconnectingSharedProject
+                                    ? sharedProjectAccess.isOwner ? 'Stopping…' : 'Leaving…'
+                                    : sharedProjectAccess.isOwner ? 'Stop Team Sharing' : 'Leave Team Project'}
+                                </button>
+                              )}
+                            </>
                           )}
                           </>
                         )}
@@ -770,6 +795,13 @@ export default function PersistentTopBar() {
         )}
       </div>
       <UserProfileModal open={showProfile} onClose={() => setShowProfile(false)} />
+      {infoDialog && (
+        <AppMessageDialog
+          title={infoDialog.title}
+          message={infoDialog.message}
+          onClose={() => setInfoDialog(null)}
+        />
+      )}
     </div>
   );
 }
