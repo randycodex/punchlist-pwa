@@ -76,7 +76,7 @@ describe('queued shared changes push', () => {
       metadataConflicted: false,
     });
     expect(formatQueuedSharedPushMessage(result)).toBe(
-      'Pushed 2 area changes and project details.'
+      'Sent to the team: 2 areas and project details.'
     );
   });
 
@@ -96,7 +96,7 @@ describe('queued shared changes push', () => {
     });
 
     expect(formatQueuedSharedPushMessage(result)).toBe(
-      '2 shared changes need review. Pull Changes before editing the affected area or project details.'
+      '2 changes need review before the team can take them. Tap Get Team Updates, review the project, then try Send to Team again.'
     );
   });
 
@@ -108,6 +108,6 @@ describe('queued shared changes push', () => {
       flushMetadataSyncs: vi.fn().mockResolvedValue(undefined),
     });
 
-    expect(formatQueuedSharedPushMessage(result)).toBe('Shared changes are already up to date.');
+    expect(formatQueuedSharedPushMessage(result)).toBe('Your work is already with the team. Nothing new to send.');
   });
 });

@@ -69,6 +69,7 @@ import { useAppSettings } from '@/contexts/AppSettingsContext';
 import {
   claimSharedProjectArea,
   getCollaborationErrorMessage,
+  TEAM_PROJECTS_SIGNIN_HINT,
   getSharedProjectSnapshotMetadata,
   flushPendingSharedAreaSyncs,
   isSharedSnapshotNewer,
@@ -129,9 +130,9 @@ type SharedAreaLockProblem =
   | null;
 
 const SHARED_AREA_LOCK_BLOCKED_MESSAGE =
-  'This shared area is locked by someone else. Try again after they release it, or return to the project.';
+  'Someone else is working in this area. Wait until they release it, or go back and pick another area.';
 const SHARED_AREA_LOCK_LOST_MESSAGE =
-  'Shared area lock lost. Try again before editing so your changes do not conflict.';
+  'Could not lock this area for you. Tap Try again before editing so your work does not conflict.';
 
 function isSharedAreaClaimBlockedMessage(message: string) {
   const normalized = message.toLowerCase();
@@ -463,8 +464,8 @@ export default function AreaDetailPage() {
     }
 
     if (!collaborationAuth.isSignedIn) {
-      setAreaClaimError('Enable shared projects before working in this shared area.');
-      setAreaClaimProblem({ kind: 'lost', message: 'Enable shared projects before editing this shared area.' });
+      setAreaClaimError(TEAM_PROJECTS_SIGNIN_HINT);
+      setAreaClaimProblem({ kind: 'lost', message: TEAM_PROJECTS_SIGNIN_HINT });
       setHasAreaClaim(false);
       setClaimingArea(false);
       return;
@@ -1861,17 +1862,17 @@ export default function AreaDetailPage() {
   );
   const sharedAreaClaimLabel = visibleAreaClaimProblem
     ? visibleAreaClaimProblem.kind === 'blocked'
-      ? 'Area in use by someone else'
-      : 'Shared lock needs attention'
+      ? 'In use by someone else'
+      : 'Could not lock this area for you'
     : areaClaimError
-    ? 'Shared claim needs attention'
+    ? 'Could not lock this area for you'
     : releasingAreaClaim
-      ? 'Releasing shared lock...'
+      ? 'Releasing your lock…'
       : claimingArea
-        ? 'Claiming shared area...'
+        ? 'Locking this area for you…'
       : hasAreaClaim
         ? 'Locked to you until you release it'
-        : 'Shared area claimed';
+        : 'Team area';
 
   return (
     <div className="app-page flex h-full flex-col overflow-hidden">
@@ -2048,14 +2049,14 @@ export default function AreaDetailPage() {
         >
           <div className="mx-auto flex w-full max-w-6xl flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <p className="min-w-0 flex-1 font-medium">
-              A team update is available. Your current inspection stays on this device until you pull it manually.
+              Team updates are ready. Finish this area first — your work here stays on this device until you apply updates.
             </p>
             <button
               type="button"
               onClick={() => router.push(`/project/${project.id}`)}
               className="inline-flex h-9 w-fit items-center justify-center rounded-full bg-sky-700 px-3 text-xs font-semibold text-white transition hover:bg-sky-800 dark:bg-sky-200 dark:text-sky-950 dark:hover:bg-sky-100"
             >
-              Review
+              Review updates
             </button>
           </div>
         </div>

@@ -55,8 +55,8 @@ export const HomeAreaCard = memo(function HomeAreaCard({
   const photoCount = metric?.photoCount ?? 0;
   const blockedByClaim = claimStatus?.ownership === 'other';
   const blockedClaimMessage = claimStatus?.ownership === 'other'
-    ? `${claimStatus.label} is working in this area. Try again after they release it.`
-    : 'This shared area is locked until its current user releases it.';
+    ? `${claimStatus.label} is working in this area. Try another area, or wait until they release it.`
+    : 'This area is locked until the current person releases it.';
 
   return (
     <div

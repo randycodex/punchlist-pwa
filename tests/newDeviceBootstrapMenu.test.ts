@@ -12,16 +12,16 @@ describe('new device project restoration menu', () => {
     expect(persistentTopBar).toContain('{homeMenuState.hasProjects && (');
   });
 
-  it('offers an explicit OneDrive restore before a local project exists', () => {
+  it('offers an explicit personal backup restore before a local project exists', () => {
     expect(persistentTopBar).toContain(
       "dispatchHomeAction('restore-onedrive-backup')"
     );
-    expect(persistentTopBar).toContain('Restore Backup');
+    expect(persistentTopBar).toContain('Restore My Backup');
   });
 
-  it('offers shared-project authentication after Microsoft sign-in', () => {
+  it('offers team-project authentication after Microsoft sign-in', () => {
     expect(persistentTopBar).toContain('collaborationAuth.canUseCollaboration &&');
     expect(persistentTopBar).toContain('onClick={() => void collaborationAuth.signIn()}');
-    expect(persistentTopBar).toContain("'Connect Projects'");
+    expect(persistentTopBar).toContain("'Enable Team Projects'");
   });
 });

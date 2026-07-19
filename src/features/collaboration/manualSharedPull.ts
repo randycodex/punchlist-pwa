@@ -169,30 +169,30 @@ export async function getPendingSharedPullState(
 
 export function formatPendingSharedPullMessage(pendingPull: PendingSharedPullState) {
   const sourceTime = new Date(pendingPull.publishedAt).toLocaleString();
-  const mergeSummary = `The app will save a local backup, keep ${pendingPull.preservedLocalAreaCount} locally changed area${pendingPull.preservedLocalAreaCount === 1 ? '' : 's'}, and apply ${pendingPull.appliedRemoteAreaCount} team area${pendingPull.appliedRemoteAreaCount === 1 ? '' : 's'}.`;
+  const mergeSummary = `Next step: save a safety backup of this device, keep your ${pendingPull.preservedLocalAreaCount} local area change${pendingPull.preservedLocalAreaCount === 1 ? '' : 's'}, and bring in ${pendingPull.appliedRemoteAreaCount} team area update${pendingPull.appliedRemoteAreaCount === 1 ? '' : 's'}.`;
   const metadataSummary = pendingPull.preservedLocalProjectMetadata
-    ? '\n\nYour locally edited project details will also be kept and synced against the latest team version.'
+    ? '\n\nYour edited project name/details on this device will stay and be re-sent to the team afterward.'
     : '';
   const conflictSummary = pendingPull.conflictingAreaNames.length > 0
-    ? `\n\nChanged on both sides and kept local: ${pendingPull.conflictingAreaNames.join(', ')}. Review these areas before publishing.`
+    ? `\n\nChanged on both sides (keeping your version for now): ${pendingPull.conflictingAreaNames.join(', ')}. Review those areas before Send to Team.`
     : '';
 
   if (pendingPull.reason === 'publish-conflict') {
-    return `Publishing now would overwrite newer team data from ${sourceTime}.\n\n${mergeSummary}${metadataSummary}${conflictSummary}`;
+    return `The team already has newer work from ${sourceTime}. Get those updates before sending yours.\n\n${mergeSummary}${metadataSummary}${conflictSummary}`;
   }
-  return `Team data from ${sourceTime} is ready.\n\n${mergeSummary}${metadataSummary}${conflictSummary}`;
+  return `Team updates from ${sourceTime} are ready.\n\n${mergeSummary}${metadataSummary}${conflictSummary}`;
 }
 
 export function formatPendingSharedPullSuccessMessage(pendingPull: PendingSharedPullState) {
   const preserved: string[] = [];
   if (pendingPull.conflictingAreaNames.length > 0) {
     const count = pendingPull.conflictingAreaNames.length;
-    preserved.push(`${count} area${count === 1 ? '' : 's'} changed on both sides and kept the local version.`);
+    preserved.push(`${count} area${count === 1 ? '' : 's'} had changes on both sides — your version on this device was kept.`);
   }
   if (pendingPull.preservedLocalProjectMetadata) {
-    preserved.push('Local project details were also kept and requeued.');
+    preserved.push('Your project details on this device were kept and will re-send to the team.');
   }
   return preserved.length > 0
-    ? `Team data merged. ${preserved.join(' ')}`
-    : `Team data merged from ${new Date(pendingPull.publishedAt).toLocaleString()}.`;
+    ? `Team updates applied. ${preserved.join(' ')}`
+    : `Team updates applied from ${new Date(pendingPull.publishedAt).toLocaleString()}.`;
 }

@@ -136,16 +136,16 @@ export default function PersistentTopBar() {
   } as const;
 
   const syncButtonLabel = {
-    idle: 'Back up project data and photos to OneDrive',
-    syncing: 'Backing up to OneDrive now',
-    pending: 'Back up pending changes to OneDrive',
-    'needs-auth': 'Sign in required to back up to OneDrive',
-    error: 'OneDrive backup needs attention',
+    idle: 'Save a personal backup of project data and photos to your OneDrive',
+    syncing: 'Saving personal OneDrive backup now',
+    pending: 'Save pending changes to your personal OneDrive backup',
+    'needs-auth': 'Sign in to save a personal OneDrive backup',
+    error: 'Personal OneDrive backup needs attention',
   } as const;
   const syncButtonShortLabel = {
-    idle: 'OneDrive Backup',
+    idle: 'Personal Backup',
     syncing: 'Backing up',
-    pending: 'OneDrive Backup',
+    pending: 'Personal Backup',
     'needs-auth': 'Sign in',
     error: 'Error',
   } as const;
@@ -362,9 +362,9 @@ export default function PersistentTopBar() {
       ? sharedSyncSummary.conflictCount
       : sharedSyncSummary.pendingCount;
     const label = needsReview
-      ? `${count} shared update${count === 1 ? '' : 's'} need review.${sharedSyncSummary.lastConflictError ? ` ${sharedSyncSummary.lastConflictError}` : ''}`
-      : `${count} shared update${count === 1 ? '' : 's'} waiting to sync`;
-    const shortLabel = needsReview ? 'Shared issue' : count === 1 ? 'Shared pending' : `Shared ${count}`;
+      ? `${count} team update${count === 1 ? '' : 's'} need review.${sharedSyncSummary.lastConflictError ? ` ${sharedSyncSummary.lastConflictError}` : ''}`
+      : `${count} team change${count === 1 ? '' : 's'} waiting to send`;
+    const shortLabel = needsReview ? 'Needs review' : count === 1 ? 'Sending…' : `${count} to send`;
     const SharedSyncIcon = needsReview ? Activity : CloudUpload;
     const classes = needsReview
       ? 'border-red-200 bg-red-50 text-red-600 hover:bg-red-100 dark:border-red-400/25 dark:bg-red-400/10 dark:text-red-300 dark:hover:bg-red-400/15'
@@ -375,8 +375,8 @@ export default function PersistentTopBar() {
         type="button"
         onClick={() => {
           window.alert(needsReview
-            ? `Shared work needs review. Open the affected project, pull the latest shared data, review the preserved local work, then save the next intended edit to resume syncing.${sharedSyncSummary.lastConflictError ? ` ${sharedSyncSummary.lastConflictError}` : ''}`
-            : 'Shared work is safely queued on this device and will retry automatically when the connection and shared-project account are available.');
+            ? `Some of your work needs a quick review before it can reach the team.\n\n1. Open the project\n2. Tap Get Team Updates\n3. Review anything that stayed on this device\n4. Tap Send to Team when you are ready${sharedSyncSummary.lastConflictError ? `\n\n${sharedSyncSummary.lastConflictError}` : ''}`
+            : 'Your team changes are saved on this device and will send automatically when you have a connection and team projects are enabled.');
         }}
         className={`flex h-10 min-w-10 shrink-0 items-center justify-center gap-2 rounded-[1rem] border px-2.5 transition ${classes}`}
         aria-live="polite"
@@ -506,7 +506,7 @@ export default function PersistentTopBar() {
                 {homeMenuState.isSingleProject && collaborationAuth.isSignedIn && (
                   <div className={menuGroupShellClass}>
                     <div className={menuCardClass}>
-                      <div className={menuGroupLabelClass}>Collaboration</div>
+                      <div className={menuGroupLabelClass}>Team</div>
                       <div className={menuListGridClass}>
                         {!homeMenuState.isSharedProject && (
                           <button
@@ -514,12 +514,12 @@ export default function PersistentTopBar() {
                             className={menuRowClass}
                           >
                             <Share2 className="h-4 w-4 shrink-0" />
-                            Start Sharing
+                            Share with Team
                           </button>
                         )}
                         {homeMenuState.isSingleProject && homeMenuState.isSharedProject && !sharedProjectAccess.isReady && (
                           <div className="col-span-2 px-2 py-2 text-xs text-gray-500 dark:text-gray-400">
-                            Checking shared access. Actions remain available while this finishes.
+                            Checking team access… You can still use the actions below.
                           </div>
                         )}
                         {homeMenuState.isSingleProject && homeMenuState.isSharedProject && (!sharedProjectAccess.isReady || sharedProjectAccess.isActiveMember || sharedProjectAccess.hasError) && (
@@ -531,7 +531,7 @@ export default function PersistentTopBar() {
                             aria-busy={sharedTransferStatus === 'publishing'}
                           >
                             <CloudUpload className={`h-4 w-4 shrink-0 ${sharedTransferStatus === 'publishing' ? 'animate-pulse' : ''}`} />
-                            {sharedTransferStatus === 'publishing' ? 'Pushing...' : 'Push Changes'}
+                            {sharedTransferStatus === 'publishing' ? 'Sending…' : 'Send to Team'}
                           </button>
                           <button
                             onClick={() => dispatchHomeAction('pull-shared-project')}
@@ -540,7 +540,7 @@ export default function PersistentTopBar() {
                             aria-busy={sharedTransferStatus === 'pulling'}
                           >
                             <CloudDownload className={`h-4 w-4 shrink-0 ${sharedTransferStatus === 'pulling' ? 'animate-pulse' : ''}`} />
-                            {sharedTransferStatus === 'pulling' ? 'Pulling...' : 'Pull Changes'}
+                            {sharedTransferStatus === 'pulling' ? 'Updating…' : 'Get Team Updates'}
                           </button>
                           <button
                             onClick={() => dispatchHomeAction('invite-people')}
@@ -548,7 +548,7 @@ export default function PersistentTopBar() {
                             className={disabledMenuRowClass}
                           >
                             <UserPlus className="h-4 w-4 shrink-0" />
-                            {homeMenuState.isCreatingJoinCode ? 'Preparing...' : 'Invite'}
+                            {homeMenuState.isCreatingJoinCode ? 'Preparing…' : 'Invite'}
                           </button>
                           <button
                             onClick={() => dispatchHomeAction('shared-members')}
@@ -556,11 +556,11 @@ export default function PersistentTopBar() {
                             className={disabledMenuRowClass}
                           >
                             <Users className="h-4 w-4 shrink-0" />
-                            {homeMenuState.isLoadingSharedMembers ? 'Loading...' : 'Members'}
+                            {homeMenuState.isLoadingSharedMembers ? 'Loading…' : 'Members'}
                           </button>
                           <button onClick={() => dispatchHomeAction('shared-backups')} className={menuRowClass}>
                             <ArchiveRestore className="h-4 w-4 shrink-0" />
-                            Shared Backups
+                            Team Backups
                           </button>
                           {sharedProjectAccess.isReady && sharedProjectAccess.isActiveMember && (
                             <button
@@ -570,8 +570,8 @@ export default function PersistentTopBar() {
                             >
                               <LogOut className="h-4 w-4 shrink-0" />
                               {homeMenuState.isDisconnectingSharedProject
-                                ? sharedProjectAccess.isOwner ? 'Stopping...' : 'Leaving...'
-                                : sharedProjectAccess.isOwner ? 'Stop Sharing' : 'Leave Project'}
+                                ? sharedProjectAccess.isOwner ? 'Stopping…' : 'Leaving…'
+                                : sharedProjectAccess.isOwner ? 'Stop Team Sharing' : 'Leave Team Project'}
                             </button>
                           )}
                           </>
@@ -583,22 +583,22 @@ export default function PersistentTopBar() {
                           <>
                             <div className="col-span-2 px-2 py-2 text-xs text-amber-700 dark:text-amber-300">
                               {sharedProjectAccess.hasError
-                                ? 'Shared access could not be verified. You can retry an action or keep the local copy only.'
-                                : 'This device is linked to a shared copy that is not active for this account. Reconnect it to an active copy or keep the project local only.'}
+                                ? 'Could not verify team access. Retry an action, or keep working from this device only.'
+                                : 'This device has a team copy that is not active for your account. Reconnect the team project or keep it as a local-only copy.'}
                             </div>
                             <button
                               onClick={() => dispatchHomeAction('my-shared-projects')}
                               className={menuRowClass}
                             >
                               <Users className="h-4 w-4 shrink-0" />
-                              Reconnect Project
+                              Reconnect Team Project
                             </button>
                             <button
                               onClick={() => dispatchHomeAction('unlink-inactive-shared-project')}
                               className={menuRowClass}
                             >
                               <LogOut className="h-4 w-4 shrink-0" />
-                              Keep Local Copy
+                              Keep Local Only
                             </button>
                           </>
                         )}
@@ -624,10 +624,10 @@ export default function PersistentTopBar() {
                             onClick={() => dispatchHomeAction('restore-onedrive-backup')}
                             disabled={displayStatus === 'syncing'}
                             className={disabledMenuRowClass}
-                            aria-label="Restore missing projects and photos from OneDrive"
+                            aria-label="Restore missing projects and photos from your personal OneDrive backup"
                           >
                             <ArchiveRestore className="h-4 w-4 shrink-0" />
-                            Restore Backup
+                            Restore My Backup
                           </button>
                         )}
                         {showAuth &&
@@ -641,24 +641,24 @@ export default function PersistentTopBar() {
                               className={disabledMenuRowClass}
                             >
                               <Users className="h-4 w-4 shrink-0" />
-                              {collaborationAuth.isSigningIn ? 'Connecting...' : 'Connect Projects'}
+                              {collaborationAuth.isSigningIn ? 'Enabling…' : 'Enable Team Projects'}
                             </button>
                           )}
                         {showAuth && collaborationAuth.isSignedIn && (
                           <button onClick={() => dispatchHomeAction('join-shared-project')} className={menuRowClass}>
                             <UserPlus className="h-4 w-4 shrink-0" />
-                            Join Project
+                            Join Team Project
                           </button>
                         )}
                         {showAuth && collaborationAuth.isSignedIn ? (
                           <button onClick={() => dispatchHomeAction('my-shared-projects')} className={menuRowClass}>
                             <Users className="h-4 w-4 shrink-0" />
-                            Manage Projects
+                            My Team Projects
                           </button>
                         ) : projectId ? (
                           <Link href="/" className={menuRowClass}>
                             <Users className="h-4 w-4 shrink-0" />
-                            Manage Projects
+                            All Projects
                           </Link>
                         ) : null}
                         {showAuth && (

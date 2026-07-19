@@ -55,8 +55,15 @@ async function requireMatchingCollaborationIdentity(
   return supabase;
 }
 
-export function getCollaborationErrorMessage(error: unknown, fallback = 'Failed to share project. Please try again.') {
+/** Plain-language guidance when team features need Microsoft + team sign-in. */
+export const TEAM_PROJECTS_SIGNIN_HINT =
+  'Turn on team projects first: sign in with Microsoft, then choose Enable Team Projects in the menu.';
+
+export function getCollaborationErrorMessage(error: unknown, fallback = 'Could not complete this team action. Please try again.') {
   if (error instanceof Error) {
+    if (error.name === 'CollaborationRequestTimeoutError') {
+      return 'The team service is taking too long to respond. Check your connection and try again.';
+    }
     return error.message;
   }
 
@@ -66,13 +73,13 @@ export function getCollaborationErrorMessage(error: unknown, fallback = 'Failed 
       typeof maybeError.message === 'string'
       && maybeError.message.toLowerCase().includes('statement timeout')
     ) {
-      return 'The shared database took too long to process this project. Please try again.';
+      return 'The team service took too long to process this. Please try again.';
     }
     if (
       typeof maybeError.message === 'string'
       && maybeError.message.startsWith('CollaborationRequestTimeoutError:')
     ) {
-      return maybeError.message.replace(/^CollaborationRequestTimeoutError:\s*/, '');
+      return 'The team service is taking too long to respond. Check your connection and try again.';
     }
     if (typeof maybeError.code === 'string' && maybeError.code.startsWith('23')) {
       return fallback;

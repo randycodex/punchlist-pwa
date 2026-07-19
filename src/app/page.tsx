@@ -75,6 +75,7 @@ import {
   getSharedProjectSnapshotMetadata,
   hasNewerLocalChangesThanSharedSnapshot,
   getCollaborationErrorMessage,
+  TEAM_PROJECTS_SIGNIN_HINT,
   getCollaborationProfileDisplayName,
   isSharedProjectPublishConflictError,
   isSharedSnapshotNewer,
@@ -271,9 +272,11 @@ export default function ProjectsPage() {
     clearSharedUpdateAvailable,
     markSharedUpdateAvailable,
     setSharedTransferStatus,
+    sharedTransferStatus,
     setRetryAt,
     setStatus: setSyncStatus,
     setSyncConflicts,
+    sharedUpdateProjectIds,
     syncConflicts,
   } = useSyncStatus();
   const { quickSort, setQuickSort, markSyncedNow } = useAppSettings();
@@ -547,7 +550,7 @@ export default function ProjectsPage() {
       showMessage(
         result.restoredProjectCount > 0
           ? `Restored ${result.restoredProjectCount} project${result.restoredProjectCount === 1 ? '' : 's'} and its OneDrive photo backup to this device.`
-          : 'No missing OneDrive project backups were found. Shared projects are restored from Manage Projects.'
+          : 'No missing personal backups were found. Team projects are restored from My Team Projects.'
       );
     } finally {
       setSyncing(false);
@@ -1372,12 +1375,12 @@ export default function ProjectsPage() {
 
   const handleShareProject = useCallback(async (project: Project) => {
     if (!collaborationAuth.isSignedIn || !collaborationAuth.user) {
-      showMessage('Enable shared projects before sharing this project.');
+      showMessage(TEAM_PROJECTS_SIGNIN_HINT);
       return;
     }
 
     if (!accountEmail) {
-      showMessage('Sign in with an allowed Microsoft account before sharing this project.');
+      showMessage('Sign in with your Microsoft work account before sharing this project with the team.');
       return;
     }
 
@@ -1402,7 +1405,7 @@ export default function ProjectsPage() {
             : entry
         )
       );
-      showMessage('Project sharing is enabled. You are the owner of this shared project.');
+      showMessage('This project is now shared with the team. You are the owner — invite people next.');
     } catch (error) {
       console.error('Failed to share project:', error);
       showMessage(getCollaborationErrorMessage(error));
@@ -1411,12 +1414,12 @@ export default function ProjectsPage() {
 
   const handleCreateJoinCode = useCallback(async (project: Project) => {
     if (!project.sharedProjectId) {
-      showMessage('Share this project before creating an invite code.');
+      showMessage('Share this project with the team before creating an invite.');
       return;
     }
 
     if (!collaborationAuth.isSignedIn) {
-      showMessage('Enable shared projects before creating an invite code.');
+      showMessage(TEAM_PROJECTS_SIGNIN_HINT);
       return;
     }
 
@@ -1439,12 +1442,12 @@ export default function ProjectsPage() {
 
   const handleShowSharedMembers = useCallback(async (project: Project) => {
     if (!project.sharedProjectId) {
-      showMessage('Share this project before viewing shared members.');
+      showMessage('Share this project with the team before viewing members.');
       return;
     }
 
     if (!collaborationAuth.isSignedIn) {
-      showMessage('Enable shared projects before viewing shared members.');
+      showMessage(TEAM_PROJECTS_SIGNIN_HINT);
       return;
     }
 
@@ -1603,12 +1606,12 @@ export default function ProjectsPage() {
     if (!code || joiningProject) return;
 
     if (!collaborationAuth.isSignedIn) {
-      showMessage('Enable shared projects before joining a project.');
+      showMessage(TEAM_PROJECTS_SIGNIN_HINT);
       return;
     }
 
     if (!accountEmail) {
-      showMessage('Sign in with an allowed Microsoft account before joining a shared project.');
+      showMessage('Sign in with your Microsoft work account before joining a team project.');
       return;
     }
 
@@ -1627,11 +1630,11 @@ export default function ProjectsPage() {
       } else if (reusedDetached && pulledSnapshot) {
         showMessage(`Rejoined "${result.projectName}" using the existing local copy and merged the latest shared data.`);
       } else if (reusedDetached) {
-        showMessage(`Rejoined "${result.projectName}" using the existing local copy. No shared data has been published yet.`);
+        showMessage(`Rejoined "${result.projectName}" using the existing copy on this device. No team data has been published yet.`);
       } else if (pulledSnapshot) {
         showMessage(`Joined "${result.projectName}" and pulled the latest shared data.`);
       } else {
-        showMessage(`Joined "${result.projectName}". No shared data has been published yet.`);
+        showMessage(`Joined "${result.projectName}". No team data has been published yet.`);
       }
     } catch (error) {
       console.error('Failed to join shared project:', error);
@@ -1643,7 +1646,7 @@ export default function ProjectsPage() {
 
   async function handleShowMySharedProjects() {
     if (!collaborationAuth.isSignedIn) {
-      showMessage('Enable shared projects before viewing your shared projects.');
+      showMessage(TEAM_PROJECTS_SIGNIN_HINT);
       return;
     }
 
@@ -1696,7 +1699,7 @@ export default function ProjectsPage() {
       } else if (pulledSnapshot) {
         showMessage(`"${entry.projectName}" was added to this device with the latest shared data.`);
       } else {
-        showMessage(`"${entry.projectName}" was added to this device. No shared data has been published yet.`);
+        showMessage(`"${entry.projectName}" was added to this device. No team data has been published yet.`);
       }
     } catch (error) {
       console.error('Failed to add shared project:', error);
@@ -1753,12 +1756,12 @@ export default function ProjectsPage() {
 
   const handlePublishSharedProject = useCallback(async (project: Project) => {
     if (!project.sharedProjectId) {
-      showMessage('Share this project before publishing shared data.');
+      showMessage('Share this project with the team before sending updates.');
       return;
     }
 
     if (!collaborationAuth.isSignedIn || !collaborationAuth.user) {
-      showMessage('Enable shared projects before publishing shared data.');
+      showMessage(TEAM_PROJECTS_SIGNIN_HINT);
       return;
     }
 
@@ -1787,7 +1790,7 @@ export default function ProjectsPage() {
               : entry
           )
         );
-        showMessage(`Initial shared data published at ${new Date(result.publishedAt).toLocaleTimeString()}.`);
+        showMessage(`Shared with the team at ${new Date(result.publishedAt).toLocaleTimeString()}.`);
       }
     } catch (error) {
       if (fullProject && isSharedProjectPublishConflictError(error)) {
@@ -1797,7 +1800,7 @@ export default function ProjectsPage() {
           setPendingPull(await getPendingSharedPullState(fullProject, 'publish-conflict'));
         } catch (reviewError) {
           console.error('Failed to load shared data for publish conflict review:', reviewError);
-          showMessage('Shared data changed before publishing. Pull shared data before publishing again.');
+          showMessage('The team has newer work. Tap Get Team Updates, then try Send to Team again.');
         }
         return;
       }
@@ -1818,12 +1821,12 @@ export default function ProjectsPage() {
 
   const handlePullSharedProject = useCallback(async (project: Project) => {
     if (!project.sharedProjectId) {
-      showMessage('Share or join this project before pulling shared data.');
+      showMessage('Share or join this team project before getting updates.');
       return;
     }
 
     if (!collaborationAuth.isSignedIn) {
-      showMessage('Enable shared projects before pulling shared data.');
+      showMessage(TEAM_PROJECTS_SIGNIN_HINT);
       return;
     }
 
@@ -1838,10 +1841,10 @@ export default function ProjectsPage() {
       fullProject.sharedProjectLinkedAt = project.sharedProjectLinkedAt;
       const metadata = await getSharedProjectSnapshotMetadata(project.sharedProjectId);
       if (!metadata) {
-        throw new Error('No shared data has been published for this project yet.');
+        throw new Error('No team data has been published for this project yet.');
       }
       if (!isSharedSnapshotNewer(fullProject, metadata.publishedAt)) {
-        showMessage('Shared data is already up to date. Your local changes have not been replaced.');
+        showMessage('You already have the latest team updates. Your work on this device was not replaced.');
         return;
       }
 
@@ -1862,7 +1865,7 @@ export default function ProjectsPage() {
       }
 
       if (!isSharedSnapshotNewer(fullProject, result.publishedAt)) {
-        showMessage('Shared data is already up to date.');
+        showMessage('You already have the latest team updates.');
         return;
       }
 
@@ -1876,7 +1879,7 @@ export default function ProjectsPage() {
             : entry
         )
       );
-      showMessage(`Shared data pulled from ${new Date(result.publishedAt).toLocaleString()}.`);
+      showMessage(`Team updates applied from ${new Date(result.publishedAt).toLocaleString()}.`);
     } catch (error) {
       console.error('Failed to pull shared project:', error);
       showMessage(getCollaborationErrorMessage(error, 'Failed to pull shared data. Please try again.'));
@@ -1921,12 +1924,12 @@ export default function ProjectsPage() {
 
   const handleShowSharedBackups = useCallback(async (project: Project) => {
     if (!project.sharedProjectId) {
-      showMessage('Share this project before viewing shared backups.');
+      showMessage('Share this project with the team before viewing team backups.');
       return;
     }
 
     if (!collaborationAuth.isSignedIn) {
-      showMessage('Enable shared projects before viewing shared backups.');
+      showMessage(TEAM_PROJECTS_SIGNIN_HINT);
       return;
     }
 
@@ -1952,7 +1955,7 @@ export default function ProjectsPage() {
   async function confirmRestoreSharedBackup(backup: CollaborationSnapshotBackup, publishAfterRestore: boolean) {
     if (!backupProject || restoringBackupId) return;
     if (publishAfterRestore && !collaborationAuth.user) {
-      showMessage('Enable shared projects before restoring and publishing a backup.');
+      showMessage(TEAM_PROJECTS_SIGNIN_HINT);
       return;
     }
 
@@ -2011,7 +2014,7 @@ export default function ProjectsPage() {
     }
 
     if (!collaborationAuth.isSignedIn) {
-      showMessage('Enable shared projects before stopping sharing for this project.');
+      showMessage(TEAM_PROJECTS_SIGNIN_HINT);
       return;
     }
 
@@ -2088,7 +2091,7 @@ export default function ProjectsPage() {
     }
 
     if (!collaborationAuth.isSignedIn) {
-      showMessage('Enable shared projects before transferring ownership.');
+      showMessage(TEAM_PROJECTS_SIGNIN_HINT);
       return;
     }
 
@@ -2375,8 +2378,8 @@ export default function ProjectsPage() {
                       {singleProject.sharedProjectId && (
                         <span
                           className="inline-flex translate-y-[2px] shrink-0 items-center justify-center text-emerald-500"
-                          title="Shared project"
-                          aria-label="Shared project"
+                          title="Team project"
+                          aria-label="Team project"
                           role="img"
                         >
                           <CloudUpload className="h-4 w-4" aria-hidden="true" />
@@ -2384,7 +2387,11 @@ export default function ProjectsPage() {
                       )}
                     </div>
                     <p className="mt-1 truncate text-sm text-gray-500 dark:text-gray-400">
-                      {singleProject.address || 'Project dashboard'}
+                      {singleProject.sharedProjectId
+                        ? (singleProject.address
+                          ? `${singleProject.address} · Team project`
+                          : 'Team project · open an area to inspect')
+                        : (singleProject.address || 'Open an area to inspect')}
                     </p>
                   </>
                 ) : (
@@ -2520,7 +2527,7 @@ export default function ProjectsPage() {
       )}
       {syncConflicts.length > 0 && (
         <div className="shrink-0 border-b border-gray-200/80 bg-white/70 px-4 py-3 text-sm dark:border-zinc-700 dark:bg-white/[0.03]">
-          <div className="text-gray-700 dark:text-gray-200">OneDrive backup needs review:</div>
+          <div className="text-gray-700 dark:text-gray-200">Personal OneDrive backup needs review:</div>
           <div className="mt-2 flex flex-wrap gap-2">
             {syncConflicts.map((conflict) => (
               <span
@@ -2530,6 +2537,28 @@ export default function ProjectsPage() {
                 {conflict.name}
               </span>
             ))}
+          </div>
+        </div>
+      )}
+      {singleProjectMainView &&
+        singleProject?.sharedProjectId &&
+        sharedUpdateProjectIds.has(singleProject.id) && (
+        <div
+          className="shrink-0 border-b border-sky-200 bg-sky-50 px-4 py-2 text-sm text-sky-950 dark:border-sky-300/20 dark:bg-sky-400/10 dark:text-sky-100"
+          aria-live="polite"
+        >
+          <div className="mx-auto flex w-full max-w-6xl flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <p className="min-w-0 flex-1 font-medium">
+              Team updates are ready. Your work on this device stays until you choose to apply them.
+            </p>
+            <button
+              type="button"
+              onClick={() => void handlePullSharedProject(singleProject)}
+              disabled={sharedTransferStatus !== null}
+              className="inline-flex h-9 w-fit items-center justify-center rounded-full bg-sky-700 px-3 text-xs font-semibold text-white transition hover:bg-sky-800 disabled:opacity-50 dark:bg-sky-200 dark:text-sky-950 dark:hover:bg-sky-100"
+            >
+              {sharedTransferStatus === 'pulling' ? 'Updating…' : 'Get Team Updates'}
+            </button>
           </div>
         </div>
       )}
@@ -2723,8 +2752,18 @@ export default function ProjectsPage() {
                 <div className="empty-state-card w-full max-w-sm rounded-[1.9rem] p-8 text-center">
                   <h2 className="text-lg font-semibold text-gray-900 dark:text-white">No areas yet</h2>
                   <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
-                    Add the first area to turn this project into an active inspection dashboard.
+                    Add the first unit, floor, or location to start inspecting.
                   </p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAreaTargetProjectId(singleProject.id);
+                      setShowAddArea(true);
+                    }}
+                    className="mt-5 inline-flex h-11 items-center justify-center rounded-full bg-zinc-900 px-5 text-sm font-semibold text-white transition hover:bg-black dark:bg-white dark:text-gray-900 dark:hover:bg-gray-200"
+                  >
+                    Add first area
+                  </button>
                 </div>
               </div>
             ) : (
@@ -2754,11 +2793,55 @@ export default function ProjectsPage() {
           <div className="list-stack mx-auto min-h-[calc(100%+1px)] w-full max-w-6xl">
             {sortedProjects.length === 0 ? (
               <div className="flex min-h-[50vh] items-center justify-center py-12">
-                <div className="empty-state-card w-full max-w-sm rounded-[1.9rem] p-8 text-center">
+                <div className="empty-state-card w-full max-w-md rounded-[1.9rem] p-8 text-center">
                   <h2 className="text-lg font-semibold text-gray-900 dark:text-white">No projects yet</h2>
                   <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
-                    Create a project to start tracking units, issues, and inspection progress.
+                    Start a new job, join a team project, or restore a personal backup on this device.
                   </p>
+                  <div className="mt-5 flex flex-col gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setShowNewProject(true)}
+                      className="inline-flex h-11 items-center justify-center rounded-full bg-zinc-900 px-5 text-sm font-semibold text-white transition hover:bg-black dark:bg-white dark:text-gray-900 dark:hover:bg-gray-200"
+                    >
+                      New Project
+                    </button>
+                    {collaborationAuth.isSignedIn ? (
+                      <button
+                        type="button"
+                        onClick={() => setShowJoinProject(true)}
+                        className="inline-flex h-11 items-center justify-center rounded-full border border-black/10 bg-white/70 px-5 text-sm font-semibold text-gray-800 transition hover:bg-white dark:border-white/15 dark:bg-white/[0.06] dark:text-gray-100 dark:hover:bg-white/[0.1]"
+                      >
+                        Join Team Project
+                      </button>
+                    ) : isSignedIn && collaborationAuth.canUseCollaboration ? (
+                      <button
+                        type="button"
+                        onClick={() => void collaborationAuth.signIn()}
+                        disabled={!collaborationAuth.isReady || collaborationAuth.isSigningIn}
+                        className="inline-flex h-11 items-center justify-center rounded-full border border-black/10 bg-white/70 px-5 text-sm font-semibold text-gray-800 transition hover:bg-white disabled:opacity-50 dark:border-white/15 dark:bg-white/[0.06] dark:text-gray-100 dark:hover:bg-white/[0.1]"
+                      >
+                        {collaborationAuth.isSigningIn ? 'Enabling…' : 'Enable Team Projects'}
+                      </button>
+                    ) : !isSignedIn ? (
+                      <button
+                        type="button"
+                        onClick={() => void signIn()}
+                        className="inline-flex h-11 items-center justify-center rounded-full border border-black/10 bg-white/70 px-5 text-sm font-semibold text-gray-800 transition hover:bg-white dark:border-white/15 dark:bg-white/[0.06] dark:text-gray-100 dark:hover:bg-white/[0.1]"
+                      >
+                        Sign In
+                      </button>
+                    ) : null}
+                    {isSignedIn && (
+                      <button
+                        type="button"
+                        onClick={() => void handleRestoreOneDriveBackup()}
+                        className="inline-flex h-11 items-center justify-center rounded-full border border-transparent px-5 text-sm font-medium text-gray-600 transition hover:bg-black/[0.04] dark:text-gray-300 dark:hover:bg-white/[0.06]"
+                      >
+                        Restore My Backup
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
             ) : (
@@ -2772,6 +2855,7 @@ export default function ProjectsPage() {
                     metric={metric}
                     selectionMode={selectionMode}
                     isSelected={isSelected}
+                    hasTeamUpdate={sharedUpdateProjectIds.has(project.id)}
                     menuOpen={showProjectMenuId === project.id}
                     onToggleSelection={toggleProjectSelection}
                     onToggleMenu={handleToggleProjectMenu}
@@ -3330,11 +3414,11 @@ export default function ProjectsPage() {
       {showJoinProject && (
         <div className="modal-overlay fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="modal-panel w-full max-w-md rounded-[1.9rem] p-6">
-            <h2 className="mb-1 text-xl font-semibold tracking-[-0.02em] text-gray-900 dark:text-white">Join Shared Project</h2>
+            <h2 className="mb-1 text-xl font-semibold tracking-[-0.02em] text-gray-900 dark:text-white">Join Team Project</h2>
             <p className="mb-5 text-sm text-gray-500 dark:text-gray-400">
               {isSignedIn && collaborationAuth.isSignedIn
-                ? 'Confirm the invitation code from the project owner.'
-                : 'Sign in and enable shared projects to accept this invitation.'}
+                ? 'Enter the invite code from the project owner to add it on this device.'
+                : 'Sign in with Microsoft, then enable team projects to accept this invitation.'}
             </p>
             <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
               Code
@@ -3374,13 +3458,13 @@ export default function ProjectsPage() {
                 className="flex-1 rounded-2xl bg-zinc-900 px-4 py-3 font-medium text-white transition hover:bg-black dark:bg-white dark:text-gray-900 dark:hover:bg-gray-200 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {joiningProject
-                  ? 'Joining...'
+                  ? 'Joining…'
                   : collaborationAuth.isSigningIn
-                    ? 'Connecting...'
+                    ? 'Enabling…'
                     : !isSignedIn
                       ? 'Sign in to continue'
                       : !collaborationAuth.isSignedIn
-                        ? 'Enable shared projects'
+                        ? 'Enable Team Projects'
                         : 'Join'}
               </button>
             </div>

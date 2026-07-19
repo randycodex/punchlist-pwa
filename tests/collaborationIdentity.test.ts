@@ -37,13 +37,13 @@ describe('collaboration identity helpers', () => {
     expect(getCollaborationErrorMessage({
       message: 'CollaborationRequestTimeoutError: Publishing shared data timed out after 90 seconds. Check your connection and try again.',
       details: 'fetchWithCollaborationTimeout@https://example.test/chunk.js:1:1',
-    })).toBe('Publishing shared data timed out after 90 seconds. Check your connection and try again.');
+    })).toBe('The team service is taking too long to respond. Check your connection and try again.');
   });
 
   it('replaces raw database statement timeout errors', () => {
     expect(getCollaborationErrorMessage({
       message: 'canceling statement due to statement timeout',
       code: '57014',
-    })).toBe('The shared database took too long to process this project. Please try again.');
+    })).toBe('The team service took too long to process this. Please try again.');
   });
 });

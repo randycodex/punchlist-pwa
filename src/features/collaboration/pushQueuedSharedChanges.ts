@@ -73,26 +73,26 @@ export async function pushQueuedSharedChanges(
 export function formatQueuedSharedPushMessage(result: QueuedSharedPushResult) {
   const conflictCount = result.conflictedAreaCount + (result.metadataConflicted ? 1 : 0);
   if (conflictCount > 0) {
-    return `${conflictCount} shared change${conflictCount === 1 ? '' : 's'} need review. Pull Changes before editing the affected area or project details.`;
+    return `${conflictCount} change${conflictCount === 1 ? '' : 's'} need review before the team can take them. Tap Get Team Updates, review the project, then try Send to Team again.`;
   }
 
   if (result.remainingAreaCount > 0 || result.metadataRemaining) {
-    return 'Some shared changes are still queued. Check your connection; the app will retry automatically.';
+    return 'Some of your work is still waiting to reach the team. Check your connection — the app will retry automatically.';
   }
 
   if (result.attemptedAreaCount === 0 && !result.attemptedMetadata) {
-    return 'Shared changes are already up to date.';
+    return 'Your work is already with the team. Nothing new to send.';
   }
 
   const pushedParts: string[] = [];
   if (result.pushedAreaCount > 0) {
     pushedParts.push(
-      `${result.pushedAreaCount} area change${result.pushedAreaCount === 1 ? '' : 's'}`
+      `${result.pushedAreaCount} area${result.pushedAreaCount === 1 ? '' : 's'}`
     );
   }
   if (result.pushedMetadata) {
     pushedParts.push('project details');
   }
 
-  return `Pushed ${pushedParts.join(' and ')}.`;
+  return `Sent to the team: ${pushedParts.join(' and ')}.`;
 }

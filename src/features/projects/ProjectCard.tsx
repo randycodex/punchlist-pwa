@@ -23,6 +23,7 @@ type ProjectCardProps = {
   metric?: ProjectCardMetrics;
   selectionMode: boolean;
   isSelected: boolean;
+  hasTeamUpdate?: boolean;
   menuOpen: boolean;
   onToggleSelection: (id: string) => void;
   onToggleMenu: (id: string) => void;
@@ -38,6 +39,7 @@ export const ProjectCard = memo(function ProjectCard({
   metric,
   selectionMode,
   isSelected,
+  hasTeamUpdate = false,
   menuOpen,
   onToggleSelection,
   onToggleMenu,
@@ -111,6 +113,16 @@ export const ProjectCard = memo(function ProjectCard({
           <div className="min-w-0">
             <div className="flex items-center gap-2 min-w-0">
               <h3 className="truncate text-[1.05rem] font-semibold tracking-[-0.02em] text-gray-900 dark:text-white">{project.projectName}</h3>
+              {project.sharedProjectId && (
+                <span className="shrink-0 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-emerald-700 dark:text-emerald-300">
+                  Team
+                </span>
+              )}
+              {hasTeamUpdate && (
+                <span className="shrink-0 rounded-full bg-sky-500/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-sky-700 dark:text-sky-300">
+                  Updates
+                </span>
+              )}
             </div>
             <p className={`mt-1 truncate text-sm ${project.address ? 'text-gray-500 dark:text-gray-300' : 'text-gray-400 dark:text-gray-400'}`}>
               {project.address || 'No address added'}

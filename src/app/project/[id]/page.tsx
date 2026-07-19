@@ -64,6 +64,7 @@ import {
   generateSharedProjectJoinCode,
   getActiveSharedProjectAreaClaimSummaries,
   getCollaborationErrorMessage,
+  TEAM_PROJECTS_SIGNIN_HINT,
   getCollaborationProfileDisplayName,
   getSharedProjectMembers,
   getSharedProjectBackupSnapshot,
@@ -190,9 +191,11 @@ export default function ProjectDetailPage() {
     clearSharedUpdateAvailable,
     markSharedUpdateAvailable,
     setSharedTransferStatus,
+    sharedTransferStatus,
     setRetryAt,
     setStatus: setSyncStatus,
     setSyncConflicts,
+    sharedUpdateProjectIds,
   } = useSyncStatus();
   const { quickSort, markSyncedNow } = useAppSettings();
   loadProjectRef.current = loadProject;
@@ -829,7 +832,7 @@ export default function ProjectDetailPage() {
     if (!project) return;
 
     if (!collaborationAuth.isSignedIn || !collaborationAuth.user) {
-      showMessage('Enable shared projects before sharing this project.');
+      showMessage(TEAM_PROJECTS_SIGNIN_HINT);
       return;
     }
 
@@ -868,12 +871,12 @@ export default function ProjectDetailPage() {
     if (!project) return;
 
     if (!project.sharedProjectId) {
-      showMessage('Share this project before creating an invite code.');
+      showMessage('Share this project with the team before creating an invite.');
       return;
     }
 
     if (!collaborationAuth.isSignedIn) {
-      showMessage('Enable shared projects before creating an invite code.');
+      showMessage(TEAM_PROJECTS_SIGNIN_HINT);
       return;
     }
 
@@ -898,12 +901,12 @@ export default function ProjectDetailPage() {
     if (!project) return;
 
     if (!project.sharedProjectId) {
-      showMessage('Share this project before viewing shared members.');
+      showMessage('Share this project with the team before viewing members.');
       return;
     }
 
     if (!collaborationAuth.isSignedIn) {
-      showMessage('Enable shared projects before viewing shared members.');
+      showMessage(TEAM_PROJECTS_SIGNIN_HINT);
       return;
     }
 
@@ -951,12 +954,12 @@ export default function ProjectDetailPage() {
     if (!project) return;
 
     if (!project.sharedProjectId) {
-      showMessage('Share this project before publishing shared data.');
+      showMessage('Share this project with the team before sending updates.');
       return;
     }
 
     if (!collaborationAuth.isSignedIn || !collaborationAuth.user) {
-      showMessage('Enable shared projects before publishing shared data.');
+      showMessage(TEAM_PROJECTS_SIGNIN_HINT);
       return;
     }
 
@@ -983,7 +986,7 @@ export default function ProjectDetailPage() {
             ? { ...currentProject, sharedSnapshotPublishedAt: loadedProject.sharedSnapshotPublishedAt }
             : currentProject
         );
-        showMessage(`Initial shared data published at ${new Date(result.publishedAt).toLocaleTimeString()}.`);
+        showMessage(`Shared with the team at ${new Date(result.publishedAt).toLocaleTimeString()}.`);
       }
     } catch (error) {
       if (fullProject && isSharedProjectPublishConflictError(error)) {
@@ -993,7 +996,7 @@ export default function ProjectDetailPage() {
           setPendingPull(await getPendingSharedPullState(fullProject, 'publish-conflict'));
         } catch (reviewError) {
           console.error('Failed to load shared data for publish conflict review:', reviewError);
-          showMessage('Shared data changed before publishing. Pull shared data before publishing again.');
+          showMessage('The team has newer work. Tap Get Team Updates, then try Send to Team again.');
         }
         return;
       }
@@ -1017,12 +1020,12 @@ export default function ProjectDetailPage() {
     if (!project) return;
 
     if (!project.sharedProjectId) {
-      showMessage('Share or join this project before pulling shared data.');
+      showMessage('Share or join this team project before getting updates.');
       return;
     }
 
     if (!collaborationAuth.isSignedIn) {
-      showMessage('Enable shared projects before pulling shared data.');
+      showMessage(TEAM_PROJECTS_SIGNIN_HINT);
       return;
     }
 
@@ -1037,10 +1040,10 @@ export default function ProjectDetailPage() {
       fullProject.sharedProjectLinkedAt = project.sharedProjectLinkedAt;
       const metadata = await getSharedProjectSnapshotMetadata(project.sharedProjectId);
       if (!metadata) {
-        throw new Error('No shared data has been published for this project yet.');
+        throw new Error('No team data has been published for this project yet.');
       }
       if (!isSharedSnapshotNewer(fullProject, metadata.publishedAt)) {
-        showMessage('Shared data is already up to date. Your local changes have not been replaced.');
+        showMessage('You already have the latest team updates. Your work on this device was not replaced.');
         return;
       }
 
@@ -1061,7 +1064,7 @@ export default function ProjectDetailPage() {
       }
 
       if (!isSharedSnapshotNewer(fullProject, result.publishedAt)) {
-        showMessage('Shared data is already up to date.');
+        showMessage('You already have the latest team updates.');
         return;
       }
 
@@ -1069,7 +1072,7 @@ export default function ProjectDetailPage() {
       clearSharedUpdateAvailable(fullProject.id);
       cacheProjectPreview(result.project);
       setProject({ ...result.project, areas: [...result.project.areas] });
-      showMessage(`Shared data pulled from ${new Date(result.publishedAt).toLocaleString()}.`);
+      showMessage(`Team updates applied from ${new Date(result.publishedAt).toLocaleString()}.`);
     } catch (error) {
       console.error('Failed to pull shared project:', error);
       showMessage(getCollaborationErrorMessage(error, 'Failed to pull shared data. Please try again.'));
@@ -1110,12 +1113,12 @@ export default function ProjectDetailPage() {
     if (!project) return;
 
     if (!project.sharedProjectId) {
-      showMessage('Share this project before viewing shared backups.');
+      showMessage('Share this project with the team before viewing team backups.');
       return;
     }
 
     if (!collaborationAuth.isSignedIn) {
-      showMessage('Enable shared projects before viewing shared backups.');
+      showMessage(TEAM_PROJECTS_SIGNIN_HINT);
       return;
     }
 
@@ -1141,7 +1144,7 @@ export default function ProjectDetailPage() {
   async function confirmRestoreSharedBackup(backup: CollaborationSnapshotBackup, publishAfterRestore: boolean) {
     if (!backupProject || restoringBackupId) return;
     if (publishAfterRestore && !collaborationAuth.user) {
-      showMessage('Enable shared projects before restoring and publishing a backup.');
+      showMessage(TEAM_PROJECTS_SIGNIN_HINT);
       return;
     }
 
@@ -1196,7 +1199,7 @@ export default function ProjectDetailPage() {
     }
 
     if (!collaborationAuth.isSignedIn) {
-      showMessage('Enable shared projects before transferring ownership.');
+      showMessage(TEAM_PROJECTS_SIGNIN_HINT);
       return;
     }
 
@@ -1231,7 +1234,7 @@ export default function ProjectDetailPage() {
     }
 
     if (!collaborationAuth.isSignedIn) {
-      showMessage('Enable shared projects before stopping sharing for this project.');
+      showMessage(TEAM_PROJECTS_SIGNIN_HINT);
       return;
     }
 
@@ -1485,8 +1488,8 @@ export default function ProjectDetailPage() {
                 {project.sharedProjectId && (
                   <span
                     className="inline-flex translate-y-[2px] shrink-0 items-center justify-center text-emerald-500"
-                    title="Shared project"
-                    aria-label="Shared project"
+                    title="Team project"
+                    aria-label="Team project"
                     role="img"
                   >
                     <CloudUpload className="h-4 w-4" aria-hidden="true" />
@@ -1494,7 +1497,11 @@ export default function ProjectDetailPage() {
                 )}
               </div>
               <p className="mt-1 truncate text-sm text-gray-500 dark:text-gray-400">
-                {project.address || 'Project dashboard'}
+                {project.sharedProjectId
+                  ? (project.address
+                    ? `${project.address} · Team project`
+                    : 'Team project · open an area to inspect')
+                  : (project.address || 'Open an area to inspect')}
               </p>
             </div>
           </div>
@@ -1546,6 +1553,26 @@ export default function ProjectDetailPage() {
           {syncError}
         </div>
       )}
+      {project.sharedProjectId && sharedUpdateProjectIds.has(project.id) && (
+        <div
+          className="shrink-0 border-b border-sky-200 bg-sky-50 px-4 py-2 text-sm text-sky-950 dark:border-sky-300/20 dark:bg-sky-400/10 dark:text-sky-100"
+          aria-live="polite"
+        >
+          <div className="mx-auto flex w-full max-w-6xl flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <p className="min-w-0 flex-1 font-medium">
+              Team updates are ready. Your work on this device stays until you choose to apply them.
+            </p>
+            <button
+              type="button"
+              onClick={() => void handlePullSharedProject()}
+              disabled={sharedTransferStatus !== null}
+              className="inline-flex h-9 w-fit items-center justify-center rounded-full bg-sky-700 px-3 text-xs font-semibold text-white transition hover:bg-sky-800 disabled:opacity-50 dark:bg-sky-200 dark:text-sky-950 dark:hover:bg-sky-100"
+            >
+              {sharedTransferStatus === 'pulling' ? 'Updating…' : 'Get Team Updates'}
+            </button>
+          </div>
+        </div>
+      )}
       {/* Areas List */}
       <main
         className="flex-1 min-h-0 overflow-y-scroll overscroll-y-contain touch-pan-y px-4 pt-5 pb-[calc(env(safe-area-inset-bottom)+6.5rem)] sm:px-5"
@@ -1559,8 +1586,15 @@ export default function ProjectDetailPage() {
                 </div>
                 <h2 className="text-lg font-semibold text-gray-900 dark:text-white">No areas yet</h2>
                 <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
-                  Add the first area to start walking the punch list.
+                  Add the first unit, floor, or location to start walking the punch list.
                 </p>
+                <button
+                  type="button"
+                  onClick={() => setShowAddArea(true)}
+                  className="mt-5 inline-flex h-11 items-center justify-center rounded-full bg-zinc-900 px-5 text-sm font-semibold text-white transition hover:bg-black dark:bg-white dark:text-gray-900 dark:hover:bg-gray-200"
+                >
+                  Add first area
+                </button>
               </div>
             </div>
             <div className="mt-auto pt-2" />
