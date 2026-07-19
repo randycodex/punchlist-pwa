@@ -827,8 +827,13 @@ export default function ProjectsPage() {
     const activeSharedProjectId = sharedProjectId;
     const activeUserId = userId;
     let cancelled = false;
+    let refreshInFlight = false;
 
     async function refreshSharedAreaClaims() {
+      // Skip while a previous poll is still waiting; overlapping 20s timeouts
+      // stack requests and can starve the collaboration connection pool.
+      if (refreshInFlight) return;
+      refreshInFlight = true;
       try {
         const claims = await getActiveSharedProjectAreaClaimSummaries(activeSharedProjectId);
         if (cancelled) return;
@@ -850,8 +855,11 @@ export default function ProjectsPage() {
         );
       } catch (error) {
         if (cancelled) return;
+        // Keep the last known lock map on transient failures so timeouts do not
+        // flash areas as unlocked.
         console.info('Shared area claims unavailable:', error);
-        setSharedAreaClaims(new Map());
+      } finally {
+        refreshInFlight = false;
       }
     }
 
