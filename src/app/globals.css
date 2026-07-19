@@ -390,6 +390,11 @@ html:not(.dark) {
   border-color: color-mix(in srgb, var(--app-menu-card-bg) 85%, white);
 }
 
+.app-menu-card.app-menu-sort-card {
+  background: transparent;
+  border-color: transparent;
+}
+
 @media (max-width: 767px) {
   html[data-app-menu-open="true"] .top-bar-surface {
     background-color: var(--top-bar-surface) !important;
