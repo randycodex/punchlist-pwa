@@ -89,9 +89,9 @@ describe('mobile top-bar safe area', () => {
     expect(persistentTopBar).toContain("const menuRowClass = 'flex min-h-10");
     expect(persistentTopBar).not.toContain('menuPill');
     expect(persistentTopBar).not.toContain('ListSortPills');
-    expect(listSortMenu).toContain('<select');
-    expect(listSortMenu).toContain('aria-label="Sort list"');
+    expect(listSortMenu).toContain('grid grid-cols-3');
+    expect(listSortMenu).toContain('role="group" aria-label="Sort list"');
+    expect(listSortMenu).toContain('aria-pressed={isSelected}');
     expect(listSortMenu).not.toContain('rounded-full');
-    expect(listSortMenu).not.toContain('<button');
   });
 });
