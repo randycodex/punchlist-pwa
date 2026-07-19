@@ -20,7 +20,7 @@ import {
 } from '@/lib/collaboration';
 import CollaborationAvatar from '@/components/CollaborationAvatar';
 import UserProfileModal from '@/components/UserProfileModal';
-import ListSortPills from '@/components/ListSortPills';
+import ListSortMenu from '@/components/ListSortMenu';
 import {
   Activity,
   ArchiveRestore,
@@ -128,11 +128,11 @@ export default function PersistentTopBar() {
   }, [collaborationAuth.isSignedIn]);
 
   const syncButtonClasses = {
-    idle: 'border-transparent bg-black/[0.07] text-gray-700 hover:bg-black/[0.10] dark:border-transparent dark:bg-white/[0.05] dark:text-gray-300 dark:hover:bg-white/[0.08]',
-    syncing: 'animate-pulse border-sky-300 bg-sky-100 text-sky-700 hover:bg-sky-100 dark:border-sky-300/35 dark:bg-sky-400/15 dark:text-sky-200',
-    pending: 'border-transparent bg-black/[0.07] text-gray-700 hover:bg-black/[0.10] dark:border-transparent dark:bg-white/[0.05] dark:text-gray-300 dark:hover:bg-white/[0.08]',
-    'needs-auth': 'border-red-200 bg-red-50 text-red-600 hover:bg-red-100 dark:border-red-400/25 dark:bg-red-400/10 dark:text-red-300 dark:hover:bg-red-400/15',
-    error: 'border-red-200 bg-red-50 text-red-600 hover:bg-red-100 dark:border-red-400/25 dark:bg-red-400/10 dark:text-red-300 dark:hover:bg-red-400/15',
+    idle: 'text-gray-700 hover:bg-black/[0.04] dark:text-gray-300 dark:hover:bg-white/[0.05]',
+    syncing: 'animate-pulse bg-sky-100 text-sky-700 hover:bg-sky-100 dark:bg-sky-400/15 dark:text-sky-200',
+    pending: 'text-gray-700 hover:bg-black/[0.04] dark:text-gray-300 dark:hover:bg-white/[0.05]',
+    'needs-auth': 'bg-red-50 text-red-600 hover:bg-red-100 dark:bg-red-400/10 dark:text-red-300 dark:hover:bg-red-400/15',
+    error: 'bg-red-50 text-red-600 hover:bg-red-100 dark:bg-red-400/10 dark:text-red-300 dark:hover:bg-red-400/15',
   } as const;
 
   const syncButtonLabel = {
@@ -344,7 +344,7 @@ export default function PersistentTopBar() {
           dispatchHomeAction('sync-now');
         }}
         disabled={displayStatus === 'syncing' || displayRetryInSeconds > 0}
-        className={`${syncMenuPillBaseClass} ${buttonClasses}`}
+        className={`${syncMenuRowBaseClass} ${buttonClasses}`}
         aria-label={label}
         title={label}
       >
@@ -390,16 +390,16 @@ export default function PersistentTopBar() {
     );
   }
 
-  const menuCardClass = 'app-menu-card rounded-[1.25rem] p-2 md:p-2.5';
+  const menuCardClass = 'app-menu-card overflow-hidden rounded-[1.1rem] px-2 py-1 md:px-2.5 md:py-1.5';
   const menuGroupShellClass = 'px-1 py-0.5 md:py-1';
-  const menuGroupLabelClass = 'px-2 pb-2 pt-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-gray-500 dark:text-gray-400';
-  const menuPillGridClass = 'grid grid-cols-2 gap-2 px-1 pb-1';
-  const menuPillClass = 'flex min-h-10 min-w-0 items-center gap-2 rounded-full bg-black/[0.07] px-3 py-2 text-left text-[13px] font-medium leading-tight text-gray-700 transition hover:bg-black/[0.10] dark:bg-white/[0.05] dark:text-gray-300 dark:hover:bg-white/[0.08]';
-  const syncMenuPillBaseClass = 'flex min-h-10 min-w-0 items-center gap-2 rounded-full border px-3 py-2 text-left text-[13px] font-medium leading-tight transition disabled:cursor-default';
-  const disabledMenuPillClass = `${menuPillClass} disabled:cursor-default disabled:opacity-60`;
-  const activeTransferMenuPillBaseClass = 'flex min-h-10 min-w-0 cursor-wait items-center gap-2 rounded-full border px-3 py-2 text-left text-[13px] font-semibold leading-tight transition';
-  const activePushMenuPillClass = `${activeTransferMenuPillBaseClass} border-violet-300 bg-violet-100 text-violet-700 dark:border-violet-400/35 dark:bg-violet-400/20 dark:text-violet-100`;
-  const activePullMenuPillClass = `${activeTransferMenuPillBaseClass} border-sky-300 bg-sky-100 text-sky-700 dark:border-sky-400/35 dark:bg-sky-400/20 dark:text-sky-100`;
+  const menuGroupLabelClass = 'px-2 pb-1.5 pt-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-gray-500 dark:text-gray-400';
+  const menuListGridClass = 'grid grid-cols-2 overflow-hidden px-1 pb-1';
+  const menuRowClass = 'flex min-h-10 min-w-0 items-center gap-2 border-t border-black/[0.08] px-2.5 py-2 text-left text-[13px] font-medium leading-tight text-gray-700 transition-colors hover:bg-black/[0.04] even:border-l dark:border-white/[0.08] dark:text-gray-300 dark:hover:bg-white/[0.05]';
+  const syncMenuRowBaseClass = `${menuRowClass} disabled:cursor-default`;
+  const disabledMenuRowClass = `${menuRowClass} disabled:cursor-default disabled:opacity-60`;
+  const activeTransferMenuRowBaseClass = `${menuRowClass} cursor-wait font-semibold`;
+  const activePushMenuRowClass = `${activeTransferMenuRowBaseClass} bg-violet-100 text-violet-700 dark:bg-violet-400/20 dark:text-violet-100`;
+  const activePullMenuRowClass = `${activeTransferMenuRowBaseClass} bg-sky-100 text-sky-700 dark:bg-sky-400/20 dark:text-sky-100`;
   return (
     <div className="persistent-top-bar fixed top-0 left-0 right-0 z-30 pt-[env(safe-area-inset-top)] md:border-b">
       <div className="top-bar-surface mx-auto flex h-14 w-full max-w-6xl items-center justify-between px-4 sm:px-5">
@@ -455,8 +455,8 @@ export default function PersistentTopBar() {
                   {homeMenuState.hasProjects && (
                     <div className={menuGroupShellClass}>
                       <div className={menuCardClass}>
-                        <div className="px-1 py-0.5 md:py-1">
-                          <ListSortPills
+                        <div className="px-1 pb-1">
+                          <ListSortMenu
                             value={homeMenuState.sortOption}
                             onChange={(option) => {
                               if (showAuth) {
@@ -474,8 +474,8 @@ export default function PersistentTopBar() {
                   <div className={menuGroupShellClass}>
                     <div className={menuCardClass}>
                       <div className={menuGroupLabelClass}>Current Project</div>
-                      <div className={menuPillGridClass}>
-                        <button onClick={() => dispatchHomeAction('edit-project')} className={menuPillClass}>
+                      <div className={menuListGridClass}>
+                        <button onClick={() => dispatchHomeAction('edit-project')} className={menuRowClass}>
                           <Pencil className="h-4 w-4 shrink-0" />
                           Edit
                         </button>
@@ -489,13 +489,13 @@ export default function PersistentTopBar() {
                                 setShowHomeMenu(false);
                               }
                             }}
-                            className={menuPillClass}
+                            className={menuRowClass}
                           >
                             <CheckCircle2 className="h-4 w-4 shrink-0" />
                             {homeMenuState.selectionMode ? 'Cancel Selection' : 'Select Areas'}
                           </button>
                         )}
-                        <button onClick={() => dispatchHomeAction('export-project')} className={menuPillClass}>
+                        <button onClick={() => dispatchHomeAction('export-project')} className={menuRowClass}>
                           <FileDown className="h-4 w-4 shrink-0" />
                           Export
                         </button>
@@ -507,11 +507,11 @@ export default function PersistentTopBar() {
                   <div className={menuGroupShellClass}>
                     <div className={menuCardClass}>
                       <div className={menuGroupLabelClass}>Collaboration</div>
-                      <div className={menuPillGridClass}>
+                      <div className={menuListGridClass}>
                         {!homeMenuState.isSharedProject && (
                           <button
                             onClick={() => dispatchHomeAction('share-project')}
-                            className={menuPillClass}
+                            className={menuRowClass}
                           >
                             <Share2 className="h-4 w-4 shrink-0" />
                             Start Sharing
@@ -527,7 +527,7 @@ export default function PersistentTopBar() {
                           <button
                             onClick={() => dispatchHomeAction('publish-shared-project')}
                             disabled={sharedTransferStatus !== null}
-                            className={sharedTransferStatus === 'publishing' ? activePushMenuPillClass : disabledMenuPillClass}
+                            className={sharedTransferStatus === 'publishing' ? activePushMenuRowClass : disabledMenuRowClass}
                             aria-busy={sharedTransferStatus === 'publishing'}
                           >
                             <CloudUpload className={`h-4 w-4 shrink-0 ${sharedTransferStatus === 'publishing' ? 'animate-pulse' : ''}`} />
@@ -536,7 +536,7 @@ export default function PersistentTopBar() {
                           <button
                             onClick={() => dispatchHomeAction('pull-shared-project')}
                             disabled={sharedTransferStatus !== null}
-                            className={sharedTransferStatus === 'pulling' ? activePullMenuPillClass : disabledMenuPillClass}
+                            className={sharedTransferStatus === 'pulling' ? activePullMenuRowClass : disabledMenuRowClass}
                             aria-busy={sharedTransferStatus === 'pulling'}
                           >
                             <CloudDownload className={`h-4 w-4 shrink-0 ${sharedTransferStatus === 'pulling' ? 'animate-pulse' : ''}`} />
@@ -545,7 +545,7 @@ export default function PersistentTopBar() {
                           <button
                             onClick={() => dispatchHomeAction('invite-people')}
                             disabled={!!homeMenuState.isCreatingJoinCode}
-                            className={disabledMenuPillClass}
+                            className={disabledMenuRowClass}
                           >
                             <UserPlus className="h-4 w-4 shrink-0" />
                             {homeMenuState.isCreatingJoinCode ? 'Preparing...' : 'Invite'}
@@ -553,12 +553,12 @@ export default function PersistentTopBar() {
                           <button
                             onClick={() => dispatchHomeAction('shared-members')}
                             disabled={!!homeMenuState.isLoadingSharedMembers}
-                            className={disabledMenuPillClass}
+                            className={disabledMenuRowClass}
                           >
                             <Users className="h-4 w-4 shrink-0" />
                             {homeMenuState.isLoadingSharedMembers ? 'Loading...' : 'Members'}
                           </button>
-                          <button onClick={() => dispatchHomeAction('shared-backups')} className={menuPillClass}>
+                          <button onClick={() => dispatchHomeAction('shared-backups')} className={menuRowClass}>
                             <ArchiveRestore className="h-4 w-4 shrink-0" />
                             Shared Backups
                           </button>
@@ -566,7 +566,7 @@ export default function PersistentTopBar() {
                             <button
                               onClick={() => dispatchHomeAction('disconnect-shared-project')}
                               disabled={!!homeMenuState.isDisconnectingSharedProject}
-                              className={disabledMenuPillClass}
+                              className={disabledMenuRowClass}
                             >
                               <LogOut className="h-4 w-4 shrink-0" />
                               {homeMenuState.isDisconnectingSharedProject
@@ -588,14 +588,14 @@ export default function PersistentTopBar() {
                             </div>
                             <button
                               onClick={() => dispatchHomeAction('my-shared-projects')}
-                              className={menuPillClass}
+                              className={menuRowClass}
                             >
                               <Users className="h-4 w-4 shrink-0" />
                               Reconnect Project
                             </button>
                             <button
                               onClick={() => dispatchHomeAction('unlink-inactive-shared-project')}
-                              className={menuPillClass}
+                              className={menuRowClass}
                             >
                               <LogOut className="h-4 w-4 shrink-0" />
                               Keep Local Copy
@@ -610,9 +610,9 @@ export default function PersistentTopBar() {
                   <div className={menuGroupShellClass}>
                     <div className={menuCardClass}>
                       <div className={menuGroupLabelClass}>Projects</div>
-                      <div className={menuPillGridClass}>
+                      <div className={menuListGridClass}>
                         {showAuth && (
-                          <button onClick={() => dispatchHomeAction('new-project')} className={menuPillClass}>
+                          <button onClick={() => dispatchHomeAction('new-project')} className={menuRowClass}>
                             <PlusSquare className="h-4 w-4 shrink-0" />
                             New Project
                           </button>
@@ -623,7 +623,7 @@ export default function PersistentTopBar() {
                             type="button"
                             onClick={() => dispatchHomeAction('restore-onedrive-backup')}
                             disabled={displayStatus === 'syncing'}
-                            className={disabledMenuPillClass}
+                            className={disabledMenuRowClass}
                             aria-label="Restore missing projects and photos from OneDrive"
                           >
                             <ArchiveRestore className="h-4 w-4 shrink-0" />
@@ -638,31 +638,31 @@ export default function PersistentTopBar() {
                               type="button"
                               onClick={() => void collaborationAuth.signIn()}
                               disabled={!collaborationAuth.isReady || collaborationAuth.isSigningIn}
-                              className={disabledMenuPillClass}
+                              className={disabledMenuRowClass}
                             >
                               <Users className="h-4 w-4 shrink-0" />
                               {collaborationAuth.isSigningIn ? 'Connecting...' : 'Connect Projects'}
                             </button>
                           )}
                         {showAuth && collaborationAuth.isSignedIn && (
-                          <button onClick={() => dispatchHomeAction('join-shared-project')} className={menuPillClass}>
+                          <button onClick={() => dispatchHomeAction('join-shared-project')} className={menuRowClass}>
                             <UserPlus className="h-4 w-4 shrink-0" />
                             Join Project
                           </button>
                         )}
                         {showAuth && collaborationAuth.isSignedIn ? (
-                          <button onClick={() => dispatchHomeAction('my-shared-projects')} className={menuPillClass}>
+                          <button onClick={() => dispatchHomeAction('my-shared-projects')} className={menuRowClass}>
                             <Users className="h-4 w-4 shrink-0" />
                             Manage Projects
                           </button>
                         ) : projectId ? (
-                          <Link href="/" className={menuPillClass}>
+                          <Link href="/" className={menuRowClass}>
                             <Users className="h-4 w-4 shrink-0" />
                             Manage Projects
                           </Link>
                         ) : null}
                         {showAuth && (
-                          <button onClick={() => dispatchHomeAction('toggle-trash')} className={menuPillClass}>
+                          <button onClick={() => dispatchHomeAction('toggle-trash')} className={menuRowClass}>
                             <Trash2 className="h-4 w-4 shrink-0" />
                             Trash
                           </button>
@@ -682,13 +682,13 @@ export default function PersistentTopBar() {
                 <div className={menuGroupShellClass}>
                   <div className={menuCardClass}>
                     <div className={menuGroupLabelClass}>Account</div>
-                    <div className={menuPillGridClass}>
+                    <div className={menuListGridClass}>
                       {collaborationAuth.isSignedIn && (
                         <button
                           onClick={() => {
                             setShowProfile(true);
                           }}
-                          className={menuPillClass}
+                          className={menuRowClass}
                         >
                           {collaborationAuth.profile ? (
                             <CollaborationAvatar
@@ -704,12 +704,12 @@ export default function PersistentTopBar() {
                         </button>
                       )}
                       {!isSignedIn ? (
-                        <button onClick={() => void handleMicrosoftAuthAction()} className={menuPillClass}>
+                        <button onClick={() => void handleMicrosoftAuthAction()} className={menuRowClass}>
                           <LogIn className="h-4 w-4 shrink-0" />
                           Sign In
                         </button>
                       ) : (
-                        <button onClick={() => void handleMicrosoftAuthAction()} className={menuPillClass}>
+                        <button onClick={() => void handleMicrosoftAuthAction()} className={menuRowClass}>
                           <LogOut className="h-4 w-4 shrink-0" />
                           Sign Out
                         </button>

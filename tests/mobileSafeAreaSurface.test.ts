@@ -15,6 +15,10 @@ const persistentTopBar = readFileSync(
   resolve(process.cwd(), 'src/components/PersistentTopBar.tsx'),
   'utf8'
 );
+const listSortMenu = readFileSync(
+  resolve(process.cwd(), 'src/components/ListSortMenu.tsx'),
+  'utf8'
+);
 const rootLayout = readFileSync(
   resolve(process.cwd(), 'src/app/layout.tsx'),
   'utf8'
@@ -71,10 +75,23 @@ describe('mobile top-bar safe area', () => {
       'app-menu-scroll min-h-0 flex-1 touch-none overflow-hidden px-3 pb-2 pt-1'
     );
     expect(persistentTopBar).toContain('md:overflow-y-auto md:overscroll-y-contain md:touch-pan-y');
-    expect(persistentTopBar).toContain("app-menu-card rounded-[1.25rem] p-2 md:p-2.5");
+    expect(persistentTopBar).toContain(
+      "app-menu-card overflow-hidden rounded-[1.1rem] px-2 py-1 md:px-2.5 md:py-1.5"
+    );
     expect(persistentTopBar).toContain("px-1 py-0.5 md:py-1");
     expect(persistentTopBar).not.toContain(
       'app-menu-scroll min-h-0 flex-1 overflow-y-auto overscroll-y-contain touch-pan-y'
     );
+  });
+
+  it('uses conventional grouped list rows instead of pill controls', () => {
+    expect(persistentTopBar).toContain("const menuListGridClass = 'grid grid-cols-2");
+    expect(persistentTopBar).toContain("const menuRowClass = 'flex min-h-10");
+    expect(persistentTopBar).not.toContain('menuPill');
+    expect(persistentTopBar).not.toContain('ListSortPills');
+    expect(listSortMenu).toContain('<select');
+    expect(listSortMenu).toContain('aria-label="Sort list"');
+    expect(listSortMenu).not.toContain('rounded-full');
+    expect(listSortMenu).not.toContain('<button');
   });
 });
