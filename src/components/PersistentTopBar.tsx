@@ -390,7 +390,8 @@ export default function PersistentTopBar() {
     );
   }
 
-  const menuCardClass = 'app-menu-card rounded-[1.25rem] p-2.5';
+  const menuCardClass = 'app-menu-card rounded-[1.25rem] p-2 md:p-2.5';
+  const menuGroupShellClass = 'px-1 py-0.5 md:py-1';
   const menuGroupLabelClass = 'px-2 pb-2 pt-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-gray-500 dark:text-gray-400';
   const menuPillGridClass = 'grid grid-cols-2 gap-2 px-1 pb-1';
   const menuPillClass = 'flex min-h-10 min-w-0 items-center gap-2 rounded-full bg-black/[0.07] px-3 py-2 text-left text-[13px] font-medium leading-tight text-gray-700 transition hover:bg-black/[0.10] dark:bg-white/[0.05] dark:text-gray-300 dark:hover:bg-white/[0.08]';
@@ -450,11 +451,11 @@ export default function PersistentTopBar() {
                 aria-modal="false"
                 aria-label="App menu"
               >
-                <div className="app-menu-scroll min-h-0 flex-1 overflow-y-auto overscroll-y-contain touch-pan-y px-3 pb-[calc(env(safe-area-inset-bottom)+1rem)] pt-2 md:pt-[calc(env(safe-area-inset-top)+0.5rem)]">
+                <div className="app-menu-scroll min-h-0 flex-1 touch-none overflow-hidden px-3 pb-2 pt-1 md:overflow-y-auto md:overscroll-y-contain md:touch-pan-y md:pb-[calc(env(safe-area-inset-bottom)+1rem)] md:pt-[calc(env(safe-area-inset-top)+0.5rem)]">
                   {homeMenuState.hasProjects && (
-                    <div className="px-1 py-1">
+                    <div className={menuGroupShellClass}>
                       <div className={menuCardClass}>
-                        <div className="px-1 py-1">
+                        <div className="px-1 py-0.5 md:py-1">
                           <ListSortPills
                             value={homeMenuState.sortOption}
                             onChange={(option) => {
@@ -470,7 +471,7 @@ export default function PersistentTopBar() {
                     </div>
                   )}
                 {homeMenuState.isSingleProject && (
-                  <div className="px-1 py-1">
+                  <div className={menuGroupShellClass}>
                     <div className={menuCardClass}>
                       <div className={menuGroupLabelClass}>Current Project</div>
                       <div className={menuPillGridClass}>
@@ -503,7 +504,7 @@ export default function PersistentTopBar() {
                   </div>
                 )}
                 {homeMenuState.isSingleProject && collaborationAuth.isSignedIn && (
-                  <div className="px-1 py-1">
+                  <div className={menuGroupShellClass}>
                     <div className={menuCardClass}>
                       <div className={menuGroupLabelClass}>Collaboration</div>
                       <div className={menuPillGridClass}>
@@ -606,7 +607,7 @@ export default function PersistentTopBar() {
                   </div>
                 )}
                 {(showAuth || projectId) && (
-                  <div className="px-1 py-1">
+                  <div className={menuGroupShellClass}>
                     <div className={menuCardClass}>
                       <div className={menuGroupLabelClass}>Projects</div>
                       <div className={menuPillGridClass}>
@@ -678,7 +679,7 @@ export default function PersistentTopBar() {
                     </div>
                   </div>
                 )}
-                <div className="px-1 py-1">
+                <div className={menuGroupShellClass}>
                   <div className={menuCardClass}>
                     <div className={menuGroupLabelClass}>Account</div>
                     <div className={menuPillGridClass}>

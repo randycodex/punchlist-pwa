@@ -53,7 +53,7 @@ describe('mobile top-bar safe area', () => {
     }
   });
 
-  it('keeps the mobile menu scrollable through the bottom safe area without a fixed band', () => {
+  it('keeps the static mobile menu above the reserved bottom system area', () => {
     expect(globalStyles).toMatch(
       /@media \(max-width: 767px\)[\s\S]*?\.app-menu-drawer\.menu-surface\s*\{[\s\S]*?bottom:\s*0;[\s\S]*?height:\s*auto;[\s\S]*?background:\s*var\(--background\);/
     );
@@ -68,8 +68,13 @@ describe('mobile top-bar safe area', () => {
     );
     expect(globalStyles).not.toContain('transparent calc(100% - env(safe-area-inset-bottom))');
     expect(persistentTopBar).toContain(
+      'app-menu-scroll min-h-0 flex-1 touch-none overflow-hidden px-3 pb-2 pt-1'
+    );
+    expect(persistentTopBar).toContain('md:overflow-y-auto md:overscroll-y-contain md:touch-pan-y');
+    expect(persistentTopBar).toContain("app-menu-card rounded-[1.25rem] p-2 md:p-2.5");
+    expect(persistentTopBar).toContain("px-1 py-0.5 md:py-1");
+    expect(persistentTopBar).not.toContain(
       'app-menu-scroll min-h-0 flex-1 overflow-y-auto overscroll-y-contain touch-pan-y'
     );
-    expect(persistentTopBar).not.toContain('min-h-0 flex-1 touch-none overflow-hidden');
   });
 });
