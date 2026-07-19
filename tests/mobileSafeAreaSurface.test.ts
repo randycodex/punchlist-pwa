@@ -68,7 +68,7 @@ describe('mobile top-bar safe area', () => {
       /@media \(max-width: 767px\)[\s\S]*?html\[data-app-menu-open="true"\] \.app-shell/
     );
     expect(globalStyles).toMatch(
-      /\.app-menu-drawer \.app-menu-scroll\s*\{[\s\S]*?position:\s*absolute;[\s\S]*?inset:\s*0;[\s\S]*?padding-bottom:\s*max\(calc\(env\(safe-area-inset-bottom\) \+ 1rem\), 6rem\);[\s\S]*?background:\s*var\(--background\);/
+      /\.app-menu-drawer \.app-menu-scroll\s*\{[\s\S]*?position:\s*absolute;[\s\S]*?inset:\s*0;[\s\S]*?padding-bottom:\s*max\(calc\(env\(safe-area-inset-bottom\) \+ 1rem\), 4\.75rem\);[\s\S]*?background:\s*var\(--background\);/
     );
     expect(globalStyles).not.toContain('transparent calc(100% - env(safe-area-inset-bottom))');
     expect(persistentTopBar).toContain(
@@ -81,21 +81,23 @@ describe('mobile top-bar safe area', () => {
     expect(persistentTopBar).toContain("px-1 py-0.5 md:py-1");
     expect(persistentTopBar).toContain("app-menu-group px-1 py-0.5 md:py-1");
     expect(persistentTopBar).toContain("app-menu-list grid grid-cols-2");
-    expect(globalStyles).toContain('flex: 1 0 auto;');
+    expect(globalStyles).toContain('flex: 1 1 auto;');
     expect(globalStyles).toContain('grid-auto-rows: minmax(2.5rem, 1fr);');
+    expect(globalStyles).toMatch(
+      /@media \(max-width: 767px\) and \(min-height: 850px\)[\s\S]*?padding-bottom:\s*max\(calc\(env\(safe-area-inset-bottom\) \+ 1rem\), 6rem\);/
+    );
     expect(persistentTopBar).not.toContain(
       'app-menu-scroll min-h-0 flex-1 overflow-y-auto overscroll-y-contain touch-pan-y'
     );
   });
 
-  it('uses conventional grouped list rows instead of pill controls', () => {
-    expect(persistentTopBar).toContain("const menuListGridClass = 'app-menu-list grid grid-cols-2");
+  it('uses pill controls within the extended grouped menu', () => {
+    expect(persistentTopBar).toContain("const menuListGridClass = 'app-menu-list grid grid-cols-2 gap-2");
     expect(persistentTopBar).toContain("const menuRowClass = 'flex min-h-10");
-    expect(persistentTopBar).not.toContain('menuPill');
-    expect(persistentTopBar).not.toContain('ListSortPills');
-    expect(listSortMenu).toContain('grid h-full grid-cols-3');
+    expect(persistentTopBar).toContain('rounded-full bg-black/[0.07]');
+    expect(listSortMenu).toContain('grid h-full grid-cols-3 gap-2');
     expect(listSortMenu).toContain('role="group" aria-label="Sort list"');
     expect(listSortMenu).toContain('aria-pressed={isSelected}');
-    expect(listSortMenu).not.toContain('rounded-full');
+    expect(listSortMenu).toContain('rounded-full');
   });
 });

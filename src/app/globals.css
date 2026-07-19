@@ -406,13 +406,13 @@ html:not(.dark) {
   .app-menu-drawer .app-menu-scroll {
     position: absolute;
     inset: 0;
-    padding-bottom: max(calc(env(safe-area-inset-bottom) + 1rem), 6rem);
+    padding-bottom: max(calc(env(safe-area-inset-bottom) + 1rem), 4.75rem);
     background: var(--background);
   }
 
   .app-menu-group {
     display: flex;
-    flex: 1 0 auto;
+    flex: 1 1 auto;
     flex-direction: column;
   }
 
@@ -425,6 +425,12 @@ html:not(.dark) {
   .app-menu-list {
     flex: 1;
     grid-auto-rows: minmax(2.5rem, 1fr);
+  }
+}
+
+@media (max-width: 767px) and (min-height: 850px) {
+  .app-menu-drawer .app-menu-scroll {
+    padding-bottom: max(calc(env(safe-area-inset-bottom) + 1rem), 6rem);
   }
 }
 
