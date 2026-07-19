@@ -1870,9 +1870,7 @@ export default function AreaDetailPage() {
       ? 'Releasing your lock…'
       : claimingArea
         ? 'Locking this area for you…'
-      : hasAreaClaim
-        ? 'Locked to you until you release it'
-        : 'Team area';
+      : '';
 
   return (
     <div className="app-page flex h-full flex-col overflow-hidden">
@@ -1889,7 +1887,7 @@ export default function AreaDetailPage() {
               <h1 className="truncate text-[1.12rem] font-semibold tracking-[-0.02em] text-gray-900 dark:text-white">
                 {areaTitle}
               </h1>
-              {project.sharedProjectId && (
+              {project.sharedProjectId && sharedAreaClaimLabel && (
                 <div className="mt-1 text-xs font-medium text-gray-500 dark:text-gray-400">
                   {sharedAreaClaimLabel}
                 </div>
