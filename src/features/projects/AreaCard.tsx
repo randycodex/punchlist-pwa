@@ -77,8 +77,8 @@ export const AreaCard = memo(function AreaCard({
       }}
       className={`main-card-surface card-surface block rounded-[1.65rem] p-4 transition-all sm:p-5 ${
         isSelected
-          ? 'bg-gray-100 border-gray-400 dark:bg-white/[0.08] dark:border-gray-500'
-          : 'hover:-translate-y-px hover:border-black/10 dark:hover:bg-white/[0.07] dark:hover:border-white/[0.08]'
+          ? 'bg-gray-100 dark:bg-white/[0.1]'
+          : 'hover:-translate-y-px dark:hover:bg-white/[0.07]'
       } ${deleteMode ? 'cursor-pointer' : ''}`}
     >
       <div className="flex items-start gap-3">
@@ -131,7 +131,7 @@ export const AreaCard = memo(function AreaCard({
             onMouseEnter={() => {
               if (!deleteMode && !blockedByClaim) onPrimeOpen(area.id);
             }}
-            className="mt-1 flex h-10 w-10 items-center justify-center rounded-[1rem] border border-black/5 bg-white/70 text-gray-500 transition hover:bg-white hover:text-gray-700 dark:border-white/10 dark:bg-white/[0.04] dark:text-gray-300 dark:hover:bg-white/[0.12] dark:hover:text-white"
+            className="soft-control mt-1 flex h-10 w-10 items-center justify-center rounded-[1rem] text-gray-500 transition hover:text-gray-700 dark:text-gray-300 dark:hover:text-white"
             aria-label={`Open ${displayName}`}
           >
             <ChevronRight className="w-5 h-5 text-gray-400" />

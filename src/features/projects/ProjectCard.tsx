@@ -95,8 +95,8 @@ export const ProjectCard = memo(function ProjectCard({
       onPointerLeave={clearLongPress}
       className={`main-card-surface card-surface select-none rounded-[1.7rem] p-4 transition-all sm:p-5 [-webkit-touch-callout:none] ${
         isSelected
-          ? '!border-gray-400 !bg-gray-100 dark:!border-gray-500 dark:!bg-white/[0.08]'
-          : 'hover:-translate-y-px hover:border-black/10 dark:hover:border-white/[0.08] dark:hover:bg-white/[0.07]'
+          ? '!bg-gray-100 dark:!bg-white/[0.1]'
+          : 'hover:-translate-y-px dark:hover:bg-white/[0.07]'
       } ${selectionMode ? 'cursor-pointer' : ''}`}
     >
       <div className="flex items-start gap-3">
@@ -146,7 +146,7 @@ export const ProjectCard = memo(function ProjectCard({
                 onToggleMenu(project.id);
               }}
               onPointerDown={(event) => event.stopPropagation()}
-              className="rounded-[1rem] border border-black/5 bg-white/60 p-2 text-gray-400 transition hover:bg-white hover:text-gray-700 dark:border-white/10 dark:bg-white/[0.04] dark:text-gray-300 dark:hover:bg-white/[0.08] dark:hover:text-white"
+              className="soft-control rounded-[1rem] p-2 text-gray-400 transition hover:text-gray-700 dark:text-gray-300 dark:hover:text-white"
               aria-label={`Project actions for ${project.projectName}`}
               aria-expanded={menuOpen}
               aria-haspopup="menu"
@@ -199,7 +199,7 @@ export const ProjectCard = memo(function ProjectCard({
             onMouseEnter={() => {
               if (!selectionMode) onPrimeOpen(project);
             }}
-            className="mt-0.5 rounded-[1rem] border border-transparent p-1.5 text-gray-400 transition hover:border-black/5 hover:bg-white hover:text-gray-700 dark:text-gray-300 dark:hover:border-white/10 dark:hover:bg-white/[0.08] dark:hover:text-white [-webkit-touch-callout:none]"
+            className="mt-0.5 rounded-[1rem] p-1.5 text-gray-400 transition hover:bg-black/[0.05] hover:text-gray-700 dark:text-gray-300 dark:hover:bg-white/[0.08] dark:hover:text-white [-webkit-touch-callout:none]"
             aria-label={`Open ${project.projectName}`}
           >
             <ChevronRight className="w-5 h-5" />

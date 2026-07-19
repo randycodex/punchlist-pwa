@@ -74,7 +74,7 @@ export default function InvitePeopleDialog({
         </p>
 
         <div
-          className="mt-5 flex justify-center rounded-[1.4rem] border border-[var(--surface-border)] bg-white p-5"
+          className="mt-5 flex justify-center rounded-[1.4rem] soft-control p-5"
           role="img"
           aria-label={`QR code invitation for ${projectName}`}
         >
@@ -97,14 +97,14 @@ export default function InvitePeopleDialog({
           </button>
           <button
             onClick={() => void copyText(inviteUrl, 'link')}
-            className="flex items-center justify-center gap-2 rounded-2xl border border-gray-300/90 bg-white/70 px-4 py-3 text-sm font-medium text-gray-700 transition hover:bg-white dark:border-white/10 dark:bg-white/[0.04] dark:text-gray-300 dark:hover:bg-white/[0.08]"
+            className="flex items-center justify-center gap-2 soft-control rounded-2xl px-4 py-3 text-sm font-medium text-gray-700 transition hover:bg-white dark:text-gray-300 dark:hover:bg-white/[0.08]"
           >
             {copyStatus === 'link' ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
             {copyStatus === 'link' ? 'Link copied' : 'Copy link'}
           </button>
         </div>
 
-        <div className="mt-4 rounded-[1.25rem] border border-[var(--surface-border)] bg-white/70 px-4 py-4 dark:bg-white/[0.04]">
+        <div className="mt-4 rounded-[1.25rem] soft-control px-4 py-4 dark:bg-white/[0.04]">
           <div className="text-xs font-semibold uppercase tracking-[0.18em] text-gray-500 dark:text-gray-400">
             Invite code
           </div>
@@ -131,7 +131,7 @@ export default function InvitePeopleDialog({
 
         <button
           onClick={onClose}
-          className="mt-5 w-full rounded-2xl border border-gray-300/90 bg-white/70 px-4 py-3 font-medium text-gray-700 transition hover:bg-white dark:border-white/10 dark:bg-white/[0.04] dark:text-gray-300 dark:hover:bg-white/[0.08]"
+          className="mt-5 w-full soft-control rounded-2xl px-4 py-3 font-medium text-gray-700 transition hover:bg-white dark:text-gray-300 dark:hover:bg-white/[0.08]"
         >
           Done
         </button>

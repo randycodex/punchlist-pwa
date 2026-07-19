@@ -100,7 +100,7 @@ describe('mobile top-bar safe area', () => {
     expect(listSortMenu).toContain('aria-pressed={isSelected}');
     expect(listSortMenu).toContain('rounded-full');
     expect(globalStyles).toMatch(
-      /\.app-menu-card\s*\{[\s\S]*?background:\s*transparent;[\s\S]*?border:\s*1px solid transparent;/
+      /\.app-menu-card\s*\{[\s\S]*?background:\s*transparent;[\s\S]*?border:\s*0;/
     );
     expect(globalStyles).not.toContain('--app-menu-card-bg');
     expect(persistentTopBar).not.toContain('app-menu-sort-card');

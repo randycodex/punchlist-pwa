@@ -43,7 +43,7 @@ export default function CollaborationHealthDialog({
         </p>
 
         {loading ? (
-          <div className="flex items-center gap-3 rounded-[1.25rem] border border-[var(--surface-border)] bg-white/70 px-4 py-5 text-sm text-gray-500 dark:bg-white/[0.04] dark:text-gray-400">
+          <div className="flex items-center gap-3 rounded-[1.25rem] soft-control px-4 py-5 text-sm text-gray-500 dark:bg-white/[0.04] dark:text-gray-400">
             <Loader2 className="h-4 w-4 animate-spin" />
             Running checks...
           </div>
@@ -53,7 +53,7 @@ export default function CollaborationHealthDialog({
               Checked {report.checkedAt.toLocaleString()}
             </div>
             {report.checks.map((check) => (
-              <div key={check.key} className="rounded-[1.25rem] border border-[var(--surface-border)] bg-white/70 p-4 dark:bg-white/[0.04]">
+              <div key={check.key} className="rounded-[1.25rem] soft-control p-4 dark:bg-white/[0.04]">
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <div className="text-sm font-semibold text-gray-900 dark:text-white">
@@ -71,7 +71,7 @@ export default function CollaborationHealthDialog({
             ))}
           </div>
         ) : (
-          <div className="rounded-[1.25rem] border border-[var(--surface-border)] bg-white/70 px-4 py-5 text-sm text-gray-500 dark:bg-white/[0.04] dark:text-gray-400">
+          <div className="rounded-[1.25rem] soft-control px-4 py-5 text-sm text-gray-500 dark:bg-white/[0.04] dark:text-gray-400">
             No checks have run yet.
           </div>
         )}
@@ -79,7 +79,7 @@ export default function CollaborationHealthDialog({
         <div className="mt-6 flex gap-3">
           <button
             onClick={onClose}
-            className="flex-1 rounded-2xl border border-gray-300/90 bg-white/70 px-4 py-3 font-medium text-gray-700 transition hover:bg-white dark:border-white/10 dark:bg-white/[0.04] dark:text-gray-300 dark:hover:bg-white/[0.08]"
+            className="flex-1 soft-control rounded-2xl px-4 py-3 font-medium text-gray-700 transition hover:bg-white dark:text-gray-300 dark:hover:bg-white/[0.08]"
           >
             Done
           </button>

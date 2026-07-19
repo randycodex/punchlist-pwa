@@ -230,50 +230,50 @@ html:not(.dark) {
 
 .card-surface {
   background: var(--surface);
-  border: 1px solid var(--surface-border);
+  border: 0;
 }
 
 .card-surface-subtle {
   background: var(--surface);
-  border: 1px solid var(--surface-border);
+  border: 0;
 }
 
 .main-card-surface {
   --main-card-bg: var(--surface);
   background: var(--main-card-bg);
-  border-color: color-mix(in srgb, var(--main-card-bg) 82%, black);
+  border: 0;
 }
 
 .dark .main-card-surface {
-  border-color: color-mix(in srgb, var(--main-card-bg) 85%, white);
+  border: 0;
 }
 
 .inspection-location-surface {
   --inspection-control-bg: rgb(238 238 238);
   background: var(--inspection-control-bg);
-  border: 1px solid color-mix(in srgb, var(--inspection-control-bg) 82%, black);
+  border: 0;
 }
 
 .dark .inspection-location-surface {
   --inspection-control-bg: #222a32;
-  border-color: color-mix(in srgb, var(--inspection-control-bg) 85%, white);
+  border: 0;
 }
 
 .inspection-item-expanded-surface {
   --inspection-control-bg: rgba(255, 255, 255, 0.96);
   background: var(--inspection-control-bg);
-  border: 1px solid color-mix(in srgb, var(--inspection-control-bg) 82%, black);
+  border: 0;
 }
 
 .inspection-location-surface .card-surface-subtle,
 .area-notes-card {
   --inspection-control-bg: var(--surface);
   background: var(--inspection-control-bg);
-  border-color: color-mix(in srgb, var(--inspection-control-bg) 82%, black);
+  border: 0;
 }
 
 .inspection-checkpoint-row {
-  border: 1px solid color-mix(in srgb, var(--inspection-control-bg) 82%, black);
+  border: 0;
 }
 
 .inspection-checkpoint-row--default {
@@ -283,7 +283,7 @@ html:not(.dark) {
 
 .inspection-add-trigger {
   --inspection-control-bg: #e64b25;
-  border: 1px solid color-mix(in srgb, var(--inspection-control-bg) 82%, black);
+  border: 0;
   background: var(--inspection-control-bg);
   color: #ffffff;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16);
@@ -295,16 +295,16 @@ html:not(.dark) {
 
 .dark .inspection-item-expanded-surface {
   --inspection-control-bg: #15191e;
-  border-color: color-mix(in srgb, var(--inspection-control-bg) 85%, white);
+  border: 0;
 }
 
 .dark .inspection-location-surface .card-surface-subtle,
 .dark .area-notes-card {
-  border-color: color-mix(in srgb, var(--inspection-control-bg) 85%, white);
+  border: 0;
 }
 
 .dark .inspection-checkpoint-row {
-  border-color: color-mix(in srgb, var(--inspection-control-bg) 85%, white);
+  border: 0;
 }
 
 .dark .inspection-checkpoint-row--default {
@@ -313,7 +313,7 @@ html:not(.dark) {
 
 .dark .inspection-add-trigger {
   --inspection-control-bg: #a53d24;
-  border-color: color-mix(in srgb, var(--inspection-control-bg) 85%, white);
+  border: 0;
   color: #ffffff;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1);
 }
@@ -324,40 +324,40 @@ html:not(.dark) {
 
 .inspection-add-trigger.inspection-add-trigger--sub-item {
   --inspection-control-bg: rgb(216 155 167);
-  border-color: color-mix(in srgb, var(--inspection-control-bg) 82%, black);
+  border: 0;
   background: var(--inspection-control-bg);
   color: #111827;
 }
 
 .inspection-add-trigger.inspection-add-trigger--item {
   --inspection-control-bg: rgb(255 220 216);
-  border-color: color-mix(in srgb, var(--inspection-control-bg) 82%, black);
+  border: 0;
   background: var(--inspection-control-bg);
   color: #111827;
 }
 
 .inspection-add-trigger.inspection-add-trigger--sub-area {
   --inspection-control-bg: rgb(255 189 166);
-  border-color: color-mix(in srgb, var(--inspection-control-bg) 82%, black);
+  border: 0;
   background: var(--inspection-control-bg);
   color: #111827;
 }
 
 .dark .inspection-add-trigger.inspection-add-trigger--sub-item {
   --inspection-control-bg: rgb(148 60 70);
-  border-color: color-mix(in srgb, var(--inspection-control-bg) 85%, white);
+  border: 0;
   color: #ffffff;
 }
 
 .dark .inspection-add-trigger.inspection-add-trigger--item {
   --inspection-control-bg: rgb(145 74 50);
-  border-color: color-mix(in srgb, var(--inspection-control-bg) 85%, white);
+  border: 0;
   color: #ffffff;
 }
 
 .dark .inspection-add-trigger.inspection-add-trigger--sub-area {
   --inspection-control-bg: rgb(131 59 83);
-  border-color: color-mix(in srgb, var(--inspection-control-bg) 85%, white);
+  border: 0;
   color: #ffffff;
 }
 
@@ -369,7 +369,7 @@ html:not(.dark) {
 
 .menu-surface {
   background: var(--surface-elevated);
-  border: 1px solid var(--surface-border);
+  border: 0;
   backdrop-filter: blur(24px);
   -webkit-backdrop-filter: blur(24px);
 }
@@ -381,7 +381,7 @@ html:not(.dark) {
 
 .app-menu-card {
   background: transparent;
-  border: 1px solid transparent;
+  border: 0;
 }
 
 @media (max-width: 767px) {
@@ -528,18 +528,18 @@ html:not(.dark) {
 
 .modal-panel {
   background: var(--surface-elevated);
-  border: 1px solid var(--surface-border);
+  border: 0;
 }
 
 .field-shell {
   width: 100%;
   border-radius: 1rem;
-  border: 1px solid var(--surface-border);
-  background: rgba(255, 255, 255, 0.78);
+  border: 0;
+  background: rgba(0, 0, 0, 0.05);
   color: var(--foreground);
   padding: 0.8rem 0.95rem;
   transition:
-    border-color 160ms ease,
+    box-shadow 160ms ease,
     background-color 160ms ease;
 }
 
@@ -557,16 +557,22 @@ html:not(.dark) {
 
 .field-shell:focus {
   outline: none;
-  border-color: rgba(var(--accent-rgb), 0.38);
+  box-shadow: 0 0 0 2px rgba(var(--accent-rgb), 0.28);
+  background: rgba(0, 0, 0, 0.04);
 }
 
 .dark .field-shell {
-  background: rgba(255, 255, 255, 0.05);
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.dark .field-shell:focus {
+  background: rgba(255, 255, 255, 0.09);
 }
 
 .area-notes-field,
 .area-notes-field:focus {
-  border-color: transparent;
+  border: 0;
+  box-shadow: none;
 }
 
 select.field-shell option {
@@ -580,12 +586,12 @@ select.field-shell option {
 }
 
 .empty-state-card {
-  border: 1px dashed rgba(107, 114, 128, 0.28);
+  border: 0;
   background: var(--surface);
 }
 
 .dark .empty-state-card {
-  border-color: rgba(255, 255, 255, 0.12);
+  border: 0;
   background: var(--surface);
 }
 
@@ -594,8 +600,8 @@ select.field-shell option {
   align-items: center;
   gap: 0.45rem;
   border-radius: 999px;
-  border: 1px solid var(--surface-border);
-  background: rgba(255, 255, 255, 0.7);
+  border: 0;
+  background: rgba(0, 0, 0, 0.07);
   padding: 0.55rem 0.8rem;
   font-size: 0.8125rem;
   line-height: 1rem;
@@ -608,23 +614,41 @@ select.field-shell option {
   color: rgb(209 213 219);
 }
 
+/* Soft secondary control — same fill language as menu pills (no edge stroke). */
+.soft-control {
+  border: 0;
+  background: rgba(0, 0, 0, 0.07);
+}
+
+.dark .soft-control {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.soft-control:hover {
+  background: rgba(0, 0, 0, 0.1);
+}
+
+.dark .soft-control:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
 /* In dark mode, force pinned utility surfaces to match the page background tone. */
 .dark .sticky-surface {
   background-color: var(--surface-strong) !important;
-  border-color: var(--surface-border) !important;
+  border: 0 !important;
 }
 
 /* In light mode, keep utility pinned surfaces explicitly white. */
 html:not(.dark) .sticky-surface {
   background-color: #ffffff !important;
-  border-color: #e5e7eb !important;
+  border: 0 !important;
 }
 
 /* Avoid a white flash in system-dark mode before JS/theme class is fully applied. */
 @media (prefers-color-scheme: dark) {
   html:not(.dark) .sticky-surface {
     background-color: #18181b !important;
-    border-color: #27272a !important;
+    border: 0 !important;
   }
 }
 

@@ -183,7 +183,7 @@ export default function UserProfileModal({ open, onClose }: UserProfileModalProp
             type="button"
             onClick={onClose}
             disabled={isSaving}
-            className="flex-1 rounded-2xl border border-gray-300/90 bg-white/70 px-4 py-3 font-medium text-gray-700 transition hover:bg-white disabled:opacity-50 dark:border-white/10 dark:bg-white/[0.04] dark:text-gray-300 dark:hover:bg-white/[0.08]"
+            className="flex-1 soft-control rounded-2xl px-4 py-3 font-medium text-gray-700 transition hover:bg-white disabled:opacity-50 dark:text-gray-300 dark:hover:bg-white/[0.08]"
           >
             Cancel
           </button>

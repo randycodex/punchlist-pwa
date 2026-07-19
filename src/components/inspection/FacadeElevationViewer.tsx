@@ -501,7 +501,7 @@ export default function FacadeElevationViewer({
               <button
                 type="button"
                 onClick={() => updateZoom(scale - ZOOM_STEP)}
-                className="flex h-9 w-9 items-center justify-center rounded-full border border-black/5 bg-white/75 text-gray-600 transition hover:bg-white disabled:opacity-40 dark:border-white/10 dark:bg-white/[0.06] dark:text-gray-300 dark:hover:bg-white/[0.1]"
+                className="soft-control flex h-9 w-9 items-center justify-center rounded-full text-gray-600 transition disabled:opacity-40 dark:text-gray-300"
                 disabled={scale <= MIN_ZOOM}
                 aria-label="Zoom out"
                 title="Zoom out"
@@ -514,7 +514,7 @@ export default function FacadeElevationViewer({
               <button
                 type="button"
                 onClick={() => updateZoom(scale + ZOOM_STEP)}
-                className="flex h-9 w-9 items-center justify-center rounded-full border border-black/5 bg-white/75 text-gray-600 transition hover:bg-white disabled:opacity-40 dark:border-white/10 dark:bg-white/[0.06] dark:text-gray-300 dark:hover:bg-white/[0.1]"
+                className="soft-control flex h-9 w-9 items-center justify-center rounded-full text-gray-600 transition disabled:opacity-40 dark:text-gray-300"
                 disabled={scale >= MAX_ZOOM}
                 aria-label="Zoom in"
                 title="Zoom in"
@@ -524,7 +524,7 @@ export default function FacadeElevationViewer({
               <button
                 type="button"
                 onClick={resetZoom}
-                className="flex h-9 w-9 items-center justify-center rounded-full border border-black/5 bg-white/75 text-gray-600 transition hover:bg-white dark:border-white/10 dark:bg-white/[0.06] dark:text-gray-300 dark:hover:bg-white/[0.1]"
+                className="soft-control flex h-9 w-9 items-center justify-center rounded-full text-gray-600 transition dark:text-gray-300"
                 aria-label="Reset zoom"
                 title="Reset zoom"
               >
@@ -767,7 +767,7 @@ export default function FacadeElevationViewer({
                   setCustomItemName('');
                   setCustomCheckpointName('');
                 }}
-                className="flex h-11 flex-1 items-center justify-center rounded-full border border-black/5 bg-gray-100 text-sm font-semibold text-gray-700 transition hover:bg-gray-200 dark:border-white/10 dark:bg-white/[0.06] dark:text-gray-200 dark:hover:bg-white/[0.1]"
+                className="soft-control flex h-11 flex-1 items-center justify-center rounded-full text-sm font-semibold text-gray-700 transition dark:text-gray-200"
               >
                 Cancel
               </button>

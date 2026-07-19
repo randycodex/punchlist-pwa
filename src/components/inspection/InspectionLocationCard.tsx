@@ -309,7 +309,7 @@ export default function InspectionLocationCard({
                       event.stopPropagation();
                       setOpenCustomItemMenuId((current) => (current === location.id ? null : location.id));
                     }}
-                    className="flex h-10 w-10 items-center justify-center rounded-[1rem] border border-black/5 bg-white/70 text-gray-500 transition hover:bg-white hover:text-gray-700 dark:border-white/10 dark:bg-white/[0.05] dark:text-gray-300 dark:hover:bg-white/[0.12] dark:hover:text-white"
+                    className="flex h-10 w-10 items-center justify-center soft-control rounded-[1rem] text-gray-500 transition hover:bg-white hover:text-gray-700 dark:text-gray-300 dark:hover:bg-white/[0.12] dark:hover:text-white"
                     aria-label={`More actions for ${location.name}`}
                   >
                     <MoreVertical className="h-4 w-4" />
@@ -412,7 +412,7 @@ export default function InspectionLocationCard({
                             event.stopPropagation();
                             setOpenCustomItemMenuId((current) => (current === item.id ? null : item.id));
                           }}
-                    className="flex h-12 w-12 items-center justify-center rounded-[1.15rem] border border-black/5 bg-white/70 text-gray-500 transition hover:bg-white hover:text-gray-700 dark:border-white/10 dark:bg-white/[0.05] dark:text-gray-300 dark:hover:bg-white/[0.12] dark:hover:text-white"
+                    className="flex h-12 w-12 items-center justify-center rounded-[1.15rem] soft-control text-gray-500 transition hover:bg-white hover:text-gray-700 dark:text-gray-300 dark:hover:bg-white/[0.12] dark:hover:text-white"
                           aria-label={`More actions for ${item.name}`}
                         >
                           <MoreVertical className="h-5 w-5" />
@@ -1009,7 +1009,7 @@ function CheckpointRow({
                 className={`flex h-8 w-8 items-center justify-center rounded-[0.8rem] transition ${
                   photoCount > 0
                     ? 'accent-bg text-white'
-                    : 'border border-black/5 bg-white/70 text-gray-400 hover:bg-white hover:text-gray-700 dark:border-white/10 dark:bg-white/[0.04] dark:text-gray-400 dark:hover:bg-white/[0.08] dark:hover:text-gray-100'
+                    : 'soft-control text-gray-400 hover:bg-white hover:text-gray-700 dark:text-gray-400 dark:hover:bg-white/[0.08] dark:hover:text-gray-100'
                 }`}
                 aria-label={`Take multiple photos for ${checkpoint.name}`}
               >
@@ -1024,7 +1024,7 @@ function CheckpointRow({
                 className={`flex h-8 w-8 items-center justify-center rounded-[0.8rem] transition ${
                   issueState === 'open'
                     ? 'accent-bg text-white'
-                    : 'border border-black/5 bg-white/70 text-gray-400 hover:bg-white hover:text-[var(--accent)] dark:border-white/10 dark:bg-white/[0.04] dark:text-gray-400 dark:hover:bg-white/[0.08]'
+                    : 'soft-control text-gray-400 hover:bg-white hover:text-[var(--accent)] dark:text-gray-400 dark:hover:bg-white/[0.08]'
                 }`}
                 aria-label={`Flag issue for ${checkpoint.name}`}
               >

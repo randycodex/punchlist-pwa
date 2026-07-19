@@ -530,7 +530,7 @@ export default function AreaEditorModal({
               <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
                 Add
               </label>
-              <div className="grid grid-cols-2 gap-1 rounded-[1rem] border border-[var(--surface-border)] bg-black/[0.025] p-1 dark:bg-white/[0.04]">
+              <div className="grid grid-cols-2 gap-1 rounded-[1rem] soft-control p-1 dark:bg-white/[0.04]">
                 {(['single', 'multiple'] as const).map((mode) => {
                   const selected = apartmentCreationMode === mode;
                   return (
@@ -576,7 +576,7 @@ export default function AreaEditorModal({
                 </p>
               </div>
 
-              <div className="rounded-[1rem] border border-[var(--surface-border)] bg-white/55 p-3 dark:bg-white/[0.03]">
+              <div className="rounded-[1rem] soft-control p-3 dark:bg-white/[0.03]">
                 <button
                   type="button"
                   onClick={() => {
@@ -623,7 +623,7 @@ export default function AreaEditorModal({
                       <button
                         type="button"
                         onClick={() => bulkScheduleFileInputRef.current?.click()}
-                        className="flex items-center gap-2 rounded-xl border border-[var(--surface-border)] px-3 py-2 text-xs font-medium text-gray-700 transition hover:bg-black/[0.04] dark:text-gray-300 dark:hover:bg-white/[0.06]"
+                        className="flex items-center gap-2 rounded-xl border-0 px-3 py-2 text-xs font-medium text-gray-700 transition hover:bg-black/[0.04] dark:text-gray-300 dark:hover:bg-white/[0.06]"
                       >
                         <Upload className="h-3.5 w-3.5" />
                         Choose CSV / TSV
@@ -656,7 +656,7 @@ export default function AreaEditorModal({
                     {bulkApartmentUnits.length} units
                   </span>
                 </div>
-                <div className="mb-3 grid gap-2 rounded-[0.9rem] border border-[var(--surface-border)] bg-black/[0.025] p-2 sm:grid-cols-[minmax(0,1fr)_auto_auto] dark:bg-white/[0.03]">
+                <div className="mb-3 grid gap-2 rounded-[0.9rem] soft-control p-2 sm:grid-cols-[minmax(0,1fr)_auto_auto] dark:bg-white/[0.03]">
                   <select
                     value={bulkFillUnitType}
                     onChange={(event) => setBulkFillUnitType(event.target.value as ApartmentUnitType)}
@@ -674,7 +674,7 @@ export default function AreaEditorModal({
                     type="button"
                     onClick={() => fillBlankBulkUnitTypes('page')}
                     disabled={!bulkFillUnitType}
-                    className="rounded-xl border border-[var(--surface-border)] px-3 py-2 text-xs font-medium text-gray-700 transition hover:bg-black/[0.04] disabled:cursor-not-allowed disabled:opacity-40 dark:text-gray-300 dark:hover:bg-white/[0.06]"
+                    className="rounded-xl border-0 px-3 py-2 text-xs font-medium text-gray-700 transition hover:bg-black/[0.04] disabled:cursor-not-allowed disabled:opacity-40 dark:text-gray-300 dark:hover:bg-white/[0.06]"
                   >
                     Fill Page Blanks
                   </button>
@@ -682,12 +682,12 @@ export default function AreaEditorModal({
                     type="button"
                     onClick={() => fillBlankBulkUnitTypes('all')}
                     disabled={!bulkFillUnitType}
-                    className="rounded-xl border border-[var(--surface-border)] px-3 py-2 text-xs font-medium text-gray-700 transition hover:bg-black/[0.04] disabled:cursor-not-allowed disabled:opacity-40 dark:text-gray-300 dark:hover:bg-white/[0.06]"
+                    className="rounded-xl border-0 px-3 py-2 text-xs font-medium text-gray-700 transition hover:bg-black/[0.04] disabled:cursor-not-allowed disabled:opacity-40 dark:text-gray-300 dark:hover:bg-white/[0.06]"
                   >
                     Fill All Blanks
                   </button>
                 </div>
-                <div className="max-h-[22rem] space-y-2 overflow-y-auto rounded-[1rem] border border-[var(--surface-border)] bg-white/55 p-3 dark:bg-white/[0.03]">
+                <div className="max-h-[22rem] space-y-2 overflow-y-auto rounded-[1rem] soft-control p-3 dark:bg-white/[0.03]">
                   {visibleBulkApartmentUnits.map((unit, visibleIndex) => {
                     const index = firstVisibleBulkUnitIndex + visibleIndex;
                     const normalizedNumber = unit.areaNumber.trim().toLocaleLowerCase();
@@ -735,7 +735,7 @@ export default function AreaEditorModal({
                       type="button"
                       onClick={() => setBulkUnitPage((page) => Math.max(1, page - 1))}
                       disabled={activeBulkUnitPage === 1}
-                      className="rounded-xl border border-[var(--surface-border)] px-3 py-2 text-xs font-medium text-gray-700 transition hover:bg-black/[0.04] disabled:cursor-not-allowed disabled:opacity-40 dark:text-gray-300 dark:hover:bg-white/[0.06]"
+                      className="rounded-xl border-0 px-3 py-2 text-xs font-medium text-gray-700 transition hover:bg-black/[0.04] disabled:cursor-not-allowed disabled:opacity-40 dark:text-gray-300 dark:hover:bg-white/[0.06]"
                     >
                       Previous 50
                     </button>
@@ -746,7 +746,7 @@ export default function AreaEditorModal({
                       type="button"
                       onClick={() => setBulkUnitPage((page) => Math.min(bulkUnitPageCount, page + 1))}
                       disabled={activeBulkUnitPage === bulkUnitPageCount}
-                      className="rounded-xl border border-[var(--surface-border)] px-3 py-2 text-xs font-medium text-gray-700 transition hover:bg-black/[0.04] disabled:cursor-not-allowed disabled:opacity-40 dark:text-gray-300 dark:hover:bg-white/[0.06]"
+                      className="rounded-xl border-0 px-3 py-2 text-xs font-medium text-gray-700 transition hover:bg-black/[0.04] disabled:cursor-not-allowed disabled:opacity-40 dark:text-gray-300 dark:hover:bg-white/[0.06]"
                     >
                       Next 50
                     </button>
@@ -821,7 +821,7 @@ export default function AreaEditorModal({
                 Levels
               </label>
               {facadeLevelOptions.length > 0 ? (
-                <div className="grid grid-cols-2 gap-2 rounded-[1rem] border border-[var(--surface-border)] bg-white/70 p-3 dark:bg-white/[0.05]">
+                <div className="grid grid-cols-2 gap-2 rounded-[1rem] soft-control p-3 dark:bg-white/[0.05]">
                   {facadeLevelOptions.map((level) => {
                     const selected = selectedFacadeLevelSet.has(level);
                     return (
@@ -904,7 +904,7 @@ export default function AreaEditorModal({
               <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
                 Type
               </label>
-              <div className="flex flex-col gap-2 rounded-[1rem] border border-[var(--surface-border)] bg-white/70 px-4 py-3 dark:bg-white/[0.05]">
+              <div className="flex flex-col gap-2 rounded-[1rem] soft-control px-4 py-3 dark:bg-white/[0.05]">
                 {FACADE_TYPES.map((type) => {
                   const selected = selectedFacadeTypes.includes(type);
                   return (
@@ -976,7 +976,7 @@ export default function AreaEditorModal({
               <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
                 Elevation Drawing
               </label>
-              <div className="rounded-[1rem] border border-[var(--surface-border)] bg-white/70 p-3 dark:bg-white/[0.05]">
+              <div className="rounded-[1rem] soft-control p-3 dark:bg-white/[0.05]">
                 {selectedOrientation ? (
                   <div className="space-y-3">
                     <select
@@ -1003,7 +1003,7 @@ export default function AreaEditorModal({
                       <button
                         type="button"
                         onClick={() => elevationInputRef.current?.click()}
-                        className="flex h-10 flex-1 items-center justify-center gap-2 rounded-2xl border border-gray-300/90 bg-white/70 px-4 text-sm font-medium text-gray-700 transition hover:bg-white dark:border-white/10 dark:bg-white/[0.04] dark:text-gray-300 dark:hover:bg-white/[0.08]"
+                        className="flex h-10 flex-1 items-center justify-center gap-2 soft-control rounded-2xl px-4 text-sm font-medium text-gray-700 transition hover:bg-white dark:text-gray-300 dark:hover:bg-white/[0.08]"
                       >
                         <Upload className="h-4 w-4" />
                         Upload PDF/JPEG
@@ -1019,7 +1019,7 @@ export default function AreaEditorModal({
                               pendingElevationDrawing: null,
                             });
                           }}
-                          className="flex h-10 w-10 items-center justify-center rounded-2xl border border-gray-300/90 bg-white/70 text-gray-600 transition hover:bg-white hover:text-gray-900 dark:border-white/10 dark:bg-white/[0.04] dark:text-gray-300 dark:hover:bg-white/[0.08]"
+                          className="flex h-10 w-10 items-center justify-center soft-control rounded-2xl text-gray-600 transition hover:bg-white hover:text-gray-900 dark:text-gray-300 dark:hover:bg-white/[0.08]"
                           aria-label="Clear elevation drawing"
                         >
                           <X className="h-4 w-4" />
@@ -1035,7 +1035,7 @@ export default function AreaEditorModal({
                     />
 
                     {selectedElevationDrawing && (
-                      <div className="rounded-[0.9rem] border border-[var(--surface-border)] bg-white/80 p-3 dark:bg-white/[0.05]">
+                      <div className="rounded-[0.9rem] border-0 bg-white/80 p-3 dark:bg-white/[0.05]">
                         <div className="flex items-start gap-2">
                           <FileText className="mt-0.5 h-4 w-4 shrink-0 text-gray-500 dark:text-gray-400" />
                           <div className="min-w-0 flex-1">
@@ -1126,7 +1126,7 @@ export default function AreaEditorModal({
         <div className="mt-6 flex gap-3">
           <button
             onClick={handleClose}
-            className="flex-1 rounded-2xl border border-gray-300/90 bg-white/70 px-4 py-3 font-medium text-gray-700 transition hover:bg-white dark:border-white/10 dark:bg-white/[0.04] dark:text-gray-300 dark:hover:bg-white/[0.08]"
+            className="flex-1 soft-control rounded-2xl px-4 py-3 font-medium text-gray-700 transition hover:bg-white dark:text-gray-300 dark:hover:bg-white/[0.08]"
           >
             Cancel
           </button>

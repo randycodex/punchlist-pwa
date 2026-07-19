@@ -1825,7 +1825,7 @@ export default function AreaDetailPage() {
   if (loading) {
     return (
       <div className="flex min-h-[100dvh] items-center justify-center bg-[var(--background)]">
-        <div className="h-9 w-9 animate-spin rounded-full border-2 border-black/10 border-t-[var(--accent)] dark:border-white/10 dark:border-t-[var(--accent)]" />
+        <div className="h-9 w-9 animate-spin rounded-full border-2 border-black/10 border-t-[var(--accent)] dark:border-t-[var(--accent)]" />
       </div>
     );
   }
@@ -1881,7 +1881,7 @@ export default function AreaDetailPage() {
           <div className="flex w-full items-center gap-3">
             <Link
               href={getAreaReturnPath(project.id, returnToHome)}
-              className="flex h-10 w-10 items-center justify-center rounded-[1rem] border border-black/5 bg-white/70 text-gray-600 transition hover:bg-white dark:border-white/10 dark:bg-white/[0.04] dark:text-gray-300 dark:hover:bg-white/[0.08]"
+              className="flex h-10 w-10 items-center justify-center soft-control rounded-[1rem] text-gray-600 transition hover:bg-white dark:text-gray-300 dark:hover:bg-white/[0.08]"
             >
               <ArrowLeft className="w-5 h-5" />
             </Link>
@@ -1900,7 +1900,7 @@ export default function AreaDetailPage() {
               className={`flex h-10 items-center gap-2 rounded-full px-3 text-sm font-medium transition ${
                 inspectionShowOnlyIssues
                   ? 'accent-tint accent-text'
-                  : 'border border-black/5 bg-white/70 text-gray-500 hover:bg-white hover:text-gray-900 dark:border-white/10 dark:bg-white/[0.04] dark:text-gray-300 dark:hover:bg-white/[0.08] dark:hover:text-white'
+                  : 'soft-control text-gray-500 hover:bg-white hover:text-gray-900 dark:text-gray-300 dark:hover:bg-white/[0.08] dark:hover:text-white'
               }`}
               aria-label={inspectionShowOnlyIssues ? 'Show all items' : 'Show only issues'}
               aria-pressed={inspectionShowOnlyIssues}
@@ -1910,7 +1910,7 @@ export default function AreaDetailPage() {
             <div ref={headerMenuRef} className="relative">
               <button
                 onClick={() => setShowHeaderMenu((current) => !current)}
-                className="flex h-10 w-10 items-center justify-center rounded-[1rem] border border-black/5 bg-white/70 text-gray-500 transition hover:bg-white hover:text-gray-700 dark:border-white/10 dark:bg-white/[0.04] dark:text-gray-400 dark:hover:bg-white/[0.08] dark:hover:text-gray-200"
+                className="flex h-10 w-10 items-center justify-center soft-control rounded-[1rem] text-gray-500 transition hover:bg-white hover:text-gray-700 dark:text-gray-400 dark:hover:bg-white/[0.08] dark:hover:text-gray-200"
                 aria-label="Area actions"
               >
                 <MoreVertical className="w-4 h-4" />
@@ -1987,14 +1987,14 @@ export default function AreaDetailPage() {
       </header>
 
       {areaClaimError && !visibleAreaClaimProblem && (
-        <div className="shrink-0 border-b border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900 dark:border-amber-400/20 dark:bg-amber-400/10 dark:text-amber-100">
+        <div className="shrink-0 border-b border-transparent bg-amber-50 px-4 py-2 text-sm text-amber-900 dark:border-amber-400/20 dark:bg-amber-400/10 dark:text-amber-100">
           {areaClaimError}
         </div>
       )}
 
       {visibleAreaClaimProblem && (
         <div
-          className="shrink-0 border-b border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-950 dark:border-amber-300/20 dark:bg-amber-400/10 dark:text-amber-100"
+          className="shrink-0 border-b border-transparent bg-amber-50 px-4 py-2 text-sm text-amber-950 dark:bg-amber-400/10 dark:text-amber-100"
           aria-live="assertive"
         >
           <div className="mx-auto flex w-full max-w-6xl flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -2010,7 +2010,7 @@ export default function AreaDetailPage() {
               <button
                 type="button"
                 onClick={returnToProjectFromSharedLock}
-                className="inline-flex h-9 items-center justify-center rounded-full border border-amber-300 bg-white/70 px-3 text-xs font-semibold text-amber-950 transition hover:bg-white dark:border-amber-200/30 dark:bg-white/[0.06] dark:text-amber-100 dark:hover:bg-white/[0.1]"
+                className="soft-control inline-flex h-9 items-center justify-center rounded-full px-3 text-xs font-semibold text-amber-950 transition dark:text-amber-100"
               >
                 Back to project
               </button>
@@ -2031,20 +2031,20 @@ export default function AreaDetailPage() {
       )}
 
       {syncError && (
-        <div className="shrink-0 border-b border-gray-200/80 bg-white/70 px-4 py-2 text-sm text-gray-700 dark:border-zinc-700 dark:bg-white/[0.03] dark:text-gray-200">
+        <div className="shrink-0 border-b border-transparent bg-white/70 px-4 py-2 text-sm text-gray-700 dark:bg-white/[0.03] dark:text-gray-200">
           {syncError}
         </div>
       )}
 
       {inspectionNotice && (
-        <div className="shrink-0 border-b border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-medium text-emerald-900 dark:border-emerald-300/20 dark:bg-emerald-400/10 dark:text-emerald-100" aria-live="polite">
+        <div className="shrink-0 border-b border-transparent bg-emerald-50 px-4 py-2 text-sm font-medium text-emerald-900 dark:bg-emerald-400/10 dark:text-emerald-100" aria-live="polite">
           {inspectionNotice}
         </div>
       )}
 
       {visibleLiveSharedUpdate && (
         <div
-          className="shrink-0 border-b border-sky-200 bg-sky-50 px-4 py-2 text-sm text-sky-950 dark:border-sky-300/20 dark:bg-sky-400/10 dark:text-sky-100"
+          className="shrink-0 border-b border-transparent bg-sky-50 px-4 py-2 text-sm text-sky-950 dark:bg-sky-400/10 dark:text-sky-100"
           aria-live="polite"
         >
           <div className="mx-auto flex w-full max-w-6xl flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">

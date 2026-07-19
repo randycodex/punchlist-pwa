@@ -78,8 +78,8 @@ export const HomeAreaCard = memo(function HomeAreaCard({
       }}
       className={`main-card-surface card-surface-subtle select-none touch-manipulation [-webkit-touch-callout:none] rounded-[1.6rem] p-4 transition-all sm:p-5 ${
         isSelected
-          ? '!border-gray-400 !bg-gray-100 dark:!border-gray-500 dark:!bg-white/[0.08]'
-          : 'hover:-translate-y-px hover:border-black/10 dark:hover:border-white/[0.08]'
+          ? '!bg-gray-100 dark:!bg-white/[0.1]'
+          : 'hover:-translate-y-px dark:hover:bg-white/[0.06]'
       } ${deleteMode ? 'cursor-pointer' : ''}`}
       style={{ WebkitTapHighlightColor: 'transparent' }}
     >
@@ -134,7 +134,7 @@ export const HomeAreaCard = memo(function HomeAreaCard({
             onMouseEnter={() => {
               if (!deleteMode && !blockedByClaim) onPrimeOpen(project, area.id);
             }}
-            className="mt-0.5 rounded-[1rem] border border-transparent p-1.5 text-gray-400 transition hover:border-black/5 hover:bg-white hover:text-gray-700 dark:hover:border-white/10 dark:hover:bg-white/[0.06] dark:hover:text-gray-200 [-webkit-touch-callout:none]"
+            className="mt-0.5 rounded-[1rem] p-1.5 text-gray-400 transition hover:bg-black/[0.05] hover:text-gray-700 dark:hover:bg-white/[0.06] dark:hover:text-gray-200 [-webkit-touch-callout:none]"
             style={{ WebkitTapHighlightColor: 'transparent' }}
             aria-label={`Open ${displayName}`}
           >

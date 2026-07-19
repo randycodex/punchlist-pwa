@@ -670,7 +670,7 @@ export default function PhotoCapture({
           {files.map((file) => (
             <div
               key={file.id}
-              className={`flex items-center gap-2 rounded-full bg-gray-100 text-xs dark:bg-zinc-900 ${compactActions ? 'pr-1 pl-2 py-1.5' : 'border border-gray-200 dark:border-zinc-700 px-3 py-2'}`}
+              className={`flex items-center gap-2 rounded-full bg-gray-100 text-xs dark:bg-zinc-900 ${compactActions ? 'pr-1 pl-2 py-1.5' : 'px-3 py-2'}`}
             >
               <div className="flex min-w-0 items-center gap-2">
                 <a

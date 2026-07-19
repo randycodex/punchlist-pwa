@@ -2357,7 +2357,7 @@ export default function ProjectsPage() {
   if (loading) {
     return (
       <div className="flex min-h-[100dvh] items-center justify-center bg-[var(--background)]">
-        <div className="h-9 w-9 animate-spin rounded-full border-2 border-black/10 border-t-[var(--accent)] dark:border-white/10 dark:border-t-[var(--accent)]" />
+        <div className="h-9 w-9 animate-spin rounded-full border-2 border-black/10 border-t-[var(--accent)] dark:border-t-[var(--accent)]" />
       </div>
     );
   }
@@ -2419,7 +2419,7 @@ export default function ProjectsPage() {
                       setActionSheet('export');
                     }}
                     disabled={exportingSelectedAreas || selectedAreaIds.size === 0}
-                    className="flex h-10 w-10 items-center justify-center rounded-full border border-black/5 bg-white/70 text-gray-700 transition hover:bg-white dark:border-white/10 dark:bg-white/[0.04] dark:text-gray-200 dark:hover:bg-white/[0.08] disabled:opacity-40"
+                    className="flex h-10 w-10 items-center justify-center soft-control rounded-full text-gray-700 transition hover:bg-white dark:text-gray-200 dark:hover:bg-white/[0.08] disabled:opacity-40"
                     aria-label="Export selected areas"
                   >
                     {exportingSelectedAreas ? (
@@ -2460,7 +2460,7 @@ export default function ProjectsPage() {
             </div>
           )}
           {selectionMode && !singleProjectMainView && (
-          <div className="mx-auto flex w-full max-w-6xl items-center gap-3 border-t border-gray-200/80 px-4 py-3 dark:border-gray-800 sm:px-5">
+          <div className="mx-auto flex w-full max-w-6xl items-center gap-3 border-t border-transparent px-4 py-3 sm:px-5">
             <button
               onClick={cancelSelectionMode}
               className="rounded-full px-3 py-2 text-sm font-medium text-gray-600 transition hover:bg-black/[0.04] hover:text-gray-900 dark:text-gray-300 dark:hover:bg-white/[0.06] dark:hover:text-white"
@@ -2485,7 +2485,7 @@ export default function ProjectsPage() {
               <button
                 onClick={() => void handleExportSelectedConfirm()}
                 disabled={exportingSelected || exportingSelectedToDrive || selectedProjectIds.size === 0}
-                className="flex h-10 w-10 items-center justify-center rounded-full border border-black/5 bg-white/70 text-gray-700 transition hover:bg-white dark:border-white/10 dark:bg-white/[0.04] dark:text-gray-200 dark:hover:bg-white/[0.08] disabled:opacity-40"
+                className="flex h-10 w-10 items-center justify-center soft-control rounded-full text-gray-700 transition hover:bg-white dark:text-gray-200 dark:hover:bg-white/[0.08] disabled:opacity-40"
                 aria-label="Export selected projects"
               >
                 {exportingSelected || exportingSelectedToDrive ? (
@@ -2521,12 +2521,12 @@ export default function ProjectsPage() {
         </header>
       )}
       {syncError && (
-        <div className="shrink-0 border-b border-gray-200/80 bg-white/70 px-4 py-2 text-sm text-gray-700 dark:border-zinc-700 dark:bg-white/[0.03] dark:text-gray-200">
+        <div className="shrink-0 border-b border-transparent bg-white/70 px-4 py-2 text-sm text-gray-700 dark:bg-white/[0.03] dark:text-gray-200">
           {syncError}
         </div>
       )}
       {syncConflicts.length > 0 && (
-        <div className="shrink-0 border-b border-gray-200/80 bg-white/70 px-4 py-3 text-sm dark:border-zinc-700 dark:bg-white/[0.03]">
+        <div className="shrink-0 border-b border-transparent bg-white/70 px-4 py-3 text-sm dark:bg-white/[0.03]">
           <div className="text-gray-700 dark:text-gray-200">Personal OneDrive backup needs review:</div>
           <div className="mt-2 flex flex-wrap gap-2">
             {syncConflicts.map((conflict) => (
@@ -2544,7 +2544,7 @@ export default function ProjectsPage() {
         singleProject?.sharedProjectId &&
         sharedUpdateProjectIds.has(singleProject.id) && (
         <div
-          className="shrink-0 border-b border-sky-200 bg-sky-50 px-4 py-2 text-sm text-sky-950 dark:border-sky-300/20 dark:bg-sky-400/10 dark:text-sky-100"
+          className="shrink-0 border-b border-transparent bg-sky-50 px-4 py-2 text-sm text-sky-950 dark:bg-sky-400/10 dark:text-sky-100"
           aria-live="polite"
         >
           <div className="mx-auto flex w-full max-w-6xl flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -2620,8 +2620,8 @@ export default function ProjectsPage() {
                     onPointerLeave={clearLongPress}
                     className={`card-surface-subtle rounded-[1.5rem] p-4 transition-all ${
                       isSelected
-                        ? '!border-gray-400 !bg-gray-100 dark:!border-gray-500 dark:!bg-white/[0.08]'
-                        : 'hover:-translate-y-px hover:border-black/10 dark:hover:border-white/[0.08]'
+                        ? '!bg-gray-100 dark:!bg-white/[0.1]'
+                        : 'hover:-translate-y-px dark:hover:bg-white/[0.06]'
                     } ${deleteMode ? 'cursor-pointer' : ''} select-none touch-manipulation [-webkit-touch-callout:none]`}
                   >
                     <div className="flex items-start justify-between gap-3">
@@ -2659,7 +2659,7 @@ export default function ProjectsPage() {
                           className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full border transition ${
                             isSelected
                               ? 'border-[var(--accent)] bg-[var(--accent)] text-white'
-                              : 'border-gray-300 bg-white/70 text-transparent dark:border-white/20 dark:bg-white/[0.04]'
+                              : 'bg-black/[0.07] text-transparent dark:bg-white/[0.08]'
                           }`}
                           aria-label={`${isSelected ? 'Deselect' : 'Select'} ${project.projectName}`}
                           aria-pressed={isSelected}
@@ -2686,8 +2686,8 @@ export default function ProjectsPage() {
                   }}
                   className={`card-surface-subtle rounded-[1.5rem] p-4 transition-all sm:p-5 ${
                     isSelected
-                      ? '!border-gray-400 !bg-gray-100 dark:!border-gray-500 dark:!bg-white/[0.08]'
-                      : 'hover:-translate-y-px hover:border-black/10 dark:hover:border-white/[0.08]'
+                      ? '!bg-gray-100 dark:!bg-white/[0.1]'
+                      : 'hover:-translate-y-px dark:hover:bg-white/[0.06]'
                   } ${deleteMode ? 'cursor-pointer' : ''} select-none touch-manipulation`}
                 >
                   <div className="flex items-start justify-between gap-3">
@@ -2731,7 +2731,7 @@ export default function ProjectsPage() {
                         className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full border transition ${
                           isSelected
                             ? 'border-[var(--accent)] bg-[var(--accent)] text-white'
-                            : 'border-gray-300 bg-white/70 text-transparent dark:border-white/20 dark:bg-white/[0.04]'
+                            : 'bg-black/[0.07] text-transparent dark:bg-white/[0.08]'
                         }`}
                         aria-label={`${isSelected ? 'Deselect' : 'Select'} ${area.name}`}
                         aria-pressed={isSelected}
@@ -2810,7 +2810,7 @@ export default function ProjectsPage() {
                       <button
                         type="button"
                         onClick={() => setShowJoinProject(true)}
-                        className="inline-flex h-11 items-center justify-center rounded-full border border-black/10 bg-white/70 px-5 text-sm font-semibold text-gray-800 transition hover:bg-white dark:border-white/15 dark:bg-white/[0.06] dark:text-gray-100 dark:hover:bg-white/[0.1]"
+                        className="inline-flex h-11 items-center justify-center rounded-full soft-control px-5 text-sm font-semibold text-gray-800 transition hover:bg-white dark:text-gray-100 dark:hover:bg-white/[0.1]"
                       >
                         Join Team Project
                       </button>
@@ -2819,7 +2819,7 @@ export default function ProjectsPage() {
                         type="button"
                         onClick={() => void collaborationAuth.signIn()}
                         disabled={!collaborationAuth.isReady || collaborationAuth.isSigningIn}
-                        className="inline-flex h-11 items-center justify-center rounded-full border border-black/10 bg-white/70 px-5 text-sm font-semibold text-gray-800 transition hover:bg-white disabled:opacity-50 dark:border-white/15 dark:bg-white/[0.06] dark:text-gray-100 dark:hover:bg-white/[0.1]"
+                        className="inline-flex h-11 items-center justify-center rounded-full soft-control px-5 text-sm font-semibold text-gray-800 transition hover:bg-white disabled:opacity-50 dark:text-gray-100 dark:hover:bg-white/[0.1]"
                       >
                         {collaborationAuth.isSigningIn ? 'Enabling…' : 'Enable Team Projects'}
                       </button>
@@ -2827,7 +2827,7 @@ export default function ProjectsPage() {
                       <button
                         type="button"
                         onClick={() => void signIn()}
-                        className="inline-flex h-11 items-center justify-center rounded-full border border-black/10 bg-white/70 px-5 text-sm font-semibold text-gray-800 transition hover:bg-white dark:border-white/15 dark:bg-white/[0.06] dark:text-gray-100 dark:hover:bg-white/[0.1]"
+                        className="inline-flex h-11 items-center justify-center rounded-full soft-control px-5 text-sm font-semibold text-gray-800 transition hover:bg-white dark:text-gray-100 dark:hover:bg-white/[0.1]"
                       >
                         Sign In
                       </button>
@@ -2836,7 +2836,7 @@ export default function ProjectsPage() {
                       <button
                         type="button"
                         onClick={() => void handleRestoreOneDriveBackup()}
-                        className="inline-flex h-11 items-center justify-center rounded-full border border-transparent px-5 text-sm font-medium text-gray-600 transition hover:bg-black/[0.04] dark:text-gray-300 dark:hover:bg-white/[0.06]"
+                        className="inline-flex h-11 items-center justify-center rounded-full px-5 text-sm font-medium text-gray-600 transition hover:bg-black/[0.04] dark:text-gray-300 dark:hover:bg-white/[0.06]"
                       >
                         Restore My Backup
                       </button>
@@ -3105,7 +3105,7 @@ export default function ProjectsPage() {
                     setShowAreaProjectPicker(false);
                     setAreaTargetProjectId(null);
                   }}
-                  className="flex-1 rounded-2xl border border-gray-300/90 bg-white/70 px-4 py-3 font-medium text-gray-700 transition hover:bg-white dark:border-white/10 dark:bg-white/[0.04] dark:text-gray-300 dark:hover:bg-white/[0.08]"
+                  className="flex-1 soft-control rounded-2xl px-4 py-3 font-medium text-gray-700 transition hover:bg-white dark:text-gray-300 dark:hover:bg-white/[0.08]"
                 >
                   Cancel
                 </button>
@@ -3215,7 +3215,7 @@ export default function ProjectsPage() {
                   setNewProjectLevelStart('');
                   setNewProjectLevelEnd('');
                 }}
-                className="flex-1 rounded-2xl border border-gray-300/90 bg-white/70 px-4 py-3 font-medium text-gray-700 transition hover:bg-white dark:border-white/10 dark:bg-white/[0.04] dark:text-gray-300 dark:hover:bg-white/[0.08]"
+                className="flex-1 soft-control rounded-2xl px-4 py-3 font-medium text-gray-700 transition hover:bg-white dark:text-gray-300 dark:hover:bg-white/[0.08]"
               >
                 Cancel
               </button>
@@ -3249,12 +3249,12 @@ export default function ProjectsPage() {
               Download, reconnect, or leave projects linked to your shared-project account.
             </p>
             {loadingMySharedProjects ? (
-              <div className="flex items-center gap-3 rounded-[1.25rem] border border-[var(--surface-border)] bg-white/70 px-4 py-5 text-sm text-gray-500 dark:bg-white/[0.04] dark:text-gray-400">
+              <div className="flex items-center gap-3 rounded-[1.25rem] soft-control px-4 py-5 text-sm text-gray-500 dark:bg-white/[0.04] dark:text-gray-400">
                 <Loader2 className="h-4 w-4 animate-spin" />
                 Loading shared projects...
               </div>
             ) : mySharedProjects.length === 0 ? (
-              <div className="rounded-[1.25rem] border border-[var(--surface-border)] bg-white/70 px-4 py-5 text-sm text-gray-500 dark:bg-white/[0.04] dark:text-gray-400">
+              <div className="rounded-[1.25rem] soft-control px-4 py-5 text-sm text-gray-500 dark:bg-white/[0.04] dark:text-gray-400">
                 No shared projects are attached to this account yet.
               </div>
             ) : (
@@ -3272,7 +3272,7 @@ export default function ProjectsPage() {
                   const isDisconnecting = disconnectingDirectoryProjectId === entry.projectId;
                   const isOwner = entry.ownerUserId === collaborationAuth.user?.id;
                   return (
-                    <div key={entry.projectId} className="rounded-[1.25rem] border border-[var(--surface-border)] bg-white/70 p-4 dark:bg-white/[0.04]">
+                    <div key={entry.projectId} className="rounded-[1.25rem] soft-control p-4 dark:bg-white/[0.04]">
                       <div className="min-w-0">
                         <div className="truncate text-sm font-semibold text-gray-900 dark:text-white">{entry.projectName}</div>
                         <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">
@@ -3302,7 +3302,7 @@ export default function ProjectsPage() {
                       <button
                         onClick={() => handleDirectoryDisconnect(entry, activeLocalProject)}
                         disabled={!!addingSharedProjectId || !!disconnectingDirectoryProjectId}
-                        className="mt-2 w-full rounded-2xl border border-red-300/90 bg-red-50/80 px-4 py-3 text-sm font-medium text-red-700 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-red-400/20 dark:bg-red-400/[0.08] dark:text-red-300 dark:hover:bg-red-400/[0.14]"
+                        className="mt-2 w-full rounded-2xl bg-red-50/80 px-4 py-3 text-sm font-medium text-red-700 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-red-400/[0.08] dark:text-red-300 dark:hover:bg-red-400/[0.14]"
                       >
                         {isDisconnecting
                           ? (isOwner ? 'Stopping...' : 'Leaving...')
@@ -3319,7 +3319,7 @@ export default function ProjectsPage() {
                   setShowMySharedProjects(false);
                   setMySharedProjects([]);
                 }}
-                className="flex-1 rounded-2xl border border-gray-300/90 bg-white/70 px-4 py-3 font-medium text-gray-700 transition hover:bg-white dark:border-white/10 dark:bg-white/[0.04] dark:text-gray-300 dark:hover:bg-white/[0.08]"
+                className="flex-1 soft-control rounded-2xl px-4 py-3 font-medium text-gray-700 transition hover:bg-white dark:text-gray-300 dark:hover:bg-white/[0.08]"
               >
                 Done
               </button>
@@ -3343,12 +3343,12 @@ export default function ProjectsPage() {
               {backupProject.projectName}
             </p>
             {loadingSharedBackups ? (
-              <div className="flex items-center gap-3 rounded-[1.25rem] border border-[var(--surface-border)] bg-white/70 px-4 py-5 text-sm text-gray-500 dark:bg-white/[0.04] dark:text-gray-400">
+              <div className="flex items-center gap-3 rounded-[1.25rem] soft-control px-4 py-5 text-sm text-gray-500 dark:bg-white/[0.04] dark:text-gray-400">
                 <Loader2 className="h-4 w-4 animate-spin" />
                 Loading backups...
               </div>
             ) : sharedBackups.length === 0 ? (
-              <div className="rounded-[1.25rem] border border-[var(--surface-border)] bg-white/70 px-4 py-5 text-sm text-gray-500 dark:bg-white/[0.04] dark:text-gray-400">
+              <div className="rounded-[1.25rem] soft-control px-4 py-5 text-sm text-gray-500 dark:bg-white/[0.04] dark:text-gray-400">
                 No shared backups yet. Backups are created when shared data is published, pulled, or restored.
               </div>
             ) : (
@@ -3356,7 +3356,7 @@ export default function ProjectsPage() {
                 {sharedBackups.map((backup) => {
                   const isRestoring = restoringBackupId === backup.id;
                   return (
-                    <div key={backup.id} className="rounded-[1.25rem] border border-[var(--surface-border)] bg-white/70 p-4 dark:bg-white/[0.04]">
+                    <div key={backup.id} className="rounded-[1.25rem] soft-control p-4 dark:bg-white/[0.04]">
                       <div className="text-sm font-semibold text-gray-900 dark:text-white">
                         {formatSharedBackupReason(backup.reason)}
                       </div>
@@ -3372,7 +3372,7 @@ export default function ProjectsPage() {
                         <button
                           onClick={() => void handleRestoreSharedBackup(backup)}
                           disabled={!!restoringBackupId}
-                          className="rounded-2xl border border-gray-300/90 bg-white/70 px-4 py-3 text-sm font-medium text-gray-700 transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/10 dark:bg-white/[0.04] dark:text-gray-300 dark:hover:bg-white/[0.08]"
+                          className="soft-control rounded-2xl px-4 py-3 text-sm font-medium text-gray-700 transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-50 dark:text-gray-300 dark:hover:bg-white/[0.08]"
                         >
                           {isRestoring ? 'Restoring...' : 'Restore'}
                         </button>
@@ -3395,7 +3395,7 @@ export default function ProjectsPage() {
                   setBackupProject(null);
                   setSharedBackups([]);
                 }}
-                className="flex-1 rounded-2xl border border-gray-300/90 bg-white/70 px-4 py-3 font-medium text-gray-700 transition hover:bg-white dark:border-white/10 dark:bg-white/[0.04] dark:text-gray-300 dark:hover:bg-white/[0.08]"
+                className="flex-1 soft-control rounded-2xl px-4 py-3 font-medium text-gray-700 transition hover:bg-white dark:text-gray-300 dark:hover:bg-white/[0.08]"
               >
                 Done
               </button>
@@ -3438,7 +3438,7 @@ export default function ProjectsPage() {
                   setJoinProjectCode('');
                   clearJoinInviteFromAddressBar();
                 }}
-                className="flex-1 rounded-2xl border border-gray-300/90 bg-white/70 px-4 py-3 font-medium text-gray-700 transition hover:bg-white dark:border-white/10 dark:bg-white/[0.04] dark:text-gray-300 dark:hover:bg-white/[0.08]"
+                className="flex-1 soft-control rounded-2xl px-4 py-3 font-medium text-gray-700 transition hover:bg-white dark:text-gray-300 dark:hover:bg-white/[0.08]"
               >
                 Cancel
               </button>

@@ -33,7 +33,7 @@ export default function AppErrorFallback({
           )}
           <Link
             href="/"
-            className="flex h-11 items-center justify-center rounded-[1rem] border border-black/10 bg-white/70 px-4 text-sm font-semibold text-gray-800 transition hover:bg-white dark:border-white/10 dark:bg-white/[0.05] dark:text-gray-100 dark:hover:bg-white/[0.09]"
+            className="flex h-11 items-center justify-center rounded-[1rem] soft-control px-4 text-sm font-semibold text-gray-800 transition hover:bg-white dark:text-gray-100 dark:hover:bg-white/[0.09]"
           >
             Go to projects
           </Link>

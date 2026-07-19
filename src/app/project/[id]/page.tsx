@@ -1462,7 +1462,7 @@ export default function ProjectDetailPage() {
   if (loading) {
     return (
       <div className="flex min-h-[100dvh] items-center justify-center bg-[var(--background)]">
-        <div className="h-9 w-9 animate-spin rounded-full border-2 border-black/10 border-t-[var(--accent)] dark:border-white/10 dark:border-t-[var(--accent)]" />
+        <div className="h-9 w-9 animate-spin rounded-full border-2 border-black/10 border-t-[var(--accent)] dark:border-t-[var(--accent)]" />
       </div>
     );
   }
@@ -1476,7 +1476,7 @@ export default function ProjectDetailPage() {
       <header className="header-stable shrink-0 border-b z-20">
         <div className="page-header-surface mx-auto flex min-h-[4.9rem] w-full max-w-6xl items-center px-4 py-3 sm:px-5">
           <div className="flex w-full items-center gap-3">
-            <Link href="/" className="flex h-10 w-10 items-center justify-center rounded-[1rem] border border-black/5 bg-white/70 text-gray-600 transition hover:bg-white dark:border-white/10 dark:bg-white/[0.04] dark:text-gray-300 dark:hover:bg-white/[0.08]">
+            <Link href="/" className="flex h-10 w-10 items-center justify-center soft-control rounded-[1rem] text-gray-600 transition hover:bg-white dark:text-gray-300 dark:hover:bg-white/[0.08]">
               <ArrowLeft className="w-5 h-5" />
             </Link>
             <div className="min-w-0 flex-1">
@@ -1521,7 +1521,7 @@ export default function ProjectDetailPage() {
                   setActionSheet('export');
                 }}
                 disabled={exportingSelectedAreas || selectedAreaIds.size === 0}
-                className="flex h-10 w-10 items-center justify-center rounded-full border border-black/5 bg-white/70 text-gray-700 transition hover:bg-white dark:border-white/10 dark:bg-white/[0.04] dark:text-gray-200 dark:hover:bg-white/[0.08] disabled:opacity-40"
+                className="flex h-10 w-10 items-center justify-center soft-control rounded-full text-gray-700 transition hover:bg-white dark:text-gray-200 dark:hover:bg-white/[0.08] disabled:opacity-40"
                 aria-label="Export selected areas"
               >
                 {exportingSelectedAreas ? (
@@ -1549,13 +1549,13 @@ export default function ProjectDetailPage() {
       </header>
 
       {syncError && (
-        <div className="shrink-0 border-b border-gray-200/80 bg-white/70 px-4 py-2 text-sm text-gray-700 dark:border-zinc-700 dark:bg-white/[0.03] dark:text-gray-200">
+        <div className="shrink-0 border-b border-transparent bg-white/70 px-4 py-2 text-sm text-gray-700 dark:bg-white/[0.03] dark:text-gray-200">
           {syncError}
         </div>
       )}
       {project.sharedProjectId && sharedUpdateProjectIds.has(project.id) && (
         <div
-          className="shrink-0 border-b border-sky-200 bg-sky-50 px-4 py-2 text-sm text-sky-950 dark:border-sky-300/20 dark:bg-sky-400/10 dark:text-sky-100"
+          className="shrink-0 border-b border-transparent bg-sky-50 px-4 py-2 text-sm text-sky-950 dark:bg-sky-400/10 dark:text-sky-100"
           aria-live="polite"
         >
           <div className="mx-auto flex w-full max-w-6xl flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -1815,12 +1815,12 @@ export default function ProjectDetailPage() {
               {backupProject.projectName}
             </p>
             {loadingSharedBackups ? (
-              <div className="flex items-center gap-3 rounded-[1.25rem] border border-[var(--surface-border)] bg-white/70 px-4 py-5 text-sm text-gray-500 dark:bg-white/[0.04] dark:text-gray-400">
+              <div className="flex items-center gap-3 rounded-[1.25rem] soft-control px-4 py-5 text-sm text-gray-500 dark:bg-white/[0.04] dark:text-gray-400">
                 <Loader2 className="h-4 w-4 animate-spin" />
                 Loading backups...
               </div>
             ) : sharedBackups.length === 0 ? (
-              <div className="rounded-[1.25rem] border border-[var(--surface-border)] bg-white/70 px-4 py-5 text-sm text-gray-500 dark:bg-white/[0.04] dark:text-gray-400">
+              <div className="rounded-[1.25rem] soft-control px-4 py-5 text-sm text-gray-500 dark:bg-white/[0.04] dark:text-gray-400">
                 No shared backups yet. Backups are created when shared data is published, pulled, or restored.
               </div>
             ) : (
@@ -1828,7 +1828,7 @@ export default function ProjectDetailPage() {
                 {sharedBackups.map((backup) => {
                   const isRestoring = restoringBackupId === backup.id;
                   return (
-                    <div key={backup.id} className="rounded-[1.25rem] border border-[var(--surface-border)] bg-white/70 p-4 dark:bg-white/[0.04]">
+                    <div key={backup.id} className="rounded-[1.25rem] soft-control p-4 dark:bg-white/[0.04]">
                       <div className="text-sm font-semibold text-gray-900 dark:text-white">
                         {formatSharedBackupReason(backup.reason)}
                       </div>
@@ -1844,7 +1844,7 @@ export default function ProjectDetailPage() {
                         <button
                           onClick={() => void handleRestoreSharedBackup(backup)}
                           disabled={!!restoringBackupId}
-                          className="rounded-2xl border border-gray-300/90 bg-white/70 px-4 py-3 text-sm font-medium text-gray-700 transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/10 dark:bg-white/[0.04] dark:text-gray-300 dark:hover:bg-white/[0.08]"
+                          className="soft-control rounded-2xl px-4 py-3 text-sm font-medium text-gray-700 transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-50 dark:text-gray-300 dark:hover:bg-white/[0.08]"
                         >
                           {isRestoring ? 'Restoring...' : 'Restore'}
                         </button>
@@ -1867,7 +1867,7 @@ export default function ProjectDetailPage() {
                   setBackupProject(null);
                   setSharedBackups([]);
                 }}
-                className="flex-1 rounded-2xl border border-gray-300/90 bg-white/70 px-4 py-3 font-medium text-gray-700 transition hover:bg-white dark:border-white/10 dark:bg-white/[0.04] dark:text-gray-300 dark:hover:bg-white/[0.08]"
+                className="flex-1 soft-control rounded-2xl px-4 py-3 font-medium text-gray-700 transition hover:bg-white dark:text-gray-300 dark:hover:bg-white/[0.08]"
               >
                 Done
               </button>
