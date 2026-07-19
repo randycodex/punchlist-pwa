@@ -99,9 +99,10 @@ describe('mobile top-bar safe area', () => {
     expect(listSortMenu).toContain('role="group" aria-label="Sort list"');
     expect(listSortMenu).toContain('aria-pressed={isSelected}');
     expect(listSortMenu).toContain('rounded-full');
-    expect(persistentTopBar).toContain('`${menuCardClass} app-menu-sort-card`');
     expect(globalStyles).toMatch(
-      /\.app-menu-card\.app-menu-sort-card\s*\{[\s\S]*?background:\s*transparent;[\s\S]*?border-color:\s*transparent;/
+      /\.app-menu-card\s*\{[\s\S]*?background:\s*transparent;[\s\S]*?border:\s*1px solid transparent;/
     );
+    expect(globalStyles).not.toContain('--app-menu-card-bg');
+    expect(persistentTopBar).not.toContain('app-menu-sort-card');
   });
 });

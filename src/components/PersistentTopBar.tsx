@@ -454,7 +454,7 @@ export default function PersistentTopBar() {
                 <div className="app-menu-scroll min-h-0 flex flex-1 flex-col touch-none overflow-hidden px-3 pt-1 md:block md:overflow-y-auto md:overscroll-y-contain md:touch-pan-y md:pb-[calc(env(safe-area-inset-bottom)+1rem)] md:pt-[calc(env(safe-area-inset-top)+0.5rem)]">
                   {homeMenuState.hasProjects && (
                     <div className={menuGroupShellClass}>
-                      <div className={`${menuCardClass} app-menu-sort-card`}>
+                      <div className={menuCardClass}>
                         <div className="app-menu-sort-content flex-1 px-1 pb-1">
                           <ListSortMenu
                             value={homeMenuState.sortOption}
