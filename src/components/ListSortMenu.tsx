@@ -15,7 +15,7 @@ const options: Array<{ value: ListSortOption; label: string }> = [
 
 export default function ListSortMenu({ value, onChange }: ListSortMenuProps) {
   return (
-    <div className="grid h-full grid-cols-3 gap-2" role="group" aria-label="Sort list">
+    <div className="grid grid-cols-3 gap-2" role="group" aria-label="Sort list">
       {options.map((option) => {
         const isSelected = value === option.value;
 

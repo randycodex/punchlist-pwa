@@ -44,6 +44,10 @@ import {
 } from 'lucide-react';
 
 const projectTitleCache = new Map<string, string>();
+const sharedProjectAccessCache = new Map<
+  string,
+  { isActiveMember: boolean; isOwner: boolean; hasError: boolean }
+>();
 
 type SortOption = 'alphabetical' | 'issues' | 'progress';
 type HomeMenuState = {
@@ -61,6 +65,16 @@ type HomeMenuState = {
   isLoadingSharedMembers?: boolean;
   isDisconnectingSharedProject?: boolean;
 };
+
+function setAppMenuOpenAttribute(open: boolean) {
+  if (typeof document === 'undefined') return;
+  const root = document.documentElement;
+  if (open) {
+    root.dataset.appMenuOpen = 'true';
+  } else {
+    delete root.dataset.appMenuOpen;
+  }
+}
 
 export default function PersistentTopBar() {
   const pathname = usePathname();
@@ -86,12 +100,12 @@ export default function PersistentTopBar() {
   const [projectTitle, setProjectTitle] = useState('');
   const [showHomeMenu, setShowHomeMenu] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
-  const [sharedProjectAccess, setSharedProjectAccess] = useState({
-    isReady: false,
-    isActiveMember: false,
-    isOwner: false,
-    hasError: false,
-  });
+  const [sharedProjectAccessSnapshot, setSharedProjectAccessSnapshot] = useState<{
+    projectId: string;
+    isActiveMember: boolean;
+    isOwner: boolean;
+    hasError: boolean;
+  } | null>(null);
   const [homeMenuState, setHomeMenuState] = useState<HomeMenuState>({
     context: 'home',
     sortOption: 'alphabetical',
@@ -103,6 +117,29 @@ export default function PersistentTopBar() {
     selectionMode: false,
   });
   const menuRef = useRef<HTMLDivElement | null>(null);
+  const sharedProjectAccess = useMemo(() => {
+    const sharedProjectId = homeMenuState.sharedProjectId;
+    if (!collaborationAuth.isSignedIn || !sharedProjectId) {
+      return { isReady: false, isActiveMember: false, isOwner: false, hasError: false };
+    }
+    if (sharedProjectAccessSnapshot?.projectId === sharedProjectId) {
+      return {
+        isReady: true,
+        isActiveMember: sharedProjectAccessSnapshot.isActiveMember,
+        isOwner: sharedProjectAccessSnapshot.isOwner,
+        hasError: sharedProjectAccessSnapshot.hasError,
+      };
+    }
+    const cached = sharedProjectAccessCache.get(sharedProjectId);
+    if (cached) {
+      return { isReady: true, ...cached };
+    }
+    return { isReady: false, isActiveMember: false, isOwner: false, hasError: false };
+  }, [
+    collaborationAuth.isSignedIn,
+    homeMenuState.sharedProjectId,
+    sharedProjectAccessSnapshot,
+  ]);
   const projectId = useMemo(() => {
     if (!pathname.startsWith('/project/')) {
       return '';
@@ -199,44 +236,54 @@ export default function PersistentTopBar() {
     }
   }, [homeMenuState.context, homeMenuState.singleProjectName, projectId]);
 
+  function setHomeMenuOpen(open: boolean) {
+    // Apply the open attribute in the same turn as the click so mobile CSS
+    // (top bar / drawer chrome) does not paint one frame without it.
+    setAppMenuOpenAttribute(open);
+    setShowHomeMenu(open);
+  }
+
   useEffect(() => {
     let cancelled = false;
     const sharedProjectId = homeMenuState.sharedProjectId;
 
-    if (!showHomeMenu) {
+    if (!showHomeMenu || !collaborationAuth.isSignedIn || !sharedProjectId) {
       return () => {
         cancelled = true;
       };
     }
-
-    if (!collaborationAuth.isSignedIn || !sharedProjectId) {
-      void Promise.resolve().then(() => {
-        if (!cancelled) {
-          setSharedProjectAccess({ isReady: false, isActiveMember: false, isOwner: false, hasError: false });
-        }
-      });
-      return () => {
-        cancelled = true;
-      };
-    }
-
-    void Promise.resolve().then(() => {
-      if (!cancelled) {
-        setSharedProjectAccess({ isReady: false, isActiveMember: false, isOwner: false, hasError: false });
-      }
-    });
 
     void getSharedProjectAccess(sharedProjectId, collaborationAuth.user?.id)
       .then((access) => {
-        if (!cancelled) {
-          setSharedProjectAccess({ isReady: true, ...access, hasError: false });
-        }
+        if (cancelled) return;
+        const next = {
+          projectId: sharedProjectId,
+          isActiveMember: access.isActiveMember,
+          isOwner: access.isOwner,
+          hasError: false,
+        };
+        sharedProjectAccessCache.set(sharedProjectId, {
+          isActiveMember: next.isActiveMember,
+          isOwner: next.isOwner,
+          hasError: next.hasError,
+        });
+        setSharedProjectAccessSnapshot(next);
       })
       .catch((error) => {
         console.error('Failed to verify shared project access:', error);
-        if (!cancelled) {
-          setSharedProjectAccess({ isReady: true, isActiveMember: false, isOwner: false, hasError: true });
-        }
+        if (cancelled) return;
+        const next = {
+          projectId: sharedProjectId,
+          isActiveMember: false,
+          isOwner: false,
+          hasError: true,
+        };
+        sharedProjectAccessCache.set(sharedProjectId, {
+          isActiveMember: next.isActiveMember,
+          isOwner: next.isOwner,
+          hasError: next.hasError,
+        });
+        setSharedProjectAccessSnapshot(next);
       });
 
     return () => {
@@ -260,15 +307,9 @@ export default function PersistentTopBar() {
   }
 
   useEffect(() => {
-    const root = document.documentElement;
-    if (showHomeMenu) {
-      root.dataset.appMenuOpen = 'true';
-    } else {
-      delete root.dataset.appMenuOpen;
-    }
-
+    setAppMenuOpenAttribute(showHomeMenu);
     return () => {
-      delete root.dataset.appMenuOpen;
+      setAppMenuOpenAttribute(false);
     };
   }, [showHomeMenu]);
 
@@ -289,7 +330,7 @@ export default function PersistentTopBar() {
   useEffect(() => {
     function handleCloseHomeMenuOnMobile() {
       if (window.matchMedia('(max-width: 767px)').matches) {
-        setShowHomeMenu(false);
+        setHomeMenuOpen(false);
       }
     }
 
@@ -435,7 +476,7 @@ export default function PersistentTopBar() {
             {!isAreaRoute && (
               <button
                 type="button"
-                onClick={() => setShowHomeMenu((current) => !current)}
+                onClick={() => setHomeMenuOpen(!showHomeMenu)}
                 className="flex h-10 w-10 items-center justify-center rounded-[1rem] bg-transparent text-gray-500 transition hover:bg-black/[0.04] hover:text-gray-900 dark:text-gray-300 dark:hover:bg-white/[0.06] dark:hover:text-white"
                 aria-label={showHomeMenu ? 'Close app menu' : 'Open app menu'}
                 aria-pressed={showHomeMenu}
@@ -446,16 +487,16 @@ export default function PersistentTopBar() {
             )}
             {!isAreaRoute && showHomeMenu && createPortal((
               <div
-                className="app-menu-drawer menu-surface fixed right-0 z-[120] flex h-[100dvh] flex-col overflow-hidden border-y-0 border-r-0 p-0"
+                className="app-menu-drawer menu-surface fixed right-0 z-[120] flex flex-col overflow-hidden border-y-0 border-r-0 p-0 md:top-0 md:h-[100dvh]"
                 role="dialog"
                 aria-modal="false"
                 aria-label="App menu"
               >
-                <div className="app-menu-scroll min-h-0 flex flex-1 flex-col touch-none overflow-hidden px-3 pt-1 md:block md:overflow-y-auto md:overscroll-y-contain md:touch-pan-y md:pb-[calc(env(safe-area-inset-bottom)+1rem)] md:pt-[calc(env(safe-area-inset-top)+0.5rem)]">
+                <div className="app-menu-scroll min-h-0 flex-1 overflow-y-auto overscroll-y-contain touch-pan-y px-3 pt-1 md:pb-[calc(env(safe-area-inset-bottom)+1rem)] md:pt-[calc(env(safe-area-inset-top)+0.5rem)]">
                   {homeMenuState.hasProjects && (
                     <div className={menuGroupShellClass}>
                       <div className={menuCardClass}>
-                        <div className="app-menu-sort-content flex-1 px-1 pb-1">
+                        <div className="app-menu-sort-content px-1 pb-1">
                           <ListSortMenu
                             value={homeMenuState.sortOption}
                             onChange={(option) => {
@@ -486,7 +527,7 @@ export default function PersistentTopBar() {
                               const enteringSelectionMode = !homeMenuState.selectionMode;
                               dispatchHomeAction('toggle-selection');
                               if (enteringSelectionMode && window.matchMedia('(max-width: 767px)').matches) {
-                                setShowHomeMenu(false);
+                                setHomeMenuOpen(false);
                               }
                             }}
                             className={menuRowClass}
@@ -516,11 +557,6 @@ export default function PersistentTopBar() {
                             <Share2 className="h-4 w-4 shrink-0" />
                             Share with Team
                           </button>
-                        )}
-                        {homeMenuState.isSingleProject && homeMenuState.isSharedProject && !sharedProjectAccess.isReady && (
-                          <div className="col-span-2 px-2 py-2 text-xs text-gray-500 dark:text-gray-400">
-                            Checking team access… You can still use the actions below.
-                          </div>
                         )}
                         {homeMenuState.isSingleProject && homeMenuState.isSharedProject && (!sharedProjectAccess.isReady || sharedProjectAccess.isActiveMember || sharedProjectAccess.hasError) && (
                           <>

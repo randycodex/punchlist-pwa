@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import { useState, useEffect, useLayoutEffect, useMemo, useRef, useCallback } from 'react';
 import { Area, Project, checkpointHasIssue, getReviewMetrics } from '@/types';
 import {
   getAllProjects,
@@ -2313,7 +2313,7 @@ export default function ProjectsPage() {
     };
   }, []);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     window.dispatchEvent(
       new CustomEvent('punchlist-home-menu-state', {
         detail: {

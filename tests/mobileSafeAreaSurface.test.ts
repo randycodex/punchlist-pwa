@@ -68,34 +68,34 @@ describe('mobile top-bar safe area', () => {
       /@media \(max-width: 767px\)[\s\S]*?html\[data-app-menu-open="true"\] \.app-shell/
     );
     expect(globalStyles).toMatch(
-      /\.app-menu-drawer \.app-menu-scroll\s*\{[\s\S]*?position:\s*absolute;[\s\S]*?inset:\s*0;[\s\S]*?padding-bottom:\s*max\(calc\(env\(safe-area-inset-bottom\) \+ 1rem\), 4\.75rem\);[\s\S]*?background:\s*var\(--background\);/
+      /\.app-menu-drawer \.app-menu-scroll\s*\{[\s\S]*?position:\s*absolute;[\s\S]*?inset:\s*0;[\s\S]*?overflow-y:\s*auto;[\s\S]*?padding-bottom:\s*max\(calc\(env\(safe-area-inset-bottom\) \+ 1rem\), 4\.75rem\);[\s\S]*?background:\s*var\(--background\);/
     );
     expect(globalStyles).not.toContain('transparent calc(100% - env(safe-area-inset-bottom))');
     expect(persistentTopBar).toContain(
-      'app-menu-scroll min-h-0 flex flex-1 flex-col touch-none overflow-hidden px-3 pt-1'
+      'app-menu-scroll min-h-0 flex-1 overflow-y-auto overscroll-y-contain touch-pan-y px-3 pt-1'
     );
-    expect(persistentTopBar).toContain('md:overflow-y-auto md:overscroll-y-contain md:touch-pan-y');
     expect(persistentTopBar).toContain(
       "app-menu-card overflow-hidden rounded-[1.1rem] px-2 py-1 md:px-2.5 md:py-1.5"
     );
     expect(persistentTopBar).toContain("px-1 py-0.5 md:py-1");
     expect(persistentTopBar).toContain("app-menu-group px-1 py-0.5 md:py-1");
     expect(persistentTopBar).toContain("app-menu-list grid grid-cols-2");
-    expect(globalStyles).toContain('flex: 1 1 auto;');
-    expect(globalStyles).toContain('grid-auto-rows: minmax(2.5rem, 1fr);');
+    // Natural-height groups avoid the open-then-reflow jump on phones.
+    expect(globalStyles).toContain('flex: 0 0 auto;');
+    expect(globalStyles).toContain('grid-auto-rows: auto;');
+    expect(globalStyles).not.toContain('grid-auto-rows: minmax(2.5rem, 1fr);');
     expect(globalStyles).toMatch(
       /@media \(max-width: 767px\) and \(min-height: 850px\)[\s\S]*?padding-bottom:\s*max\(calc\(env\(safe-area-inset-bottom\) \+ 1rem\), 6rem\);/
     );
-    expect(persistentTopBar).not.toContain(
-      'app-menu-scroll min-h-0 flex-1 overflow-y-auto overscroll-y-contain touch-pan-y'
-    );
+    expect(persistentTopBar).toContain('setAppMenuOpenAttribute');
+    expect(persistentTopBar).toContain('sharedProjectAccessCache');
   });
 
   it('uses pill controls within the extended grouped menu', () => {
     expect(persistentTopBar).toContain("const menuListGridClass = 'app-menu-list grid grid-cols-2 gap-2");
     expect(persistentTopBar).toContain("const menuRowClass = 'flex min-h-10");
     expect(persistentTopBar).toContain('rounded-full bg-black/[0.07]');
-    expect(listSortMenu).toContain('grid h-full grid-cols-3 gap-2');
+    expect(listSortMenu).toContain('grid grid-cols-3 gap-2');
     expect(listSortMenu).toContain('role="group" aria-label="Sort list"');
     expect(listSortMenu).toContain('aria-pressed={isSelected}');
     expect(listSortMenu).toContain('rounded-full');

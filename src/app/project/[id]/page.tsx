@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import { useState, useEffect, useLayoutEffect, useMemo, useRef, useCallback } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { Area, Project, checkpointHasIssue, getReviewMetrics } from '@/types';
 import { clearPendingSharedSyncsForProject, getProject, getProjectMetadata, saveProject, saveProjectMetadataOnly, saveProjectPreserveTimestamps, createArea } from '@/lib/db';
@@ -1428,7 +1428,7 @@ export default function ProjectDetailPage() {
     };
   }, []);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!project) return;
     window.dispatchEvent(
       new CustomEvent('punchlist-home-menu-state', {
