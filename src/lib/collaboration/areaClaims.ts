@@ -237,6 +237,55 @@ export async function releaseSharedProjectArea(sharedProjectId: string, areaId: 
   }
 }
 
+/**
+ * Releases every active area lock held by the signed-in user on one shared project.
+ * Other people's locks are left alone.
+ */
+export async function releaseAllMySharedProjectAreaClaims(sharedProjectId: string) {
+  const supabase = getCollaborationSupabaseClient();
+  if (!supabase) {
+    throw new Error('Collaboration is not configured.');
+  }
+
+  const { data: userData, error: userError } = await supabase.auth.getUser();
+  if (userError) {
+    throw userError;
+  }
+
+  const userId = userData.user?.id;
+  if (!userId) {
+    throw new Error('Sign in to team projects before releasing area locks.');
+  }
+
+  const claims = await getActiveSharedProjectAreaClaims(sharedProjectId);
+  const mine = claims.filter((claim) => claim.claimedByUserId === userId);
+
+  if (mine.length === 0) {
+    return { releasedCount: 0 };
+  }
+
+  const results = await Promise.allSettled(
+    mine.map((claim) => releaseSharedProjectArea(sharedProjectId, claim.areaId))
+  );
+  const failures = results.filter((result) => result.status === 'rejected');
+  const releasedCount = results.length - failures.length;
+
+  if (failures.length > 0) {
+    const firstError = failures[0];
+    const reason = firstError.status === 'rejected' ? firstError.reason : null;
+    const message = reason instanceof Error
+      ? reason.message
+      : 'Some area locks could not be released.';
+    throw new Error(
+      releasedCount > 0
+        ? `Released ${releasedCount} lock${releasedCount === 1 ? '' : 's'}, but ${failures.length} still need attention. ${message}`
+        : message
+    );
+  }
+
+  return { releasedCount };
+}
+
 export function subscribeToSharedProjectAreaClaimChanges(
   sharedProjectId: string,
   onChange: () => void

@@ -38,6 +38,7 @@ import {
   RefreshCw,
   Share2,
   Trash2,
+  UnlockKeyhole,
   UserRound,
   UserPlus,
   Users,
@@ -64,6 +65,7 @@ type HomeMenuState = {
   isCreatingJoinCode?: boolean;
   isLoadingSharedMembers?: boolean;
   isDisconnectingSharedProject?: boolean;
+  isReleasingMyAreaLocks?: boolean;
 };
 
 function setAppMenuOpenAttribute(open: boolean) {
@@ -597,6 +599,14 @@ export default function PersistentTopBar() {
                           <button onClick={() => dispatchHomeAction('shared-backups')} className={menuRowClass}>
                             <ArchiveRestore className="h-4 w-4 shrink-0" />
                             Team Backups
+                          </button>
+                          <button
+                            onClick={() => dispatchHomeAction('release-my-area-locks')}
+                            disabled={!!homeMenuState.isReleasingMyAreaLocks || sharedTransferStatus !== null}
+                            className={disabledMenuRowClass}
+                          >
+                            <UnlockKeyhole className="h-4 w-4 shrink-0" />
+                            {homeMenuState.isReleasingMyAreaLocks ? 'Releasing…' : 'Release My Locks'}
                           </button>
                           {sharedProjectAccess.isReady && sharedProjectAccess.isActiveMember && (
                             <button

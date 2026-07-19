@@ -1,12 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { rpcMock } = vi.hoisted(() => ({
+const { rpcMock, fromMock, getUserMock } = vi.hoisted(() => ({
   rpcMock: vi.fn(),
+  fromMock: vi.fn(),
+  getUserMock: vi.fn(),
 }));
 
 vi.mock('@/lib/collaboration/supabaseClient', () => ({
   getCollaborationSupabaseClient: () => ({
     rpc: rpcMock,
+    from: fromMock,
+    auth: { getUser: getUserMock },
   }),
 }));
 
@@ -14,11 +18,14 @@ import {
   canUserEditClaimedArea,
   claimSharedProjectArea,
   isAreaClaimActive,
+  releaseAllMySharedProjectAreaClaims,
 } from '@/lib/collaboration/areaClaims';
 
 describe('persistent shared area claims', () => {
   beforeEach(() => {
     rpcMock.mockReset();
+    fromMock.mockReset();
+    getUserMock.mockReset();
   });
 
   it('treats an active claim as locked even when its legacy expiry is in the past', () => {
@@ -61,5 +68,89 @@ describe('persistent shared area claims', () => {
       p_area_id: 'area-id',
       p_expires_at: null,
     });
+  });
+
+  it('releases only the signed-in user active area locks on a project', async () => {
+    getUserMock.mockResolvedValue({
+      data: { user: { id: 'me' } },
+      error: null,
+    });
+    fromMock.mockReturnValue({
+      select: vi.fn().mockReturnValue({
+        eq: vi.fn().mockReturnValue({
+          eq: vi.fn().mockResolvedValue({
+            data: [
+              {
+                id: 'c1',
+                project_id: 'shared-project-id',
+                area_id: 'area-1',
+                claimed_by_user_id: 'me',
+                status: 'active',
+                claimed_at: '2026-07-19T12:00:00.000Z',
+                expires_at: null,
+                released_at: null,
+                transferred_to_user_id: null,
+              },
+              {
+                id: 'c2',
+                project_id: 'shared-project-id',
+                area_id: 'area-2',
+                claimed_by_user_id: 'someone-else',
+                status: 'active',
+                claimed_at: '2026-07-19T12:00:00.000Z',
+                expires_at: null,
+                released_at: null,
+                transferred_to_user_id: null,
+              },
+              {
+                id: 'c3',
+                project_id: 'shared-project-id',
+                area_id: 'area-3',
+                claimed_by_user_id: 'me',
+                status: 'active',
+                claimed_at: '2026-07-19T12:05:00.000Z',
+                expires_at: null,
+                released_at: null,
+                transferred_to_user_id: null,
+              },
+            ],
+            error: null,
+          }),
+        }),
+      }),
+    });
+    rpcMock.mockResolvedValue({ data: null, error: null });
+
+    await expect(releaseAllMySharedProjectAreaClaims('shared-project-id')).resolves.toEqual({
+      releasedCount: 2,
+    });
+    expect(rpcMock).toHaveBeenCalledTimes(2);
+    expect(rpcMock).toHaveBeenCalledWith('release_shared_project_area', {
+      p_project_id: 'shared-project-id',
+      p_area_id: 'area-1',
+    });
+    expect(rpcMock).toHaveBeenCalledWith('release_shared_project_area', {
+      p_project_id: 'shared-project-id',
+      p_area_id: 'area-3',
+    });
+  });
+
+  it('reports zero when the user has no active locks', async () => {
+    getUserMock.mockResolvedValue({
+      data: { user: { id: 'me' } },
+      error: null,
+    });
+    fromMock.mockReturnValue({
+      select: vi.fn().mockReturnValue({
+        eq: vi.fn().mockReturnValue({
+          eq: vi.fn().mockResolvedValue({ data: [], error: null }),
+        }),
+      }),
+    });
+
+    await expect(releaseAllMySharedProjectAreaClaims('shared-project-id')).resolves.toEqual({
+      releasedCount: 0,
+    });
+    expect(rpcMock).not.toHaveBeenCalled();
   });
 });

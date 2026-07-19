@@ -66,6 +66,7 @@ import {
   createSharedProjectFromLocalProject,
   captureSharedProjectBackup,
   claimSharedProjectArea,
+  releaseAllMySharedProjectAreaClaims,
   disconnectSharedProject,
   generateSharedProjectJoinCode,
   getActiveSharedProjectAreaClaimSummaries,
@@ -221,6 +222,8 @@ export default function ProjectsPage() {
   const [disconnectSharedProjectIsOwner, setDisconnectSharedProjectIsOwner] = useState(false);
   const [disconnectSharedProjectLocalOnly, setDisconnectSharedProjectLocalOnly] = useState(false);
   const [disconnectingSharedProject, setDisconnectingSharedProject] = useState(false);
+  const [releasingMyAreaLocks, setReleasingMyAreaLocks] = useState(false);
+  const [releaseMyLocksConfirm, setReleaseMyLocksConfirm] = useState<Project | null>(null);
   const [transferringSharedProject, setTransferringSharedProject] = useState(false);
   const [showMySharedProjects, setShowMySharedProjects] = useState(false);
   const [loadingMySharedProjects, setLoadingMySharedProjects] = useState(false);
@@ -2007,6 +2010,52 @@ export default function ProjectsPage() {
     }
   }
 
+  function handleReleaseMyAreaLocks(project: Project) {
+    if (!project.sharedProjectId) {
+      showMessage('Share this project with the team before releasing area locks.');
+      return;
+    }
+
+    if (!collaborationAuth.isSignedIn) {
+      showMessage(TEAM_PROJECTS_SIGNIN_HINT);
+      return;
+    }
+
+    setReleaseMyLocksConfirm(project);
+  }
+
+  async function confirmReleaseMyAreaLocks() {
+    const targetProject = releaseMyLocksConfirm;
+    const sharedProjectId = targetProject?.sharedProjectId;
+    if (!targetProject || !sharedProjectId || releasingMyAreaLocks) return;
+
+    setReleasingMyAreaLocks(true);
+    try {
+      const result = await releaseAllMySharedProjectAreaClaims(sharedProjectId);
+      setReleaseMyLocksConfirm(null);
+      setSharedAreaClaims((current) => {
+        if (!collaborationAuth.user?.id) return current;
+        const next = new Map(current);
+        for (const [areaId, claim] of next) {
+          if (claim.ownership === 'mine') {
+            next.delete(areaId);
+          }
+        }
+        return next;
+      });
+      showMessage(
+        result.releasedCount === 0
+          ? 'You have no active area locks on this project.'
+          : `Released ${result.releasedCount} area lock${result.releasedCount === 1 ? '' : 's'}. Teammates can open those areas now.`
+      );
+    } catch (error) {
+      console.error('Failed to release my area locks:', error);
+      showMessage(getCollaborationErrorMessage(error, 'Failed to release your area locks. Please try again.'));
+    } finally {
+      setReleasingMyAreaLocks(false);
+    }
+  }
+
   function handleDisconnectSharedProject(project: Project, isOwner: boolean) {
     if (!project.sharedProjectId) {
       showMessage('This project is not currently shared.');
@@ -2286,6 +2335,11 @@ export default function ProjectsPage() {
       return;
     }
 
+    if (detail.action === 'release-my-area-locks' && singleProject) {
+      handleReleaseMyAreaLocks(singleProject);
+      return;
+    }
+
     if (detail.action === 'disconnect-shared-project' && singleProject) {
       handleDisconnectSharedProject(singleProject, detail.isSharedProjectOwner === true);
       return;
@@ -2330,6 +2384,7 @@ export default function ProjectsPage() {
           isCreatingJoinCode: creatingJoinCode,
           isLoadingSharedMembers: loadingSharedMembers,
           isDisconnectingSharedProject: disconnectingSharedProject,
+          isReleasingMyAreaLocks: releasingMyAreaLocks,
         },
       })
     );
@@ -2339,6 +2394,7 @@ export default function ProjectsPage() {
     deleteMode,
     disconnectingSharedProject,
     loadingSharedMembers,
+    releasingMyAreaLocks,
     sortOption,
     showTrash,
     singleProject,
@@ -2943,6 +2999,20 @@ export default function ProjectsPage() {
           confirmLabel="Transfer"
           onCancel={() => setOwnershipTransferProject(null)}
           onConfirm={(value) => void confirmTransferSharedProjectOwnership(value)}
+        />
+      )}
+
+      {releaseMyLocksConfirm && (
+        <AppConfirmDialog
+          title="Release My Locks"
+          message={`Release every area lock you hold on "${releaseMyLocksConfirm.projectName}"?\n\nTeammates will be able to open those areas. Areas locked by other people are not changed.`}
+          confirmLabel={releasingMyAreaLocks ? 'Releasing…' : 'Release My Locks'}
+          onCancel={() => {
+            if (!releasingMyAreaLocks) {
+              setReleaseMyLocksConfirm(null);
+            }
+          }}
+          onConfirm={() => void confirmReleaseMyAreaLocks()}
         />
       )}
 
