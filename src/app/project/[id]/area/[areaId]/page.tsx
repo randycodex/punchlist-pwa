@@ -33,6 +33,7 @@ import {
   compareLevelNames,
   getFacadeInspectionLevels,
   getAreaFormValue,
+  getAreaTitle,
   isApartmentArea,
   splitFacadeLevels,
   upsertFacadeElevationDrawing,
@@ -1834,9 +1835,7 @@ export default function AreaDetailPage() {
     return null;
   }
 
-  const areaTitle = isApartmentArea(area)
-    ? [area.unitType?.trim(), area.areaNumber?.trim()].filter(Boolean).join(' - ') || area.name
-    : area.name;
+  const areaTitle = getAreaTitle(area);
   const elevationDrawing = area.elevationDrawingId
     ? project.facadeElevationDrawings?.find((drawing) => drawing.id === area.elevationDrawingId) ?? null
     : null;

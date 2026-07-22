@@ -181,7 +181,7 @@ export function buildAreaName(form: AreaFormValue): string {
   }
 
   if (form.areaTypeKey === 'apartment_unit') {
-    return [baseName, form.unitType].filter(Boolean).join(' - ').trim();
+    return ['Unit', areaNumber, form.unitType].filter(Boolean).join(' - ').trim();
   }
 
   return [baseName, areaNumber].filter(Boolean).join(' - ').trim();
@@ -322,23 +322,34 @@ export function compareAreaNames(a: Pick<Area, 'facadeLevel' | 'name'>, b: Pick<
   return a.name.localeCompare(b.name);
 }
 
-export function getAreaDisplayNameMap(areas: Array<Pick<Area, 'id' | 'name' | 'createdAt'>>): Map<string, string> {
-  const groupedByName = new Map<string, Array<Pick<Area, 'id' | 'name' | 'createdAt'>>>();
+type AreaTitleFields = Pick<Area, 'name' | 'areaTypeKey' | 'areaNumber' | 'unitType'>;
+
+export function getAreaTitle(area: AreaTitleFields): string {
+  if (!isApartmentArea(area)) return area.name;
+
+  return ['Unit', area.areaNumber?.trim(), area.unitType?.trim()].filter(Boolean).join(' - ');
+}
+
+type AreaDisplayNameFields = Pick<Area, 'id' | 'name' | 'createdAt' | 'areaTypeKey' | 'areaNumber' | 'unitType'>;
+
+export function getAreaDisplayNameMap(areas: AreaDisplayNameFields[]): Map<string, string> {
+  const groupedByName = new Map<string, Array<AreaDisplayNameFields & { title: string }>>();
 
   for (const area of areas) {
-    const key = area.name.trim().replace(/\s+/g, ' ').toLocaleLowerCase();
+    const title = getAreaTitle(area);
+    const key = title.trim().replace(/\s+/g, ' ').toLocaleLowerCase();
     const group = groupedByName.get(key);
     if (group) {
-      group.push(area);
+      group.push({ ...area, title });
     } else {
-      groupedByName.set(key, [area]);
+      groupedByName.set(key, [{ ...area, title }]);
     }
   }
 
   const displayNames = new Map<string, string>();
   for (const group of groupedByName.values()) {
     if (group.length === 1) {
-      displayNames.set(group[0].id, group[0].name);
+      displayNames.set(group[0].id, group[0].title);
       continue;
     }
 
@@ -348,7 +359,7 @@ export function getAreaDisplayNameMap(areas: Array<Pick<Area, 'id' | 'name' | 'c
     });
 
     sortedGroup.forEach((area, index) => {
-      displayNames.set(area.id, `${area.name} #${index + 1}`);
+      displayNames.set(area.id, `${area.title} #${index + 1}`);
     });
   }
 
