@@ -90,7 +90,7 @@ export const APARTMENT_UNIT_TYPES: ApartmentUnitType[] = ['EFF', '1BR', '2BR', '
 
 export const AREA_TYPE_DEFINITIONS: AreaTypeDefinition[] = [
   { key: 'amenity_space', label: 'Amenity Space', templateKey: 'commonArea' },
-  { key: 'apartment_unit', label: 'Apartment / Unit', templateKey: 'apartment', requiresUnitType: true },
+  { key: 'apartment_unit', label: 'Unit', templateKey: 'apartment', requiresUnitType: true },
   { key: 'ats', label: 'ATS', templateKey: 'commonArea' },
   { key: 'bike_storage', label: 'Bike Storage', templateKey: 'commonArea' },
   { key: 'corridor', label: 'Corridor', templateKey: 'commonArea' },
