@@ -522,24 +522,26 @@ export default function PersistentTopBar() {
                     <div className={menuGroupShellClass}>
                       <div className={menuCardClass}>
                         <div className="app-menu-sort-content px-1 pb-1">
-                          {homeMenuState.isSingleProject && (
-                            <div className="mb-2">
+                          <div className="grid grid-cols-4 gap-2">
+                            {homeMenuState.isSingleProject && (
                               <AreaListViewToggle
                                 value={homeMenuState.areaViewMode}
                                 onChange={(mode) => dispatchHomeAction('area-view', undefined, mode)}
                               />
+                            )}
+                            <div className={homeMenuState.isSingleProject ? 'col-span-3' : 'col-span-4'}>
+                              <ListSortMenu
+                                value={homeMenuState.sortOption}
+                                onChange={(option) => {
+                                  if (showAuth) {
+                                    dispatchHomeAction(`quick-sort:${option}`);
+                                  } else {
+                                    dispatchHomeAction('sort', option);
+                                  }
+                                }}
+                              />
                             </div>
-                          )}
-                          <ListSortMenu
-                            value={homeMenuState.sortOption}
-                            onChange={(option) => {
-                              if (showAuth) {
-                                dispatchHomeAction(`quick-sort:${option}`);
-                              } else {
-                                dispatchHomeAction('sort', option);
-                              }
-                            }}
-                          />
+                          </div>
                         </div>
                       </div>
                     </div>
