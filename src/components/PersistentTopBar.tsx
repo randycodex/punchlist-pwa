@@ -22,6 +22,8 @@ import CollaborationAvatar from '@/components/CollaborationAvatar';
 import UserProfileModal from '@/components/UserProfileModal';
 import AppMessageDialog from '@/components/AppMessageDialog';
 import ListSortMenu, { type ListSortOption } from '@/components/ListSortMenu';
+import AreaListViewToggle from '@/components/AreaListViewToggle';
+import type { AreaListViewMode } from '@/features/projects/areaListView';
 import {
   Activity,
   ArchiveRestore,
@@ -55,6 +57,7 @@ type SortOption = ListSortOption;
 type HomeMenuState = {
   context?: 'home' | 'project';
   sortOption: SortOption;
+  areaViewMode: AreaListViewMode;
   showTrash: boolean;
   canAddArea: boolean;
   hasProjects: boolean;
@@ -114,6 +117,7 @@ export default function PersistentTopBar() {
   const [homeMenuState, setHomeMenuState] = useState<HomeMenuState>({
     context: 'home',
     sortOption: 'alphabetical',
+    areaViewMode: 'grouped',
     showTrash: false,
     canAddArea: false,
     hasProjects: false,
@@ -348,11 +352,12 @@ export default function PersistentTopBar() {
     };
   }, []);
 
-  function dispatchHomeAction(action: string, sort?: SortOption) {
+  function dispatchHomeAction(action: string, sort?: SortOption, areaViewMode?: AreaListViewMode) {
     window.dispatchEvent(new CustomEvent('punchlist-home-menu-action', {
       detail: {
         action,
         sort,
+        areaViewMode,
         isSharedProjectOwner: action === 'disconnect-shared-project'
           ? sharedProjectAccess.isOwner
           : undefined,
@@ -512,6 +517,14 @@ export default function PersistentTopBar() {
                     <div className={menuGroupShellClass}>
                       <div className={menuCardClass}>
                         <div className="app-menu-sort-content px-1 pb-1">
+                          {homeMenuState.isSingleProject && (
+                            <div className="mb-2">
+                              <AreaListViewToggle
+                                value={homeMenuState.areaViewMode}
+                                onChange={(mode) => dispatchHomeAction('area-view', undefined, mode)}
+                              />
+                            </div>
+                          )}
                           <ListSortMenu
                             value={homeMenuState.sortOption}
                             onChange={(option) => {

@@ -63,6 +63,14 @@ import { AreaCard,
 } from '@/features/projects/AreaCard';
 import AreaGroupList from '@/features/projects/AreaGroupList';
 import type { ListSortOption } from '@/components/ListSortMenu';
+import {
+  ALL_AREA_SORT_STORAGE_KEY,
+  AREA_VIEW_MODE_STORAGE_KEY,
+  getSortForAreaViewMode,
+  GROUPED_AREA_SORT_STORAGE_KEY,
+  isListSortOption,
+  type AreaListViewMode,
+} from '@/features/projects/areaListView';
 import { useMicrosoftAuth } from '@/contexts/MicrosoftAuthContext';
 import { useCollaborationAuth } from '@/contexts/CollaborationAuthContext';
 import { useSyncStatus } from '@/contexts/SyncStatusContext';
@@ -158,6 +166,7 @@ export default function ProjectDetailPage() {
   const [newAreaForm, setNewAreaForm] = useState(getDefaultAreaFormValue());
   const [recentAreaTypeKeys, setRecentAreaTypeKeys] = useState<AreaTypeKey[]>([]);
   const [sortOption, setSortOption] = useState<SortOption>('issues');
+  const [areaViewMode, setAreaViewMode] = useState<AreaListViewMode>('grouped');
   const [showTrash, setShowTrash] = useState(false);
   const [actionSheet, setActionSheet] = useState<'delete' | 'export' | 'export-scope' | null>(null);
   const [exportScope, setExportScope] = useState<ExportScope>('project');
@@ -240,21 +249,19 @@ export default function ProjectDetailPage() {
   useEffect(() => {
     // Load saved sort preference
     const savedSort = readLocalStorage(SORT_STORAGE_KEY);
-    if (
-      savedSort === 'alphabetical' || savedSort === 'alphabetical-reverse' ||
-      savedSort === 'issues' || savedSort === 'issues-reverse' ||
-      savedSort === 'date-newest' || savedSort === 'date-oldest'
-    ) {
-      setSortOption(savedSort);
-    } else if (savedSort === 'progress' || savedSort === 'progress-reverse') {
-      setSortOption('issues');
-    } else if (savedSort === 'name') {
-      setSortOption('alphabetical');
-    } else if (savedSort === 'recent') {
-      setSortOption('issues');
-    } else {
-      setSortOption(quickSort === 'progress' ? 'issues' : quickSort);
-    }
+    const fallbackSort: SortOption = isListSortOption(savedSort)
+      ? savedSort
+      : savedSort === 'name'
+        ? 'alphabetical'
+        : 'issues';
+    const savedMode = readLocalStorage(AREA_VIEW_MODE_STORAGE_KEY) === 'all' ? 'all' : 'grouped';
+    setAreaViewMode(savedMode);
+    setSortOption(getSortForAreaViewMode(
+      savedMode,
+      readLocalStorage(GROUPED_AREA_SORT_STORAGE_KEY),
+      readLocalStorage(ALL_AREA_SORT_STORAGE_KEY),
+      savedSort ? fallbackSort : quickSort === 'progress' ? 'issues' : quickSort
+    ));
   }, [quickSort]);
 
   useEffect(() => {
@@ -377,6 +384,28 @@ export default function ProjectDetailPage() {
   function handleSortChange(option: SortOption) {
     setSortOption(option);
     writeLocalStorage(SORT_STORAGE_KEY, option);
+    writeLocalStorage(
+      areaViewMode === 'grouped' ? GROUPED_AREA_SORT_STORAGE_KEY : ALL_AREA_SORT_STORAGE_KEY,
+      option
+    );
+  }
+
+  function handleAreaViewChange(mode: AreaListViewMode) {
+    if (mode === areaViewMode) return;
+    const nextSort = getSortForAreaViewMode(
+      mode,
+      mode === 'grouped' ? readLocalStorage(GROUPED_AREA_SORT_STORAGE_KEY) : sortOption,
+      mode === 'all' ? readLocalStorage(ALL_AREA_SORT_STORAGE_KEY) : sortOption,
+      sortOption
+    );
+    writeLocalStorage(
+      areaViewMode === 'grouped' ? GROUPED_AREA_SORT_STORAGE_KEY : ALL_AREA_SORT_STORAGE_KEY,
+      sortOption
+    );
+    writeLocalStorage(AREA_VIEW_MODE_STORAGE_KEY, mode);
+    writeLocalStorage(SORT_STORAGE_KEY, nextSort);
+    setAreaViewMode(mode);
+    setSortOption(nextSort);
   }
 
   async function handleEditProject(updates: Partial<Project>) {
@@ -1387,6 +1416,7 @@ export default function ProjectDetailPage() {
     const customEvent = event as CustomEvent<{
       action: string;
       sort?: SortOption;
+      areaViewMode?: AreaListViewMode;
       isSharedProjectOwner?: boolean;
     }>;
     const detail = customEvent.detail;
@@ -1394,6 +1424,11 @@ export default function ProjectDetailPage() {
 
     if (detail.action === 'sort' && detail.sort) {
       handleSortChange(detail.sort);
+      return;
+    }
+
+    if (detail.action === 'area-view' && detail.areaViewMode) {
+      handleAreaViewChange(detail.areaViewMode);
       return;
     }
 
@@ -1516,6 +1551,7 @@ export default function ProjectDetailPage() {
         detail: {
           context: 'project',
           sortOption,
+          areaViewMode,
           showTrash,
           canAddArea: true,
           hasProjects: true,
@@ -1540,6 +1576,7 @@ export default function ProjectDetailPage() {
     releasingMyAreaLocks,
     showTrash,
     sortOption,
+    areaViewMode,
   ]);
 
   if (loading) {
@@ -1721,7 +1758,8 @@ export default function ProjectDetailPage() {
           )
         ) : (
           <div className="mx-auto min-h-[calc(100%+1px)] w-full max-w-6xl">
-            <AreaGroupList areas={sortedAreas} renderArea={(area) => {
+            {areaViewMode === 'grouped' ? (
+              <AreaGroupList areas={sortedAreas} renderArea={(area) => {
               const metric = areaMetrics.get(area.id);
               const isSelected = selectedAreaIds.has(area.id);
               return (
@@ -1748,6 +1786,37 @@ export default function ProjectDetailPage() {
                   />
                 );
               }} />
+            ) : (
+              <div className="list-stack">
+                {sortedAreas.map((area) => {
+                  const metric = areaMetrics.get(area.id);
+                  const isSelected = selectedAreaIds.has(area.id);
+                  return (
+                    <AreaCard
+                      key={area.id}
+                      projectId={project.id}
+                      area={area}
+                      displayName={areaDisplayNames.get(area.id) ?? area.name}
+                      metric={metric}
+                      claimStatus={sharedAreaClaims.get(area.id)}
+                      deleteMode={deleteMode}
+                      isSelected={isSelected}
+                      onToggleSelection={toggleAreaSelection}
+                      onBlockedByClaim={() => {
+                        const claim = sharedAreaClaims.get(area.id);
+                        showMessage(
+                          claim?.label
+                            ? `${claim.label} is working in this area. Try another area, or wait until they release it.`
+                            : 'This area is locked until the current person releases it.'
+                        );
+                      }}
+                      onPrimeOpen={primeAreaOpen}
+                      onOpenArea={claimAreaOpenInBackground}
+                    />
+                  );
+                })}
+              </div>
+            )}
             <div className="mt-auto pt-2" />
           </div>
         )}

@@ -4,6 +4,7 @@ import { getAreaGroupKey } from '@/lib/areas';
 import { applyTemplateToArea } from '@/lib/template';
 import { getAreaStats } from '@/types';
 import { getNextListSortOption } from '@/components/ListSortMenu';
+import { getSortForAreaViewMode } from '@/features/projects/areaListView';
 
 describe('area list and checklist enhancements', () => {
   it('groups units, facades, and all remaining area types', () => {
@@ -40,5 +41,12 @@ describe('area list and checklist enhancements', () => {
     expect(getNextListSortOption('alphabetical-reverse', 'alphabetical')).toBe('alphabetical');
     expect(getNextListSortOption('date-newest', 'date')).toBe('date-oldest');
     expect(getNextListSortOption('date-oldest', 'date')).toBe('date-newest');
+  });
+
+  it('defaults the flat area view to creation order and remembers each view sort', () => {
+    expect(getSortForAreaViewMode('all', null, null, 'issues')).toBe('date-oldest');
+    expect(getSortForAreaViewMode('all', 'issues', 'alphabetical-reverse', 'issues')).toBe('alphabetical-reverse');
+    expect(getSortForAreaViewMode('grouped', 'issues-reverse', 'date-oldest', 'alphabetical')).toBe('issues-reverse');
+    expect(getSortForAreaViewMode('grouped', null, 'date-oldest', 'alphabetical')).toBe('alphabetical');
   });
 });
