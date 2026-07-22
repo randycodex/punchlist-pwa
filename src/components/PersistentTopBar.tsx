@@ -424,6 +424,7 @@ export default function PersistentTopBar() {
       <button
         type="button"
         onClick={() => {
+          setHomeMenuOpen(false);
           setInfoDialog({
             title: needsReview ? 'Team updates need review' : 'Team changes queued',
             message: needsReview
