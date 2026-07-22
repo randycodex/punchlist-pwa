@@ -38,8 +38,6 @@ describe('area list and checklist enhancements', () => {
     expect(getNextListSortOption('issues-reverse', 'issues')).toBe('issues');
     expect(getNextListSortOption('alphabetical', 'alphabetical')).toBe('alphabetical-reverse');
     expect(getNextListSortOption('alphabetical-reverse', 'alphabetical')).toBe('alphabetical');
-    expect(getNextListSortOption('progress', 'progress')).toBe('progress-reverse');
-    expect(getNextListSortOption('progress-reverse', 'progress')).toBe('progress');
     expect(getNextListSortOption('date-newest', 'date')).toBe('date-oldest');
     expect(getNextListSortOption('date-oldest', 'date')).toBe('date-newest');
   });

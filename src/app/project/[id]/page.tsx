@@ -243,16 +243,17 @@ export default function ProjectDetailPage() {
     if (
       savedSort === 'alphabetical' || savedSort === 'alphabetical-reverse' ||
       savedSort === 'issues' || savedSort === 'issues-reverse' ||
-      savedSort === 'progress' || savedSort === 'progress-reverse' ||
       savedSort === 'date-newest' || savedSort === 'date-oldest'
     ) {
       setSortOption(savedSort);
+    } else if (savedSort === 'progress' || savedSort === 'progress-reverse') {
+      setSortOption('issues');
     } else if (savedSort === 'name') {
       setSortOption('alphabetical');
     } else if (savedSort === 'recent') {
       setSortOption('issues');
     } else {
-      setSortOption(quickSort);
+      setSortOption(quickSort === 'progress' ? 'issues' : quickSort);
     }
   }, [quickSort]);
 
@@ -601,14 +602,9 @@ export default function ProjectDetailPage() {
         if (issuesB !== issuesA) return sortOption === 'issues' ? issuesB - issuesA : issuesA - issuesB;
         return compareAreaNames(a, b);
       }
-      if (sortOption === 'date-newest' || sortOption === 'date-oldest') {
-        const direction = sortOption === 'date-newest' ? -1 : 1;
-        const dateDifference = (a.createdAt.getTime() - b.createdAt.getTime()) * direction;
-        return dateDifference || compareAreaNames(a, b);
-      }
-      const progressA = areaMetrics.get(a.id)?.progress ?? 0;
-      const progressB = areaMetrics.get(b.id)?.progress ?? 0;
-      return sortOption === 'progress' ? progressB - progressA : progressA - progressB;
+      const direction = sortOption === 'date-newest' ? -1 : 1;
+      const dateDifference = (a.createdAt.getTime() - b.createdAt.getTime()) * direction;
+      return dateDifference || compareAreaNames(a, b);
     });
   }, [activeAreas, sortOption, areaMetrics]);
 
