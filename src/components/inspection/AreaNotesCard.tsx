@@ -1,6 +1,6 @@
 'use client';
 
-import { AlertCircle, ChevronDown, ChevronRight } from 'lucide-react';
+import { AlertTriangle, ChevronDown, ChevronRight } from 'lucide-react';
 import { useState } from 'react';
 
 type AreaNotesCardProps = {
@@ -35,8 +35,8 @@ export default function AreaNotesCard({ value, isExpanded, onToggle, onChange, o
               General Notes
             </div>
             {value.trim() && (
-              <div className="mt-1 inline-flex items-center gap-1 text-xs font-semibold text-rose-600 dark:text-rose-300">
-                <AlertCircle className="h-3.5 w-3.5" />
+              <div className="accent-text mt-1 inline-flex items-center gap-1 text-xs font-semibold">
+                <AlertTriangle className="h-3.5 w-3.5 opacity-80" />
                 Issue
               </div>
             )}
