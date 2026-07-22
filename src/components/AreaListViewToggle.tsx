@@ -16,7 +16,7 @@ export default function AreaListViewToggle({ value, onChange }: AreaListViewTogg
       onClick={() => onChange(isGrouped ? 'all' : 'grouped')}
       className={`min-h-10 w-full min-w-0 rounded-full px-1.5 py-2 text-center text-[12px] font-medium transition-colors ${
         isGrouped
-          ? 'bg-[var(--accent)] text-white'
+          ? 'bg-sky-600 text-white hover:bg-sky-700 dark:bg-sky-500 dark:hover:bg-sky-400'
           : 'bg-black/[0.08] text-gray-700 hover:bg-black/[0.12] dark:bg-white/[0.08] dark:text-gray-300 dark:hover:bg-white/[0.12]'
       }`}
       aria-label="Group areas by type"
