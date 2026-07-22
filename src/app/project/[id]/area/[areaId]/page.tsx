@@ -1546,11 +1546,11 @@ export default function AreaDetailPage() {
     }, 400);
   }
 
-  function scrollLocationToListAnchor(locationId: string) {
+  function scrollTargetToListAnchor(getTarget: () => HTMLElement | null | undefined) {
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
         const scroller = listRef.current;
-        const target = locationRefs.current.get(locationId);
+        const target = getTarget();
         if (!scroller || !target) return;
 
         const scrollerRect = scroller.getBoundingClientRect();
@@ -1560,10 +1560,18 @@ export default function AreaDetailPage() {
 
         scroller.scrollTo({
           top: scroller.scrollTop + targetRect.top - targetTop,
-          behavior: 'smooth',
+          behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth',
         });
       });
     });
+  }
+
+  function scrollLocationToListAnchor(locationId: string) {
+    scrollTargetToListAnchor(() => locationRefs.current.get(locationId));
+  }
+
+  function scrollItemToListAnchor(itemId: string) {
+    scrollTargetToListAnchor(() => itemRefs.current.get(itemId));
   }
 
   function scheduleSync(projectId?: string, options?: ScheduleSyncOptions) {
@@ -1677,6 +1685,7 @@ export default function AreaDetailPage() {
       } else {
         setExpandedItems(new Set([itemId]));
       }
+      scrollItemToListAnchor(itemId);
     }
   }
 
