@@ -61,6 +61,7 @@ describe('queued shared changes push', () => {
       getPendingMetadataSync,
       flushAreaSyncs,
       flushMetadataSyncs,
+      resumeReviewedAreaSyncs: vi.fn().mockResolvedValue(undefined),
     });
 
     expect(flushAreaSyncs).toHaveBeenCalledOnce();
@@ -93,6 +94,7 @@ describe('queued shared changes push', () => {
         .mockResolvedValueOnce(metadataRecord(true)),
       flushAreaSyncs: vi.fn().mockResolvedValue(undefined),
       flushMetadataSyncs: vi.fn().mockResolvedValue(undefined),
+      resumeReviewedAreaSyncs: vi.fn().mockResolvedValue(undefined),
     });
 
     expect(formatQueuedSharedPushMessage(result)).toBe(
@@ -106,6 +108,7 @@ describe('queued shared changes push', () => {
       getPendingMetadataSync: vi.fn().mockResolvedValue(undefined),
       flushAreaSyncs: vi.fn().mockResolvedValue(undefined),
       flushMetadataSyncs: vi.fn().mockResolvedValue(undefined),
+      resumeReviewedAreaSyncs: vi.fn().mockResolvedValue(undefined),
     });
 
     expect(formatQueuedSharedPushMessage(result)).toBe('Your work is already with the team. Nothing new to send.');

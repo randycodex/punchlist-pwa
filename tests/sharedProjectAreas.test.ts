@@ -94,10 +94,10 @@ describe('shared project area publishing', () => {
     expect(payload.areas[0]).toMatchObject({ id: 'area-1', sharedVersion: 5 });
   });
 
-  it('turns stale server revisions into a dedicated conflict error', async () => {
+  it.each(['40001', 'PT409'])('turns stale server revision %s into a dedicated conflict error', async (code) => {
     rpcMock.mockResolvedValue({
       data: null,
-      error: { code: '40001', message: 'Shared area has newer team data.' },
+      error: { code, message: 'Shared area has newer team data.' },
     });
 
     await expect(publishSharedProjectAreaSnapshot({

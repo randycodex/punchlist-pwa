@@ -51,6 +51,7 @@ export interface PendingSharedAreaSyncRecord {
   revision: number;
   attemptCount: number;
   blockedByConflict: boolean;
+  readyAfterConflictReview?: boolean;
   queuedAt: Date;
   lastError: string | null;
 }
@@ -1216,6 +1217,7 @@ export async function queuePendingSharedAreaSyncs(
       revision: (existing?.revision ?? 0) + 1,
       attemptCount: 0,
       blockedByConflict: false,
+      readyAfterConflictReview: false,
       queuedAt: new Date(),
       lastError: null,
     };
@@ -1316,11 +1318,78 @@ export async function recordPendingSharedAreaSyncFailure(
       ...current,
       attemptCount: current.attemptCount + 1,
       blockedByConflict,
+      readyAfterConflictReview: false,
       lastError: message,
     });
   }
   await tx.done;
   reportSharedSyncQueueChanged();
+}
+
+export async function rebasePendingSharedAreaSyncsForReview(
+  inputs: ReadonlyArray<PendingSharedAreaSyncInput>
+): Promise<PendingSharedAreaSyncRecord[]> {
+  if (inputs.length === 0) return [];
+  const db = await getDB();
+  const tx = db.transaction('sharedAreaSyncQueue', 'readwrite');
+  const store = tx.objectStore('sharedAreaSyncQueue');
+  const records: PendingSharedAreaSyncRecord[] = [];
+  const uniqueInputs = [...new Map(
+    inputs.map((input) => [
+      `${input.localProjectId}:${input.sharedProjectId}:${input.areaId}`,
+      input,
+    ])
+  ).values()];
+
+  for (const input of uniqueInputs) {
+    const key = `${input.localProjectId}:${input.sharedProjectId}:${input.areaId}`;
+    const existing = await store.get(key);
+    const record: PendingSharedAreaSyncRecord = {
+      key,
+      localProjectId: input.localProjectId,
+      sharedProjectId: input.sharedProjectId,
+      areaId: input.areaId,
+      baseVersion: input.baseVersion,
+      basePublishedAt: input.basePublishedAt,
+      clientId: uuidv4(),
+      revision: (existing?.revision ?? 0) + 1,
+      attemptCount: 0,
+      blockedByConflict: true,
+      readyAfterConflictReview: true,
+      queuedAt: existing?.queuedAt ?? new Date(),
+      lastError: 'Team updates were merged. Review this area, then tap Send to Team.',
+    };
+    await store.put(record);
+    records.push(record);
+  }
+
+  await tx.done;
+  reportSharedSyncQueueChanged();
+  return records;
+}
+
+export async function resumeReviewedPendingSharedAreaSyncs(localProjectId: string) {
+  const db = await getDB();
+  const tx = db.transaction('sharedAreaSyncQueue', 'readwrite');
+  const store = tx.objectStore('sharedAreaSyncQueue');
+  const records = await store.index('by-local-project').getAll(localProjectId);
+  let resumed = 0;
+
+  for (const record of records) {
+    if (!record.blockedByConflict || !record.readyAfterConflictReview) continue;
+    await store.put({
+      ...record,
+      attemptCount: 0,
+      blockedByConflict: false,
+      readyAfterConflictReview: false,
+      lastError: null,
+    });
+    resumed += 1;
+  }
+
+  await tx.done;
+  if (resumed > 0) reportSharedSyncQueueChanged();
+  return resumed;
 }
 
 export async function discardPendingSharedAreaSync(key: string) {

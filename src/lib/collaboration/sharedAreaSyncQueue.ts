@@ -4,6 +4,7 @@ import {
   getPendingSharedAreaSyncs,
   getProjectForArea,
   queuePendingSharedAreaSyncs,
+  rebasePendingSharedAreaSyncsForReview,
   recordPendingSharedAreaSyncFailure,
   type PendingSharedAreaSyncRecord,
 } from '@/lib/db';
@@ -133,6 +134,44 @@ export async function queueSharedProjectAreaSyncs(project: Project, areaIds: Ite
   }
   schedulePendingSharedAreaSyncFlush();
   return { queued: true as const, records };
+}
+
+export async function rebaseSharedProjectAreaSyncsAfterPull(
+  project: Project,
+  areaIds: Iterable<string>
+) {
+  const sharedProjectId = project.sharedProjectId;
+  if (!sharedProjectId || !project.sharedSnapshotPublishedAt) {
+    return { rebased: false as const, records: [] };
+  }
+
+  const projectBasePublishedAt = (
+    project.sharedBaselinePublishedAt
+    ?? project.sharedSnapshotPublishedAt
+  ).toISOString();
+  const areasById = new Map(project.areas.map((area) => [area.id, area]));
+  const inputs = [...new Set(areaIds)].flatMap((areaId) => {
+    const area = areasById.get(areaId);
+    if (!area) return [];
+    return [{
+      localProjectId: project.id,
+      sharedProjectId,
+      areaId,
+      baseVersion: area.sharedVersion ?? 0,
+      basePublishedAt: area.sharedPublishedAt?.toISOString() ?? projectBasePublishedAt,
+    }];
+  });
+  const records = await rebasePendingSharedAreaSyncsForReview(inputs);
+  for (const record of records) {
+    dispatchSharedAreaSync({
+      status: 'conflict',
+      localProjectId: record.localProjectId,
+      sharedProjectId: record.sharedProjectId,
+      areaId: record.areaId,
+      message: record.lastError ?? undefined,
+    });
+  }
+  return { rebased: records.length > 0, records };
 }
 
 async function syncRecord(

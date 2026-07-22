@@ -1,6 +1,7 @@
 import {
   getPendingSharedAreaSyncsForProject,
   getPendingSharedProjectMetadataSyncForProject,
+  resumeReviewedPendingSharedAreaSyncs,
   type PendingSharedAreaSyncRecord,
   type PendingSharedProjectMetadataSyncRecord,
 } from '@/lib/db';
@@ -25,6 +26,7 @@ type QueuedSharedPushDependencies = {
   ): Promise<PendingSharedProjectMetadataSyncRecord | undefined>;
   flushAreaSyncs(): Promise<unknown>;
   flushMetadataSyncs(): Promise<unknown>;
+  resumeReviewedAreaSyncs?(localProjectId: string): Promise<unknown>;
 };
 
 const defaultDependencies: QueuedSharedPushDependencies = {
@@ -32,6 +34,7 @@ const defaultDependencies: QueuedSharedPushDependencies = {
   getPendingMetadataSync: getPendingSharedProjectMetadataSyncForProject,
   flushAreaSyncs: flushPendingSharedAreaSyncs,
   flushMetadataSyncs: flushPendingSharedProjectMetadataSyncs,
+  resumeReviewedAreaSyncs: resumeReviewedPendingSharedAreaSyncs,
 };
 
 /**
@@ -42,6 +45,7 @@ export async function pushQueuedSharedChanges(
   localProjectId: string,
   dependencies: QueuedSharedPushDependencies = defaultDependencies
 ): Promise<QueuedSharedPushResult> {
+  await dependencies.resumeReviewedAreaSyncs?.(localProjectId);
   const [areaSyncsBefore, metadataSyncBefore] = await Promise.all([
     dependencies.getPendingAreaSyncs(localProjectId),
     dependencies.getPendingMetadataSync(localProjectId),

@@ -8,7 +8,9 @@ import {
   getPendingSharedAreaSyncsForProject,
   getProjectMetadata,
   queuePendingSharedAreaSync,
+  rebasePendingSharedAreaSyncsForReview,
   recordPendingSharedAreaSyncFailure,
+  resumeReviewedPendingSharedAreaSyncs,
   saveProjectPreserveTimestamps,
   summarizePendingSharedAreaSyncs,
 } from '@/lib/db';
@@ -103,6 +105,41 @@ describe('durable shared area sync queue', () => {
       blockedByConflict: false,
       baseVersion: 3,
       attemptCount: 0,
+      lastError: null,
+    });
+    await clearPendingSharedAreaSyncsForProject(project.id);
+  });
+
+  it('rebases a merged conflict but waits for an explicit Send to Team retry', async () => {
+    const project = createProject('Reviewed conflict queue project');
+    const area = createArea(project.id, 'Apartment 2C', 0);
+    const queued = await queuePendingSharedAreaSync({
+      localProjectId: project.id,
+      sharedProjectId: 'shared-project-reviewed-conflict',
+      areaId: area.id,
+      baseVersion: 2,
+      basePublishedAt: '2026-07-17T12:00:00.000Z',
+    });
+    await recordPendingSharedAreaSyncFailure(queued.key, queued.clientId, 'Newer team data', true);
+
+    const [rebased] = await rebasePendingSharedAreaSyncsForReview([{
+      localProjectId: project.id,
+      sharedProjectId: 'shared-project-reviewed-conflict',
+      areaId: area.id,
+      baseVersion: 3,
+      basePublishedAt: '2026-07-17T12:05:00.000Z',
+    }]);
+    expect(rebased).toMatchObject({
+      baseVersion: 3,
+      blockedByConflict: true,
+      readyAfterConflictReview: true,
+    });
+
+    expect(await resumeReviewedPendingSharedAreaSyncs(project.id)).toBe(1);
+    expect((await getPendingSharedAreaSyncsForProject(project.id))[0]).toMatchObject({
+      baseVersion: 3,
+      blockedByConflict: false,
+      readyAfterConflictReview: false,
       lastError: null,
     });
     await clearPendingSharedAreaSyncsForProject(project.id);

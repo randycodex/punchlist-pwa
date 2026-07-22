@@ -49,6 +49,7 @@ describe('manual shared project area merge', () => {
     const result = mergeSharedProjectAreas(local, remote);
     expect(result.resolutionProject.areas.map((entry) => entry.name)).toEqual(['Local area', 'Remote area']);
     expect(result.conflictingAreaNames).toEqual([]);
+    expect(result.preservedLocalAreaIds).toEqual(['a']);
   });
 
   it('keeps the local area and reports when both sides changed it', () => {
@@ -65,13 +66,16 @@ describe('manual shared project area merge', () => {
       sharedPublishedAt: new Date('2026-01-01T12:12:00.000Z'),
     });
     expect(result.conflictingAreaNames).toEqual(['Apartment 1A']);
+    expect(result.preservedLocalAreaIds).toEqual(['a']);
   });
 
   it('preserves a local-only newly created area', () => {
     const local = project([area('local-only', 'New local area', '2026-01-01T12:10:00.000Z')], '2026-01-01T12:10:00.000Z');
     const remote = project([], '2026-01-01T12:12:00.000Z');
 
-    expect(mergeSharedProjectAreas(local, remote).resolutionProject.areas[0].name).toBe('New local area');
+    const result = mergeSharedProjectAreas(local, remote);
+    expect(result.resolutionProject.areas[0].name).toBe('New local area');
+    expect(result.preservedLocalAreaIds).toEqual(['local-only']);
   });
 
   it('does not restore remote area contents after a local purge', () => {

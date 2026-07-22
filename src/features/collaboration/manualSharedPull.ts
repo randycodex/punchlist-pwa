@@ -11,6 +11,7 @@ export type PendingSharedPullState = {
   publishedAt: string;
   hasNewerLocalChanges: boolean;
   conflictingAreaNames: string[];
+  preservedLocalAreaIds: string[];
   preservedLocalAreaCount: number;
   preservedLocalProjectMetadata: boolean;
   appliedRemoteAreaCount: number;
@@ -47,7 +48,7 @@ export function mergeSharedProjectAreas(
   localProject: Project,
   sharedProject: Project,
   options: { preserveLocalProjectMetadata?: boolean } = {}
-): Pick<PendingSharedPullState, 'resolutionProject' | 'conflictingAreaNames' | 'preservedLocalAreaCount' | 'appliedRemoteAreaCount' | 'preservedLocalProjectMetadata'> {
+): Pick<PendingSharedPullState, 'resolutionProject' | 'conflictingAreaNames' | 'preservedLocalAreaIds' | 'preservedLocalAreaCount' | 'appliedRemoteAreaCount' | 'preservedLocalProjectMetadata'> {
   const baselineMs = localProject.sharedSnapshotPublishedAt
     ? new Date(localProject.sharedSnapshotPublishedAt).getTime()
     : 0;
@@ -58,6 +59,7 @@ export function mergeSharedProjectAreas(
     ...localProject.areas.map((area) => area.id).filter((id) => !remoteById.has(id)),
   ];
   const conflictingAreaNames: string[] = [];
+  const preservedLocalAreaIds: string[] = [];
   let preservedLocalAreaCount = 0;
   let appliedRemoteAreaCount = 0;
 
@@ -70,6 +72,7 @@ export function mergeSharedProjectAreas(
     }
     if (!remoteArea) {
       preservedLocalAreaCount += 1;
+      preservedLocalAreaIds.push(localArea.id);
       return localArea;
     }
 
@@ -80,6 +83,7 @@ export function mergeSharedProjectAreas(
       }
       if (!remoteArea.purgedAt) {
         preservedLocalAreaCount += 1;
+        preservedLocalAreaIds.push(localArea.id);
         return preserveLocalAreaWithRemoteRevision(localArea, remoteArea);
       }
       if (new Date(remoteArea.purgedAt).getTime() > new Date(localArea.purgedAt).getTime()) {
@@ -87,6 +91,7 @@ export function mergeSharedProjectAreas(
         return remoteArea;
       }
       preservedLocalAreaCount += 1;
+      preservedLocalAreaIds.push(localArea.id);
       return preserveLocalAreaWithRemoteRevision(localArea, remoteArea);
     }
 
@@ -95,10 +100,12 @@ export function mergeSharedProjectAreas(
     if (localChanged && remoteChanged) {
       conflictingAreaNames.push(localArea.name || remoteArea.name);
       preservedLocalAreaCount += 1;
+      preservedLocalAreaIds.push(localArea.id);
       return preserveLocalAreaWithRemoteRevision(localArea, remoteArea);
     }
     if (localChanged) {
       preservedLocalAreaCount += 1;
+      preservedLocalAreaIds.push(localArea.id);
       return preserveLocalAreaWithRemoteRevision(localArea, remoteArea);
     }
 
@@ -135,6 +142,7 @@ export function mergeSharedProjectAreas(
   return {
     resolutionProject,
     conflictingAreaNames: [...new Set(conflictingAreaNames)],
+    preservedLocalAreaIds: [...new Set(preservedLocalAreaIds)],
     preservedLocalAreaCount,
     appliedRemoteAreaCount,
     preservedLocalProjectMetadata: options.preserveLocalProjectMetadata ?? false,

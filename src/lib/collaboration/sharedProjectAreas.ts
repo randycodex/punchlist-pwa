@@ -72,6 +72,7 @@ export function isSharedProjectAreaConflictError(error: unknown): error is Share
     .join(' ')
     .toLowerCase();
   return code === '40001'
+    || code === 'PT409'
     || message.includes('newer team area data')
     || message.includes('area has newer team data');
 }

@@ -77,6 +77,7 @@ import {
   listSharedProjectBackups,
   publishSharedProjectSnapshot,
   queueSharedProjectAreaSyncs,
+  rebaseSharedProjectAreaSyncsAfterPull,
   removeSharedProjectMember,
   saveAndQueueSharedProjectMetadataSync,
   runCollaborationHealthCheck,
@@ -1098,6 +1099,10 @@ export default function ProjectDetailPage() {
       );
 
       await saveProjectPreserveTimestamps(pullState.resolutionProject);
+      await rebaseSharedProjectAreaSyncsAfterPull(
+        pullState.resolutionProject,
+        pullState.preservedLocalAreaIds
+      );
       if (pullState.preservedLocalProjectMetadata) {
         await saveAndQueueSharedProjectMetadataSync(pullState.resolutionProject);
       }
