@@ -1,5 +1,8 @@
 import { getSharedProjectSnapshot, hasNewerLocalChangesThanSharedSnapshot } from '@/lib/collaboration';
-import { getPendingSharedProjectMetadataSyncForProject } from '@/lib/db';
+import {
+  getPendingSharedAreaSyncsForProject,
+  getPendingSharedProjectMetadataSyncForProject,
+} from '@/lib/db';
 import type { Area, Project } from '@/types';
 
 export type PendingSharedPullReason = 'manual-pull' | 'publish-conflict';
@@ -47,7 +50,10 @@ function preserveLocalAreaWithRemoteRevision(localArea: Area, remoteArea: Area) 
 export function mergeSharedProjectAreas(
   localProject: Project,
   sharedProject: Project,
-  options: { preserveLocalProjectMetadata?: boolean } = {}
+  options: {
+    preserveLocalProjectMetadata?: boolean;
+    preserveLocalAreaIds?: Iterable<string>;
+  } = {}
 ): Pick<PendingSharedPullState, 'resolutionProject' | 'conflictingAreaNames' | 'preservedLocalAreaIds' | 'preservedLocalAreaCount' | 'appliedRemoteAreaCount' | 'preservedLocalProjectMetadata'> {
   const baselineMs = localProject.sharedSnapshotPublishedAt
     ? new Date(localProject.sharedSnapshotPublishedAt).getTime()
@@ -60,6 +66,7 @@ export function mergeSharedProjectAreas(
   ];
   const conflictingAreaNames: string[] = [];
   const preservedLocalAreaIds: string[] = [];
+  const forcedLocalAreaIds = new Set(options.preserveLocalAreaIds ?? []);
   let preservedLocalAreaCount = 0;
   let appliedRemoteAreaCount = 0;
 
@@ -74,6 +81,17 @@ export function mergeSharedProjectAreas(
       preservedLocalAreaCount += 1;
       preservedLocalAreaIds.push(localArea.id);
       return localArea;
+    }
+
+    if (forcedLocalAreaIds.has(areaId)) {
+      const localVersion = localArea.sharedVersion ?? 0;
+      const remoteVersion = remoteArea.sharedVersion ?? 0;
+      if (remoteVersion > localVersion) {
+        conflictingAreaNames.push(localArea.name || remoteArea.name);
+      }
+      preservedLocalAreaCount += 1;
+      preservedLocalAreaIds.push(localArea.id);
+      return preserveLocalAreaWithRemoteRevision(localArea, remoteArea);
     }
 
     if (localArea.purgedAt || remoteArea.purgedAt) {
@@ -153,9 +171,13 @@ export async function mergeSharedProjectAreasWithPendingMetadata(
   localProject: Project,
   sharedProject: Project
 ) {
-  const pendingMetadata = await getPendingSharedProjectMetadataSyncForProject(localProject.id);
+  const [pendingMetadata, pendingAreas] = await Promise.all([
+    getPendingSharedProjectMetadataSyncForProject(localProject.id),
+    getPendingSharedAreaSyncsForProject(localProject.id),
+  ]);
   return mergeSharedProjectAreas(localProject, sharedProject, {
     preserveLocalProjectMetadata: Boolean(pendingMetadata),
+    preserveLocalAreaIds: pendingAreas.map((record) => record.areaId),
   });
 }
 

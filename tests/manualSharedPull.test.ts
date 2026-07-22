@@ -69,6 +69,27 @@ describe('manual shared project area merge', () => {
     expect(result.preservedLocalAreaIds).toEqual(['a']);
   });
 
+  it('preserves an explicitly queued area even when a newer project timestamp masks it', () => {
+    const localArea = area('queued', 'Queued local area', '2026-01-01T12:01:00.000Z');
+    localArea.sharedVersion = 1;
+    const remoteArea = area('queued', 'Remote area', '2026-01-01T12:02:00.000Z');
+    remoteArea.sharedVersion = 2;
+    remoteArea.sharedPublishedAt = new Date('2026-01-01T12:02:00.000Z');
+
+    const result = mergeSharedProjectAreas(
+      project([localArea], '2026-01-01T12:30:00.000Z'),
+      project([remoteArea], '2026-01-01T12:30:00.000Z'),
+      { preserveLocalAreaIds: ['queued'] }
+    );
+
+    expect(result.resolutionProject.areas[0]).toMatchObject({
+      name: 'Queued local area',
+      sharedVersion: 2,
+    });
+    expect(result.conflictingAreaNames).toEqual(['Queued local area']);
+    expect(result.preservedLocalAreaIds).toEqual(['queued']);
+  });
+
   it('preserves a local-only newly created area', () => {
     const local = project([area('local-only', 'New local area', '2026-01-01T12:10:00.000Z')], '2026-01-01T12:10:00.000Z');
     const remote = project([], '2026-01-01T12:12:00.000Z');

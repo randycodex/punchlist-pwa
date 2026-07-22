@@ -1843,11 +1843,13 @@ export default function ProjectsPage() {
 
       fullProject.sharedProjectId = project.sharedProjectId;
       fullProject.sharedProjectLinkedAt = project.sharedProjectLinkedAt;
+      const pendingAreaSyncs = await getPendingSharedAreaSyncsForProject(fullProject.id);
+      const hasPendingAreaSyncs = pendingAreaSyncs.length > 0;
       const metadata = await getSharedProjectSnapshotMetadata(project.sharedProjectId);
       if (!metadata) {
         throw new Error('No team data has been published for this project yet.');
       }
-      if (!isSharedSnapshotNewer(fullProject, metadata.publishedAt)) {
+      if (!hasPendingAreaSyncs && !isSharedSnapshotNewer(fullProject, metadata.publishedAt)) {
         showMessage('You already have the latest team updates. Your work on this device was not replaced.');
         return;
       }
@@ -1856,7 +1858,7 @@ export default function ProjectsPage() {
       const result = await getSharedProjectSnapshot(fullProject);
       const hasNewerLocalChanges = hasNewerLocalChangesThanSharedSnapshot(fullProject, result.publishedAt);
       const merge = await mergeSharedProjectAreasWithPendingMetadata(fullProject, result.project);
-      if (hasNewerLocalChanges || merge.preservedLocalProjectMetadata) {
+      if (hasPendingAreaSyncs || hasNewerLocalChanges || merge.preservedLocalProjectMetadata) {
         setPendingPull({
           localProject: fullProject,
           sharedProject: result.project,
@@ -1868,7 +1870,7 @@ export default function ProjectsPage() {
         return;
       }
 
-      if (!isSharedSnapshotNewer(fullProject, result.publishedAt)) {
+      if (!hasPendingAreaSyncs && !isSharedSnapshotNewer(fullProject, result.publishedAt)) {
         showMessage('You already have the latest team updates.');
         return;
       }

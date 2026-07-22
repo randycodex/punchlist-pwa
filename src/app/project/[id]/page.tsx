@@ -3,7 +3,16 @@
 import { useState, useEffect, useLayoutEffect, useMemo, useRef, useCallback } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { Area, Project, checkpointHasIssue, getReviewMetrics } from '@/types';
-import { clearPendingSharedSyncsForProject, getProject, getProjectMetadata, saveProject, saveProjectMetadataOnly, saveProjectPreserveTimestamps, createArea } from '@/lib/db';
+import {
+  clearPendingSharedSyncsForProject,
+  getPendingSharedAreaSyncsForProject,
+  getProject,
+  getProjectMetadata,
+  saveProject,
+  saveProjectMetadataOnly,
+  saveProjectPreserveTimestamps,
+  createArea,
+} from '@/lib/db';
 import { cacheProjectPreview, getCachedProjectPreview } from '@/lib/projectNavigationCache';
 import { readLocalStorage, writeLocalStorage } from '@/lib/browserStorage';
 import AreaEditorModal from '@/components/AreaEditorModal';
@@ -1042,11 +1051,13 @@ export default function ProjectDetailPage() {
 
       fullProject.sharedProjectId = project.sharedProjectId;
       fullProject.sharedProjectLinkedAt = project.sharedProjectLinkedAt;
+      const pendingAreaSyncs = await getPendingSharedAreaSyncsForProject(fullProject.id);
+      const hasPendingAreaSyncs = pendingAreaSyncs.length > 0;
       const metadata = await getSharedProjectSnapshotMetadata(project.sharedProjectId);
       if (!metadata) {
         throw new Error('No team data has been published for this project yet.');
       }
-      if (!isSharedSnapshotNewer(fullProject, metadata.publishedAt)) {
+      if (!hasPendingAreaSyncs && !isSharedSnapshotNewer(fullProject, metadata.publishedAt)) {
         showMessage('You already have the latest team updates. Your work on this device was not replaced.');
         return;
       }
@@ -1055,7 +1066,7 @@ export default function ProjectDetailPage() {
       const result = await getSharedProjectSnapshot(fullProject);
       const hasNewerLocalChanges = hasNewerLocalChangesThanSharedSnapshot(fullProject, result.publishedAt);
       const merge = await mergeSharedProjectAreasWithPendingMetadata(fullProject, result.project);
-      if (hasNewerLocalChanges || merge.preservedLocalProjectMetadata) {
+      if (hasPendingAreaSyncs || hasNewerLocalChanges || merge.preservedLocalProjectMetadata) {
         setPendingPull({
           localProject: fullProject,
           sharedProject: result.project,
@@ -1067,7 +1078,7 @@ export default function ProjectDetailPage() {
         return;
       }
 
-      if (!isSharedSnapshotNewer(fullProject, result.publishedAt)) {
+      if (!hasPendingAreaSyncs && !isSharedSnapshotNewer(fullProject, result.publishedAt)) {
         showMessage('You already have the latest team updates.');
         return;
       }
