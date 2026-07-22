@@ -508,14 +508,14 @@ function filterProjectForMode(project: Project, mode: PdfExportMode, options?: P
           }))
           .filter((location) => location.items.length > 0),
       }))
-      .filter((area) => area.locations.length > 0),
+      .filter((area) => area.locations.length > 0 || Boolean(sanitizeText(area.notes))),
   };
 }
 
 function hasRenderableContent(project: ExportProject, mode: PdfExportMode) {
   return project.areas.some((area) => {
     const printableLocations = getPrintableLocationsForMode(area, mode);
-    return printableLocations.length > 0 || (mode === 'full' && Boolean(sanitizeText(area.notes)));
+    return printableLocations.length > 0 || Boolean(sanitizeText(area.notes));
   });
 }
 
@@ -1416,7 +1416,7 @@ async function renderProjectDetailPages(
 
     const printableLocations = getPrintableLocationsForMode(area, mode);
 
-    if (printableLocations.length === 0 && !(mode === 'full' && hasAreaNotes)) {
+    if (printableLocations.length === 0 && !hasAreaNotes) {
       continue;
     }
 

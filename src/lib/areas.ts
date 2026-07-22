@@ -168,6 +168,15 @@ export function isApartmentArea(area?: Pick<Area, 'areaTypeKey' | 'name'> | null
   return resolveAreaTypeKey(area) === 'apartment_unit';
 }
 
+export type AreaGroupKey = 'units' | 'facades' | 'others';
+
+export function getAreaGroupKey(area?: Pick<Area, 'areaTypeKey' | 'name'> | null): AreaGroupKey {
+  const areaTypeKey = resolveAreaTypeKey(area);
+  if (areaTypeKey === 'apartment_unit') return 'units';
+  if (areaTypeKey === 'facade') return 'facades';
+  return 'others';
+}
+
 export function buildAreaName(form: AreaFormValue): string {
   const definition = getAreaTypeDefinition(form.areaTypeKey);
   const baseName = definition.requiresCustomName ? form.customAreaName.trim() : definition.label;

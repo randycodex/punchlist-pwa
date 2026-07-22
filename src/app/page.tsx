@@ -58,6 +58,8 @@ import { HomeAreaCard,
   type HomeAreaCardMetrics as AreaMetrics,
   type HomeAreaClaimDisplay as AreaClaimDisplay,
 } from '@/features/projects/HomeAreaCard';
+import AreaGroupList from '@/features/projects/AreaGroupList';
+import type { ListSortOption } from '@/components/ListSortMenu';
 import { useMicrosoftAuth } from '@/contexts/MicrosoftAuthContext';
 import { useCollaborationAuth } from '@/contexts/CollaborationAuthContext';
 import { useSyncStatus } from '@/contexts/SyncStatusContext';
@@ -139,7 +141,7 @@ import {
   CloudUpload,
 } from 'lucide-react';
 
-type SortOption = 'alphabetical' | 'issues' | 'progress';
+type SortOption = ListSortOption;
 type ExportDestination = 'local' | 'onedrive';
 type ExportScope = 'selected-projects' | 'selected-areas';
 
@@ -150,11 +152,11 @@ const LONG_PRESS_MS = 500;
 const SHARED_AREA_CLAIM_REFRESH_MS = 15 * 1000;
 
 function formatSharedBackupReason(reason: CollaborationSnapshotBackup['reason']) {
-  if (reason === 'publish') return 'Published version';
-  if (reason === 'before_publish') return 'Before publish';
-  if (reason === 'before_pull') return 'Before pull';
-  if (reason === 'restore') return 'Before restore';
-  return 'Manual backup';
+  if (reason === 'publish') return 'Published team version';
+  if (reason === 'before_publish') return 'Team version before replacement';
+  if (reason === 'before_pull') return 'Device version before team update';
+  if (reason === 'restore') return 'Device version before backup restore';
+  return 'Manually saved version';
 }
 
 type MessageDialogState = {
@@ -314,7 +316,7 @@ export default function ProjectsPage() {
 
   useEffect(() => {
     const savedSort = readLocalStorage(SORT_STORAGE_KEY);
-    if (savedSort === 'alphabetical' || savedSort === 'issues' || savedSort === 'progress') {
+    if (savedSort === 'alphabetical' || savedSort === 'issues' || savedSort === 'progress' || savedSort === 'date-newest' || savedSort === 'date-oldest') {
       setSortOption(savedSort);
     } else if (savedSort === 'name') {
       setSortOption('alphabetical');
@@ -600,6 +602,10 @@ export default function ProjectsPage() {
       for (const area of project.areas) {
         if (area.deletedAt) continue;
         activeAreaCount += 1;
+        if (area.notes.trim()) {
+          total += 1;
+          issues += 1;
+        }
         for (const location of area.locations) {
           for (const item of location.items) {
             for (const checkpoint of item.checkpoints) {
@@ -677,6 +683,11 @@ export default function ProjectsPage() {
         const issuesB = projectMetrics.get(b.id)?.stats.issues ?? 0;
         if (issuesB !== issuesA) return issuesB - issuesA;
         return a.projectName.localeCompare(b.projectName);
+      }
+      if (sortOption === 'date-newest' || sortOption === 'date-oldest') {
+        const direction = sortOption === 'date-newest' ? -1 : 1;
+        const dateDifference = (a.createdAt.getTime() - b.createdAt.getTime()) * direction;
+        return dateDifference || a.projectName.localeCompare(b.projectName);
       }
       const progressA = projectMetrics.get(a.id)?.progress ?? 0;
       const progressB = projectMetrics.get(b.id)?.progress ?? 0;
@@ -909,6 +920,10 @@ export default function ProjectsPage() {
           }
         }
       }
+      if (area.notes.trim()) {
+        total += 1;
+        issues += 1;
+      }
       const stats = { total, ok, issues };
       const reviewMetrics = getReviewMetrics(stats.total, stats.ok, stats.issues);
       metrics.set(area.id, {
@@ -933,6 +948,11 @@ export default function ProjectsPage() {
         const issuesB = areaMetrics.get(b.id)?.stats.issues ?? 0;
         if (issuesB !== issuesA) return issuesB - issuesA;
         return compareAreaNames(a, b);
+      }
+      if (sortOption === 'date-newest' || sortOption === 'date-oldest') {
+        const direction = sortOption === 'date-newest' ? -1 : 1;
+        const dateDifference = (a.createdAt.getTime() - b.createdAt.getTime()) * direction;
+        return dateDifference || compareAreaNames(a, b);
       }
       const progressA = areaMetrics.get(a.id)?.progress ?? 0;
       const progressB = areaMetrics.get(b.id)?.progress ?? 0;
@@ -2234,6 +2254,8 @@ export default function ProjectsPage() {
       if (nextQuickSort === 'issues' || nextQuickSort === 'alphabetical' || nextQuickSort === 'progress') {
         setQuickSort(nextQuickSort);
         handleSortChange(nextQuickSort);
+      } else if (nextQuickSort === 'date-newest' || nextQuickSort === 'date-oldest') {
+        handleSortChange(nextQuickSort);
       }
       return;
     }
@@ -2809,7 +2831,7 @@ export default function ProjectsPage() {
             </div>
           )
         ) : singleProjectMainView ? (
-          <div className="list-stack mx-auto min-h-[calc(100%+1px)] w-full max-w-6xl">
+          <div className="mx-auto min-h-[calc(100%+1px)] w-full max-w-6xl">
             {sortedAreas.length === 0 ? (
               <div className="flex min-h-[50vh] items-center justify-center py-12">
                 <div className="empty-state-card w-full max-w-sm rounded-[1.9rem] p-8 text-center">
@@ -2830,7 +2852,7 @@ export default function ProjectsPage() {
                 </div>
               </div>
             ) : (
-              sortedAreas.map((area) => {
+              <AreaGroupList areas={sortedAreas} renderArea={(area) => {
                 const metric = areaMetrics.get(area.id);
                 const isSelected = selectedAreaIds.has(area.id);
                 return (
@@ -2849,7 +2871,7 @@ export default function ProjectsPage() {
                     onOpenArea={claimAreaOpenInBackground}
                   />
                 );
-              })
+              }} />
             )}
           </div>
         ) : (

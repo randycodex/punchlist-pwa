@@ -21,7 +21,7 @@ import {
 import CollaborationAvatar from '@/components/CollaborationAvatar';
 import UserProfileModal from '@/components/UserProfileModal';
 import AppMessageDialog from '@/components/AppMessageDialog';
-import ListSortMenu from '@/components/ListSortMenu';
+import ListSortMenu, { type ListSortOption } from '@/components/ListSortMenu';
 import {
   Activity,
   ArchiveRestore,
@@ -51,7 +51,7 @@ const sharedProjectAccessCache = new Map<
   { isActiveMember: boolean; isOwner: boolean; hasError: boolean }
 >();
 
-type SortOption = 'alphabetical' | 'issues' | 'progress';
+type SortOption = ListSortOption;
 type HomeMenuState = {
   context?: 'home' | 'project';
   sortOption: SortOption;

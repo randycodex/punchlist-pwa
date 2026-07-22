@@ -221,6 +221,7 @@ const stairsTemplate: TemplateLocation[] = [
 
 function createLivingAreaItems(includeIntercom: boolean): TemplateItem[] {
   return [
+    ...(!includeIntercom ? [{ name: 'Wall', checkpoints: ['Paint', 'Clean'] }] : []),
     { name: 'Paint', checkpoints: ['Walls', 'Ceiling'] },
     { name: 'Flooring', checkpoints: ['Adhesion', 'Edges', 'Joints', 'Finish'] },
     { name: 'Base', checkpoints: ['Paint', 'Flush', 'Corners', 'Caulk'] },
@@ -290,6 +291,7 @@ const apartmentBaseTemplate: TemplateLocation[] = [
   {
     name: 'Kitchen',
     items: [
+      { name: 'Ceiling', checkpoints: ['Paint', 'Clean'] },
       { name: 'Floor Transition', checkpoints: ['Level'] },
       { name: 'Cabinets', checkpoints: ['Hardware', 'Silencer', 'Finish', 'Shelves', 'Kickplate'] },
       { name: 'Counter', checkpoints: ['Finish', 'Caulk', 'Clean'] },

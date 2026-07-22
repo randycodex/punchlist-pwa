@@ -186,6 +186,11 @@ export function getAreaStats(area: Area) {
     }
   }
 
+  if (area.notes.trim()) {
+    total += 1;
+    issues += 1;
+  }
+
   return {
     total,
     ok,
