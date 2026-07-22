@@ -96,7 +96,7 @@ describe('mobile top-bar safe area', () => {
     expect(persistentTopBar).toContain("const menuRowClass = 'flex min-h-10");
     expect(persistentTopBar).toContain('rounded-full bg-black/[0.08]');
     expect(listSortMenu).toContain('grid grid-cols-4 gap-1.5');
-    expect(listSortMenu).toContain("value === 'date-newest' ? 'date-oldest' : 'date-newest'");
+    expect(listSortMenu).toContain('getNextListSortOption(value, option.value)');
     expect(listSortMenu).toContain('role="group" aria-label="Sort list"');
     expect(listSortMenu).toContain('aria-pressed={isSelected}');
     expect(listSortMenu).toContain('rounded-full');

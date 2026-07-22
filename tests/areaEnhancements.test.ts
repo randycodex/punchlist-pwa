@@ -3,6 +3,7 @@ import { createArea } from '@/lib/db';
 import { getAreaGroupKey } from '@/lib/areas';
 import { applyTemplateToArea } from '@/lib/template';
 import { getAreaStats } from '@/types';
+import { getNextListSortOption } from '@/components/ListSortMenu';
 
 describe('area list and checklist enhancements', () => {
   it('groups units, facades, and all remaining area types', () => {
@@ -30,5 +31,16 @@ describe('area list and checklist enhancements', () => {
 
     expect(bedroom?.items.some((item) => item.name === 'Wall')).toBe(true);
     expect(kitchen?.items.some((item) => item.name === 'Ceiling')).toBe(true);
+  });
+
+  it('reverses every sort group when its selected button is tapped again', () => {
+    expect(getNextListSortOption('issues', 'issues')).toBe('issues-reverse');
+    expect(getNextListSortOption('issues-reverse', 'issues')).toBe('issues');
+    expect(getNextListSortOption('alphabetical', 'alphabetical')).toBe('alphabetical-reverse');
+    expect(getNextListSortOption('alphabetical-reverse', 'alphabetical')).toBe('alphabetical');
+    expect(getNextListSortOption('progress', 'progress')).toBe('progress-reverse');
+    expect(getNextListSortOption('progress-reverse', 'progress')).toBe('progress');
+    expect(getNextListSortOption('date-newest', 'date')).toBe('date-oldest');
+    expect(getNextListSortOption('date-oldest', 'date')).toBe('date-newest');
   });
 });

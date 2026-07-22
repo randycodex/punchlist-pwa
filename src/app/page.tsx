@@ -316,7 +316,12 @@ export default function ProjectsPage() {
 
   useEffect(() => {
     const savedSort = readLocalStorage(SORT_STORAGE_KEY);
-    if (savedSort === 'alphabetical' || savedSort === 'issues' || savedSort === 'progress' || savedSort === 'date-newest' || savedSort === 'date-oldest') {
+    if (
+      savedSort === 'alphabetical' || savedSort === 'alphabetical-reverse' ||
+      savedSort === 'issues' || savedSort === 'issues-reverse' ||
+      savedSort === 'progress' || savedSort === 'progress-reverse' ||
+      savedSort === 'date-newest' || savedSort === 'date-oldest'
+    ) {
       setSortOption(savedSort);
     } else if (savedSort === 'name') {
       setSortOption('alphabetical');
@@ -675,13 +680,14 @@ export default function ProjectsPage() {
 
   const sortedProjects = useMemo(() => {
     return [...activeProjects].sort((a, b) => {
-      if (sortOption === 'alphabetical') {
-        return a.projectName.localeCompare(b.projectName);
+      if (sortOption === 'alphabetical' || sortOption === 'alphabetical-reverse') {
+        const direction = sortOption === 'alphabetical' ? 1 : -1;
+        return a.projectName.localeCompare(b.projectName) * direction;
       }
-      if (sortOption === 'issues') {
+      if (sortOption === 'issues' || sortOption === 'issues-reverse') {
         const issuesA = projectMetrics.get(a.id)?.stats.issues ?? 0;
         const issuesB = projectMetrics.get(b.id)?.stats.issues ?? 0;
-        if (issuesB !== issuesA) return issuesB - issuesA;
+        if (issuesB !== issuesA) return sortOption === 'issues' ? issuesB - issuesA : issuesA - issuesB;
         return a.projectName.localeCompare(b.projectName);
       }
       if (sortOption === 'date-newest' || sortOption === 'date-oldest') {
@@ -691,7 +697,7 @@ export default function ProjectsPage() {
       }
       const progressA = projectMetrics.get(a.id)?.progress ?? 0;
       const progressB = projectMetrics.get(b.id)?.progress ?? 0;
-      return progressB - progressA;
+      return sortOption === 'progress' ? progressB - progressA : progressA - progressB;
     });
   }, [activeProjects, projectMetrics, sortOption]);
 
@@ -940,13 +946,14 @@ export default function ProjectsPage() {
 
   const sortedAreas = useMemo(() => {
     return [...activeAreas].sort((a, b) => {
-      if (sortOption === 'alphabetical') {
-        return compareAreaNames(a, b);
+      if (sortOption === 'alphabetical' || sortOption === 'alphabetical-reverse') {
+        const direction = sortOption === 'alphabetical' ? 1 : -1;
+        return compareAreaNames(a, b) * direction;
       }
-      if (sortOption === 'issues') {
+      if (sortOption === 'issues' || sortOption === 'issues-reverse') {
         const issuesA = areaMetrics.get(a.id)?.stats.issues ?? 0;
         const issuesB = areaMetrics.get(b.id)?.stats.issues ?? 0;
-        if (issuesB !== issuesA) return issuesB - issuesA;
+        if (issuesB !== issuesA) return sortOption === 'issues' ? issuesB - issuesA : issuesA - issuesB;
         return compareAreaNames(a, b);
       }
       if (sortOption === 'date-newest' || sortOption === 'date-oldest') {
@@ -956,7 +963,7 @@ export default function ProjectsPage() {
       }
       const progressA = areaMetrics.get(a.id)?.progress ?? 0;
       const progressB = areaMetrics.get(b.id)?.progress ?? 0;
-      return progressB - progressA;
+      return sortOption === 'progress' ? progressB - progressA : progressA - progressB;
     });
   }, [activeAreas, areaMetrics, sortOption]);
 
@@ -2254,7 +2261,10 @@ export default function ProjectsPage() {
       if (nextQuickSort === 'issues' || nextQuickSort === 'alphabetical' || nextQuickSort === 'progress') {
         setQuickSort(nextQuickSort);
         handleSortChange(nextQuickSort);
-      } else if (nextQuickSort === 'date-newest' || nextQuickSort === 'date-oldest') {
+      } else if (
+        nextQuickSort === 'issues-reverse' || nextQuickSort === 'alphabetical-reverse' ||
+        nextQuickSort === 'progress-reverse' || nextQuickSort === 'date-newest' || nextQuickSort === 'date-oldest'
+      ) {
         handleSortChange(nextQuickSort);
       }
       return;
