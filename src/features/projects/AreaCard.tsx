@@ -100,7 +100,11 @@ export const AreaCard = memo(function AreaCard({
         >
           <div className="min-w-0">
             <div className="flex min-w-0 flex-wrap items-center gap-2">
-              <h3 className="truncate text-[1.05rem] font-semibold tracking-[-0.02em] text-gray-900 dark:text-white">
+              <h3
+                className={`truncate text-[1.05rem] font-semibold tracking-[-0.02em] ${
+                  claimStatus?.ownership === 'mine' ? 'accent-text' : 'text-gray-900 dark:text-white'
+                }`}
+              >
                 {displayName}
               </h3>
               {showOtherClaim && (
