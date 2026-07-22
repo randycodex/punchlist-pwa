@@ -3041,9 +3041,9 @@ export default function ProjectsPage() {
 
       {releaseMyLocksConfirm && (
         <AppConfirmDialog
-          title="Release My Locks"
+          title="Release Areas"
           message={`Release every area lock you hold on "${releaseMyLocksConfirm.projectName}"?\n\nTeammates will be able to open those areas. Areas locked by other people are not changed.`}
-          confirmLabel={releasingMyAreaLocks ? 'Releasing…' : 'Release My Locks'}
+          confirmLabel={releasingMyAreaLocks ? 'Releasing…' : 'Release Areas'}
           onCancel={() => {
             if (!releasingMyAreaLocks) {
               setReleaseMyLocksConfirm(null);

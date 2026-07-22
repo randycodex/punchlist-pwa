@@ -602,6 +602,14 @@ export default function PersistentTopBar() {
                             {homeMenuState.isCreatingJoinCode ? 'Preparing…' : 'Invite'}
                           </button>
                           <button
+                            onClick={() => dispatchHomeAction('release-my-area-locks')}
+                            disabled={!!homeMenuState.isReleasingMyAreaLocks || sharedTransferStatus !== null}
+                            className={disabledMenuRowClass}
+                          >
+                            <UnlockKeyhole className="h-4 w-4 shrink-0" />
+                            {homeMenuState.isReleasingMyAreaLocks ? 'Releasing…' : 'Release Areas'}
+                          </button>
+                          <button
                             type="button"
                             onClick={() => setShowTeamMore((current) => !current)}
                             className={menuRowSecondaryClass}
@@ -623,14 +631,6 @@ export default function PersistentTopBar() {
                               <button onClick={() => dispatchHomeAction('shared-backups')} className={menuRowSecondaryClass}>
                                 <ArchiveRestore className="h-4 w-4 shrink-0" />
                                 Team Backups
-                              </button>
-                              <button
-                                onClick={() => dispatchHomeAction('release-my-area-locks')}
-                                disabled={!!homeMenuState.isReleasingMyAreaLocks || sharedTransferStatus !== null}
-                                className={disabledMenuRowSecondaryClass}
-                              >
-                                <UnlockKeyhole className="h-4 w-4 shrink-0" />
-                                {homeMenuState.isReleasingMyAreaLocks ? 'Releasing…' : 'Release My Locks'}
                               </button>
                               {sharedProjectAccess.isReady && sharedProjectAccess.isActiveMember && (
                                 <button

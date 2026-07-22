@@ -24,4 +24,14 @@ describe('new device project restoration menu', () => {
     expect(persistentTopBar).toContain('onClick={() => void collaborationAuth.signIn()}');
     expect(persistentTopBar).toContain("'Enable Team Projects'");
   });
+
+  it('keeps the bulk area release action in the primary Team menu', () => {
+    const releaseActionIndex = persistentTopBar.indexOf("dispatchHomeAction('release-my-area-locks')");
+    const moreToggleIndex = persistentTopBar.indexOf('setShowTeamMore((current) => !current)');
+
+    expect(releaseActionIndex).toBeGreaterThan(-1);
+    expect(releaseActionIndex).toBeLessThan(moreToggleIndex);
+    expect(persistentTopBar).toContain("'Release Areas'");
+    expect(persistentTopBar.match(/dispatchHomeAction\('release-my-area-locks'\)/g)).toHaveLength(1);
+  });
 });
