@@ -38,3 +38,19 @@ it('reuses an unchanged cached source without rebuilding its hierarchy', () => {
   expect(preview?.projectName).toBe('Cached project');
   removeCachedProjectPreview(project.id);
 });
+
+it('refreshes an area preview when the area changes without a project timestamp change', () => {
+  const project = createProject('Cached project');
+  const area = createArea(project.id, 'Original area name', 0);
+  project.areas.push(area);
+  const unchangedProjectTimestamp = project.updatedAt;
+
+  cacheProjectPreview(project);
+  area.name = 'Updated area name';
+  area.updatedAt = new Date(area.updatedAt.getTime() + 1_000);
+  project.updatedAt = unchangedProjectTimestamp;
+  cacheProjectPreview(project);
+
+  expect(getCachedProjectPreview(project.id)?.areas[0].name).toBe('Updated area name');
+  removeCachedProjectPreview(project.id);
+});

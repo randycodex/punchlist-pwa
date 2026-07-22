@@ -103,7 +103,7 @@ export default function PersistentTopBar() {
   const displayStatus = status === 'pending' && !hasQueuedSync ? 'idle' : status;
   const displayRetryInSeconds = hasQueuedSync ? retryInSeconds : 0;
   const showAuth = pathname === '/';
-  const [projectTitle, setProjectTitle] = useState('');
+  const [loadedProjectTitle, setLoadedProjectTitle] = useState({ projectId: '', title: '' });
   const [showHomeMenu, setShowHomeMenu] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
   const [infoDialog, setInfoDialog] = useState<{ title: string; message: string } | null>(null);
@@ -161,10 +161,15 @@ export default function PersistentTopBar() {
     return segments[0] === 'project' && segments[2] === 'area';
   }, [pathname]);
   const showAppMenuControl = showAuth || Boolean(projectId) || showHomeMenu;
+  const cachedProjectTitle = projectId
+    ? getCachedProjectName(projectId) ?? projectTitleCache.get(projectId)
+    : undefined;
+  const resolvedProjectTitle = cachedProjectTitle
+    ?? (loadedProjectTitle.projectId === projectId ? loadedProjectTitle.title : '');
   const currentProjectTitle =
     homeMenuState.context === 'project' && homeMenuState.singleProjectName
       ? homeMenuState.singleProjectName
-      : projectTitle;
+      : resolvedProjectTitle;
 
   useEffect(() => {
     if (collaborationAuth.isSignedIn) {
@@ -208,14 +213,14 @@ export default function PersistentTopBar() {
 
     async function loadProjectTitle() {
       if (!projectId) {
-        if (!cancelled) setProjectTitle('');
+        if (!cancelled) setLoadedProjectTitle({ projectId: '', title: '' });
         return;
       }
 
       const cachedTitle = getCachedProjectName(projectId) ?? projectTitleCache.get(projectId);
       if (cachedTitle !== undefined) {
         if (!cancelled) {
-          setProjectTitle(cachedTitle);
+          setLoadedProjectTitle({ projectId, title: cachedTitle });
         }
       }
 
@@ -224,11 +229,11 @@ export default function PersistentTopBar() {
         if (!cancelled) {
           const nextTitle = project?.projectName ?? '';
           projectTitleCache.set(projectId, nextTitle);
-          setProjectTitle(nextTitle);
+          setLoadedProjectTitle({ projectId, title: nextTitle });
         }
       } catch {
         if (!cancelled) {
-          setProjectTitle('');
+          setLoadedProjectTitle({ projectId, title: '' });
         }
       }
     }

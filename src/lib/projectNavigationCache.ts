@@ -14,6 +14,14 @@ function getProjectCacheVersion(project: Project) {
     dateValue(project.updatedAt),
     dateValue(project.deletedAt),
     dateValue(project.sharedSnapshotPublishedAt),
+    project.areas.map((area) => [
+      area.id,
+      area.name,
+      area.areaNumber,
+      area.unitType,
+      dateValue(area.updatedAt),
+      dateValue(area.deletedAt),
+    ]),
   ]);
 }
 
