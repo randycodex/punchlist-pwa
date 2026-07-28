@@ -59,10 +59,13 @@ function createBulkApartmentUnits(count: number): BulkApartmentUnit[] {
 
 function normalizeApartmentUnitType(value: string): ApartmentUnitType | '' {
   const normalized = value.toUpperCase().replace(/[^A-Z0-9]/g, '');
-  if (['EFF', 'EFFICIENCY', 'STUDIO', '0BR', '0BED', '0BEDROOM'].includes(normalized)) return 'EFF';
+  if (['EFF', 'EFFICIENCY', 'STUDIO'].includes(normalized)) return 'EFF';
+  if (['0BR', '0BED', '0BEDROOM'].includes(normalized)) return '0BR';
+  if (['DORM', 'DORMITORY'].includes(normalized)) return 'Dorm';
   if (['1BR', '1BED', '1BEDROOM'].includes(normalized)) return '1BR';
   if (['2BR', '2BED', '2BEDROOM'].includes(normalized)) return '2BR';
   if (['3BR', '3BED', '3BEDROOM'].includes(normalized)) return '3BR';
+  if (['4BR', '4BED', '4BEDROOM'].includes(normalized)) return '4BR';
   return '';
 }
 
@@ -124,7 +127,7 @@ function parseBulkApartmentSchedule(text: string): BulkApartmentScheduleParseRes
     if (typedCells.length !== 1) {
       return {
         units: [],
-        error: `Line ${index + 1} needs one unit type: EFF, 1BR, 2BR, or 3BR.`,
+        error: `Line ${index + 1} needs one unit type: EFF, 0BR, Dorm, 1BR, 2BR, 3BR, or 4BR.`,
       };
     }
 

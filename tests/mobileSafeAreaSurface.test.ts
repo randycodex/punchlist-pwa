@@ -40,7 +40,7 @@ describe('mobile top-bar safe area', () => {
   it('lets theme-color control iOS chrome without the broken black-translucent viewport mode', () => {
     expect(rootLayout).not.toContain('statusBarStyle: "black-translucent"');
     expect(rootLayout).toContain('statusBarStyle: "default"');
-    expect(rootLayout).toContain('{ media: "(prefers-color-scheme: dark)", color: "#191d22" }');
+    expect(rootLayout).toContain('{ media: "(prefers-color-scheme: dark)", color: "#242124" }');
     expect(rootLayout).toContain('viewportFit: "cover"');
   });
 

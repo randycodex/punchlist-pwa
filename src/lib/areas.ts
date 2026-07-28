@@ -35,7 +35,7 @@ export type AreaTypeKey =
   | 'vestibule'
   | 'water_room';
 
-export type ApartmentUnitType = 'EFF' | '1BR' | '2BR' | '3BR';
+export type ApartmentUnitType = 'EFF' | '0BR' | 'Dorm' | '1BR' | '2BR' | '3BR' | '4BR';
 
 export type FacadeOrientation = 'South' | 'North' | 'East' | 'West';
 export type FacadeType = 'Bricks' | 'GFRC' | 'EIFS';
@@ -86,7 +86,7 @@ export type AreaFormValue = {
   pendingElevationDrawing?: FacadeElevationDrawing | null;
 };
 
-export const APARTMENT_UNIT_TYPES: ApartmentUnitType[] = ['EFF', '1BR', '2BR', '3BR'];
+export const APARTMENT_UNIT_TYPES: ApartmentUnitType[] = ['EFF', '0BR', 'Dorm', '1BR', '2BR', '3BR', '4BR'];
 
 export const AREA_TYPE_DEFINITIONS: AreaTypeDefinition[] = [
   { key: 'amenity_space', label: 'Amenity Space', templateKey: 'commonArea' },
@@ -304,6 +304,11 @@ function getAreaNameWithoutLevel(area: Pick<Area, 'facadeLevel' | 'name'>): stri
   return area.name.replace(/\s+-\s+Level\s*-?\d+\b/i, '').trim();
 }
 
+const areaNameCollator = new Intl.Collator('en', {
+  numeric: true,
+  sensitivity: 'base',
+});
+
 export function getLevelSortValue(name: string): number | null {
   const match = name.match(/^Level\s*(-?\d+)$/i);
   return match ? Number.parseInt(match[1], 10) : null;
@@ -318,8 +323,14 @@ export function compareLevelNames(a: string, b: string): number {
   return 0;
 }
 
-export function compareAreaNames(a: Pick<Area, 'facadeLevel' | 'name'>, b: Pick<Area, 'facadeLevel' | 'name'>): number {
-  const baseCompare = getAreaNameWithoutLevel(a).localeCompare(getAreaNameWithoutLevel(b));
+type AreaTitleFields = Pick<Area, 'name' | 'areaTypeKey' | 'areaNumber' | 'unitType'>;
+type AreaNameSortFields = AreaTitleFields & Pick<Area, 'facadeLevel'>;
+
+export function compareAreaNames(a: AreaNameSortFields, b: AreaNameSortFields): number {
+  const baseCompare = areaNameCollator.compare(
+    getAreaNameWithoutLevel({ ...a, name: getAreaTitle(a) }),
+    getAreaNameWithoutLevel({ ...b, name: getAreaTitle(b) })
+  );
   if (baseCompare !== 0) return baseCompare;
 
   const levelA = getAreaLevelSortValue(a);
@@ -328,10 +339,8 @@ export function compareAreaNames(a: Pick<Area, 'facadeLevel' | 'name'>, b: Pick<
     return levelA - levelB;
   }
 
-  return a.name.localeCompare(b.name);
+  return areaNameCollator.compare(getAreaTitle(a), getAreaTitle(b));
 }
-
-type AreaTitleFields = Pick<Area, 'name' | 'areaTypeKey' | 'areaNumber' | 'unitType'>;
 
 export function getAreaTitle(area: AreaTitleFields): string {
   if (!isApartmentArea(area)) return area.name;

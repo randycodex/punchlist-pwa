@@ -312,9 +312,12 @@ const apartmentBaseTemplate: TemplateLocation[] = [
 ];
 
 function getApartmentTemplate(unitType?: Area['unitType']): TemplateLocation[] {
-  const template: TemplateLocation[] = [...apartmentBaseTemplate];
+  const template: TemplateLocation[] =
+    unitType === 'Dorm'
+      ? apartmentBaseTemplate.filter((location) => location.name !== 'Bathroom' && location.name !== 'Kitchen')
+      : [...apartmentBaseTemplate];
 
-  if (unitType === '3BR') {
+  if (unitType === '3BR' || unitType === '4BR') {
     template.push({
       name: 'Half Bathroom',
       items: bathroomItems.filter((item) => item.name !== 'Tub / Shower'),
@@ -325,7 +328,7 @@ function getApartmentTemplate(unitType?: Area['unitType']): TemplateLocation[] {
     });
   }
 
-  if (unitType === 'EFF') {
+  if (unitType === 'EFF' || unitType === '0BR' || unitType === 'Dorm') {
     template.push({
       name: 'Living/Bedroom',
       items: createLivingAreaItems(true),
@@ -338,7 +341,10 @@ function getApartmentTemplate(unitType?: Area['unitType']): TemplateLocation[] {
     items: createLivingAreaItems(true),
   });
 
-  const bedroomCount = unitType === '3BR' ? 3 : unitType === '2BR' ? 2 : 1;
+  const bedroomCount =
+    unitType === '4BR' ? 4 :
+    unitType === '3BR' ? 3 :
+    unitType === '2BR' ? 2 : 1;
 
   for (let index = 0; index < bedroomCount; index += 1) {
     template.push({
