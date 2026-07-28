@@ -28,6 +28,8 @@ import {
   Activity,
   ArchiveRestore,
   CheckCircle2,
+  ChevronDown,
+  ChevronUp,
   CloudDownload,
   CloudUpload,
   FileDown,
@@ -61,6 +63,7 @@ type HomeMenuState = {
   showTrash: boolean;
   canAddArea: boolean;
   hasProjects: boolean;
+  hasAreaGroups?: boolean;
   isSingleProject: boolean;
   singleProjectName: string;
   selectionMode?: boolean;
@@ -105,6 +108,7 @@ export default function PersistentTopBar() {
   const showAuth = pathname === '/';
   const [loadedProjectTitle, setLoadedProjectTitle] = useState({ projectId: '', title: '' });
   const [showHomeMenu, setShowHomeMenu] = useState(false);
+  const [areAreaGroupsCollapsed, setAreAreaGroupsCollapsed] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
   const [infoDialog, setInfoDialog] = useState<{ title: string; message: string } | null>(null);
   const [showTeamMore, setShowTeamMore] = useState(false);
@@ -345,6 +349,18 @@ export default function PersistentTopBar() {
   }, []);
 
   useEffect(() => {
+    function handleAreaGroupsState(event: Event) {
+      const customEvent = event as CustomEvent<{ allCollapsed?: boolean }>;
+      setAreAreaGroupsCollapsed(customEvent.detail?.allCollapsed === true);
+    }
+
+    window.addEventListener('punchlist-area-groups-state', handleAreaGroupsState as EventListener);
+    return () => {
+      window.removeEventListener('punchlist-area-groups-state', handleAreaGroupsState as EventListener);
+    };
+  }, []);
+
+  useEffect(() => {
     function handleCloseHomeMenuOnMobile() {
       if (window.matchMedia('(max-width: 767px)').matches) {
         setHomeMenuOpen(false);
@@ -499,16 +515,34 @@ export default function PersistentTopBar() {
           <div ref={menuRef} className="app-menu-top-actions relative flex items-center gap-2">
             {renderSharedSyncIndicator()}
             {!isAreaRoute && (
-              <button
-                type="button"
-                onClick={() => setHomeMenuOpen(!showHomeMenu)}
-                className="flex h-10 w-10 items-center justify-center rounded-[1rem] bg-transparent text-gray-500 transition hover:bg-black/[0.04] hover:text-gray-900 dark:text-gray-300 dark:hover:bg-white/[0.06] dark:hover:text-white"
-                aria-label={showHomeMenu ? 'Close app menu' : 'Open app menu'}
-                aria-pressed={showHomeMenu}
-                title={showHomeMenu ? 'Close app menu' : 'Open app menu'}
-              >
-                {showHomeMenu ? <PanelRightClose className="h-5 w-5" /> : <PanelRightOpen className="h-5 w-5" />}
-              </button>
+              <div className="relative h-10 w-10">
+                <button
+                  type="button"
+                  onClick={() => setHomeMenuOpen(!showHomeMenu)}
+                  className="flex h-10 w-10 items-center justify-center rounded-[1rem] bg-transparent text-gray-500 transition hover:bg-black/[0.04] hover:text-gray-900 dark:text-gray-300 dark:hover:bg-white/[0.06] dark:hover:text-white"
+                  aria-label={showHomeMenu ? 'Close app menu' : 'Open app menu'}
+                  aria-pressed={showHomeMenu}
+                  title={showHomeMenu ? 'Close app menu' : 'Open app menu'}
+                >
+                  {showHomeMenu ? <PanelRightClose className="h-5 w-5" /> : <PanelRightOpen className="h-5 w-5" />}
+                </button>
+                {homeMenuState.areaViewMode === 'grouped' &&
+                  homeMenuState.hasAreaGroups &&
+                  !homeMenuState.showTrash &&
+                  !homeMenuState.selectionMode && (
+                  <button
+                    type="button"
+                    onClick={() => window.dispatchEvent(new Event('punchlist-toggle-area-groups'))}
+                    className="soft-control absolute right-0 top-14 flex h-10 w-10 items-center justify-center rounded-[1rem] text-gray-500 transition hover:text-gray-900 dark:text-gray-300 dark:hover:text-white"
+                    aria-label={areAreaGroupsCollapsed ? 'Expand all area groups' : 'Collapse all area groups'}
+                    title={areAreaGroupsCollapsed ? 'Expand all area groups' : 'Collapse all area groups'}
+                  >
+                    {areAreaGroupsCollapsed
+                      ? <ChevronDown className="h-5 w-5" />
+                      : <ChevronUp className="h-5 w-5" />}
+                  </button>
+                )}
+              </div>
             )}
             {!isAreaRoute && showHomeMenu && createPortal((
               <div

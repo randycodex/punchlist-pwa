@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { ChevronDown, ChevronRight } from 'lucide-react';
 import { AREA_TYPE_DEFINITIONS, getAreaGroupKey, type AreaGroupKey } from '@/lib/areas';
 import type { Area } from '@/types';
@@ -24,14 +24,54 @@ const groupDefinitions: Array<{ key: AreaGroupKey; label: string }> = [
 
 export default function AreaGroupList({ areas, renderArea }: AreaGroupListProps) {
   const [collapsedGroups, setCollapsedGroups] = useState<Set<AreaGroupKey>>(new Set());
+  const areaCountsByGroup = useMemo(
+    () => areas.reduce((counts, area) => {
+      const key = getAreaGroupKey(area);
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+      return counts;
+    }, new Map<AreaGroupKey, number>()),
+    [areas]
+  );
+  const groupedEntries = groupDefinitions
+    .map((group) => ({
+      group,
+      areas: areas.filter((area) => getAreaGroupKey(area) === group.key),
+    }))
+    .filter((entry) => shouldRenderAreaGroup(entry.areas.length));
+  const ungroupedAreas = areas.filter(
+    (area) => !shouldRenderAreaGroup(areaCountsByGroup.get(getAreaGroupKey(area)) ?? 0)
+  );
+  const expandableGroupKeys = groupedEntries.map(({ group }) => group.key);
+  const areAllGroupsCollapsed = expandableGroupKeys.length > 0 &&
+    expandableGroupKeys.every((key) => collapsedGroups.has(key));
+  const expandableGroupKeySignature = expandableGroupKeys.join(',');
+
+  useEffect(() => {
+    const groupKeys = expandableGroupKeySignature
+      ? expandableGroupKeySignature.split(',') as AreaGroupKey[]
+      : [];
+    function toggleAllGroups() {
+      setCollapsedGroups((current) => {
+        const allCollapsed = groupKeys.length > 0 && groupKeys.every((key) => current.has(key));
+        return allCollapsed ? new Set() : new Set(groupKeys);
+      });
+    }
+
+    window.addEventListener('punchlist-toggle-area-groups', toggleAllGroups);
+    return () => {
+      window.removeEventListener('punchlist-toggle-area-groups', toggleAllGroups);
+    };
+  }, [expandableGroupKeySignature]);
+
+  useEffect(() => {
+    window.dispatchEvent(new CustomEvent('punchlist-area-groups-state', {
+      detail: { allCollapsed: areAllGroupsCollapsed },
+    }));
+  }, [areAllGroupsCollapsed]);
 
   return (
     <div className="space-y-3">
-      {groupDefinitions.map((group) => {
-        const groupedAreas = areas.filter((area) => getAreaGroupKey(area) === group.key);
-        if (groupedAreas.length === 0) return null;
-        if (!shouldRenderAreaGroup(groupedAreas.length)) return renderArea(groupedAreas[0]);
-
+      {groupedEntries.map(({ group, areas: groupedAreas }) => {
         const isCollapsed = collapsedGroups.has(group.key);
         const contentId = `area-group-${group.key}`;
 
@@ -67,6 +107,12 @@ export default function AreaGroupList({ areas, renderArea }: AreaGroupListProps)
           </section>
         );
       })}
+      {groupedEntries.length > 0 && ungroupedAreas.length > 0 && (
+        <div aria-hidden="true" className="py-3">
+          <div className="h-px w-full bg-black/10 dark:bg-white/10" />
+        </div>
+      )}
+      {ungroupedAreas.map(renderArea)}
     </div>
   );
 }

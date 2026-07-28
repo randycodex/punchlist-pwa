@@ -65,6 +65,7 @@ import {
   AREA_VIEW_MODE_STORAGE_KEY,
   getSortForAreaViewMode,
   GROUPED_AREA_SORT_STORAGE_KEY,
+  hasRepeatedAreaGroups,
   isListSortOption,
   type AreaListViewMode,
 } from '@/features/projects/areaListView';
@@ -2442,6 +2443,7 @@ export default function ProjectsPage() {
           showTrash,
           canAddArea: !!singleProject,
           hasProjects: activeProjects.length > 0,
+          hasAreaGroups: !!singleProject && hasRepeatedAreaGroups(sortedAreas),
           isSingleProject: !!singleProject,
           singleProjectName: singleProject?.projectName ?? '',
           selectionMode: deleteMode,
@@ -2461,6 +2463,7 @@ export default function ProjectsPage() {
     disconnectingSharedProject,
     loadingSharedMembers,
     releasingMyAreaLocks,
+    sortedAreas,
     sortOption,
     areaViewMode,
     showTrash,

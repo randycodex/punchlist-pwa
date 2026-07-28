@@ -4,7 +4,11 @@ import { compareAreaNames, getAreaGroupKey } from '@/lib/areas';
 import { applyTemplateToArea } from '@/lib/template';
 import { getAreaStats } from '@/types';
 import { getNextListSortOption } from '@/components/ListSortMenu';
-import { getSortForAreaViewMode, shouldRenderAreaGroup } from '@/features/projects/areaListView';
+import {
+  getSortForAreaViewMode,
+  hasRepeatedAreaGroups,
+  shouldRenderAreaGroup,
+} from '@/features/projects/areaListView';
 
 describe('area list and checklist enhancements', () => {
   it('groups units, facades, and every remaining area type independently', () => {
@@ -19,6 +23,17 @@ describe('area list and checklist enhancements', () => {
     expect(shouldRenderAreaGroup(0)).toBe(false);
     expect(shouldRenderAreaGroup(1)).toBe(false);
     expect(shouldRenderAreaGroup(2)).toBe(true);
+  });
+
+  it('detects whether a project contains repeated area groups', () => {
+    expect(hasRepeatedAreaGroups([
+      createArea('project-1', 'Lobby', 0, { areaTypeKey: 'lobby' }),
+      createArea('project-1', 'Corridor', 1, { areaTypeKey: 'corridor' }),
+    ])).toBe(false);
+    expect(hasRepeatedAreaGroups([
+      createArea('project-1', 'Lobby A', 0, { areaTypeKey: 'lobby' }),
+      createArea('project-1', 'Lobby B', 1, { areaTypeKey: 'lobby' }),
+    ])).toBe(true);
   });
 
   it('counts a non-empty general note as an issue', () => {
