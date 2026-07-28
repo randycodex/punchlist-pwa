@@ -2,8 +2,9 @@
 
 import { useState, type ReactNode } from 'react';
 import { ChevronDown, ChevronRight } from 'lucide-react';
-import { getAreaGroupKey, type AreaGroupKey } from '@/lib/areas';
+import { AREA_TYPE_DEFINITIONS, getAreaGroupKey, type AreaGroupKey } from '@/lib/areas';
 import type { Area } from '@/types';
+import { shouldRenderAreaGroup } from './areaListView';
 
 type AreaGroupListProps = {
   areas: Area[];
@@ -13,7 +14,12 @@ type AreaGroupListProps = {
 const groupDefinitions: Array<{ key: AreaGroupKey; label: string }> = [
   { key: 'units', label: 'Units' },
   { key: 'facades', label: 'Facades' },
-  { key: 'others', label: 'Others' },
+  ...AREA_TYPE_DEFINITIONS
+    .filter((definition) => definition.key !== 'apartment_unit' && definition.key !== 'facade')
+    .map((definition) => ({
+      key: `type:${definition.key}` as AreaGroupKey,
+      label: definition.label,
+    })),
 ];
 
 export default function AreaGroupList({ areas, renderArea }: AreaGroupListProps) {
@@ -24,6 +30,7 @@ export default function AreaGroupList({ areas, renderArea }: AreaGroupListProps)
       {groupDefinitions.map((group) => {
         const groupedAreas = areas.filter((area) => getAreaGroupKey(area) === group.key);
         if (groupedAreas.length === 0) return null;
+        if (!shouldRenderAreaGroup(groupedAreas.length)) return renderArea(groupedAreas[0]);
 
         const isCollapsed = collapsedGroups.has(group.key);
         const contentId = `area-group-${group.key}`;

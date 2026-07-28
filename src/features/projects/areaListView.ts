@@ -6,6 +6,10 @@ export const AREA_VIEW_MODE_STORAGE_KEY = 'punchlist-area-view-mode';
 export const GROUPED_AREA_SORT_STORAGE_KEY = 'punchlist-grouped-area-sort';
 export const ALL_AREA_SORT_STORAGE_KEY = 'punchlist-all-area-sort';
 
+export function shouldRenderAreaGroup(areaCount: number): boolean {
+  return areaCount > 1;
+}
+
 export function isListSortOption(value: string | null): value is ListSortOption {
   return value === 'issues' || value === 'issues-reverse' ||
     value === 'alphabetical' || value === 'alphabetical-reverse' ||

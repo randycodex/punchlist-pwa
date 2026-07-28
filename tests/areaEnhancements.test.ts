@@ -4,13 +4,21 @@ import { compareAreaNames, getAreaGroupKey } from '@/lib/areas';
 import { applyTemplateToArea } from '@/lib/template';
 import { getAreaStats } from '@/types';
 import { getNextListSortOption } from '@/components/ListSortMenu';
-import { getSortForAreaViewMode } from '@/features/projects/areaListView';
+import { getSortForAreaViewMode, shouldRenderAreaGroup } from '@/features/projects/areaListView';
 
 describe('area list and checklist enhancements', () => {
-  it('groups units, facades, and all remaining area types', () => {
+  it('groups units, facades, and every remaining area type independently', () => {
     expect(getAreaGroupKey(createArea('project-1', 'Unit 1A', 0, { areaTypeKey: 'apartment_unit' }))).toBe('units');
     expect(getAreaGroupKey(createArea('project-1', 'North Facade', 1, { areaTypeKey: 'facade' }))).toBe('facades');
-    expect(getAreaGroupKey(createArea('project-1', 'Lobby', 2, { areaTypeKey: 'lobby' }))).toBe('others');
+    expect(getAreaGroupKey(createArea('project-1', 'Lobby', 2, { areaTypeKey: 'lobby' }))).toBe('type:lobby');
+    expect(getAreaGroupKey(createArea('project-1', 'ATS', 3, { areaTypeKey: 'ats' }))).toBe('type:ats');
+    expect(getAreaGroupKey(createArea('project-1', 'Corridor', 4, { areaTypeKey: 'corridor' }))).toBe('type:corridor');
+  });
+
+  it('renders a group header only when an area type has multiple entries', () => {
+    expect(shouldRenderAreaGroup(0)).toBe(false);
+    expect(shouldRenderAreaGroup(1)).toBe(false);
+    expect(shouldRenderAreaGroup(2)).toBe(true);
   });
 
   it('counts a non-empty general note as an issue', () => {
