@@ -74,7 +74,7 @@ export const AreaCard = memo(function AreaCard({
       onClick={() => {
         if (deleteMode) onToggleSelection(area.id);
       }}
-      className={`main-card-surface card-surface block rounded-[1.65rem] p-4 transition-all sm:p-5 ${
+      className={`main-card-surface area-card-surface card-surface block rounded-[1.65rem] p-4 transition-all sm:p-5 ${
         isSelected
           ? 'bg-gray-100 dark:bg-white/[0.1]'
           : blockedByClaim

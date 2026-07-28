@@ -19,7 +19,7 @@
 }
 
 .dark {
-  --background: #111417;
+  --background: #343434;
   --foreground: #f9fafb;
   --surface: #191d22;
   --top-bar-surface: #191d22;
@@ -248,6 +248,10 @@ html:not(.dark) {
   border: 0;
 }
 
+.dark .area-card-surface {
+  --main-card-bg: #242124;
+}
+
 .inspection-location-surface {
   --inspection-control-bg: rgb(238 238 238);
   background: var(--inspection-control-bg);
@@ -255,7 +259,7 @@ html:not(.dark) {
 }
 
 .dark .inspection-location-surface {
-  --inspection-control-bg: #222a32;
+  --inspection-control-bg: #242124;
   border: 0;
 }
 
