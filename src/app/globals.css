@@ -325,7 +325,7 @@ html:not(.dark) {
 }
 
 .dark .inspection-checkpoint-row--default {
-  --inspection-control-bg: #3B3C36;
+  --inspection-control-bg: #111111;
 }
 
 .dark .inspection-add-trigger {
@@ -361,19 +361,19 @@ html:not(.dark) {
 }
 
 .dark .inspection-add-trigger.inspection-add-trigger--sub-item {
-  --inspection-control-bg: rgb(148 60 70);
+  --inspection-control-bg: #674846;
   border: 0;
   color: #ffffff;
 }
 
 .dark .inspection-add-trigger.inspection-add-trigger--item {
-  --inspection-control-bg: rgb(145 74 50);
+  --inspection-control-bg: #905D5D;
   border: 0;
   color: #ffffff;
 }
 
 .dark .inspection-add-trigger.inspection-add-trigger--sub-area {
-  --inspection-control-bg: rgb(131 59 83);
+  --inspection-control-bg: #65000B;
   border: 0;
   color: #ffffff;
 }
