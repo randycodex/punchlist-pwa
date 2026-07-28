@@ -50,7 +50,7 @@ export default function ListSortMenu({ value, onChange }: ListSortMenuProps) {
             onClick={() => onChange(getNextListSortOption(value, option.value))}
             className={`min-h-10 min-w-0 rounded-full px-1.5 py-2 text-center text-[12px] font-medium transition-colors ${
               isSelected
-                ? 'bg-[var(--accent)] text-white'
+                ? 'bg-[#FFDEAD] text-gray-900 dark:bg-[#555D50] dark:text-white'
                 : 'bg-black/[0.08] text-gray-700 hover:bg-black/[0.12] dark:bg-white/[0.08] dark:text-gray-300 dark:hover:bg-white/[0.12]'
             }`}
             aria-pressed={isSelected}

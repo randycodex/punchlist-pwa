@@ -19,7 +19,7 @@
 }
 
 .dark {
-  --background: #2A3439;
+  --background: #000000;
   --foreground: #f9fafb;
   --surface: #242124;
   --top-bar-surface: #242124;
@@ -264,7 +264,7 @@ html:not(.dark) {
 }
 
 .inspection-item-expanded-surface {
-  --inspection-control-bg: #F2F3F4;
+  --inspection-control-bg: #FFEFD5;
   background: var(--inspection-control-bg);
   border: 0;
 }
@@ -277,7 +277,7 @@ html:not(.dark) {
 }
 
 .inspection-location-surface .inspection-item-row {
-  background: #F2F3F4;
+  background: #FFEFD5;
 }
 
 .area-notes-card {
@@ -306,7 +306,7 @@ html:not(.dark) {
 }
 
 .dark .inspection-item-expanded-surface {
-  --inspection-control-bg: #111111;
+  --inspection-control-bg: #343434;
   border: 0;
 }
 
@@ -317,7 +317,7 @@ html:not(.dark) {
 }
 
 .dark .inspection-item-row {
-  background: #111111;
+  background: #343434;
 }
 
 .dark .inspection-checkpoint-row {
@@ -507,7 +507,7 @@ html:not(.dark) {
 }
 
 .floating-action {
-  background: #FAEBD7;
+  background: #EEDC82;
   color: #111827;
 }
 
@@ -527,7 +527,7 @@ html:not(.dark) {
 }
 
 .dark .floating-action {
-  background: #27272a;
+  background: #3D0C02;
   color: white;
 }
 
@@ -644,11 +644,15 @@ select.field-shell option {
 }
 
 .area-group-toggle {
-  background: #E3DAC9;
+  background: #FFEFD5;
 }
 
 .dark .soft-control {
   background: rgba(255, 255, 255, 0.08);
+}
+
+.dark .area-group-toggle {
+  background: #343434;
 }
 
 .soft-control:hover {
