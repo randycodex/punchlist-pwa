@@ -40,7 +40,7 @@ export default function AreaGroupList({ areas, renderArea }: AreaGroupListProps)
                   return next;
                 });
               }}
-              className="soft-control flex w-full items-center justify-between rounded-[1.2rem] px-4 py-3 text-left transition hover:bg-white dark:hover:bg-white/[0.08]"
+              className="area-group-toggle soft-control flex w-full items-center justify-between rounded-[1.2rem] px-4 py-3 text-left transition hover:bg-white dark:hover:bg-white/[0.08]"
               aria-expanded={!isCollapsed}
               aria-controls={contentId}
             >

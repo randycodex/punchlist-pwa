@@ -1,7 +1,7 @@
 @import "tailwindcss";
 
 :root {
-  --background: #f6f4ef;
+  --background: #E5E4E2;
   --foreground: #111827;
   --surface: rgba(255, 255, 255, 0.92);
   --top-bar-surface: #ffffff;
@@ -19,10 +19,10 @@
 }
 
 .dark {
-  --background: #343434;
+  --background: #2A3439;
   --foreground: #f9fafb;
-  --surface: #191d22;
-  --top-bar-surface: #191d22;
+  --surface: #242124;
+  --top-bar-surface: #242124;
   --surface-strong: #1e2328;
   --surface-muted: #101317;
   --surface-elevated: rgba(30, 35, 40, 0.96);
@@ -253,7 +253,7 @@ html:not(.dark) {
 }
 
 .inspection-location-surface {
-  --inspection-control-bg: rgb(238 238 238);
+  --inspection-control-bg: #FFFFFF;
   background: var(--inspection-control-bg);
   border: 0;
 }
@@ -264,7 +264,7 @@ html:not(.dark) {
 }
 
 .inspection-item-expanded-surface {
-  --inspection-control-bg: rgba(255, 255, 255, 0.96);
+  --inspection-control-bg: #F2F3F4;
   background: var(--inspection-control-bg);
   border: 0;
 }
@@ -276,12 +276,20 @@ html:not(.dark) {
   border: 0;
 }
 
+.inspection-location-surface .inspection-item-row {
+  background: #F2F3F4;
+}
+
+.area-notes-card {
+  --inspection-control-bg: #FFFFFF;
+}
+
 .inspection-checkpoint-row {
   border: 0;
 }
 
 .inspection-checkpoint-row--default {
-  --inspection-control-bg: rgb(239 246 255);
+  --inspection-control-bg: #E3DAC9;
   background: var(--inspection-control-bg);
 }
 
@@ -298,17 +306,18 @@ html:not(.dark) {
 }
 
 .dark .inspection-item-expanded-surface {
-  --inspection-control-bg: #15191e;
+  --inspection-control-bg: #111111;
   border: 0;
 }
 
 .dark .inspection-location-surface .card-surface-subtle,
 .dark .area-notes-card {
+  --inspection-control-bg: var(--surface);
   border: 0;
 }
 
 .dark .inspection-item-row {
-  background: #343434;
+  background: #111111;
 }
 
 .dark .inspection-checkpoint-row {
@@ -316,7 +325,7 @@ html:not(.dark) {
 }
 
 .dark .inspection-checkpoint-row--default {
-  --inspection-control-bg: #44362f;
+  --inspection-control-bg: #3B3C36;
 }
 
 .dark .inspection-add-trigger {
@@ -498,8 +507,8 @@ html:not(.dark) {
 }
 
 .floating-action {
-  background: #3f3f46;
-  color: white;
+  background: #FAEBD7;
+  color: #111827;
 }
 
 .floating-action-rail {
@@ -519,6 +528,7 @@ html:not(.dark) {
 
 .dark .floating-action {
   background: #27272a;
+  color: white;
 }
 
 .modal-overlay {
@@ -631,6 +641,10 @@ select.field-shell option {
 .soft-control {
   border: 0;
   background: rgba(0, 0, 0, 0.08);
+}
+
+.area-group-toggle {
+  background: #E3DAC9;
 }
 
 .dark .soft-control {
