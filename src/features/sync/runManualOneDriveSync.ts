@@ -10,6 +10,7 @@ import {
   formatMicrosoftManualRetryMessage,
   getMicrosoftErrorMessage,
   getMicrosoftRetryDelayMs,
+  isMicrosoftMissingObjectError,
 } from '@/lib/microsoftErrors';
 import {
   backupProjectsToOneDrive,
@@ -54,10 +55,14 @@ export async function runManualOneDriveSync(options: {
     const requestedProjectIds = pendingSyncState.fullSyncNeeded
       ? undefined
       : [...new Set([...pendingSyncState.projectIds, ...(options.projectIds ?? [])])];
-    const result = await (options.backupProjects ?? backupProjectsToOneDrive)(
-      token,
-      requestedProjectIds
-    );
+    const backupProjects = options.backupProjects ?? backupProjectsToOneDrive;
+    let result;
+    try {
+      result = await backupProjects(token, requestedProjectIds);
+    } catch (error) {
+      if (!isMicrosoftMissingObjectError(error)) throw error;
+      result = await backupProjects(token, requestedProjectIds);
+    }
 
     if (result.conflicts.length > 0) {
       pausePendingSyncAutoRetry();
@@ -114,7 +119,14 @@ export async function runManualOneDriveRestore(options: {
     const token = await options.ensureAccessToken();
     if (!token) return { status: 'needs-auth' };
 
-    const result = await (options.restoreProjects ?? restoreMissingProjectsFromOneDrive)(token);
+    const restoreProjects = options.restoreProjects ?? restoreMissingProjectsFromOneDrive;
+    let result;
+    try {
+      result = await restoreProjects(token);
+    } catch (error) {
+      if (!isMicrosoftMissingObjectError(error)) throw error;
+      result = await restoreProjects(token);
+    }
     return {
       status: 'success',
       restoredProjectCount: result.restoredProjectIds.length,

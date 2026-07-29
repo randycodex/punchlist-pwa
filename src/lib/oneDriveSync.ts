@@ -28,6 +28,7 @@ import {
   cleanupLegacyPunchListFolders,
   type DriveItem,
 } from '@/lib/oneDrive';
+import { isMicrosoftMissingObjectError } from '@/lib/microsoftErrors';
 
 export type SyncConflict = { id: string; name: string };
 
@@ -822,15 +823,7 @@ async function uploadProjectFileRecoveringMissingRemote(
 }
 
 function isItemNotFoundError(error: unknown) {
-  if (!(error instanceof Error)) return false;
-  const message = error.message.toLowerCase();
-  return (
-    message.includes('itemnotfound') ||
-    message.includes('item not found') ||
-    message.includes('404') ||
-    message.includes('resource could not be found') ||
-    message.includes('resource not found')
-  );
+  return isMicrosoftMissingObjectError(error);
 }
 
 function normalizeSyncStateMap(raw: unknown): ProjectSyncStateMap {

@@ -46,4 +46,13 @@ describe('collaboration identity helpers', () => {
       code: '57014',
     })).toBe('The team service took too long to process this. Please try again.');
   });
+
+  it('hides raw mobile fetch stacks and confirms local work is preserved', () => {
+    expect(getCollaborationErrorMessage({
+      message: 'TypeError: Failed to fetch',
+      details: 'at r2 (https://punchlist-pwa.vercel.app/_next/static/chunks/app.js:1:1)',
+    })).toBe(
+      'The phone lost its connection to the team service. Your work is still saved on this device. Use a stable connection and try again.'
+    );
+  });
 });

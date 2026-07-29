@@ -4,8 +4,28 @@ function extractErrorMessage(error: unknown): string {
   return '';
 }
 
+export function isMicrosoftMissingObjectError(error: unknown): boolean {
+  const message = extractErrorMessage(error).trim().toLowerCase();
+  const status =
+    typeof error === 'object' && error !== null && 'status' in error
+      ? Number((error as { status?: unknown }).status)
+      : Number.NaN;
+  return (
+    status === 404
+    || message.includes('itemnotfound')
+    || message.includes('item not found')
+    || message.includes('the object can not be found here')
+    || message.includes('the object cannot be found here')
+    || message.includes('the resource could not be found')
+    || message.includes('resource could not be found')
+    || message.includes('resource not found')
+    || message.includes('404')
+  );
+}
+
 export function isMicrosoftTransientSyncError(error: unknown): boolean {
   const message = extractErrorMessage(error).trim().toLowerCase();
+  if (isMicrosoftMissingObjectError(error)) return true;
   if (!message) return false;
 
   return (
@@ -14,8 +34,6 @@ export function isMicrosoftTransientSyncError(error: unknown): boolean {
     message.includes('service unavailable') ||
     message.includes('too many requests') ||
     message.includes('throttled') ||
-    message.includes('itemnotfound') ||
-    message.includes('item not found') ||
     message.includes('network') ||
     message.includes('failed to fetch') ||
     message.includes('load failed') ||

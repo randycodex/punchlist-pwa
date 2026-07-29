@@ -60,6 +60,28 @@ export const TEAM_PROJECTS_SIGNIN_HINT =
   'Turn on team projects first: sign in with Microsoft, then choose Enable Team Projects in the menu.';
 
 export function getCollaborationErrorMessage(error: unknown, fallback = 'Could not complete this team action. Please try again.') {
+  const rawErrorText = error instanceof Error
+    ? `${error.name} ${error.message}`
+    : error && typeof error === 'object'
+      ? [
+          (error as { message?: unknown }).message,
+          (error as { details?: unknown }).details,
+          (error as { hint?: unknown }).hint,
+        ]
+          .filter((part): part is string => typeof part === 'string')
+          .join(' ')
+      : '';
+  const normalizedErrorText = rawErrorText.toLowerCase();
+  if (
+    normalizedErrorText.includes('failed to fetch')
+    || normalizedErrorText.includes('load failed')
+    || normalizedErrorText.includes('network request failed')
+    || normalizedErrorText.includes('networkerror')
+    || normalizedErrorText.includes('network error')
+  ) {
+    return 'The phone lost its connection to the team service. Your work is still saved on this device. Use a stable connection and try again.';
+  }
+
   if (error instanceof Error) {
     if (error.name === 'CollaborationRequestTimeoutError') {
       return 'The team service is taking too long to respond. Check your connection and try again.';

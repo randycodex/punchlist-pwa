@@ -11,6 +11,7 @@ import {
   type SharedSnapshotAssetManifest,
   type SharedSnapshotAssetReference,
 } from './sharedSnapshotPayload';
+import { retryCollaborationOperation } from './request';
 
 export type SharedAttachmentMetadataRow = {
   storage_bucket: string;
@@ -330,46 +331,53 @@ export async function prepareCompactSharedSnapshotPayload(
     throw new Error('Collaboration is not configured.');
   }
 
-  let metadataQuery = supabase
-    .from('shared_attachments')
-    .select('storage_bucket, storage_path, file_name, mime_type, size_bytes, deleted_at, updated_at')
-    .eq('project_id', project.sharedProjectId);
-  if (options.areaId) {
-    metadataQuery = metadataQuery.or(`area_id.eq.${options.areaId},area_id.is.null`);
-  }
-  const { data, error } = await metadataQuery.is('deleted_at', null);
-  if (error) throw error;
+  const data = await retryCollaborationOperation(async () => {
+    let metadataQuery = supabase
+      .from('shared_attachments')
+      .select('storage_bucket, storage_path, file_name, mime_type, size_bytes, deleted_at, updated_at')
+      .eq('project_id', project.sharedProjectId!);
+    if (options.areaId) {
+      metadataQuery = metadataQuery.or(`area_id.eq.${options.areaId},area_id.is.null`);
+    }
+    const result = await metadataQuery.is('deleted_at', null);
+    if (result.error) throw result.error;
+    return result.data ?? [];
+  });
 
-  const plan = buildSharedSnapshotAssetPlan(project, data ?? []);
+  const plan = buildSharedSnapshotAssetPlan(project, data);
   const uploadConcurrency = plan.uploads.some((upload) => upload.reference.sizeBytes > 5 * 1024 * 1024)
     ? 1
     : 2;
   await runWithConcurrency(plan.uploads, uploadConcurrency, async (upload) => {
     const blob = dataUrlToBlob(upload.dataUrl);
-    const { error: uploadError } = await supabase.storage
-      .from(upload.reference.bucket)
-      .upload(upload.reference.path, blob, {
-        cacheControl: '3600',
-        contentType: upload.reference.mimeType,
-        upsert: true,
-      });
-    if (uploadError) throw uploadError;
+    await retryCollaborationOperation(async () => {
+      const { error: uploadError } = await supabase.storage
+        .from(upload.reference.bucket)
+        .upload(upload.reference.path, blob, {
+          cacheControl: '3600',
+          contentType: upload.reference.mimeType,
+          upsert: true,
+        });
+      if (uploadError) throw uploadError;
+    });
 
-    const { error: metadataError } = await supabase
-      .from('shared_attachments')
-      .upsert({
-        project_id: project.sharedProjectId!,
-        area_id: upload.areaId,
-        checkpoint_id: upload.checkpointId,
-        uploaded_by_user_id: uploadedByUserId,
-        storage_bucket: upload.reference.bucket,
-        storage_path: upload.reference.path,
-        file_name: upload.fileName,
-        mime_type: upload.reference.mimeType,
-        size_bytes: upload.reference.sizeBytes,
-        deleted_at: null,
-      }, { onConflict: 'storage_bucket,storage_path' });
-    if (metadataError) throw metadataError;
+    await retryCollaborationOperation(async () => {
+      const { error: metadataError } = await supabase
+        .from('shared_attachments')
+        .upsert({
+          project_id: project.sharedProjectId!,
+          area_id: upload.areaId,
+          checkpoint_id: upload.checkpointId,
+          uploaded_by_user_id: uploadedByUserId,
+          storage_bucket: upload.reference.bucket,
+          storage_path: upload.reference.path,
+          file_name: upload.fileName,
+          mime_type: upload.reference.mimeType,
+          size_bytes: upload.reference.sizeBytes,
+          deleted_at: null,
+        }, { onConflict: 'storage_bucket,storage_path' });
+      if (metadataError) throw metadataError;
+    });
   });
 
   return {

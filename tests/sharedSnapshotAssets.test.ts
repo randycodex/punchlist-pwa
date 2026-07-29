@@ -144,4 +144,16 @@ describe('shared snapshot attachment transfer', () => {
 
     expect(attachmentOrMock).toHaveBeenCalledWith('area_id.eq.area-1,area_id.is.null');
   });
+
+  it('retries a dropped attachment upload before abandoning the safety backup', async () => {
+    storageUploadMock
+      .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+      .mockResolvedValueOnce({ error: null });
+
+    const prepared = await prepareCompactSharedSnapshotPayload(project(), 'user-1');
+
+    expect(prepared.uploadedAssetCount).toBe(1);
+    expect(storageUploadMock).toHaveBeenCalledTimes(2);
+    expect(attachmentUpsertMock).toHaveBeenCalledTimes(1);
+  });
 });

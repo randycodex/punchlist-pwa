@@ -27,6 +27,7 @@ import {
   isMissingSharedProjectMetadataTableError,
 } from './sharedProjectMetadata';
 import { settlePendingSharedProjectMetadataSync } from './sharedProjectMetadataSyncQueue';
+import { retryCollaborationOperation } from './request';
 
 type SnapshotResult = {
   project: Project;
@@ -283,17 +284,17 @@ export async function captureSharedProjectBackup(
   }
 
   const transfer = await prepareSnapshotTransfer(project, userId);
-  const { data, error } = await supabase.rpc('capture_shared_project_backup', {
-    p_project_id: project.sharedProjectId,
-    p_project_payload: transfer.payload,
-    p_payload_version: transfer.payloadVersion,
-    p_reason: reason,
-    p_note: note ?? null,
+  const data = await retryCollaborationOperation(async () => {
+    const result = await supabase.rpc('capture_shared_project_backup', {
+      p_project_id: project.sharedProjectId!,
+      p_project_payload: transfer.payload,
+      p_payload_version: transfer.payloadVersion,
+      p_reason: reason,
+      p_note: note ?? null,
+    });
+    if (result.error) throw result.error;
+    return result.data;
   });
-
-  if (error) {
-    throw error;
-  }
 
   return data;
 }

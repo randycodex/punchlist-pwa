@@ -1,4 +1,5 @@
 import { formatDateForExport, sanitizeExportNamePart } from '@/lib/projectNaming';
+import { isMicrosoftMissingObjectError } from '@/lib/microsoftErrors';
 
 const GRAPH_API = 'https://graph.microsoft.com/v1.0';
 const PUNCHLIST_ROOT = 'PunchList';
@@ -75,16 +76,7 @@ function getRetryAfterMs(response: Response): number | undefined {
 }
 
 function isGraphItemNotFoundError(error: unknown) {
-  if (!(error instanceof Error)) return false;
-  const message = error.message.toLowerCase();
-  return (
-    message.includes('itemnotfound') ||
-    message.includes('item not found') ||
-    message.includes('404') ||
-    message.includes('the resource could not be found') ||
-    message.includes('resource could not be found') ||
-    message.includes('resource not found')
-  );
+  return isMicrosoftMissingObjectError(error);
 }
 
 async function getGraphErrorMessage(response: Response) {
@@ -127,7 +119,11 @@ async function graphFetch<T>(token: string, path: string, options?: RequestInit)
 
   if (!response.ok) {
     const message = await getGraphErrorMessage(response);
-    throw buildGraphError(response, message);
+    const error = buildGraphError(response, message);
+    if (isGraphItemNotFoundError(error)) {
+      ensuredFolderCache.delete(getTokenCacheKey(token));
+    }
+    throw error;
   }
 
   if (response.status === 204) {
@@ -147,7 +143,11 @@ async function graphFetchAbsolute<T>(token: string, url: string, options?: Reque
 
   if (!response.ok) {
     const message = await getGraphErrorMessage(response);
-    throw buildGraphError(response, message);
+    const error = buildGraphError(response, message);
+    if (isGraphItemNotFoundError(error)) {
+      ensuredFolderCache.delete(getTokenCacheKey(token));
+    }
+    throw error;
   }
 
   if (response.status === 204) {

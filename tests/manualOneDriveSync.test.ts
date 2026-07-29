@@ -94,6 +94,44 @@ describe('manual OneDrive backup coordinator', () => {
     expect(loadPendingSyncState().projectIds).toEqual(['project-1', 'project-2']);
   });
 
+  it('refreshes and retries once when Microsoft loses a remote object', async () => {
+    queuePendingSync('project-1');
+    const backupProjects = vi.fn()
+      .mockRejectedValueOnce(new Error('The object can not be found here.'))
+      .mockResolvedValueOnce({
+        conflicts: [],
+        backedUpProjectIds: ['project-1'],
+        syncedAt: '2026-01-01T12:00:00.000Z',
+      });
+
+    const result = await runManualOneDriveSync({
+      ensureAccessToken: async () => 'token',
+      backupProjects,
+    });
+
+    expect(backupProjects).toHaveBeenCalledTimes(2);
+    expect(result.status).toBe('success');
+    expect(hasPendingSyncState()).toBe(false);
+  });
+
+  it('keeps work queued with a retry message when the missing object persists', async () => {
+    queuePendingSync('project-1');
+    const backupProjects = vi.fn()
+      .mockRejectedValue(new Error('The object can not be found here.'));
+
+    const result = await runManualOneDriveSync({
+      ensureAccessToken: async () => 'token',
+      backupProjects,
+    });
+
+    expect(backupProjects).toHaveBeenCalledTimes(2);
+    expect(result).toEqual({
+      status: 'retry',
+      message: 'Saved locally. OneDrive is still catching up. Tap Backup to try again in about 15 seconds.',
+    });
+    expect(hasPendingSyncState()).toBe(true);
+  });
+
   it('restores missing projects without invoking backup', async () => {
     const restoreProjects = vi.fn(async () => ({
       restoredProjectIds: ['project-2'],

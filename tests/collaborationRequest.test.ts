@@ -5,6 +5,8 @@ import {
   COLLABORATION_TRANSFER_TIMEOUT_MS,
   CollaborationRequestTimeoutError,
   getCollaborationRequestPolicy,
+  isRetryableCollaborationError,
+  retryCollaborationOperation,
   withCollaborationTimeout,
 } from '@/lib/collaboration/request';
 
@@ -17,6 +19,19 @@ describe('collaboration request timeout', () => {
     await expect(
       withCollaborationTimeout(new Promise(() => {}), 'Test request', 5)
     ).rejects.toBeInstanceOf(CollaborationRequestTimeoutError);
+  });
+
+  it('retries dropped client fetches without retrying permission errors', async () => {
+    let attempts = 0;
+    const result = await retryCollaborationOperation(async () => {
+      attempts += 1;
+      if (attempts < 3) throw new TypeError('Failed to fetch');
+      return 'recovered';
+    }, { baseDelayMs: 0 });
+
+    expect(result).toBe('recovered');
+    expect(attempts).toBe(3);
+    expect(isRetryableCollaborationError({ code: '42501', message: 'Not allowed' })).toBe(false);
   });
 
   it('allows full shared snapshot transfers more time than lightweight requests', () => {
