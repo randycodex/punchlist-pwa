@@ -168,6 +168,7 @@ export default function ProjectDetailPage() {
   const [recentAreaTypeKeys, setRecentAreaTypeKeys] = useState<AreaTypeKey[]>([]);
   const [sortOption, setSortOption] = useState<SortOption>('issues');
   const [areaViewMode, setAreaViewMode] = useState<AreaListViewMode>('grouped');
+  const [showOnlyAreaIssues, setShowOnlyAreaIssues] = useState(false);
   const [showTrash, setShowTrash] = useState(false);
   const [actionSheet, setActionSheet] = useState<'delete' | 'export' | 'export-scope' | null>(null);
   const [exportScope, setExportScope] = useState<ExportScope>('project');
@@ -637,6 +638,12 @@ export default function ProjectDetailPage() {
       return dateDifference || compareAreaNames(a, b);
     });
   }, [activeAreas, sortOption, areaMetrics]);
+  const visibleAreas = useMemo(
+    () => showOnlyAreaIssues
+      ? sortedAreas.filter((area) => (areaMetrics.get(area.id)?.stats.issues ?? 0) > 0)
+      : sortedAreas,
+    [areaMetrics, showOnlyAreaIssues, sortedAreas]
+  );
 
   async function handleAddArea(submittedForms?: AreaFormValue[]) {
     if (!project) return;
@@ -1433,6 +1440,11 @@ export default function ProjectDetailPage() {
       return;
     }
 
+    if (detail.action === 'toggle-area-issues') {
+      setShowOnlyAreaIssues((current) => !current);
+      return;
+    }
+
     if (detail.action === 'sync-now') {
       void handleSync();
       return;
@@ -1556,7 +1568,8 @@ export default function ProjectDetailPage() {
           showTrash,
           canAddArea: true,
           hasProjects: true,
-          hasAreaGroups: hasRepeatedAreaGroups(sortedAreas),
+          hasAreaGroups: hasRepeatedAreaGroups(visibleAreas),
+          showOnlyAreaIssues,
           isSingleProject: true,
           singleProjectName: project.projectName,
           selectionMode: deleteMode,
@@ -1576,7 +1589,8 @@ export default function ProjectDetailPage() {
     loadingSharedMembers,
     project,
     releasingMyAreaLocks,
-    sortedAreas,
+    visibleAreas,
+    showOnlyAreaIssues,
     showTrash,
     sortOption,
     areaViewMode,
@@ -1761,8 +1775,31 @@ export default function ProjectDetailPage() {
           )
         ) : (
           <div className="mx-auto min-h-[calc(100%+1px)] w-full max-w-6xl">
-            {areaViewMode === 'grouped' ? (
-              <AreaGroupList areas={sortedAreas} renderArea={(area) => {
+            {visibleAreas.length === 0 ? (
+              <div className="flex min-h-[50vh] items-center justify-center py-12">
+                <div className="empty-state-card w-full max-w-sm rounded-[1.9rem] p-8 text-center">
+                  <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
+                    {showOnlyAreaIssues ? 'No areas with issues' : 'No areas yet'}
+                  </h2>
+                  <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
+                    {showOnlyAreaIssues
+                      ? 'All areas are currently clear.'
+                      : 'Add the first unit, floor, or location to start inspecting.'}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (showOnlyAreaIssues) setShowOnlyAreaIssues(false);
+                      else setShowAddArea(true);
+                    }}
+                    className="mt-5 inline-flex h-11 items-center justify-center rounded-full soft-control px-5 text-sm font-semibold text-gray-800 transition hover:bg-white dark:text-gray-100 dark:hover:bg-white/[0.1]"
+                  >
+                    {showOnlyAreaIssues ? 'Show all areas' : 'Add first area'}
+                  </button>
+                </div>
+              </div>
+            ) : areaViewMode === 'grouped' ? (
+              <AreaGroupList areas={visibleAreas} renderArea={(area) => {
               const metric = areaMetrics.get(area.id);
               const isSelected = selectedAreaIds.has(area.id);
               return (
@@ -1791,7 +1828,7 @@ export default function ProjectDetailPage() {
               }} />
             ) : (
               <div className="list-stack">
-                {sortedAreas.map((area) => {
+                {visibleAreas.map((area) => {
                   const metric = areaMetrics.get(area.id);
                   const isSelected = selectedAreaIds.has(area.id);
                   return (

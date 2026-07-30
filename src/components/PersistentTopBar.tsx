@@ -64,6 +64,7 @@ type HomeMenuState = {
   canAddArea: boolean;
   hasProjects: boolean;
   hasAreaGroups?: boolean;
+  showOnlyAreaIssues?: boolean;
   isSingleProject: boolean;
   singleProjectName: string;
   selectionMode?: boolean;
@@ -522,6 +523,27 @@ export default function PersistentTopBar() {
                 >
                   {showHomeMenu ? <PanelRightClose className="h-5 w-5" /> : <PanelRightOpen className="h-5 w-5" />}
                 </button>
+                {homeMenuState.isSingleProject &&
+                  !homeMenuState.showTrash &&
+                  !homeMenuState.selectionMode && (
+                  <button
+                    type="button"
+                    onClick={() => dispatchHomeAction('toggle-area-issues')}
+                    className={`absolute top-[4.5rem] flex h-10 items-center rounded-full px-3 text-sm font-medium transition ${
+                      homeMenuState.areaViewMode === 'grouped' && homeMenuState.hasAreaGroups
+                        ? 'right-12'
+                        : 'right-0'
+                    } ${
+                      homeMenuState.showOnlyAreaIssues
+                        ? 'accent-tint accent-text'
+                        : 'soft-control text-gray-500 hover:text-gray-900 dark:text-gray-300 dark:hover:text-white'
+                    }`}
+                    aria-label={homeMenuState.showOnlyAreaIssues ? 'Show all areas' : 'Show only areas with issues'}
+                    aria-pressed={homeMenuState.showOnlyAreaIssues === true}
+                  >
+                    <span className="text-[0.92rem] font-medium">Issues</span>
+                  </button>
+                )}
                 {homeMenuState.areaViewMode === 'grouped' &&
                   homeMenuState.hasAreaGroups &&
                   !homeMenuState.showTrash &&

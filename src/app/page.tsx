@@ -255,6 +255,7 @@ export default function ProjectsPage() {
   const [runningCollaborationHealth, setRunningCollaborationHealth] = useState(false);
   const [sortOption, setSortOption] = useState<SortOption>('issues');
   const [areaViewMode, setAreaViewMode] = useState<AreaListViewMode>('grouped');
+  const [showOnlyAreaIssues, setShowOnlyAreaIssues] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
   const [deleteMode, setDeleteMode] = useState(false);
@@ -987,6 +988,12 @@ export default function ProjectsPage() {
       return dateDifference || compareAreaNames(a, b);
     });
   }, [activeAreas, areaMetrics, sortOption]);
+  const visibleAreas = useMemo(
+    () => showOnlyAreaIssues
+      ? sortedAreas.filter((area) => (areaMetrics.get(area.id)?.stats.issues ?? 0) > 0)
+      : sortedAreas,
+    [areaMetrics, showOnlyAreaIssues, sortedAreas]
+  );
 
   async function handleCreateProject() {
     if (!newProjectName.trim()) return;
@@ -2273,6 +2280,11 @@ export default function ProjectsPage() {
       return;
     }
 
+    if (detail.action === 'toggle-area-issues') {
+      setShowOnlyAreaIssues((current) => !current);
+      return;
+    }
+
     if (detail.action === 'sync-now') {
       void handleSync();
       return;
@@ -2443,7 +2455,8 @@ export default function ProjectsPage() {
           showTrash,
           canAddArea: !!singleProject,
           hasProjects: activeProjects.length > 0,
-          hasAreaGroups: !!singleProject && hasRepeatedAreaGroups(sortedAreas),
+          hasAreaGroups: !!singleProject && hasRepeatedAreaGroups(visibleAreas),
+          showOnlyAreaIssues,
           isSingleProject: !!singleProject,
           singleProjectName: singleProject?.projectName ?? '',
           selectionMode: deleteMode,
@@ -2463,7 +2476,8 @@ export default function ProjectsPage() {
     disconnectingSharedProject,
     loadingSharedMembers,
     releasingMyAreaLocks,
-    sortedAreas,
+    visibleAreas,
+    showOnlyAreaIssues,
     sortOption,
     areaViewMode,
     showTrash,
@@ -2873,28 +2887,42 @@ export default function ProjectsPage() {
           )
         ) : singleProjectMainView ? (
           <div className="mx-auto min-h-[calc(100%+1px)] w-full max-w-6xl">
-            {sortedAreas.length === 0 ? (
+            {visibleAreas.length === 0 ? (
               <div className="flex min-h-[50vh] items-center justify-center py-12">
                 <div className="empty-state-card w-full max-w-sm rounded-[1.9rem] p-8 text-center">
-                  <h2 className="text-lg font-semibold text-gray-900 dark:text-white">No areas yet</h2>
+                  <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
+                    {showOnlyAreaIssues ? 'No areas with issues' : 'No areas yet'}
+                  </h2>
                   <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
-                    Add the first unit, floor, or location to start inspecting.
+                    {showOnlyAreaIssues
+                      ? 'All areas are currently clear.'
+                      : 'Add the first unit, floor, or location to start inspecting.'}
                   </p>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setAreaTargetProjectId(singleProject.id);
-                      setShowAddArea(true);
-                    }}
-                    className="mt-5 inline-flex h-11 items-center justify-center rounded-full bg-zinc-900 px-5 text-sm font-semibold text-white transition hover:bg-black dark:bg-white dark:text-gray-900 dark:hover:bg-gray-200"
-                  >
-                    Add first area
-                  </button>
+                  {showOnlyAreaIssues ? (
+                    <button
+                      type="button"
+                      onClick={() => setShowOnlyAreaIssues(false)}
+                      className="mt-5 inline-flex h-11 items-center justify-center rounded-full soft-control px-5 text-sm font-semibold text-gray-800 transition hover:bg-white dark:text-gray-100 dark:hover:bg-white/[0.1]"
+                    >
+                      Show all areas
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAreaTargetProjectId(singleProject.id);
+                        setShowAddArea(true);
+                      }}
+                      className="mt-5 inline-flex h-11 items-center justify-center rounded-full bg-zinc-900 px-5 text-sm font-semibold text-white transition hover:bg-black dark:bg-white dark:text-gray-900 dark:hover:bg-gray-200"
+                    >
+                      Add first area
+                    </button>
+                  )}
                 </div>
               </div>
             ) : (
               areaViewMode === 'grouped' ? (
-                <AreaGroupList areas={sortedAreas} renderArea={(area) => {
+                <AreaGroupList areas={visibleAreas} renderArea={(area) => {
                 const metric = areaMetrics.get(area.id);
                 const isSelected = selectedAreaIds.has(area.id);
                 return (
@@ -2916,7 +2944,7 @@ export default function ProjectsPage() {
                 }} />
               ) : (
                 <div className="list-stack">
-                  {sortedAreas.map((area) => {
+                  {visibleAreas.map((area) => {
                     const metric = areaMetrics.get(area.id);
                     const isSelected = selectedAreaIds.has(area.id);
                     return (
