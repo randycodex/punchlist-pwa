@@ -25,13 +25,22 @@ describe('new device project restoration menu', () => {
     expect(persistentTopBar).toContain("'Enable Team Projects'");
   });
 
-  it('keeps the bulk area release action in the primary Team menu', () => {
+  it('keeps all Team actions visible without a More or Less toggle', () => {
     const releaseActionIndex = persistentTopBar.indexOf("dispatchHomeAction('release-my-area-locks')");
-    const moreToggleIndex = persistentTopBar.indexOf('setShowTeamMore((current) => !current)');
+    const membersActionIndex = persistentTopBar.indexOf("dispatchHomeAction('shared-members')");
 
     expect(releaseActionIndex).toBeGreaterThan(-1);
-    expect(releaseActionIndex).toBeLessThan(moreToggleIndex);
+    expect(releaseActionIndex).toBeLessThan(membersActionIndex);
     expect(persistentTopBar).toContain("'Release Areas'");
+    expect(persistentTopBar).toContain("dispatchHomeAction('shared-backups')");
+    expect(persistentTopBar).toContain("dispatchHomeAction('disconnect-shared-project')");
+    expect(persistentTopBar).not.toContain('showTeamMore');
+    expect(persistentTopBar).not.toContain('setShowTeamMore');
     expect(persistentTopBar.match(/dispatchHomeAction\('release-my-area-locks'\)/g)).toHaveLength(1);
+  });
+
+  it('does not add a redundant All Projects section on project routes', () => {
+    expect(persistentTopBar).not.toContain('All Projects');
+    expect(persistentTopBar).not.toContain('(showAuth || projectId)');
   });
 });

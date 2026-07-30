@@ -111,7 +111,6 @@ export default function PersistentTopBar() {
   const [areAreaGroupsCollapsed, setAreAreaGroupsCollapsed] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
   const [infoDialog, setInfoDialog] = useState<{ title: string; message: string } | null>(null);
-  const [showTeamMore, setShowTeamMore] = useState(false);
   const [sharedProjectAccessSnapshot, setSharedProjectAccessSnapshot] = useState<{
     projectId: string;
     isActiveMember: boolean;
@@ -259,9 +258,6 @@ export default function PersistentTopBar() {
     // (top bar / drawer chrome) does not paint one frame without it.
     setAppMenuOpenAttribute(open);
     setShowHomeMenu(open);
-    if (!open) {
-      setShowTeamMore(false);
-    }
   }
 
   useEffect(() => {
@@ -533,7 +529,7 @@ export default function PersistentTopBar() {
                   <button
                     type="button"
                     onClick={() => window.dispatchEvent(new Event('punchlist-toggle-area-groups'))}
-                    className="soft-control absolute right-0 top-14 flex h-10 w-10 items-center justify-center rounded-[1rem] text-gray-500 transition hover:text-gray-900 dark:text-gray-300 dark:hover:text-white"
+                    className="soft-control absolute right-0 top-[4.5rem] flex h-10 w-10 items-center justify-center rounded-[1rem] text-gray-500 transition hover:text-gray-900 dark:text-gray-300 dark:hover:text-white"
                     aria-label={areAreaGroupsCollapsed ? 'Expand all area groups' : 'Collapse all area groups'}
                     title={areAreaGroupsCollapsed ? 'Expand all area groups' : 'Collapse all area groups'}
                   >
@@ -664,41 +660,28 @@ export default function PersistentTopBar() {
                             {homeMenuState.isReleasingMyAreaLocks ? 'Releasing…' : 'Release Areas'}
                           </button>
                           <button
-                            type="button"
-                            onClick={() => setShowTeamMore((current) => !current)}
-                            className={menuRowSecondaryClass}
-                            aria-expanded={showTeamMore}
+                            onClick={() => dispatchHomeAction('shared-members')}
+                            disabled={!!homeMenuState.isLoadingSharedMembers}
+                            className={disabledMenuRowSecondaryClass}
                           >
                             <Users className="h-4 w-4 shrink-0" />
-                            {showTeamMore ? 'Less' : 'More'}
+                            {homeMenuState.isLoadingSharedMembers ? 'Loading…' : 'Members'}
                           </button>
-                          {showTeamMore && (
-                            <>
-                              <button
-                                onClick={() => dispatchHomeAction('shared-members')}
-                                disabled={!!homeMenuState.isLoadingSharedMembers}
-                                className={disabledMenuRowSecondaryClass}
-                              >
-                                <Users className="h-4 w-4 shrink-0" />
-                                {homeMenuState.isLoadingSharedMembers ? 'Loading…' : 'Members'}
-                              </button>
-                              <button onClick={() => dispatchHomeAction('shared-backups')} className={menuRowSecondaryClass}>
-                                <ArchiveRestore className="h-4 w-4 shrink-0" />
-                                Team Backups
-                              </button>
-                              {sharedProjectAccess.isReady && sharedProjectAccess.isActiveMember && (
-                                <button
-                                  onClick={() => dispatchHomeAction('disconnect-shared-project')}
-                                  disabled={!!homeMenuState.isDisconnectingSharedProject}
-                                  className={disabledMenuRowSecondaryClass}
-                                >
-                                  <LogOut className="h-4 w-4 shrink-0" />
-                                  {homeMenuState.isDisconnectingSharedProject
-                                    ? sharedProjectAccess.isOwner ? 'Stopping…' : 'Leaving…'
-                                    : sharedProjectAccess.isOwner ? 'Stop Team Sharing' : 'Leave Team Project'}
-                                </button>
-                              )}
-                            </>
+                          <button onClick={() => dispatchHomeAction('shared-backups')} className={menuRowSecondaryClass}>
+                            <ArchiveRestore className="h-4 w-4 shrink-0" />
+                            Team Backups
+                          </button>
+                          {sharedProjectAccess.isReady && sharedProjectAccess.isActiveMember && (
+                            <button
+                              onClick={() => dispatchHomeAction('disconnect-shared-project')}
+                              disabled={!!homeMenuState.isDisconnectingSharedProject}
+                              className={disabledMenuRowSecondaryClass}
+                            >
+                              <LogOut className="h-4 w-4 shrink-0" />
+                              {homeMenuState.isDisconnectingSharedProject
+                                ? sharedProjectAccess.isOwner ? 'Stopping…' : 'Leaving…'
+                                : sharedProjectAccess.isOwner ? 'Stop Team Sharing' : 'Leave Team Project'}
+                            </button>
                           )}
                           </>
                         )}
@@ -732,7 +715,7 @@ export default function PersistentTopBar() {
                     </div>
                   </div>
                 )}
-                {(showAuth || projectId) && (
+                {showAuth && (
                   <div className={menuGroupShellClass}>
                     <div className={menuCardClass}>
                       <div className={menuGroupLabelClass}>Projects</div>
@@ -776,17 +759,12 @@ export default function PersistentTopBar() {
                             Join Team Project
                           </button>
                         )}
-                        {showAuth && collaborationAuth.isSignedIn ? (
+                        {collaborationAuth.isSignedIn && (
                           <button onClick={() => dispatchHomeAction('my-shared-projects')} className={menuRowClass}>
                             <Users className="h-4 w-4 shrink-0" />
                             My Team Projects
                           </button>
-                        ) : projectId ? (
-                          <Link href="/" className={menuRowClass}>
-                            <Users className="h-4 w-4 shrink-0" />
-                            All Projects
-                          </Link>
-                        ) : null}
+                        )}
                         {showAuth && (
                           <button onClick={() => dispatchHomeAction('toggle-trash')} className={menuRowClass}>
                             <Trash2 className="h-4 w-4 shrink-0" />
