@@ -237,6 +237,34 @@ export default function InspectionLocationCard({
     void onToggleCheckpoint({ locationId, itemId, checkpointId, comments });
   }
 
+  function openCheckpointCommentEditor(
+    locationId: string,
+    itemId: string,
+    checkpointId: string,
+    comments: string
+  ) {
+    if (expandedCheckpointId === checkpointId) {
+      setCameraOnlyCheckpointId(null);
+      setCameraRequest(null);
+      return;
+    }
+    openCheckpointComments(locationId, itemId, checkpointId, comments);
+  }
+
+  async function toggleCheckpointIssue(
+    locationId: string,
+    itemId: string,
+    checkpoint: Checkpoint,
+    issueState: IssueState
+  ) {
+    const nextState = issueState === 'open' ? 'pending' : 'open';
+    await onUpdateCheckpointStatus(locationId, itemId, checkpoint.id, nextState);
+
+    if (nextState === 'open' && !checkpoint.comments.trim()) {
+      openCheckpointCommentEditor(locationId, itemId, checkpoint.id, checkpoint.comments);
+    }
+  }
+
   function openCheckpointCamera(locationId: string, itemId: string, checkpointId: string, comments: string) {
     if (expandedCheckpointId !== checkpointId) {
       setCameraOnlyCheckpointId(checkpointId);
@@ -384,13 +412,11 @@ export default function InspectionLocationCard({
                     onToggleExpand={() =>
                       openCheckpointComments(location.id, item.id, customCheckpoint.id, customCheckpoint.comments)
                     }
+                    onOpenComments={() =>
+                      openCheckpointCommentEditor(location.id, item.id, customCheckpoint.id, customCheckpoint.comments)
+                    }
                     onToggleIssue={() =>
-                      void onUpdateCheckpointStatus(
-                        location.id,
-                        item.id,
-                        customCheckpoint.id,
-                        customIssueState === 'open' ? 'pending' : 'open'
-                      )
+                      void toggleCheckpointIssue(location.id, item.id, customCheckpoint, customIssueState)
                     }
                     onOpenCamera={() => {
                       openCheckpointCamera(location.id, item.id, customCheckpoint.id, customCheckpoint.comments);
@@ -505,14 +531,10 @@ export default function InspectionLocationCard({
                           onToggleExpand={() =>
                             openCheckpointComments(location.id, item.id, checkpoint.id, checkpoint.comments)
                           }
-                          onToggleIssue={() =>
-                            void onUpdateCheckpointStatus(
-                              location.id,
-                              item.id,
-                              checkpoint.id,
-                              issueState === 'open' ? 'pending' : 'open'
-                            )
+                          onOpenComments={() =>
+                            openCheckpointCommentEditor(location.id, item.id, checkpoint.id, checkpoint.comments)
                           }
+                          onToggleIssue={() => void toggleCheckpointIssue(location.id, item.id, checkpoint, issueState)}
                           onOpenCamera={() => {
                             openCheckpointCamera(location.id, item.id, checkpoint.id, checkpoint.comments);
                           }}
@@ -784,14 +806,10 @@ export default function InspectionLocationCard({
                             onToggleExpand={() =>
                               openCheckpointComments(location.id, item.id, checkpoint.id, checkpoint.comments)
                             }
-                            onToggleIssue={() =>
-                              void onUpdateCheckpointStatus(
-                                location.id,
-                                item.id,
-                                checkpoint.id,
-                                issueState === 'open' ? 'pending' : 'open'
-                              )
+                            onOpenComments={() =>
+                              openCheckpointCommentEditor(location.id, item.id, checkpoint.id, checkpoint.comments)
                             }
+                            onToggleIssue={() => void toggleCheckpointIssue(location.id, item.id, checkpoint, issueState)}
                             onOpenCamera={() => {
                               openCheckpointCamera(location.id, item.id, checkpoint.id, checkpoint.comments);
                             }}
@@ -911,6 +929,7 @@ function CheckpointRow({
   onCancelEdit,
   issueState,
   onToggleExpand,
+  onOpenComments,
   onToggleIssue,
   onOpenCamera,
   extraActions,
@@ -925,6 +944,7 @@ function CheckpointRow({
   onCancelEdit?: () => void;
   issueState: IssueState;
   onToggleExpand: () => void;
+  onOpenComments: () => void;
   onToggleIssue: () => void;
   onOpenCamera: () => void;
   extraActions?: ReactNode;
@@ -989,17 +1009,23 @@ function CheckpointRow({
             </>
           ) : (
             <>
-              {hasComments ? (
-                <span
-                  data-inspection-inline-action="true"
-                  onClick={(event) => event.stopPropagation()}
-                  className="accent-bg flex h-8 w-8 items-center justify-center rounded-[0.8rem] text-white"
-                  title="Has note"
-                  aria-label={`Has note for ${checkpoint.name}`}
-                >
-                  <MessageSquare className="h-4 w-4" />
-                </span>
-              ) : null}
+              <button
+                type="button"
+                data-inspection-inline-action="true"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onOpenComments();
+                }}
+                className={`flex h-8 w-8 items-center justify-center rounded-[0.8rem] transition ${
+                  hasComments
+                    ? 'accent-bg text-white'
+                    : 'soft-control text-gray-400 hover:bg-white hover:text-gray-700 dark:text-gray-400 dark:hover:bg-white/[0.08] dark:hover:text-gray-100'
+                }`}
+                title={hasComments ? 'Edit note' : 'Add note'}
+                aria-label={`${hasComments ? 'Edit' : 'Add'} note for ${checkpoint.name}`}
+              >
+                <MessageSquare className="h-4 w-4" />
+              </button>
               <button
                 data-inspection-inline-action="true"
                 onClick={(event) => {
@@ -1082,6 +1108,19 @@ function InlineCheckpointEditor({
     setDraft(value);
     onCommentChange(value);
   }
+
+  useEffect(() => {
+    if (!showCommentEditor) return;
+
+    const focusFrame = window.requestAnimationFrame(() => {
+      const input = commentInputRef.current;
+      if (!input) return;
+      input.focus();
+      input.setSelectionRange(input.value.length, input.value.length);
+    });
+
+    return () => window.cancelAnimationFrame(focusFrame);
+  }, [showCommentEditor]);
 
   useEffect(() => {
     function handleDocumentClick(event: MouseEvent) {
