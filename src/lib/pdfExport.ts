@@ -1433,7 +1433,7 @@ async function renderProjectDetailPages(
     };
     const drawAreaIntro = (baseY: number, includeSummary: boolean) => {
       let y = drawAreaHeader(pdf, area, baseY, layout);
-      if (hasAreaNotes) {
+      if (hasAreaNotes && includeSummary) {
         const noteLines = pdf.splitTextToSize(sanitizeText(area.notes), layout.contentWidth - 2) as string[];
         pdf.setFont('helvetica', 'italic');
         pdf.setFontSize(8.5);
@@ -1472,7 +1472,7 @@ async function renderProjectDetailPages(
 
     const getFreshAreaStartY = (baseY: number, includeSummary: boolean) => {
       let freshY = baseY + getAreaHeaderHeight(area);
-      if (hasAreaNotes) {
+      if (hasAreaNotes && includeSummary) {
         const noteLines = pdf.splitTextToSize(sanitizeText(area.notes), layout.contentWidth - 2) as string[];
         freshY += noteLines.length * 3.8 + 3;
       }
