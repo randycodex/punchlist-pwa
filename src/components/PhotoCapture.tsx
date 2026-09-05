@@ -125,6 +125,7 @@ export default function PhotoCapture({
   const captureSaveCallbacks = useRef({ onAddPhotos, onAddPhoto });
   useEffect(() => { captureSaveCallbacks.current = { onAddPhotos, onAddPhoto }; }, [onAddPhotos, onAddPhoto]);
   const [hasPendingPhoto, setHasPendingPhoto] = useState(false);
+  const pendingRecoveryStored = useRef(false);
   const pendingPhotoRef = useRef<{ id: string; imageData: string; thumbnail?: string } | null>(null);
   const [capturedBatch, setCapturedBatch] = useState<Array<{ imageData: string; thumbnail?: string; id?: string }>>([]);
   const [cameraError, setCameraError] = useState<string | null>(null);
@@ -277,10 +278,11 @@ export default function PhotoCapture({
   }, [stopCameraStream]);
 
   function closeCamera(discard = false) {
-    if (pendingPhotoRef.current) {
+    if (pendingPhotoRef.current && !pendingRecoveryStored.current) {
       setCameraError('This photo is not saved yet. Tap Retry save before closing.');
       return;
     }
+    if (pendingRecoveryStored.current) { pendingPhotoRef.current = null; pendingRecoveryStored.current = false; setHasPendingPhoto(false); }
     cameraSessionRef.current += 1;
     stopCameraStream();
     setCameraOpen(false);
@@ -342,6 +344,7 @@ export default function PhotoCapture({
 
   const persistCapturedPhoto = useCallback(async (photo: { id: string; imageData: string; thumbnail?: string }) => {
     pendingPhotoRef.current = photo;
+    pendingRecoveryStored.current = false;
     setHasPendingPhoto(true);
     setSavingPhotos(true);
     setCameraError(null);
@@ -352,8 +355,11 @@ export default function PhotoCapture({
       pendingPhotoRef.current = null;
       setHasPendingPhoto(false);
       setCapturedBatch((current) => current.some((entry) => entry.id === photo.id) ? current : [...current, photo]);
-    } catch {
-      setCameraError('This photo could not be saved. Keep the camera open and tap Retry save.');
+    } catch (error) {
+      pendingRecoveryStored.current = Boolean(error && typeof error === 'object' && 'recoveryStored' in error && error.recoveryStored);
+      setCameraError(pendingRecoveryStored.current
+        ? 'Photo saved for recovery on this device. Retry now, or close and restore it from this area later.'
+        : 'This photo could not be saved. Keep the camera open and tap Retry save.');
     } finally {
       setSavingPhotos(false);
     }

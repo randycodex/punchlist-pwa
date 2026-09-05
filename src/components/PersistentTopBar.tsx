@@ -495,6 +495,7 @@ export default function PersistentTopBar() {
           >
             <Image
               src="/uai-logo.png"
+              unoptimized
               alt="UAI Logo"
               width={337}
               height={184}

@@ -2,6 +2,7 @@
 
 import ReportContentChoice from '@/components/inspection/ReportContentChoice';
 
+import PrepareSiteVisit from '@/features/offline/PrepareSiteVisit';
 import ResumeInspectionLink from '@/components/inspection/ResumeInspectionLink';
 
 import { useState, useEffect, useLayoutEffect, useMemo, useRef, useCallback } from 'react';
@@ -1718,6 +1719,7 @@ export default function ProjectDetailPage() {
         className="flex-1 min-h-0 overflow-y-scroll overscroll-y-contain touch-pan-y px-4 pt-5 pb-[calc(env(safe-area-inset-bottom)+6.5rem)] sm:px-5"
       >
         {!showTrash && <ResumeInspectionLink project={project} />}
+        {!showTrash && <PrepareSiteVisit project={project} />}
         {!showTrash && activeAreas.length === 0 ? (
           <div className="mx-auto flex min-h-[calc(100%+1px)] w-full max-w-6xl flex-col">
             <div className="flex flex-1 items-center justify-center py-12">

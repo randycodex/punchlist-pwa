@@ -12,6 +12,7 @@ import {
 } from '@/types';
 import type { AreaTypeKey, ApartmentUnitType, FacadeOrientation } from '@/lib/areas';
 import { v4 as uuidv4 } from 'uuid';
+import { deleteProjectCaptureDrafts } from '@/lib/captureJournal';
 
 type StoredPhotoAttachment = Omit<PhotoAttachment, 'imageData' | 'thumbnail'> & {
   imageData: string | Blob;
@@ -895,6 +896,7 @@ export async function saveCheckpointInspectionChange(
   checkpointId: string,
   change: Partial<Pick<Checkpoint, 'comments' | 'status' | 'issueState' | 'fixStatus'>>,
   photos: PhotoAttachment[] = [],
+  options: { recoveredNote?: { baseValue: string; value: string } } = {},
 ): Promise<void> {
   const compactPhotos = photos.length
     ? (await compactMediaRecord({ checkpointId, projectId, areaId, photos, files: [] })).photos
@@ -911,6 +913,11 @@ export async function saveCheckpointInspectionChange(
         tx.abort();
         await tx.done.catch(() => {});
         throw new Error('This checkpoint is no longer available. Your draft is still open.');
+      }
+      if (options.recoveredNote) {
+        const { value, baseValue } = options.recoveredNote;
+        const current = checkpoint.comments;
+        checkpoint.comments = current === value || (value && current.endsWith(`\n${value}`)) ? current : current === baseValue ? value : `${current.trimEnd()}\n${value}`.trim();
       }
       Object.assign(checkpoint, change, { updatedAt: new Date() });
       if (photos.length) {
@@ -1007,6 +1014,7 @@ async function saveProjectInternal(project: Project, options: { touch: boolean }
 
 export async function deleteProject(id: string): Promise<void> {
   await runLocalPersistence(async () => {
+    await deleteProjectCaptureDrafts(id);
     const db = await getDB();
     const tx = db.transaction([
       'projects',
@@ -1031,6 +1039,7 @@ export async function deleteProject(id: string): Promise<void> {
     await Promise.all(metadataSyncKeys.map((key) => metadataSyncStore.delete(key)));
     await markFullSyncNeededInStore(tx.objectStore('syncMetadata'));
     await tx.done;
+    for (const key of failedLocalWrites.keys()) if (key.startsWith(`checkpoint:${id}:`)) failedLocalWrites.delete(key);
   });
   reportSharedSyncQueueChanged();
 }

@@ -1,5 +1,6 @@
 'use client';
 
+import OfflineAppStatus from '@/features/offline/OfflineAppStatus';
 import { ReactNode } from 'react';
 import { ThemeProvider } from '@/contexts/ThemeContext';
 import { MicrosoftAuthProvider } from '@/contexts/MicrosoftAuthContext';
@@ -14,6 +15,7 @@ export default function AppProviders({ children }: { children: ReactNode }) {
         <SyncStatusProvider>
           <AppSettingsProvider>
             <ThemeProvider>
+              <OfflineAppStatus />
               {children}
             </ThemeProvider>
           </AppSettingsProvider>

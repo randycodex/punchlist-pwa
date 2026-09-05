@@ -35,6 +35,7 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
+        <meta name="punchlist-build" content={process.env.NEXT_PUBLIC_OFFLINE_BUILD_ID} />
         <meta name="format-detection" content="telephone=no, date=no, email=no, address=no" />
         <Script id="theme-init" strategy="beforeInteractive">
           {`
@@ -50,47 +51,6 @@ export default function RootLayout({
                 }
                 try { localStorage.removeItem('punchlist:theme-mode'); } catch (e) {}
               } catch (e) {}
-            })();
-          `}
-        </Script>
-        <Script id="pwa-cleanup" strategy="beforeInteractive">
-          {`
-            (function () {
-              if (!('serviceWorker' in navigator) || !('localStorage' in window)) return;
-              var cleanupKey = 'punchlist:pwa-cleanup-v2';
-              try {
-                if (localStorage.getItem(cleanupKey) === 'done') return;
-              } catch (e) {}
-
-              window.addEventListener('load', function () {
-                var unregisterPromise = navigator.serviceWorker.getRegistrations().then(function (registrations) {
-                  return Promise.all(
-                    registrations.map(function (registration) {
-                      return registration.unregister();
-                    })
-                  );
-                });
-
-                var cacheCleanupPromise = Promise.resolve();
-                if ('caches' in window) {
-                  cacheCleanupPromise = caches.keys().then(function (keys) {
-                    var staleKeys = keys.filter(function (key) {
-                      return key.indexOf('workbox') !== -1 || key.indexOf('precache') !== -1 || key.indexOf('runtime') !== -1;
-                    });
-                    return Promise.all(
-                      staleKeys.map(function (key) {
-                        return caches.delete(key);
-                      })
-                    );
-                  });
-                }
-
-                Promise.all([unregisterPromise, cacheCleanupPromise]).finally(function () {
-                  try {
-                    localStorage.setItem(cleanupKey, 'done');
-                  } catch (e) {}
-                });
-              });
             })();
           `}
         </Script>

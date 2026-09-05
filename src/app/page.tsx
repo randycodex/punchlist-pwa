@@ -27,6 +27,7 @@ import {
   hasPendingSyncState,
   queuePendingSync,
 } from '@/lib/pendingSync';
+import PrepareSiteVisit from '@/features/offline/PrepareSiteVisit';
 import ResumeInspectionLink from '@/components/inspection/ResumeInspectionLink';
 import { uploadPdfToOneDrive, getNextOneDriveExportFilename } from '@/lib/oneDrive';
 import {
@@ -2710,6 +2711,7 @@ export default function ProjectsPage() {
         className="flex-1 min-h-0 overflow-y-auto overscroll-y-contain px-4 pt-5 pb-[calc(env(safe-area-inset-bottom)+6.5rem)] sm:px-5"
       >
         {singleProjectMainView && <ResumeInspectionLink project={singleProject} />}
+        {singleProjectMainView && <PrepareSiteVisit project={singleProject} />}
         {showTrash ? (
           trashedProjects.length === 0 && trashedAreaEntries.length === 0 ? (
             <div className="empty-state-card mx-auto max-w-md rounded-[2rem] p-10 text-center">

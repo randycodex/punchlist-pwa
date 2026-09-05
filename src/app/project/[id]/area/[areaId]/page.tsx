@@ -88,6 +88,8 @@ import FacadeElevationViewer, {
 } from '@/components/inspection/FacadeElevationViewer';
 import InspectionLocationCard from '@/components/inspection/InspectionLocationCard';
 import Link from 'next/link';
+import CaptureRecovery from '@/features/inspection/CaptureRecoveryPanel';
+import { saveRecoverableNote, saveRecoverablePhotos } from '@/features/inspection/captureRecovery';
 import { readInspectionPosition, rememberInspectionPosition, nextInspectionPosition, type InspectionPosition } from '@/features/inspection/inspectionPosition';
 import {
   ArrowLeft,
@@ -285,7 +287,7 @@ export default function AreaDetailPage() {
   }, [markSharedUpdateAvailable]);
 
   function sharedAreaEditsAreBlocked() {
-    return Boolean(projectRef.current?.sharedProjectId && areaClaimProblemRef.current);
+    return Boolean(projectRef.current?.sharedProjectId && (!hasAreaClaim || claimingArea || areaClaimProblemRef.current));
   }
 
   function canEditSharedArea() {
@@ -486,7 +488,7 @@ export default function AreaDetailPage() {
     setClaimingArea(true);
     setAreaClaimError(null);
     setAreaClaimProblem(null);
-    setHasAreaClaim(true);
+    setHasAreaClaim(false);
 
     void claimSharedProjectArea(sharedProjectId, currentAreaId)
       .then(() => {
@@ -789,7 +791,8 @@ export default function AreaDetailPage() {
     pendingNotesRef.current.set(checkpointId, { locationId, itemId, checkpointId, value });
     setSavingNotes(true);
     try {
-      await saveCheckpointInspectionChange(project.id, area.id, checkpointId, { comments: value });
+      const committed = await saveRecoverableNote(project.id, area.id, checkpointId, value, checkpoint.comments);
+      if (!committed) return;
       checkpoint.comments = value;
       checkpoint.updatedAt = new Date();
       if (pendingNotesRef.current.get(checkpointId)?.value === value) {
@@ -1390,7 +1393,7 @@ export default function AreaDetailPage() {
       ...createPhotoAttachment(checkpointId, photo.imageData, photo.thumbnail),
       ...(photo.id ? { id: photo.id } : {}),
     }));
-    await saveCheckpointInspectionChange(project.id, area.id, checkpointId, {}, attachments);
+    await saveRecoverablePhotos(project.id, area.id, checkpointId, attachments);
     const existing = new Set(checkpoint.photos.map((photo) => photo.id));
     checkpoint.photos.push(...attachments.filter((photo) => !existing.has(photo.id)));
     checkpoint.updatedAt = new Date();
@@ -1889,7 +1892,7 @@ export default function AreaDetailPage() {
     : null;
 
   const visibleAreaClaimProblem = project.sharedProjectId ? areaClaimProblem : null;
-  const areaEditingLocked = Boolean(visibleAreaClaimProblem);
+  const areaEditingLocked = Boolean(visibleAreaClaimProblem || (project.sharedProjectId && (!hasAreaClaim || claimingArea)));
   const supportsInlineLocationCustomItems = true;
   const supportsCustomSubareas = isApartmentArea(area) && !deleteMode && !areaEditingLocked;
   const supportsGlobalCustomItems = !supportsInlineLocationCustomItems && !deleteMode && !areaEditingLocked;
@@ -2124,6 +2127,10 @@ export default function AreaDetailPage() {
         ref={listRef}
         className="flex-1 min-h-0 overflow-y-scroll overscroll-y-contain touch-pan-y px-4 pt-4 pb-[calc(env(safe-area-inset-bottom)+3.5rem)] sm:px-5"
       >
+        <CaptureRecovery projectId={project.id} area={area} canEdit={!areaEditingLocked} beforeRestore={closeExpandedCheckpoint} onRestored={async () => {
+          const restored = await getProjectForArea(project.id, area.id);
+          if (restored) { setProject(restored); setArea(restored.areas.find((entry) => entry.id === area.id) ?? null); scheduleSync(project.id); }
+        }} />
         <div
           className={`list-stack mx-auto min-h-[calc(100%+1px)] w-full max-w-6xl transition-opacity ${
             areaEditingLocked ? 'pointer-events-none opacity-60' : ''

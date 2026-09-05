@@ -8,8 +8,8 @@ This is a local trial of the first capture and navigation improvements from the 
 
 1. Open a unit, then a room and item. The context stays above the list.
 2. Record an issue: this flags the checkpoint and opens its note/evidence editor. The result selector allows OK, Not inspected, Open, Resolved, and Verified. Correcting the result preserves notes and photos.
-3. Type a note. Each change starts an IndexedDB save without requiring blur. The device status reports saving or failure; a failed note remains available for retry. Recent-note suggestions append text and offer Undo.
-4. Take a photo. Each shutter starts its own save, with a stable attachment ID for retry. Done and camera close preserve successfully saved photos. A failed photo blocks closing the camera until retried; it is not durable until the save succeeds.
+3. Type a note. Each change is journaled to IndexedDB without requiring blur; a 150 ms pause combines typing into one inspection-record update. The device status reports saving or failure; a failed note remains available for retry. Recent-note suggestions append text and offer Undo.
+4. Take a photo. Each shutter starts its own save, with a stable attachment ID for retry. Done and camera close preserve successfully saved photos. A photo is journaled before attachment. If attachment fails after journaling, it can be restored from this area after reopening. If journal storage itself fails, the camera keeps the unsaved image open for retry.
 5. Use Next item or Next room. Rooms stay in template order in the All view. Room reviewed records an explicit room review without changing untouched checkpoints to OK. To inspect shows rooms without explicit room review; Issues supports follow-up.
 6. Return to the project and choose Resume inspection to restore the last room/item and scroll to it.
 7. Export either an Issues report or an Inspection record. The latter uses the existing full-checklist PDF generator. The report choice explicitly describes the locally available record.
@@ -20,13 +20,17 @@ Checkpoint edits load the latest stored project inside a transaction so concurre
 
 ## Verification
 
-- `npm run verify`: 168 tests in 46 files, lint, TypeScript, and optimized production build passed.
+- `npm run verify`: 180 tests in 48 files, lint, TypeScript, and optimized production build passed.
 - Browser at 390 × 844: issue and note editor, saved note after page reconstruction, next item, next room, explicit room review, Resume with restored item, and the report-content choices inspected.
 - New regression coverage: concurrent checkpoint notes; queue failure rollback; identical retry; error retention across an unrelated save; photo deduplication; room-review persistence and payload round trip; sequential navigation.
 - Test data is a local-only project named Inspection UX Trial. No production project was changed.
 
 ## Remaining work before claiming field reliability
 
-This trial does not introduce offline application-shell caching, offline team reservations, Prepare for site visit, a detailed N/A workflow, a report freshness/media completeness preview, or new team-sync diagnostics. These remain follow-up work; existing server claim and conflict protections remain in force.
+The next slice adds a versioned offline shell, Prepare for site visit, actual cache/media checks, durable note/photo recovery, and a stricter pending-claim edit gate. Prepared project and area pages reopened in a fresh desktop tab with the preview server stopped.
 
-Phone camera operation, app termination during writes, quota exhaustion on real devices, airplane-mode cold start, multi-user conflicts, and live team delivery still need device/backend acceptance testing. A pending photo that cannot be saved is held in memory, and must not be described as recoverable after termination. No inspection-speed percentage is claimed. Measure repeated finding capture and room transitions against the current app with inspectors before deciding whether to merge.
+Offline team reservations, voice-resource preparation, a detailed N/A workflow, report freshness/media completeness preview, and richer team-sync diagnostics remain follow-up work. Shared areas still require a confirmed online lock.
+
+Phone camera operation, app termination during writes, quota exhaustion on real devices, airplane-mode cold start, multi-user conflicts, and live team delivery still need device/backend acceptance testing. A capture is recoverable after its journal write completes. If storage rejects that write, it is still only in memory. See [physical-device acceptance](offline-device-acceptance.md) for the exact checks still needed. No inspection-speed percentage is claimed. Measure repeated finding capture and room transitions against the current app with inspectors before deciding whether to merge.
+
+Implementation references: [Next.js PWA guidance](https://nextjs.org/docs/app/guides/progressive-web-apps) and [MDN service worker lifecycle](https://developer.mozilla.org/en-US/docs/Web/API/Service_Worker_API/Using_Service_Workers). No framework upgrade was required.
