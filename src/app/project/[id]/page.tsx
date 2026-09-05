@@ -1,5 +1,9 @@
 'use client';
 
+import ReportContentChoice from '@/components/inspection/ReportContentChoice';
+
+import ResumeInspectionLink from '@/components/inspection/ResumeInspectionLink';
+
 import { useState, useEffect, useLayoutEffect, useMemo, useRef, useCallback } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { Area, Project, checkpointHasIssue, getReviewMetrics } from '@/types';
@@ -171,6 +175,7 @@ export default function ProjectDetailPage() {
   const [showOnlyAreaIssues, setShowOnlyAreaIssues] = useState(false);
   const [showTrash, setShowTrash] = useState(false);
   const [actionSheet, setActionSheet] = useState<'delete' | 'export' | 'export-scope' | null>(null);
+  const [reportContent, setReportContent] = useState<'issues' | 'full'>('issues');
   const [exportScope, setExportScope] = useState<ExportScope>('project');
   const [syncing, setSyncing] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
@@ -764,7 +769,7 @@ export default function ProjectDetailPage() {
         ? await hydrateProjectMediaFromOneDrive(token, project.id)
         : await getProject(project.id);
       const { generateProjectPDF, downloadPDF } = await import('@/lib/pdfExport');
-      const blob = await generateProjectPDF(projectForExport ?? project, 'issues', { areaIds: sortedAreaIds });
+      const blob = await generateProjectPDF(projectForExport ?? project, reportContent, { areaIds: sortedAreaIds });
       if (destination === 'local') {
         const filename = `${sanitizeExportNamePart(project.projectName)}_Selected_Areas_${formatDateForExport()}.pdf`;
         downloadPDF(blob, filename);
@@ -773,7 +778,7 @@ export default function ProjectDetailPage() {
         const projectFolderName = getOneDriveProjectFolderName(project);
         const filename = await getNextOneDriveExportFilename(
           token,
-          [`${project.projectName}_Selected_Areas_Issues`],
+          [`${project.projectName}_Selected_Areas_${reportContent === 'issues' ? 'Issues' : 'Inspection_Record'}`],
           new Date(),
           projectFolderName
         );
@@ -804,16 +809,16 @@ export default function ProjectDetailPage() {
         ? await hydrateProjectMediaFromOneDrive(token, project.id)
         : await getProject(project.id);
       const { generateProjectPDF, downloadPDF } = await import('@/lib/pdfExport');
-      const blob = await generateProjectPDF(projectForExport ?? project, 'issues');
+      const blob = await generateProjectPDF(projectForExport ?? project, reportContent);
       if (destination === 'local') {
-        const filename = `${sanitizeExportNamePart(project.projectName)}_Issues_${formatDateForExport()}.pdf`;
+        const filename = `${sanitizeExportNamePart(project.projectName)}_${reportContent === 'issues' ? 'Issues' : 'Inspection_Record'}_${formatDateForExport()}.pdf`;
         downloadPDF(blob, filename);
       }
       if (token && shouldSaveToDrive) {
         const projectFolderName = getOneDriveProjectFolderName(project);
         const filename = await getNextOneDriveExportFilename(
           token,
-          [`${project.projectName}_Issues`],
+          [`${project.projectName}_${reportContent === 'issues' ? 'Issues' : 'Inspection_Record'}`],
           new Date(),
           projectFolderName
         );
@@ -1712,6 +1717,7 @@ export default function ProjectDetailPage() {
       <main
         className="flex-1 min-h-0 overflow-y-scroll overscroll-y-contain touch-pan-y px-4 pt-5 pb-[calc(env(safe-area-inset-bottom)+6.5rem)] sm:px-5"
       >
+        {!showTrash && <ResumeInspectionLink project={project} />}
         {!showTrash && activeAreas.length === 0 ? (
           <div className="mx-auto flex min-h-[calc(100%+1px)] w-full max-w-6xl flex-col">
             <div className="flex flex-1 items-center justify-center py-12">
@@ -2138,7 +2144,7 @@ export default function ProjectDetailPage() {
                   <div className="px-4 pb-2 pt-3 text-center">
                     <div className="text-sm font-semibold text-gray-900 dark:text-white">Export Project</div>
                     <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                      Choose specific areas or export every issue area in this project.
+                      Choose specific areas or include every area in this project.
                     </div>
                   </div>
                   <button
@@ -2173,10 +2179,11 @@ export default function ProjectDetailPage() {
                 <>
                   <div className="px-4 pb-2 pt-3 text-center">
                     <div className="text-sm font-semibold text-gray-900 dark:text-white">Export PDF</div>
+                    <ReportContentChoice value={reportContent} onChange={setReportContent} />
                     <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">
                       {exportScope === 'selected-areas'
-                        ? 'Save selected issue areas locally or to OneDrive.'
-                        : 'Save all project issue areas locally or to OneDrive.'}
+                        ? 'Save selected areas to this device or OneDrive.'
+                        : 'Save the project to this device or OneDrive.'}
                     </div>
                   </div>
                   <button
@@ -2201,7 +2208,7 @@ export default function ProjectDetailPage() {
                     }}
                     className="w-full rounded-[1.1rem] px-4 py-3 text-center text-[17px] text-gray-900 transition hover:bg-black/[0.04] dark:text-white dark:hover:bg-white/[0.05]"
                   >
-                    Local
+                    Download PDF
                   </button>
                   <button
                     onClick={() => setActionSheet('export-scope')}

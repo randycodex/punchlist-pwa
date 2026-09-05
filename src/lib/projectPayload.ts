@@ -187,6 +187,7 @@ function parseLocation(value: unknown, path: string): Location {
     name: requiredString(input.name, `${path}.name`),
     isCustom: input.isCustom === undefined ? undefined : booleanWithDefault(input.isCustom, `${path}.isCustom`),
     sectionLabel: optionalString(input.sectionLabel, `${path}.sectionLabel`),
+    reviewedAt: optionalDate(input.reviewedAt, `${path}.reviewedAt`)?.toISOString(),
     sortOrder: finiteNumber(input.sortOrder, `${path}.sortOrder`, 0),
     items: array(input.items ?? [], `${path}.items`).map((item, index) => parseItem(item, `${path}.items[${index}]`)),
     createdAt: date(input.createdAt, `${path}.createdAt`),

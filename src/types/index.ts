@@ -73,6 +73,7 @@ export function isAreaInspectionComplete(area: Pick<Area, 'locations'>) {
   let total = 0;
 
   for (const location of area.locations) {
+    if (location.reviewedAt) { total += 1; continue; }
     for (const item of location.items) {
       for (const checkpoint of item.checkpoints) {
         total += 1;
@@ -98,6 +99,8 @@ export interface Item {
 }
 
 export interface Location {
+  /** Explicit room-level inspection; does not change checkpoint outcomes. */
+  reviewedAt?: string;
   id: string;
   areaId: string;
   name: string;

@@ -8,6 +8,7 @@ import {
   PhotoAttachment,
   FileAttachment,
   FacadeElevationDrawing,
+  isAreaInspectionComplete,
 } from '@/types';
 import type { AreaTypeKey, ApartmentUnitType, FacadeOrientation } from '@/lib/areas';
 import { v4 as uuidv4 } from 'uuid';
@@ -153,18 +154,25 @@ function reportSharedSyncQueueChanged() {
   window.dispatchEvent(new Event(SHARED_SYNC_QUEUE_CHANGED_EVENT));
 }
 
-async function runLocalPersistence<T>(operation: () => Promise<T>): Promise<T> {
+let activeLocalWrites = 0;
+const failedLocalWrites = new Map<string, string>();
+
+async function runLocalPersistence<T>(operation: () => Promise<T>, scope = 'project'): Promise<T> {
+  activeLocalWrites += 1;
   reportLocalSaveStatus({ status: 'saving' });
   try {
     const result = await operation();
-    reportLocalSaveStatus({ status: 'saved' });
+    failedLocalWrites.delete(scope);
     return result;
   } catch (error) {
-    reportLocalSaveStatus({
-      status: 'error',
-      message: error instanceof Error ? error.message : 'This device could not save the latest change.',
-    });
+    failedLocalWrites.set(scope, error instanceof Error ? error.message : 'This device could not save the latest change.');
     throw error;
+  } finally {
+    activeLocalWrites -= 1;
+    const message = failedLocalWrites.values().next().value;
+    reportLocalSaveStatus(message
+      ? { status: 'error', message }
+      : { status: activeLocalWrites > 0 ? 'saving' : 'saved' });
   }
 }
 
@@ -724,33 +732,41 @@ export async function saveProjectAreaMetadataOnly(
       project.updatedAt = new Date();
     }
 
-    const tx = db.transaction(['projects', 'syncMetadata'], 'readwrite');
-    const projectStore = tx.objectStore('projects');
-    const existingProject = await projectStore.get(project.id);
-    const storedArea = cloneAreaWithoutMediaPayload(area);
+    const tx = db.transaction(['projects', 'syncMetadata', 'sharedAreaSyncQueue'], 'readwrite');
+    try {
+      const projectStore = tx.objectStore('projects');
+      const existingProject = await projectStore.get(project.id);
+      const storedArea = cloneAreaWithoutMediaPayload(area);
 
-    if (!existingProject) {
-      const storedProject = cloneProjectWithoutMediaPayload(project);
-      await projectStore.put(storedProject);
-    } else {
-      const existingIndex = existingProject.areas.findIndex((entry) => entry.id === areaId);
-      const nextAreas = [...existingProject.areas];
-      if (existingIndex === -1) {
-        nextAreas.push(storedArea);
+      if (!existingProject) {
+        const storedProject = cloneProjectWithoutMediaPayload(project);
+        await projectStore.put(storedProject);
       } else {
-        nextAreas[existingIndex] = storedArea;
+        const existingIndex = existingProject.areas.findIndex((entry) => entry.id === areaId);
+        const nextAreas = [...existingProject.areas];
+        if (existingIndex === -1) {
+          nextAreas.push(storedArea);
+        } else {
+          nextAreas[existingIndex] = storedArea;
+        }
+        await projectStore.put({
+          ...existingProject,
+          updatedAt: project.updatedAt,
+          areas: nextAreas,
+        });
       }
-      await projectStore.put({
-        ...existingProject,
-        updatedAt: project.updatedAt,
-        areas: nextAreas,
-      });
-    }
 
-    if (shouldMarkPending) {
-      await markPendingProjectInStore(tx.objectStore('syncMetadata'), project.id);
+      if (shouldMarkPending) {
+        await markPendingProjectInStore(tx.objectStore('syncMetadata'), project.id);
+      await queueSavedArea(tx.objectStore('sharedAreaSyncQueue'), existingProject ?? project, area);
+      }
+      await tx.done;
+    } catch (error) {
+      try { tx.abort(); } catch { /* It may already have aborted. */ }
+      await tx.done.catch(() => {});
+      throw error;
     }
-    await tx.done;
+    reportSharedSyncQueueChanged();
   });
 }
 
@@ -773,94 +789,153 @@ export async function saveProjectArea(
     });
     const storedArea = scopedSerialization.storedProject.areas[0];
     const tx = db.transaction(
-      ['projects', 'checkpointMedia', 'elevationDrawings', 'syncMetadata'],
+      ['projects', 'checkpointMedia', 'elevationDrawings', 'syncMetadata', 'sharedAreaSyncQueue'],
       'readwrite'
     );
-    const projectStore = tx.objectStore('projects');
-    const mediaStore = tx.objectStore('checkpointMedia');
-    const drawingStore = tx.objectStore('elevationDrawings');
-    const existingProject = await projectStore.get(project.id);
+    try {
+      const projectStore = tx.objectStore('projects');
+      const mediaStore = tx.objectStore('checkpointMedia');
+      const drawingStore = tx.objectStore('elevationDrawings');
+      const existingProject = await projectStore.get(project.id);
 
-    if (!existingProject) {
-      await projectStore.put(cloneProjectWithoutMediaPayload(project));
-    } else {
-      const existingIndex = existingProject.areas.findIndex((entry) => entry.id === areaId);
-      const nextAreas = [...existingProject.areas];
-      if (existingIndex === -1) nextAreas.push(storedArea);
-      else nextAreas[existingIndex] = storedArea;
-      await projectStore.put({
-        ...existingProject,
-        updatedAt: project.updatedAt,
-        areas: nextAreas,
-        ...(options.includeElevationDrawings
-          ? { facadeElevationDrawings: scopedSerialization.storedProject.facadeElevationDrawings }
-          : {}),
-      });
-    }
-    await markPendingProjectInStore(tx.objectStore('syncMetadata'), project.id);
+      if (!existingProject) {
+        await projectStore.put(cloneProjectWithoutMediaPayload(project));
+      } else {
+        const existingIndex = existingProject.areas.findIndex((entry) => entry.id === areaId);
+        const nextAreas = [...existingProject.areas];
+        if (existingIndex === -1) nextAreas.push(storedArea);
+        else nextAreas[existingIndex] = storedArea;
+        await projectStore.put({
+          ...existingProject,
+          updatedAt: project.updatedAt,
+          areas: nextAreas,
+          ...(options.includeElevationDrawings
+            ? { facadeElevationDrawings: scopedSerialization.storedProject.facadeElevationDrawings }
+            : {}),
+        });
+      }
+      await markPendingProjectInStore(tx.objectStore('syncMetadata'), project.id);
+      await queueSavedArea(tx.objectStore('sharedAreaSyncQueue'), existingProject ?? project, area);
 
-    const existingMediaRecords = await mediaStore.index('by-project-area').getAll([project.id, areaId]);
-    const existingMediaByCheckpoint = new Map(
-      existingMediaRecords.map((record) => [record.checkpointId, record])
-    );
-    const nextCheckpointIds = new Set(
-      scopedSerialization.mediaRecords.map((record) => record.checkpointId)
-    );
-    await Promise.all(
-      existingMediaRecords
-        .filter((record) => !nextCheckpointIds.has(record.checkpointId))
-        .map((record) => mediaStore.delete(record.checkpointId))
-    );
-    await Promise.all(
-      scopedSerialization.mediaRecords.map(async (record) => {
-        const compactRecord = await compactMediaRecord(record);
-        return mediaStore.put(
-          preserveExistingMediaPayloads(
-            compactRecord,
-            existingMediaByCheckpoint.get(record.checkpointId)
-          )
+      const existingMediaRecords = await mediaStore.index('by-project-area').getAll([project.id, areaId]);
+      const existingMediaByCheckpoint = new Map(
+        existingMediaRecords.map((record) => [record.checkpointId, record])
+      );
+      const nextCheckpointIds = new Set(
+        scopedSerialization.mediaRecords.map((record) => record.checkpointId)
+      );
+      await Promise.all(
+        existingMediaRecords
+          .filter((record) => !nextCheckpointIds.has(record.checkpointId))
+          .map((record) => mediaStore.delete(record.checkpointId))
+      );
+      await Promise.all(
+        scopedSerialization.mediaRecords.map(async (record) => {
+          const compactRecord = await compactMediaRecord(record);
+          return mediaStore.put(
+            preserveExistingMediaPayloads(
+              compactRecord,
+              existingMediaByCheckpoint.get(record.checkpointId)
+            )
+          );
+        })
+      );
+
+      if (options.includeElevationDrawings) {
+        const existingDrawingRecords = await drawingStore.index('by-project').getAll(project.id);
+        const existingDrawingById = new Map(
+          existingDrawingRecords.map((record) => [record.id, record])
         );
-      })
-    );
+        const incomingDrawingPayloadById = new Map(
+          scopedSerialization.elevationDrawingRecords.map((record) => [record.id, record.dataUrl])
+        );
+        const nextDrawingMetadata = scopedSerialization.storedProject.facadeElevationDrawings ?? [];
+        const nextDrawingIds = new Set(nextDrawingMetadata.map((drawing) => drawing.id));
+        await Promise.all(
+          existingDrawingRecords
+            .filter((record) => !nextDrawingIds.has(record.id))
+            .map((record) => drawingStore.delete(record.id))
+        );
+        await Promise.all(
+          nextDrawingMetadata
+            .map((drawing) => {
+              const dataUrl = incomingDrawingPayloadById.get(drawing.id)
+                || existingDrawingById.get(drawing.id)?.dataUrl
+                || '';
+              if (!dataUrl) return null;
+              return drawingStore.put({
+                ...drawing,
+                dataUrl,
+                projectId: project.id,
+              });
+            })
+            .filter((operation): operation is Promise<string> => operation !== null)
+        );
+      }
 
-    if (options.includeElevationDrawings) {
-      const existingDrawingRecords = await drawingStore.index('by-project').getAll(project.id);
-      const existingDrawingById = new Map(
-        existingDrawingRecords.map((record) => [record.id, record])
-      );
-      const incomingDrawingPayloadById = new Map(
-        scopedSerialization.elevationDrawingRecords.map((record) => [record.id, record.dataUrl])
-      );
-      const nextDrawingMetadata = scopedSerialization.storedProject.facadeElevationDrawings ?? [];
-      const nextDrawingIds = new Set(nextDrawingMetadata.map((drawing) => drawing.id));
-      await Promise.all(
-        existingDrawingRecords
-          .filter((record) => !nextDrawingIds.has(record.id))
-          .map((record) => drawingStore.delete(record.id))
-      );
-      await Promise.all(
-        nextDrawingMetadata
-          .map((drawing) => {
-            const dataUrl = incomingDrawingPayloadById.get(drawing.id)
-              || existingDrawingById.get(drawing.id)?.dataUrl
-              || '';
-            if (!dataUrl) return null;
-            return drawingStore.put({
-              ...drawing,
-              dataUrl,
-              projectId: project.id,
-            });
-          })
-          .filter((operation): operation is Promise<string> => operation !== null)
-      );
+      await tx.done;
+    } catch (error) {
+      try { tx.abort(); } catch { /* It may already have aborted. */ }
+      await tx.done.catch(() => {});
+      throw error;
     }
-
-    await tx.done;
+    reportSharedSyncQueueChanged();
   });
 }
 
 export async function saveProjectPreserveTimestamps(project: Project): Promise<void> {
   await runLocalPersistence(() => saveProjectInternal(project, { touch: false }));
+}
+
+// Read the latest stored record inside the write transaction. A note or photo
+// save must not replace another checkpoint's edits with an older React snapshot.
+export async function saveCheckpointInspectionChange(
+  projectId: string,
+  areaId: string,
+  checkpointId: string,
+  change: Partial<Pick<Checkpoint, 'comments' | 'status' | 'issueState' | 'fixStatus'>>,
+  photos: PhotoAttachment[] = [],
+): Promise<void> {
+  const compactPhotos = photos.length
+    ? (await compactMediaRecord({ checkpointId, projectId, areaId, photos, files: [] })).photos
+    : [];
+  await runLocalPersistence(async () => {
+    const db = await getDB();
+    const tx = db.transaction(['projects', 'checkpointMedia', 'syncMetadata', 'sharedAreaSyncQueue'], 'readwrite');
+    try {
+      const project = await tx.objectStore('projects').get(projectId);
+      const area = project?.areas.find((entry) => entry.id === areaId && !entry.deletedAt);
+      const checkpoint = area?.locations.flatMap((location) => location.items)
+        .flatMap((item) => item.checkpoints).find((entry) => entry.id === checkpointId);
+      if (!project || !area || !checkpoint) {
+        tx.abort();
+        await tx.done.catch(() => {});
+        throw new Error('This checkpoint is no longer available. Your draft is still open.');
+      }
+      Object.assign(checkpoint, change, { updatedAt: new Date() });
+      if (photos.length) {
+        const store = tx.objectStore('checkpointMedia');
+        const media = await store.get(checkpointId) ?? { checkpointId, projectId, areaId, photos: [], files: [] };
+        const existingIds = new Set(media.photos.map((photo) => photo.id));
+        media.photos.push(...compactPhotos.filter((photo) => !existingIds.has(photo.id)));
+        const metadataIds = new Set(checkpoint.photos.map((photo) => photo.id));
+        checkpoint.photos.push(...photos.filter((photo) => !metadataIds.has(photo.id)).map((photo) => ({ ...photo, imageData: '', thumbnail: undefined })));
+        await store.put(media);
+      }
+      area.updatedAt = new Date();
+      area.isComplete = isAreaInspectionComplete(area);
+      project.updatedAt = new Date();
+      await tx.objectStore('projects').put(project);
+      await markPendingProjectInStore(tx.objectStore('syncMetadata'), projectId);
+      await queueSavedArea(tx.objectStore('sharedAreaSyncQueue'), project, area);
+      await tx.done;
+    } catch (error) {
+      try { tx.abort(); } catch { /* It may already have aborted. */ }
+      await tx.done.catch(() => {});
+      throw error;
+    }
+    reportSharedSyncQueueChanged();
+  }, `checkpoint:${projectId}:${checkpointId}`);
 }
 
 async function saveProjectInternal(project: Project, options: { touch: boolean }): Promise<void> {
@@ -1180,6 +1255,53 @@ export async function queuePendingSharedAreaSync(
   return record;
 }
 
+type SharedAreaQueueStore = {
+  get(key: string): Promise<PendingSharedAreaSyncRecord | undefined>;
+  put(value: PendingSharedAreaSyncRecord): Promise<string>;
+};
+
+async function putPendingAreaInStore(store: SharedAreaQueueStore, input: PendingSharedAreaSyncInput) {
+  const key = `${input.localProjectId}:${input.sharedProjectId}:${input.areaId}`;
+  const existing = await store.get(key);
+  const inputBasePublishedAt = new Date(input.basePublishedAt).getTime();
+  const existingBasePublishedAt = existing ? new Date(existing.basePublishedAt).getTime() : 0;
+  const shouldUseInputBase = !existing
+    || input.baseVersion > existing.baseVersion
+    || (
+    input.baseVersion === existing.baseVersion
+    && Number.isFinite(inputBasePublishedAt)
+    && inputBasePublishedAt > existingBasePublishedAt
+    );
+  const record: PendingSharedAreaSyncRecord = {
+    key,
+    localProjectId: input.localProjectId,
+    sharedProjectId: input.sharedProjectId,
+    areaId: input.areaId,
+    baseVersion: shouldUseInputBase ? input.baseVersion : existing!.baseVersion,
+    basePublishedAt: shouldUseInputBase ? input.basePublishedAt : existing!.basePublishedAt,
+    clientId: uuidv4(),
+    revision: (existing?.revision ?? 0) + 1,
+    attemptCount: 0,
+    blockedByConflict: false,
+    readyAfterConflictReview: false,
+    queuedAt: new Date(),
+    lastError: null,
+  };
+  await store.put(record);
+  return record;
+}
+
+async function queueSavedArea(store: SharedAreaQueueStore, project: Project, area: Area) {
+  if (!project.sharedProjectId || !project.sharedSnapshotPublishedAt) return;
+  await putPendingAreaInStore(store, {
+    localProjectId: project.id,
+    sharedProjectId: project.sharedProjectId,
+    areaId: area.id,
+    baseVersion: area.sharedVersion ?? 0,
+    basePublishedAt: (area.sharedPublishedAt ?? project.sharedBaselinePublishedAt ?? project.sharedSnapshotPublishedAt).toISOString(),
+  });
+}
+
 export async function queuePendingSharedAreaSyncs(
   inputs: ReadonlyArray<PendingSharedAreaSyncInput>
 ): Promise<PendingSharedAreaSyncRecord[]> {
@@ -1195,33 +1317,7 @@ export async function queuePendingSharedAreaSyncs(
   ).values()];
   const records: PendingSharedAreaSyncRecord[] = [];
   for (const input of uniqueInputs) {
-    const key = `${input.localProjectId}:${input.sharedProjectId}:${input.areaId}`;
-    const existing = await store.get(key);
-    const inputBasePublishedAt = new Date(input.basePublishedAt).getTime();
-    const existingBasePublishedAt = existing ? new Date(existing.basePublishedAt).getTime() : 0;
-    const shouldUseInputBase = !existing
-      || input.baseVersion > existing.baseVersion
-      || (
-        input.baseVersion === existing.baseVersion
-        && Number.isFinite(inputBasePublishedAt)
-        && inputBasePublishedAt > existingBasePublishedAt
-      );
-    const record: PendingSharedAreaSyncRecord = {
-      key,
-      localProjectId: input.localProjectId,
-      sharedProjectId: input.sharedProjectId,
-      areaId: input.areaId,
-      baseVersion: shouldUseInputBase ? input.baseVersion : existing!.baseVersion,
-      basePublishedAt: shouldUseInputBase ? input.basePublishedAt : existing!.basePublishedAt,
-      clientId: uuidv4(),
-      revision: (existing?.revision ?? 0) + 1,
-      attemptCount: 0,
-      blockedByConflict: false,
-      readyAfterConflictReview: false,
-      queuedAt: new Date(),
-      lastError: null,
-    };
-    await store.put(record);
+    const record = await putPendingAreaInStore(store, input);
     records.push(record);
   }
   await tx.done;

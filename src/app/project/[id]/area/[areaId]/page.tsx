@@ -8,12 +8,12 @@ import {
   Checkpoint,
   getCheckpointIssueState,
   isAreaInspectionComplete,
-  type IssueState,
 } from '@/types';
 import {
   getActiveProjectCount,
   getProjectForArea,
   saveProjectArea,
+  saveCheckpointInspectionChange,
   saveProjectAreaMetadataOnly,
   createPhotoAttachment,
   createFileAttachment,
@@ -74,7 +74,6 @@ import {
   getSharedProjectSnapshotMetadata,
   flushPendingSharedAreaSyncs,
   isSharedSnapshotNewer,
-  queueSharedProjectAreaSync,
   releaseSharedProjectArea,
   resumePendingSharedAreaSyncs,
   SHARED_AREA_SYNC_EVENT,
@@ -89,6 +88,7 @@ import FacadeElevationViewer, {
 } from '@/components/inspection/FacadeElevationViewer';
 import InspectionLocationCard from '@/components/inspection/InspectionLocationCard';
 import Link from 'next/link';
+import { readInspectionPosition, rememberInspectionPosition, nextInspectionPosition, type InspectionPosition } from '@/features/inspection/inspectionPosition';
 import {
   ArrowLeft,
   ChevronsDown,
@@ -154,6 +154,8 @@ export default function AreaDetailPage() {
   const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set());
   const [bulkExpansionMode, setBulkExpansionMode] = useState<'collapsed' | 'expanded'>('collapsed');
   const [generalNotesExpanded, setGeneralNotesExpanded] = useState(false);
+  const [showToInspect, setShowToInspect] = useState(false);
+  const resumeAppliedRef = useRef(false);
   const [expandedCheckpoint, setExpandedCheckpoint] = useState<{
     locationId: string;
     itemId: string;
@@ -186,6 +188,9 @@ export default function AreaDetailPage() {
   } | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
+  const [noteSaveError, setNoteSaveError] = useState<string | null>(null);
+  const [savingNotes, setSavingNotes] = useState(false);
+  const pendingNotesRef = useRef(new Map<string, { locationId: string; itemId: string; checkpointId: string; value: string }>());
   const [inspectionNotice, setInspectionNotice] = useState<string | null>(null);
   const [areaClaimError, setAreaClaimError] = useState<string | null>(null);
   const [claimingArea, setClaimingArea] = useState(false);
@@ -213,6 +218,8 @@ export default function AreaDetailPage() {
   const { ensureAccessToken, signIn, isReady, isSignedIn } = useMicrosoftAuth();
   const collaborationAuth = useCollaborationAuth();
   const {
+    localSaveStatus,
+    localSaveError,
     clearSharedUpdateAvailable,
     markSharedUpdateAvailable,
     setRetryAt,
@@ -292,6 +299,9 @@ export default function AreaDetailPage() {
 
   function trackCheckpointCommentDraft(value: string) {
     commentDraftRef.current = value;
+    if (expandedCheckpoint) {
+      void persistCheckpointComment(expandedCheckpoint.locationId, expandedCheckpoint.itemId, expandedCheckpoint.checkpointId, value, false).catch(() => {});
+    }
   }
 
   function retrySharedAreaClaim() {
@@ -593,6 +603,20 @@ export default function AreaDetailPage() {
             scheduleSync(nextProject.id);
           }
           setArea(areaData);
+          if (!resumeAppliedRef.current) {
+            const position = readInspectionPosition(id);
+            const location = areaData.locations.find((entry) => entry.id === position?.locationId);
+            if (position?.areaId === areaData.id && location) {
+              setExpandedLocations(new Set([location.id]));
+              if (location.items.some((entry) => entry.id === position.itemId)) {
+                setExpandedItems(new Set([position.itemId!]));
+                scrollTargetToListAnchor(() => itemRefs.current.get(position.itemId!));
+              } else {
+                scrollTargetToListAnchor(() => locationRefs.current.get(location.id));
+              }
+            }
+            resumeAppliedRef.current = true;
+          }
         } else {
           router.push(`/project/${id}`);
         }
@@ -656,30 +680,18 @@ export default function AreaDetailPage() {
   );
 
   const sortedStandardLocations = useMemo(() => {
-    const hasSectionLabels = filteredStandardLocations.some((l) => l.sectionLabel);
-    if (hasSectionLabels) return [...filteredStandardLocations].sort((a, b) => a.sortOrder - b.sortOrder);
-
-    return [...filteredStandardLocations].sort((a, b) => {
+    const locations = showToInspect ? filteredStandardLocations.filter((location) => !location.reviewedAt) : filteredStandardLocations;
+    if (locations.some((location) => location.sectionLabel)) return [...locations].sort((a, b) => a.sortOrder - b.sortOrder);
+    return [...locations].sort((a, b) => {
       const levelCompare = compareLevelNames(a.name, b.name);
       if (levelCompare !== 0) return levelCompare;
-
-      if (quickSort === 'alphabetical') {
-        return a.sortOrder - b.sortOrder;
+      if (inspectionShowOnlyIssues && quickSort === 'issues') {
+        const difference = (areaDerived?.locationMetrics.get(b.id)?.stats.issues ?? 0) - (areaDerived?.locationMetrics.get(a.id)?.stats.issues ?? 0);
+        if (difference) return difference;
       }
-
-      if (quickSort === 'issues') {
-        const issuesA = areaDerived?.locationMetrics.get(a.id)?.stats.issues ?? 0;
-        const issuesB = areaDerived?.locationMetrics.get(b.id)?.stats.issues ?? 0;
-        if (issuesB !== issuesA) return issuesB - issuesA;
-        return a.sortOrder - b.sortOrder;
-      }
-
-      const progressA = areaDerived?.locationMetrics.get(a.id)?.progress ?? 0;
-      const progressB = areaDerived?.locationMetrics.get(b.id)?.progress ?? 0;
-      if (progressB !== progressA) return progressB - progressA;
       return a.sortOrder - b.sortOrder;
     });
-  }, [areaDerived, filteredStandardLocations, quickSort]);
+  }, [areaDerived, filteredStandardLocations, inspectionShowOnlyIssues, quickSort, showToInspect]);
 
   const getBulkExpandableItems = useCallback((targetLocation: Area['locations'][number]) => {
     const itemMetrics = areaDerived?.itemMetrics ?? new Map();
@@ -737,55 +749,59 @@ export default function AreaDetailPage() {
     const checkpoint = findCheckpoint(locationId, itemId, checkpointId);
     if (!checkpoint) return;
 
-    if (nextState === 'pending') {
-      checkpoint.issueState = 'none';
-      checkpoint.status = 'pending';
-      checkpoint.fixStatus = 'pending';
-    } else if (nextState === 'ok') {
-      checkpoint.issueState = 'none';
-      checkpoint.status = 'ok';
-      checkpoint.fixStatus = 'pending';
-    } else {
-      const nextIssueState: Exclude<IssueState, 'none'> = nextState;
-      checkpoint.issueState = nextIssueState;
-      checkpoint.status = 'needsReview';
-      checkpoint.fixStatus =
-        nextIssueState === 'verified' ? 'verified' : nextIssueState === 'resolved' ? 'fixed' : 'pending';
+    const change: Pick<Checkpoint, 'issueState' | 'status' | 'fixStatus'> = nextState === 'pending'
+      ? { issueState: 'none', status: 'pending', fixStatus: 'pending' }
+      : nextState === 'ok'
+        ? { issueState: 'none', status: 'ok', fixStatus: 'pending' }
+        : { issueState: nextState, status: 'needsReview', fixStatus: nextState === 'verified' ? 'verified' : nextState === 'resolved' ? 'fixed' : 'pending' };
+    try {
+      await saveCheckpointInspectionChange(project.id, area.id, checkpointId, change);
+      Object.assign(checkpoint, change, { updatedAt: new Date() });
+      syncAreaCompletion(area);
+      scheduleSync(project.id);
+      setArea({ ...area });
+      setSyncError(null);
+    } catch {
+      setSyncError('Could not save this status. Please try again.');
+      throw new Error('Status was not saved.');
     }
-    checkpoint.updatedAt = new Date();
-    syncAreaCompletion(area);
-    await saveProjectAreaMetadataOnly(project, area.id);
-    scheduleSync(project.id);
-    setArea({ ...area });
   }
 
   async function persistCheckpointComment(
     locationId: string,
     itemId: string,
     checkpointId: string,
-    value: string
+    value: string,
+    rememberRecent = true
   ) {
     if (!canEditSharedArea()) return;
     if (!project || !area) return;
 
     const checkpoint = findCheckpoint(locationId, itemId, checkpointId);
     if (!checkpoint) return;
-    if (checkpoint.comments === value) return;
-
-    checkpoint.comments = value;
-    checkpoint.updatedAt = new Date();
-    syncAreaCompletion(area);
-    await saveProjectAreaMetadataOnly(project, area.id);
-    scheduleSync(project.id);
-
-    const trimmedComment = value.trim();
-    if (trimmedComment) {
-      const nextRecentComments = [
-        trimmedComment,
-        ...recentComments.filter((comment) => comment !== trimmedComment),
-      ].slice(0, MAX_RECENT_COMMENTS);
+    if (rememberRecent && value.trim()) {
+      const trimmedComment = value.trim();
+      const nextRecentComments = [trimmedComment, ...recentComments.filter((comment) => comment !== trimmedComment)].slice(0, MAX_RECENT_COMMENTS);
       setRecentComments(nextRecentComments);
       writeLocalStorage(RECENT_COMMENTS_STORAGE_KEY, JSON.stringify(nextRecentComments));
+    }
+    if (checkpoint.comments === value && !pendingNotesRef.current.has(checkpointId)) return;
+    pendingNotesRef.current.set(checkpointId, { locationId, itemId, checkpointId, value });
+    setSavingNotes(true);
+    try {
+      await saveCheckpointInspectionChange(project.id, area.id, checkpointId, { comments: value });
+      checkpoint.comments = value;
+      checkpoint.updatedAt = new Date();
+      if (pendingNotesRef.current.get(checkpointId)?.value === value) {
+        pendingNotesRef.current.delete(checkpointId);
+      }
+      setSavingNotes(pendingNotesRef.current.size > 0);
+      if (pendingNotesRef.current.size === 0) setNoteSaveError(null);
+      scheduleSync(project.id);
+    } catch {
+      setNoteSaveError('Your latest note could not be saved. Keep this page open and retry.');
+      setSavingNotes(false);
+      throw new Error('Note was not saved.');
     }
 
     setArea({ ...area });
@@ -1357,35 +1373,28 @@ export default function AreaDetailPage() {
     const checkpoint = findCheckpoint(locationId, itemId, checkpointId);
     if (!checkpoint) return;
 
-    const photo = createPhotoAttachment(checkpointId, imageData, thumbnail);
-    checkpoint.photos.push(photo);
-    checkpoint.updatedAt = new Date();
-    syncAreaCompletion(area);
-    await saveProjectArea(project, area.id);
-    scheduleSync(project.id);
-    setArea({ ...area });
+    await handleAddPhotos(locationId, itemId, checkpointId, [{ imageData, thumbnail }]);
   }
 
   async function handleAddPhotos(
     locationId: string,
     itemId: string,
     checkpointId: string,
-    photos: Array<{ imageData: string; thumbnail?: string }>
+    photos: Array<{ imageData: string; thumbnail?: string; id?: string }>
   ) {
-    if (!canEditSharedArea()) return;
-    if (!project || !area || photos.length === 0) return;
-
+    if (!canEditSharedArea()) throw new Error('This area is locked. Your photos have not been attached.');
+    if (!project || !area) throw new Error('The inspection is not ready.');
     const checkpoint = findCheckpoint(locationId, itemId, checkpointId);
-    if (!checkpoint) return;
-
-    for (const photoInput of photos) {
-      checkpoint.photos.push(
-        createPhotoAttachment(checkpointId, photoInput.imageData, photoInput.thumbnail)
-      );
-    }
+    if (!checkpoint) throw new Error('This checkpoint is no longer available.');
+    const attachments = photos.map((photo) => ({
+      ...createPhotoAttachment(checkpointId, photo.imageData, photo.thumbnail),
+      ...(photo.id ? { id: photo.id } : {}),
+    }));
+    await saveCheckpointInspectionChange(project.id, area.id, checkpointId, {}, attachments);
+    const existing = new Set(checkpoint.photos.map((photo) => photo.id));
+    checkpoint.photos.push(...attachments.filter((photo) => !existing.has(photo.id)));
     checkpoint.updatedAt = new Date();
     syncAreaCompletion(area);
-    await saveProjectArea(project, area.id);
     scheduleSync(project.id);
     setArea({ ...area });
   }
@@ -1577,17 +1586,8 @@ export default function AreaDetailPage() {
   function scheduleSync(projectId?: string, options?: ScheduleSyncOptions) {
     queuePendingSync(projectId, options);
     setSyncStatus('pending');
-    const currentProject = projectRef.current;
-    const currentArea = areaRef.current;
-    if (
-      currentProject?.sharedProjectId
-      && currentArea
-      && (!projectId || projectId === currentProject.id)
-    ) {
-      void queueSharedProjectAreaSync(currentProject, currentArea.id).catch((error) => {
-        console.info('Shared area update remains local until it can be queued:', error);
-      });
-    }
+    // The storage transaction already includes the durable team queue entry.
+    resumePendingSharedAreaSyncs();
   }
 
   async function closeExpandedCheckpoint() {
@@ -1832,6 +1832,45 @@ export default function AreaDetailPage() {
     replaceCheckpointCommentDraft(comments);
   }
 
+  const activeLocation = area?.locations.find((location) => location.id === expandedCheckpoint?.locationId)
+    ?? area?.locations.find((location) => location.id === [...expandedLocations].at(-1));
+  const activeItem = activeLocation?.items.find((item) => item.id === expandedCheckpoint?.itemId)
+    ?? activeLocation?.items.find((item) => item.id === [...expandedItems].at(-1));
+
+  useEffect(() => {
+    if (!area || !activeLocation || !resumeAppliedRef.current) return;
+    rememberInspectionPosition(id, { areaId: area.id, locationId: activeLocation.id, itemId: activeItem?.id, checkpointId: expandedCheckpoint?.checkpointId });
+  }, [id, area, activeLocation, activeItem, expandedCheckpoint]);
+
+  async function advanceInspection(step: 'item' | 'room') {
+    if (!area) return;
+    try { await closeExpandedCheckpoint(); } catch { return; }
+    const current: InspectionPosition | null = activeLocation ? { areaId: area.id, locationId: activeLocation.id, itemId: activeItem?.id } : null;
+    const next = nextInspectionPosition(area, current, step);
+    if (!next) { setInspectionNotice('You have reached the end of this area. Review any unfinished rooms before leaving.'); return; }
+    setInspectionNotice(null);
+    setInspectionShowOnlyIssues(false);
+    setShowToInspect(false);
+    setExpandedLocations(new Set([next.locationId]));
+    setExpandedItems(new Set(next.itemId ? [next.itemId] : []));
+    setGeneralNotesExpanded(false);
+    if (next.itemId) scrollItemToListAnchor(next.itemId); else scrollLocationToListAnchor(next.locationId);
+  }
+
+  async function reviewLocation(locationId: string) {
+    if (!project || !area || !canEditSharedArea()) return;
+    try {
+      await closeExpandedCheckpoint();
+      const nextArea = { ...area, locations: area.locations.map((location) => location.id === locationId ? { ...location, reviewedAt: location.reviewedAt ? undefined : new Date().toISOString() } : location) };
+      syncAreaCompletion(nextArea);
+      const nextProject = { ...project, areas: project.areas.map((entry) => entry.id === area.id ? nextArea : entry) };
+      await saveProjectAreaMetadataOnly(nextProject, area.id);
+      setProject(nextProject);
+      setArea(nextArea);
+      scheduleSync(project.id);
+    } catch { setSyncError('Could not save room review. Please try again.'); }
+  }
+
   if (loading) {
     return (
       <div className="flex min-h-[100dvh] items-center justify-center bg-[var(--background)]">
@@ -1901,18 +1940,7 @@ export default function AreaDetailPage() {
                 </div>
               )}
             </div>
-            <button
-              onClick={() => setInspectionShowOnlyIssues(!inspectionShowOnlyIssues)}
-              className={`flex h-10 items-center gap-2 rounded-full px-3 text-sm font-medium transition ${
-                inspectionShowOnlyIssues
-                  ? 'accent-tint accent-text'
-                  : 'soft-control text-gray-500 hover:bg-white hover:text-gray-900 dark:text-gray-300 dark:hover:bg-white/[0.08] dark:hover:text-white'
-              }`}
-              aria-label={inspectionShowOnlyIssues ? 'Show all items' : 'Show only issues'}
-              aria-pressed={inspectionShowOnlyIssues}
-            >
-              <span className="text-[0.92rem] font-medium">Issues</span>
-            </button>
+
             <div ref={headerMenuRef} className="relative">
               <button
                 onClick={() => setShowHeaderMenu((current) => !current)}
@@ -1991,6 +2019,16 @@ export default function AreaDetailPage() {
             </div>
           </div>
         )}
+        <div className="mx-auto flex w-full max-w-6xl flex-wrap items-center justify-between gap-2 px-4 pb-3">
+          <div className="flex gap-1" role="group" aria-label="Inspection view">
+            {(['All', 'To inspect', 'Issues'] as const).map((label) => {
+              const selected = label === 'Issues' ? inspectionShowOnlyIssues : label === 'To inspect' ? showToInspect : !showToInspect && !inspectionShowOnlyIssues;
+              return <button key={label} type="button" aria-pressed={selected} className={`min-h-11 rounded-xl px-3 text-sm font-medium ${selected ? 'accent-bg text-white' : 'soft-control'}`} onClick={() => { setShowToInspect(label === 'To inspect'); setInspectionShowOnlyIssues(label === 'Issues'); }}>{label}</button>;
+            })}
+          </div>
+          <span className="text-xs text-gray-500 dark:text-gray-400">{area.locations.filter((location) => location.reviewedAt).length} / {area.locations.length} rooms reviewed</span>
+          {activeLocation && <p className="w-full truncate text-sm font-medium">{activeLocation.name}{activeItem ? ` › ${activeItem.name}` : ''}</p>}
+        </div>
       </header>
 
       {areaClaimError && !visibleAreaClaimProblem && (
@@ -2037,6 +2075,19 @@ export default function AreaDetailPage() {
         />
       )}
 
+      <div className="shrink-0 px-4 py-2 text-xs" aria-live="polite">
+        {noteSaveError ? (
+          <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 text-red-700 dark:text-red-300" role="alert">
+            <span>{noteSaveError}</span>
+            <button type="button" className="min-h-11 rounded-xl px-4 font-semibold" onClick={() => {
+              for (const note of pendingNotesRef.current.values()) {
+                void persistCheckpointComment(note.locationId, note.itemId, note.checkpointId, note.value).catch(() => {});
+              }
+            }}>Retry save</button>
+          </div>
+        ) : <p className="mx-auto max-w-6xl text-gray-500 dark:text-gray-400">{localSaveStatus === 'error' ? `Save needs attention: ${localSaveError ?? 'retry the last action'}` : savingNotes || localSaveStatus === 'saving' ? 'Saving on this device…' : 'Saved on this device'}</p>}
+      </div>
+
       {syncError && (
         <div className="shrink-0 border-b border-transparent bg-white/70 px-4 py-2 text-sm text-gray-700 dark:bg-white/[0.03] dark:text-gray-200">
           {syncError}
@@ -2071,9 +2122,7 @@ export default function AreaDetailPage() {
       {/* Inspection Items */}
       <main
         ref={listRef}
-        className={`flex-1 min-h-0 overflow-y-scroll overscroll-y-contain touch-pan-y px-4 pb-[calc(env(safe-area-inset-bottom)+3.5rem)] sm:px-5 ${
-          deleteMode ? '-mt-[8.4rem] pt-[9.65rem]' : '-mt-[4.9rem] pt-[6.15rem]'
-        }`}
+        className="flex-1 min-h-0 overflow-y-scroll overscroll-y-contain touch-pan-y px-4 pt-4 pb-[calc(env(safe-area-inset-bottom)+3.5rem)] sm:px-5"
       >
         <div
           className={`list-stack mx-auto min-h-[calc(100%+1px)] w-full max-w-6xl transition-opacity ${
@@ -2139,6 +2188,8 @@ export default function AreaDetailPage() {
                 </div>
               )}
               <InspectionLocationCard
+                areaLabel={areaTitle}
+                onReviewLocation={reviewLocation}
                 location={location}
                 locationMetric={areaDerived?.locationMetrics.get(location.id)}
                 itemMetrics={areaDerived?.itemMetrics ?? new Map()}
@@ -2160,10 +2211,10 @@ export default function AreaDetailPage() {
                   void toggleCheckpoint(locationId, itemId, checkpointId, comments)
                 }
                 onCommentBlur={(locationId, itemId, checkpointId, value) =>
-                  void persistCheckpointComment(locationId, itemId, checkpointId, value)
+                  persistCheckpointComment(locationId, itemId, checkpointId, value)
                 }
                 onUpdateCheckpointStatus={(locationId, itemId, checkpointId, nextState) =>
-                  void updateCheckpointReviewState(locationId, itemId, checkpointId, nextState)
+                  updateCheckpointReviewState(locationId, itemId, checkpointId, nextState)
                 }
                 expandedCheckpointId={expandedCheckpoint?.checkpointId ?? null}
                 commentText={commentText}
@@ -2247,7 +2298,7 @@ export default function AreaDetailPage() {
                             customCheckpointTarget?.itemId === itemId
                           }
                           value={customCheckpointName}
-                          triggerLabel="+ Sub Item"
+                          triggerLabel="Add checkpoint"
                           valuePlaceholder="Sub-item name"
                           submitLabel={editingCustomCheckpoint ? 'Save' : 'Add'}
                           onOpen={() => {
@@ -2320,7 +2371,7 @@ export default function AreaDetailPage() {
             <CustomItemComposer
               open={showCustomSubareaComposer}
               value={customSubareaName}
-              triggerLabel="+ Sub Area"
+              triggerLabel="Add room"
               valuePlaceholder="Subarea name"
               submitLabel="Add"
               onOpen={() => setShowCustomSubareaComposer(true)}
@@ -2351,10 +2402,10 @@ export default function AreaDetailPage() {
                 void toggleCheckpoint(locationId, itemId, checkpointId, comments)
               }
               onCommentBlur={(locationId, itemId, checkpointId, value) =>
-                void persistCheckpointComment(locationId, itemId, checkpointId, value)
+                persistCheckpointComment(locationId, itemId, checkpointId, value)
               }
               onUpdateCheckpointStatus={(locationId, itemId, checkpointId, nextState) =>
-                void updateCheckpointReviewState(locationId, itemId, checkpointId, nextState)
+                updateCheckpointReviewState(locationId, itemId, checkpointId, nextState)
               }
               expandedCheckpointId={expandedCheckpoint?.checkpointId ?? null}
               commentText={commentText}
@@ -2453,6 +2504,12 @@ export default function AreaDetailPage() {
           <div className="mt-auto pt-1" />
         </div>
       </main>
+      <nav aria-label="Continue inspection" className="shrink-0 border-t border-black/5 bg-[var(--background)] px-4 pb-[calc(env(safe-area-inset-bottom)+0.5rem)] pt-2 dark:border-white/10">
+        <div className="mx-auto flex max-w-6xl gap-2">
+          <button type="button" className="min-h-12 flex-1 rounded-xl soft-control px-3 text-sm font-semibold" onClick={() => void advanceInspection('item')}>Next item →</button>
+          <button type="button" className="min-h-12 flex-1 rounded-xl accent-bg px-3 text-sm font-semibold text-white" onClick={() => void advanceInspection('room')}>Next room →</button>
+        </div>
+      </nav>
 
       <AreaEditorModal
         key={showEditArea ? `edit-${area.id}` : 'closed'}

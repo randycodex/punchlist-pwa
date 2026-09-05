@@ -55,6 +55,8 @@ type InspectionLocationCardProps = {
   }) => void | Promise<void>;
   onCommentChange: (value: string) => void;
   onCommentBlur: (locationId: string, itemId: string, checkpointId: string, value: string) => void | Promise<void>;
+  areaLabel?: string;
+  onReviewLocation?: (locationId: string) => void | Promise<void>;
   onUpdateCheckpointStatus: (locationId: string, itemId: string, checkpointId: string, nextState: CheckpointReviewState) => void | Promise<void>;
   expandedCheckpointId: string | null;
   commentText: string;
@@ -111,6 +113,8 @@ function checkpointHasFacadeListContent(checkpoint: Checkpoint) {
 
 export default function InspectionLocationCard({
   location,
+  areaLabel,
+  onReviewLocation,
   locationMetric,
   itemMetrics,
   elevationMarkerRefsByCheckpoint,
@@ -257,12 +261,10 @@ export default function InspectionLocationCard({
     checkpoint: Checkpoint,
     issueState: IssueState
   ) {
-    const nextState = issueState === 'open' ? 'pending' : 'open';
-    await onUpdateCheckpointStatus(locationId, itemId, checkpoint.id, nextState);
-
-    if (nextState === 'open' && !checkpoint.comments.trim()) {
+    try {
+      if (issueState === 'none') await onUpdateCheckpointStatus(locationId, itemId, checkpoint.id, 'open');
       openCheckpointCommentEditor(locationId, itemId, checkpoint.id, checkpoint.comments);
-    }
+    } catch { /* The parent keeps the save error visible. */ }
   }
 
   function openCheckpointCamera(locationId: string, itemId: string, checkpointId: string, comments: string) {
@@ -384,6 +386,14 @@ export default function InspectionLocationCard({
         </div>
       )}
 
+      {(alwaysExpanded || isExpanded) && !deleteMode && onReviewLocation && (
+        <div className="flex items-center justify-between gap-3 px-4 py-2 text-sm">
+          <span className="text-gray-500 dark:text-gray-400">{location.reviewedAt ? 'Room reviewed' : `${locationMetric?.pending ?? 0} checkpoints unreviewed`}</span>
+          <button type="button" onClick={() => void onReviewLocation(location.id)} className="min-h-11 rounded-xl px-3 font-semibold accent-text">
+            {location.reviewedAt ? 'Reopen review' : 'Room reviewed'}
+          </button>
+        </div>
+      )}
       {(alwaysExpanded || isExpanded) && (
         <div className={hideHeader ? 'space-y-2.5' : 'space-y-2.5 px-2.5 pb-2.5 pt-2'}>
           <div className="space-y-2.5">
@@ -487,6 +497,8 @@ export default function InspectionLocationCard({
                       commentText={commentText}
                       recentComments={recentComments}
                       onCommentChange={onCommentChange}
+                            contextLabel={`${areaLabel ? `${areaLabel} › ` : ""}${location.name} › ${item.name}`}
+                      onReviewStateChange={onUpdateCheckpointStatus}
                       onCommentBlur={onCommentBlur}
                       onAddPhoto={onAddPhoto}
                       onAddPhotos={onAddPhotos}
@@ -611,7 +623,9 @@ export default function InspectionLocationCard({
                             commentText={commentText}
                             recentComments={recentComments}
                             onCommentChange={onCommentChange}
-                            onCommentBlur={onCommentBlur}
+                            contextLabel={`${areaLabel ? `${areaLabel} › ` : ""}${location.name} › ${item.name}`}
+                            onReviewStateChange={onUpdateCheckpointStatus}
+                      onCommentBlur={onCommentBlur}
                             onAddPhoto={onAddPhoto}
                             onAddPhotos={onAddPhotos}
                             onAddFiles={onAddFiles}
@@ -886,7 +900,9 @@ export default function InspectionLocationCard({
                               commentText={commentText}
                               recentComments={recentComments}
                               onCommentChange={onCommentChange}
-                              onCommentBlur={onCommentBlur}
+                            contextLabel={`${areaLabel ? `${areaLabel} › ` : ""}${location.name} › ${item.name}`}
+                              onReviewStateChange={onUpdateCheckpointStatus}
+                      onCommentBlur={onCommentBlur}
                               onAddPhoto={onAddPhoto}
                               onAddPhotos={onAddPhotos}
                               onAddFiles={onAddFiles}
@@ -960,7 +976,7 @@ function CheckpointRow({
       } inspection-checkpoint-row--default`}
       onClick={!editableLabel ? onToggleExpand : undefined}
     >
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         {editableLabel ? (
           <div className="min-w-0 flex-1">
             <input
@@ -983,17 +999,18 @@ function CheckpointRow({
             />
           </div>
         ) : (
-          <div className="min-w-0 flex-1 text-left">
+          <div className="w-full min-w-0 text-left sm:flex-1">
             <div className="text-[0.98rem] font-normal tracking-[-0.01em] text-gray-900 dark:text-white">{label ?? checkpoint.name}</div>
+            {hasComments && <p className="mt-1 truncate text-xs text-gray-500 dark:text-gray-400">{checkpoint.comments}</p>}
           </div>
         )}
-        <div className="flex shrink-0 items-center gap-2">
+        <div className="flex w-full shrink-0 items-center justify-end gap-2 sm:w-auto">
           {editableLabel ? (
             <>
               <button
                 type="button"
                 onClick={() => void onSaveEdit?.()}
-                className="flex h-8 w-8 items-center justify-center rounded-[0.8rem] bg-white text-gray-700 transition dark:bg-white/[0.09] dark:text-white"
+                className="flex min-h-11 min-w-11 items-center justify-center gap-1.5 px-2.5 text-xs font-medium rounded-[0.8rem] bg-white text-gray-700 transition dark:bg-white/[0.09] dark:text-white"
                 aria-label={`Save ${label ?? checkpoint.name}`}
               >
                 <Check className="h-4 w-4" />
@@ -1001,7 +1018,7 @@ function CheckpointRow({
               <button
                 type="button"
                 onClick={onCancelEdit}
-                className="flex h-8 w-8 items-center justify-center rounded-[0.8rem] text-gray-400 transition hover:bg-white/70 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-white/[0.08] dark:hover:text-gray-100"
+                className="flex min-h-11 min-w-11 items-center justify-center gap-1.5 px-2.5 text-xs font-medium rounded-[0.8rem] text-gray-400 transition hover:bg-white/70 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-white/[0.08] dark:hover:text-gray-100"
                 aria-label={`Cancel editing ${label ?? checkpoint.name}`}
               >
                 <X className="h-4 w-4" />
@@ -1016,7 +1033,7 @@ function CheckpointRow({
                   event.stopPropagation();
                   onOpenComments();
                 }}
-                className={`flex h-8 w-8 items-center justify-center rounded-[0.8rem] transition ${
+                className={`flex min-h-11 min-w-11 items-center justify-center gap-1.5 px-2.5 text-xs font-medium rounded-[0.8rem] transition ${
                   hasComments
                     ? 'accent-bg text-white'
                     : 'soft-control text-gray-400 hover:bg-white hover:text-gray-700 dark:text-gray-400 dark:hover:bg-white/[0.08] dark:hover:text-gray-100'
@@ -1024,7 +1041,7 @@ function CheckpointRow({
                 title={hasComments ? 'Edit note' : 'Add note'}
                 aria-label={`${hasComments ? 'Edit' : 'Add'} note for ${checkpoint.name}`}
               >
-                <MessageSquare className="h-4 w-4" />
+                <MessageSquare className="h-4 w-4" /><span>Note</span>
               </button>
               <button
                 data-inspection-inline-action="true"
@@ -1032,14 +1049,14 @@ function CheckpointRow({
                   event.stopPropagation();
                   onOpenCamera();
                 }}
-                className={`flex h-8 w-8 items-center justify-center rounded-[0.8rem] transition ${
+                className={`flex min-h-11 min-w-11 items-center justify-center gap-1.5 px-2.5 text-xs font-medium rounded-[0.8rem] transition ${
                   photoCount > 0
                     ? 'accent-bg text-white'
                     : 'soft-control text-gray-400 hover:bg-white hover:text-gray-700 dark:text-gray-400 dark:hover:bg-white/[0.08] dark:hover:text-gray-100'
                 }`}
                 aria-label={`Take multiple photos for ${checkpoint.name}`}
               >
-                <Camera className="h-4 w-4" />
+                <Camera className="h-4 w-4" /><span>Photo{photoCount ? ` ${photoCount}` : ""}</span>
               </button>
               <button
                 data-inspection-inline-action="true"
@@ -1047,14 +1064,14 @@ function CheckpointRow({
                   event.stopPropagation();
                   onToggleIssue();
                 }}
-                className={`flex h-8 w-8 items-center justify-center rounded-[0.8rem] transition ${
-                  issueState === 'open'
+                className={`flex min-h-11 min-w-11 items-center justify-center gap-1.5 px-2.5 text-xs font-medium rounded-[0.8rem] transition ${
+                  issueState !== 'none'
                     ? 'accent-bg text-white'
                     : 'soft-control text-gray-400 hover:bg-white hover:text-[var(--accent)] dark:text-gray-400 dark:hover:bg-white/[0.08]'
                 }`}
-                aria-label={`Flag issue for ${checkpoint.name}`}
+                aria-label={`${issueState === "none" ? "Record" : "Edit"} issue for ${checkpoint.name}`}
               >
-                <AlertTriangle className="w-5 h-5" />
+                <AlertTriangle className="w-4 h-4" /><span>{issueState === "none" ? "Issue" : "Edit issue"}</span>
               </button>
               {extraActions}
             </>
@@ -1070,9 +1087,11 @@ function InlineCheckpointEditor({
   locationId,
   itemId,
   commentText,
+  contextLabel,
   recentComments,
   onCommentChange,
   onCommentBlur,
+  onReviewStateChange,
   onAddPhoto,
   onAddPhotos,
   onAddFiles,
@@ -1086,6 +1105,8 @@ function InlineCheckpointEditor({
   locationId: string;
   itemId: string;
   commentText: string;
+  contextLabel?: string;
+  onReviewStateChange: (locationId: string, itemId: string, checkpointId: string, state: CheckpointReviewState) => void | Promise<void>;
   recentComments: string[];
   onCommentChange: (value: string) => void;
   onCommentBlur: (locationId: string, itemId: string, checkpointId: string, value: string) => void | Promise<void>;
@@ -1103,6 +1124,7 @@ function InlineCheckpointEditor({
   const voiceNoteActiveRef = useRef(false);
   const [draft, setDraft] = useState(commentText);
   const [photoLibrarySignal, setPhotoLibrarySignal] = useState(0);
+  const [previousDraft, setPreviousDraft] = useState<string | null>(null);
 
   function updateDraft(value: string) {
     setDraft(value);
@@ -1145,7 +1167,24 @@ function InlineCheckpointEditor({
 
   return (
     <div ref={editorRef} className="space-y-2.5 px-1 pb-1 pt-1">
+      <p className="px-1 text-xs font-medium text-gray-500 dark:text-gray-400">{contextLabel} › {checkpoint.name}</p>
+      <label className="flex items-center justify-between gap-3 px-1 text-sm">
+        Checkpoint result
+        <select
+          aria-label="Checkpoint result"
+          className="field-shell min-h-11 max-w-[200px] text-sm"
+          value={getCheckpointIssueState(checkpoint) !== 'none' ? getCheckpointIssueState(checkpoint) : checkpoint.status === 'ok' ? 'ok' : 'pending'}
+          onChange={(event) => void Promise.resolve(onReviewStateChange(locationId, itemId, checkpoint.id, event.target.value as CheckpointReviewState)).catch(() => {})}
+        >
+          <option value="pending">Not inspected</option>
+          <option value="ok">OK</option>
+          <option value="open">Issue — open</option>
+          <option value="resolved">Issue — resolved</option>
+          <option value="verified">Issue — verified</option>
+        </select>
+      </label>
       <PhotoCapture
+        contextLabel={`${contextLabel ?? ""} › ${checkpoint.name}`}
         photos={checkpoint.photos}
         files={checkpoint.files ?? []}
         onAddPhoto={onAddPhoto}
@@ -1165,8 +1204,8 @@ function InlineCheckpointEditor({
               ref={commentInputRef}
               value={draft}
               onChange={(e) => updateDraft(e.target.value)}
-              onBlur={(e) => void onCommentBlur(locationId, itemId, checkpoint.id, e.target.value)}
-              className="field-shell field-shell-with-two-actions min-h-[96px] resize-none text-sm"
+              onBlur={(e) => void Promise.resolve(onCommentBlur(locationId, itemId, checkpoint.id, e.target.value)).catch(() => {})}
+              className="field-shell field-shell-with-two-actions min-h-[112px] resize-none text-base"
               placeholder="Add inspection note"
             />
             <div className="absolute right-3 top-3 flex gap-2">
@@ -1201,14 +1240,18 @@ function InlineCheckpointEditor({
           </div>
           {recentComments.length > 0 && (
             <div className="-mx-1 mt-3 overflow-x-auto pb-1">
+              {previousDraft !== null && <button type="button" className="min-h-11 px-3 text-xs font-semibold accent-text" onClick={() => { updateDraft(previousDraft); setPreviousDraft(null); }}>Undo inserted note</button>}
               <div className="flex w-max min-w-full gap-2 px-1">
                 {recentComments.map((comment) => (
                   <button
                     key={comment}
-                    onClick={() => updateDraft(comment)}
+                    onClick={() => {
+                      setPreviousDraft(draft);
+                      updateDraft(draft.trim() ? `${draft.trimEnd()}\n${comment}` : comment);
+                    }}
                     className="segmented-chip shrink-0 whitespace-nowrap px-3 py-1.5 text-left text-xs transition hover:bg-white hover:text-gray-900 dark:hover:bg-white/[0.1] dark:hover:text-white"
                   >
-                    {comment}
+                    {comment.length > 48 ? `${comment.slice(0, 45)}…` : comment}
                   </button>
                 ))}
               </div>

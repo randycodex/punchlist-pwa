@@ -89,10 +89,11 @@ async function configureAutoFocus(stream: MediaStream) {
 }
 
 interface PhotoCaptureProps {
+  contextLabel?: string;
   photos: PhotoAttachment[];
   files: FileAttachment[];
   onAddPhoto: (imageData: string, thumbnail?: string) => void | Promise<void>;
-  onAddPhotos?: (photos: Array<{ imageData: string; thumbnail?: string }>) => void | Promise<void>;
+  onAddPhotos?: (photos: Array<{ imageData: string; thumbnail?: string; id?: string }>) => void | Promise<void>;
   onAddFiles?: (files: Array<{ data: string; name: string; mimeType: string; size: number }>) => void | Promise<void>;
   onDeletePhoto: (photoId: string) => void;
   onDeleteFile: (fileId: string) => void;
@@ -106,6 +107,7 @@ interface PhotoCaptureProps {
 export default function PhotoCapture({
   photos,
   files,
+  contextLabel,
   onAddPhoto,
   onAddPhotos,
   onDeletePhoto,
@@ -120,7 +122,11 @@ export default function PhotoCapture({
   const [viewerScale, setViewerScale] = useState(1);
   const [cameraOpen, setCameraOpen] = useState(false);
   const [cameraStreamToken, setCameraStreamToken] = useState(0);
-  const [capturedBatch, setCapturedBatch] = useState<Array<{ imageData: string; thumbnail?: string }>>([]);
+  const captureSaveCallbacks = useRef({ onAddPhotos, onAddPhoto });
+  useEffect(() => { captureSaveCallbacks.current = { onAddPhotos, onAddPhoto }; }, [onAddPhotos, onAddPhoto]);
+  const [hasPendingPhoto, setHasPendingPhoto] = useState(false);
+  const pendingPhotoRef = useRef<{ id: string; imageData: string; thumbnail?: string } | null>(null);
+  const [capturedBatch, setCapturedBatch] = useState<Array<{ imageData: string; thumbnail?: string; id?: string }>>([]);
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [torchSupported, setTorchSupported] = useState(false);
   const [torchOn, setTorchOn] = useState(false);
@@ -271,6 +277,10 @@ export default function PhotoCapture({
   }, [stopCameraStream]);
 
   function closeCamera(discard = false) {
+    if (pendingPhotoRef.current) {
+      setCameraError('This photo is not saved yet. Tap Retry save before closing.');
+      return;
+    }
     cameraSessionRef.current += 1;
     stopCameraStream();
     setCameraOpen(false);
@@ -287,6 +297,10 @@ export default function PhotoCapture({
   }
 
   function openDeviceCameraFallback() {
+    if (pendingPhotoRef.current) {
+      setCameraError('Save the pending photo before opening Photo Library.');
+      return;
+    }
     cameraSessionRef.current += 1;
     stopCameraStream();
     setCameraOpen(false);
@@ -326,6 +340,25 @@ export default function PhotoCapture({
     }
   }
 
+  const persistCapturedPhoto = useCallback(async (photo: { id: string; imageData: string; thumbnail?: string }) => {
+    pendingPhotoRef.current = photo;
+    setHasPendingPhoto(true);
+    setSavingPhotos(true);
+    setCameraError(null);
+    try {
+      const callbacks = captureSaveCallbacks.current;
+      if (callbacks.onAddPhotos) await callbacks.onAddPhotos([photo]);
+      else await callbacks.onAddPhoto(photo.imageData, photo.thumbnail);
+      pendingPhotoRef.current = null;
+      setHasPendingPhoto(false);
+      setCapturedBatch((current) => current.some((entry) => entry.id === photo.id) ? current : [...current, photo]);
+    } catch {
+      setCameraError('This photo could not be saved. Keep the camera open and tap Retry save.');
+    } finally {
+      setSavingPhotos(false);
+    }
+  }, []);
+
   const captureFrameFromVideo = useCallback((video: HTMLVideoElement) => {
     if (!video.videoWidth || !video.videoHeight) {
       return false;
@@ -356,11 +389,15 @@ export default function PhotoCapture({
     }
 
     setCameraError(null);
-    setCapturedBatch((prev) => [...prev, { imageData, thumbnail }]);
+    void persistCapturedPhoto({ id: crypto.randomUUID(), imageData, thumbnail });
     return true;
-  }, [createScaledImageData]);
+  }, [createScaledImageData, persistCapturedPhoto]);
 
   function captureFromVideo() {
+    if (pendingPhotoRef.current) {
+      setCameraError('Retry saving the previous photo before taking another.');
+      return;
+    }
     const video = videoRef.current;
     if (!video || !videoReady || !captureFrameFromVideo(video)) {
       pendingCaptureRef.current = true;
@@ -446,20 +483,11 @@ export default function PhotoCapture({
   }
 
   async function addCapturedBatch() {
-    if (capturedBatch.length === 0) return;
-    setSavingPhotos(true);
-    try {
-      if (onAddPhotos) {
-        await onAddPhotos(capturedBatch);
-      } else {
-        for (const photo of capturedBatch) {
-          await onAddPhoto(photo.imageData, photo.thumbnail);
-        }
-      }
-      closeCamera(true);
-    } finally {
-      setSavingPhotos(false);
+    if (pendingPhotoRef.current) {
+      await persistCapturedPhoto(pendingPhotoRef.current);
+      return;
     }
+    closeCamera(true);
   }
 
   function fileToPhotoPayload(file: File): Promise<{ imageData: string; thumbnail?: string } | null> {
@@ -739,6 +767,7 @@ export default function PhotoCapture({
           className="fixed inset-0 z-50 overflow-hidden bg-black"
           onClick={(event) => event.stopPropagation()}
         >
+          <p className="absolute inset-x-16 top-[calc(env(safe-area-inset-top)+1rem)] z-10 rounded-xl bg-black/60 px-3 py-2 text-center text-sm text-white">{contextLabel}</p>
           <video ref={videoRef} autoPlay muted playsInline className="absolute inset-0 h-full w-full object-cover" />
 
           <div className="absolute inset-x-0 top-0 flex items-center justify-between px-4 pb-4 pt-[calc(env(safe-area-inset-top)+0.75rem)]">
@@ -800,7 +829,7 @@ export default function PhotoCapture({
               </div>
 
               <div className="flex h-16 w-16 items-center justify-center">
-                {capturedBatch.length > 0 ? (
+                {capturedBatch.length > 0 || cameraError ? (
                   <button
                     onClick={() => {
                       void addCapturedBatch();
@@ -808,7 +837,7 @@ export default function PhotoCapture({
                     disabled={savingPhotos}
                     className="rounded-full bg-white px-4 py-2 text-sm font-medium text-gray-900"
                   >
-                    {savingPhotos ? 'Saving...' : 'Done'}
+                    {savingPhotos ? 'Saving…' : hasPendingPhoto ? 'Retry save' : 'Done'}
                   </button>
                 ) : null}
               </div>
@@ -816,13 +845,15 @@ export default function PhotoCapture({
             <p className="mt-3 text-center text-xs text-white/65">
               {cameraError
                 ? cameraError
+                : savingPhotos
+                ? 'Saving photo on this device…'
                 : capturePending
                 ? 'Capturing as soon as the camera is ready...'
                 : !videoReady
                 ? 'Starting camera...'
                 : capturedBatch.length > 0
-                ? `${capturedBatch.length} photo${capturedBatch.length === 1 ? '' : 's'} ready`
-                : 'Take as many photos as needed, then tap Done.'}
+                ? `${capturedBatch.length} photo${capturedBatch.length === 1 ? '' : 's'} saved on this device`
+                : 'Each photo saves automatically. Tap Done when finished.'}
             </p>
             {cameraError && (
               <div className="mt-3 flex justify-center">

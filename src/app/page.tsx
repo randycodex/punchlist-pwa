@@ -1,5 +1,7 @@
 'use client';
 
+import ReportContentChoice from '@/components/inspection/ReportContentChoice';
+
 import { useState, useEffect, useLayoutEffect, useMemo, useRef, useCallback } from 'react';
 import { Area, Project, checkpointHasIssue, getReviewMetrics } from '@/types';
 import {
@@ -25,7 +27,7 @@ import {
   hasPendingSyncState,
   queuePendingSync,
 } from '@/lib/pendingSync';
-import type { PdfExportMode } from '@/lib/pdfExport';
+import ResumeInspectionLink from '@/components/inspection/ResumeInspectionLink';
 import { uploadPdfToOneDrive, getNextOneDriveExportFilename } from '@/lib/oneDrive';
 import {
   formatDateForExport,
@@ -266,8 +268,8 @@ export default function ProjectsPage() {
   const [exportingSelectedToDrive, setExportingSelectedToDrive] = useState(false);
   const [exportingSelectedAreas, setExportingSelectedAreas] = useState(false);
   const [actionSheet, setActionSheet] = useState<'delete' | 'export' | 'export-scope' | null>(null);
+  const [reportContent, setReportContent] = useState<'issues' | 'full'>('issues');
   const [exportScope, setExportScope] = useState<ExportScope>('selected-projects');
-  const [exportType] = useState<PdfExportMode>('issues');
   const [showProjectMenuId, setShowProjectMenuId] = useState<string | null>(null);
   const [editingProject, setEditingProject] = useState<Project | null>(null);
   const [showAddArea, setShowAddArea] = useState(false);
@@ -1281,7 +1283,7 @@ export default function ProjectsPage() {
         : await getProject(singleProject.id);
       const projectForExport = fullProject ?? singleProject;
       const { generateProjectPDF, downloadPDF } = await import('@/lib/pdfExport');
-      const blob = await generateProjectPDF(projectForExport, 'issues', { areaIds: selectedSortedAreaIds });
+      const blob = await generateProjectPDF(projectForExport, reportContent, { areaIds: selectedSortedAreaIds });
       if (destination === 'local') {
         const filename = `${sanitizeExportNamePart(singleProject.projectName)}_Selected_Areas_${formatDateForExport()}.pdf`;
         downloadPDF(blob, filename);
@@ -1290,7 +1292,7 @@ export default function ProjectsPage() {
         const projectFolderName = getOneDriveProjectFolderName(singleProject);
         const filename = await getNextOneDriveExportFilename(
           token,
-          [`${singleProject.projectName}_Selected_Areas_Issues`],
+          [`${singleProject.projectName}_Selected_Areas_${reportContent === 'issues' ? 'Issues' : 'Inspection_Record'}`],
           new Date(),
           projectFolderName
         );
@@ -1389,9 +1391,9 @@ export default function ProjectsPage() {
         .sort((a, b) => a.projectName.localeCompare(b.projectName));
       const projectsForExport = await loadProjectsForExport(token);
       const { generateMultiProjectPDF, downloadPDF } = await import('@/lib/pdfExport');
-      const blob = await generateMultiProjectPDF(projectsForExport, exportType);
+      const blob = await generateMultiProjectPDF(projectsForExport, reportContent);
       if (shouldSaveLocal) {
-        const filename = exportType === 'issues' ? 'UAI_PUNCHLIST_APP_Issues_Report.pdf' : 'UAI_PUNCHLIST_APP_Full_Report.pdf';
+        const filename = reportContent === 'issues' ? 'UAI_PUNCHLIST_APP_Issues_Report.pdf' : 'UAI_PUNCHLIST_APP_Full_Report.pdf';
         downloadPDF(blob, filename);
       }
       if (token && shouldSaveToDrive) {
@@ -1402,7 +1404,7 @@ export default function ProjectsPage() {
           : undefined;
         const filename = await getNextOneDriveExportFilename(
           token,
-          projectsToExport.map((project) => `${project.projectName}_${exportType === 'issues' ? 'Issues' : 'Full'}`),
+          projectsToExport.map((project) => `${project.projectName}_${reportContent === 'issues' ? 'Issues' : 'Full'}`),
           new Date(),
           exportProjectFolderName
         );
@@ -2707,6 +2709,7 @@ export default function ProjectsPage() {
       <main
         className="flex-1 min-h-0 overflow-y-auto overscroll-y-contain px-4 pt-5 pb-[calc(env(safe-area-inset-bottom)+6.5rem)] sm:px-5"
       >
+        {singleProjectMainView && <ResumeInspectionLink project={singleProject} />}
         {showTrash ? (
           trashedProjects.length === 0 && trashedAreaEntries.length === 0 ? (
             <div className="empty-state-card mx-auto max-w-md rounded-[2rem] p-10 text-center">
@@ -3690,7 +3693,7 @@ export default function ProjectsPage() {
                   <div className="px-4 pb-2 pt-3 text-center">
                     <div className="text-sm font-semibold text-gray-900 dark:text-white">Export Project</div>
                     <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                      Choose specific areas or export every issue area in this project.
+                      Choose specific areas or include every area in this project.
                     </div>
                   </div>
                   <button
@@ -3729,9 +3732,10 @@ export default function ProjectsPage() {
                 <>
                   <div className="px-4 pb-2 pt-3 text-center">
                     <div className="text-sm font-semibold text-gray-900 dark:text-white">Export PDF</div>
+                    <ReportContentChoice value={reportContent} onChange={setReportContent} />
                     <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">
                       {exportScope === 'selected-areas'
-                        ? 'Save selected issue areas locally or to OneDrive.'
+                        ? 'Save selected areas to this device or OneDrive.'
                         : 'Save this report locally or to OneDrive.'}
                     </div>
                   </div>
@@ -3757,7 +3761,7 @@ export default function ProjectsPage() {
                     }}
                     className="w-full rounded-[1.1rem] px-4 py-3 text-center text-[17px] text-gray-900 transition hover:bg-black/[0.04] dark:text-white dark:hover:bg-white/[0.05]"
                   >
-                    Local
+                    Download PDF
                   </button>
                   <button
                     onClick={() => setActionSheet('export-scope')}
