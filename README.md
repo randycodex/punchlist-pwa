@@ -75,7 +75,9 @@ Vercel notes:
 
 - Set the same `NEXT_PUBLIC_MS_*` variables in the Vercel project for Production and Preview as needed.
 - The Microsoft Entra app registration must include each deployed redirect URI exactly, including trailing slash if used.
-- This repository currently ships without an active service worker. Old PWA caches are cleaned up once on first load after deploy so stale offline assets do not persist across releases.
+- `npm run build` generates the versioned offline service worker. In a production build, use **Prepare for site visit** to store project pages and check local media before going offline.
+- App updates preserve prepared pages and wait until existing app tabs close before activating. Shared-area editing still requires a confirmed online team lock; voice resources need their separate first-use download.
+- See [the inspection trial notes](docs/inspection-speed-trial.md) and [physical-device acceptance checklist](docs/offline-device-acceptance.md) for verified behavior and remaining field tests.
 
 ## Fonts
 
