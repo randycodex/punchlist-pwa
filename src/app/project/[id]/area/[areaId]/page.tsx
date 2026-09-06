@@ -2022,7 +2022,7 @@ export default function AreaDetailPage() {
             </div>
           </div>
         )}
-        <div className="mx-auto flex w-full max-w-6xl flex-wrap items-center justify-between gap-2 px-4 pb-3">
+        <div className="mx-auto flex w-full max-w-6xl flex-wrap items-center justify-between gap-2 px-4 pb-3 pt-3">
           <div className="flex gap-1" role="group" aria-label="Inspection view">
             {(['All', 'To inspect', 'Issues'] as const).map((label) => {
               const selected = label === 'Issues' ? inspectionShowOnlyIssues : label === 'To inspect' ? showToInspect : !showToInspect && !inspectionShowOnlyIssues;
