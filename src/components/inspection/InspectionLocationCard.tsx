@@ -262,7 +262,7 @@ export default function InspectionLocationCard({
     issueState: IssueState
   ) {
     try {
-      if (issueState === 'none') await onUpdateCheckpointStatus(locationId, itemId, checkpoint.id, 'open');
+      await onUpdateCheckpointStatus(locationId, itemId, checkpoint.id, issueState === 'none' ? 'open' : 'pending');
       openCheckpointCommentEditor(locationId, itemId, checkpoint.id, checkpoint.comments);
     } catch { /* The parent keeps the save error visible. */ }
   }
@@ -1069,9 +1069,10 @@ function CheckpointRow({
                     ? 'accent-bg text-white'
                     : 'soft-control text-gray-400 hover:bg-white hover:text-[var(--accent)] dark:text-gray-400 dark:hover:bg-white/[0.08]'
                 }`}
-                aria-label={`${issueState === "none" ? "Record" : "Edit"} issue for ${checkpoint.name}`}
+                aria-pressed={issueState !== 'none'}
+                aria-label={issueState === 'none' ? `Record issue for ${checkpoint.name}` : `Reset ${checkpoint.name} to Not inspected`}
               >
-                <AlertTriangle className="w-4 h-4" /><span>{issueState === "none" ? "Issue" : "Edit issue"}</span>
+                <AlertTriangle className="w-4 h-4" /><span>Issue</span>
               </button>
               {extraActions}
             </>
