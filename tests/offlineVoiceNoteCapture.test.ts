@@ -10,7 +10,8 @@ const componentSource = readFileSync(
 describe('offline voice note capture', () => {
   it('captures microphone PCM without decoding a compressed recording container', () => {
     expect(componentSource).toContain('createMediaStreamSource');
-    expect(componentSource).toContain('createScriptProcessor');
+    expect(componentSource).toContain('AudioWorkletNode');
+    expect(componentSource).not.toContain('createScriptProcessor');
     expect(componentSource).not.toContain('MediaRecorder');
     expect(componentSource).not.toContain('decodeAudioData');
   });

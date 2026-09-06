@@ -896,7 +896,7 @@ export async function saveCheckpointInspectionChange(
   checkpointId: string,
   change: Partial<Pick<Checkpoint, 'comments' | 'status' | 'issueState' | 'fixStatus'>>,
   photos: PhotoAttachment[] = [],
-  options: { recoveredNote?: { baseValue: string; value: string } } = {},
+  options: { recoveredNote?: { baseValue: string; value: string }; recoveredVoice?: boolean } = {},
 ): Promise<void> {
   const compactPhotos = photos.length
     ? (await compactMediaRecord({ checkpointId, projectId, areaId, photos, files: [] })).photos
@@ -917,7 +917,7 @@ export async function saveCheckpointInspectionChange(
       if (options.recoveredNote) {
         const { value, baseValue } = options.recoveredNote;
         const current = checkpoint.comments;
-        checkpoint.comments = current === value || (value && current.endsWith(`\n${value}`)) ? current : current === baseValue ? value : `${current.trimEnd()}\n${value}`.trim();
+        checkpoint.comments = current === value || (value && current.endsWith(`\n${value}`)) || (options.recoveredVoice && value && current.trimEnd().endsWith(value.trim())) ? current : current === baseValue ? value : `${current.trimEnd()}\n${value}`.trim();
       }
       Object.assign(checkpoint, change, { updatedAt: new Date() });
       if (photos.length) {

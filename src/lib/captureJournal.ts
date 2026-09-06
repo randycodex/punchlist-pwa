@@ -3,7 +3,7 @@ import type { PhotoAttachment } from '@/types';
 
 export type CaptureDraft = {
   key: string; revision: string; projectId: string; areaId: string; checkpointId: string; savedAt: Date;
-} & ({ kind: 'note'; value: string; baseValue: string } | { kind: 'photo'; photo: PhotoAttachment });
+} & ({ kind: 'note'; value: string; baseValue: string } | { kind: 'photo'; photo: PhotoAttachment } | { kind: 'voice'; audio: Float32Array; transcript?: string });
 interface CaptureDB extends DBSchema {
   drafts: { key: string; value: CaptureDraft; indexes: { 'by-area': [string, string] } };
 }
@@ -37,7 +37,7 @@ export async function deleteProjectCaptureDrafts(projectId: string) {
   try {
     const tx = db.transaction('drafts', 'readwrite');
     const keys = await tx.store.getAllKeys();
-    for (const key of keys) if (key.startsWith(`note:${projectId}:`) || key.startsWith(`photo:${projectId}:`)) await tx.store.delete(key);
+    for (const key of keys) if (key.startsWith(`note:${projectId}:`) || key.startsWith(`photo:${projectId}:`) || key.startsWith(`voice:${projectId}:`)) await tx.store.delete(key);
     await tx.done;
   } finally { db.close(); }
 }

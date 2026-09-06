@@ -50,6 +50,17 @@ describe('prepared offline application', () => {
     expect(await (await sw.request('/_next/static/chunk.js', 'cors'))?.text()).toBe('bundle');
     expect((await sw.request('/project/unprepared'))?.status).toBe(503);
   });
+  it('preserves the requested worker URL by returning a synthetic cached response', async () => {
+    const sw = worker(); await sw.dispatch('install');
+    const cached = new Response('worker bootstrap', { headers: { 'content-type': 'text/javascript' } });
+    Object.defineProperty(cached, 'url', { value: 'https://app.test/_next/static/chunk.js' });
+    cached.clone = () => cached;
+    sw.entries.get('punchlist-site-v1-test-build')!.set('/_next/static/chunk.js', cached);
+    const response = await sw.request('/_next/static/chunk.js#params=bootstrap', 'cors');
+    expect(response?.url).toBe('');
+    expect(await response?.text()).toBe('worker bootstrap');
+    expect(response?.headers.get('content-type')).toBe('text/javascript');
+  });
   it('carries prepared routes into an update before removing the old copy', async () => {
     const sw = worker();
     sw.entries.set('punchlist-site-v1-previous', new Map([['/project/previous', new Response('old page')]]));

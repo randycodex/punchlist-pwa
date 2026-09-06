@@ -30,6 +30,7 @@ type Metrics = {
 };
 
 type InspectionLocationCardProps = {
+  projectId: string;
   location: Area['locations'][number];
   locationMetric?: Metrics;
   itemMetrics: Map<string, Metrics>;
@@ -112,6 +113,7 @@ function checkpointHasFacadeListContent(checkpoint: Checkpoint) {
 }
 
 export default function InspectionLocationCard({
+  projectId,
   location,
   areaLabel,
   onReviewLocation,
@@ -490,6 +492,8 @@ export default function InspectionLocationCard({
                   />
                   {isExpandedCustomCheckpoint && (
                     <InlineCheckpointEditor
+                      projectId={projectId}
+                      areaId={location.areaId}
                       key={customCheckpoint.id}
                       checkpoint={customCheckpoint}
                       locationId={location.id}
@@ -616,6 +620,8 @@ export default function InspectionLocationCard({
                         />
                         {isExpandedCheckpoint && (
                           <InlineCheckpointEditor
+                            projectId={projectId}
+                            areaId={location.areaId}
                             key={checkpoint.id}
                             checkpoint={checkpoint}
                             locationId={location.id}
@@ -893,6 +899,8 @@ export default function InspectionLocationCard({
                           />
                           {isExpandedCheckpoint && (
                             <InlineCheckpointEditor
+                              projectId={projectId}
+                              areaId={location.areaId}
                               key={checkpoint.id}
                               checkpoint={checkpoint}
                               locationId={location.id}
@@ -1084,6 +1092,7 @@ function CheckpointRow({
 }
 
 function InlineCheckpointEditor({
+  projectId, areaId,
   checkpoint,
   locationId,
   itemId,
@@ -1102,6 +1111,7 @@ function InlineCheckpointEditor({
   onCloseEditor,
   openCameraSignal,
 }: {
+  projectId: string; areaId: string;
   checkpoint: Checkpoint;
   locationId: string;
   itemId: string;
@@ -1211,13 +1221,15 @@ function InlineCheckpointEditor({
             />
             <div className="absolute right-3 top-3 flex gap-2">
               <OfflineVoiceNoteButton
+                projectId={projectId} areaId={areaId} checkpointId={checkpoint.id}
                 onActivityChange={(active) => {
                   voiceNoteActiveRef.current = active;
                 }}
-                onTranscript={(transcript) => {
+                onTranscript={async (transcript) => {
                   const separator = draft.trim() ? ' ' : '';
-                  const nextComment = `${draft.trimEnd()}${separator}${transcript}`;
+                  const nextComment = draft.trimEnd().endsWith(transcript) ? draft : `${draft.trimEnd()}${separator}${transcript}`;
                   updateDraft(nextComment);
+                  await onCommentBlur(locationId, itemId, checkpoint.id, nextComment);
                   window.requestAnimationFrame(() => {
                     commentInputRef.current?.focus();
                     commentInputRef.current?.setSelectionRange(nextComment.length, nextComment.length);

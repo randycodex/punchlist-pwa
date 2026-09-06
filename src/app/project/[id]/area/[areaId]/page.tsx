@@ -2195,6 +2195,7 @@ export default function AreaDetailPage() {
                 </div>
               )}
               <InspectionLocationCard
+                projectId={project.id}
                 areaLabel={areaTitle}
                 onReviewLocation={reviewLocation}
                 location={location}
@@ -2392,6 +2393,7 @@ export default function AreaDetailPage() {
           ) : null}
           {!deleteMode && filteredCustomItemsLocation && (
             <InspectionLocationCard
+                projectId={project.id}
               key={filteredCustomItemsLocation.id}
               location={filteredCustomItemsLocation}
               locationMetric={areaDerived?.locationMetrics.get(filteredCustomItemsLocation.id)}

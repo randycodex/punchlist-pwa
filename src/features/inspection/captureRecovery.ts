@@ -45,6 +45,9 @@ export async function restoreCaptureDraft(draft: CaptureDraft) {
   if (!project || project.deletedAt || !checkpoint) throw new Error('The original checkpoint is unavailable. Keep this recovery record until the project or area is restored.');
   if (draft.kind === 'photo') {
     await saveCheckpointInspectionChange(draft.projectId, draft.areaId, draft.checkpointId, {}, [draft.photo]);
+  } else if (draft.kind === 'voice') {
+    if (!draft.transcript?.trim()) throw new Error('Transcribe the retained recording first.');
+    await saveCheckpointInspectionChange(draft.projectId, draft.areaId, draft.checkpointId, {}, [], { recoveredNote: { baseValue: '', value: draft.transcript }, recoveredVoice: true });
   } else {
     await saveCheckpointInspectionChange(draft.projectId, draft.areaId, draft.checkpointId, {}, [], { recoveredNote: draft });
   }

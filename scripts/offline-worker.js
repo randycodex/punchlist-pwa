@@ -62,7 +62,12 @@ self.addEventListener('fetch', (event) => {
   if (request.method !== 'GET' || url.origin !== self.location.origin) return;
   // Never cache auth, API, RSC, uploads, or arbitrary responses.
   if (assets.has(url.pathname) && !url.search) {
-    event.respondWith((async () => (await (await caches.open(CACHE)).match(url.pathname)) || fetch(request))());
+    event.respondWith((async () => {
+      const cached = await (await caches.open(CACHE)).match(url.pathname);
+      // A cached response's URL drops the fragment used by the worker bootstrap.
+      // A synthetic response preserves the requesting worker's complete URL.
+      return cached ? new Response(cached.body, { status: cached.status, headers: cached.headers }) : fetch(request);
+    })());
   } else if (request.mode === 'navigate' && isPage(url.pathname)) {
     event.respondWith((async () => {
       try {

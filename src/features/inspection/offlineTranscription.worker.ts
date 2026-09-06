@@ -9,7 +9,7 @@ import {
 const MODEL_ID = 'onnx-community/whisper-tiny.en';
 
 type TranscribeRequest = {
-  type: 'transcribe';
+  type: 'transcribe' | 'prepare';
   audio: Float32Array;
 };
 
@@ -69,11 +69,17 @@ function getTranscriber() {
 }
 
 self.addEventListener('message', async (event: MessageEvent<TranscribeRequest>) => {
-  if (event.data.type !== 'transcribe') return;
+  if (event.data.type !== 'transcribe' && event.data.type !== 'prepare') return;
 
   try {
     postMessageToClient({ type: 'loading' });
     const transcriber = await getTranscriber();
+    if (event.data.type === 'prepare') {
+      // Exercise inference too, so runtime downloads happen before going offline.
+      await transcriber(new Float32Array(16_000));
+      postMessageToClient({ type: 'complete', text: '' });
+      return;
+    }
     postMessageToClient({ type: 'transcribing' });
 
     const result = await transcriber(event.data.audio);

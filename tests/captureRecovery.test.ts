@@ -82,3 +82,28 @@ describe('interrupted capture recovery', () => {
     expect(isOfflinePage('/api/auth')).toBe(false); expect(isOfflinePage('/project/id/area/area-id')).toBe(true); expect(isOfflinePage('//other.test')).toBe(false);
   });
 });
+
+ describe('retained voice recordings', () => {
+  it('retains audio through a failed note save and restores without duplicating the transcript', async () => {
+    const { project, area, checkpoint } = await fixture();
+    const draft: CaptureDraft = { key: `voice:${project.id}:test`, revision: 'voice-test', projectId: project.id, areaId: area.id, checkpointId: checkpoint.id, savedAt: new Date(), kind: 'voice', audio: new Float32Array([0.2, 0.3]), transcript: 'Adjust hinge' };
+    await stageCaptureDraft(draft);
+    await saveCheckpointInspectionChange(project.id, area.id, checkpoint.id, { comments: 'Existing observation' });
+    const failure = failQueue(); await expect(restoreCaptureDraft(draft)).rejects.toThrow(); failure.mockRestore();
+    const retained = (await listCaptureDrafts(project.id, area.id))[0];
+    expect(retained.kind === 'voice' && retained.audio.length).toBe(2);
+    await restoreCaptureDraft(retained);
+    await stageCaptureDraft(draft); await restoreCaptureDraft(draft);
+    expect((await getProject(project.id))?.areas[0].locations[0].items[0].checkpoints[0].comments).toBe('Existing observation\nAdjust hinge');
+    await saveCheckpointInspectionChange(project.id, area.id, checkpoint.id, { comments: 'Existing observation Adjust hinge' });
+    await stageCaptureDraft(draft); await restoreCaptureDraft(draft);
+    expect((await getProject(project.id))?.areas[0].locations[0].items[0].checkpoints[0].comments).toBe('Existing observation Adjust hinge');
+  });
+  it('keeps untranscribed audio for retry and purges it when its project is deleted', async () => {
+    const { project, area, checkpoint } = await fixture();
+    const draft: CaptureDraft = { key: `voice:${project.id}:test`, revision: 'voice-test', projectId: project.id, areaId: area.id, checkpointId: checkpoint.id, savedAt: new Date(), kind: 'voice', audio: new Float32Array([0.2]) };
+    await stageCaptureDraft(draft); await expect(restoreCaptureDraft(draft)).rejects.toThrow('Transcribe');
+    expect(await listCaptureDrafts(project.id, area.id)).toHaveLength(1);
+    await deleteProject(project.id); expect(await listCaptureDrafts(project.id, area.id)).toHaveLength(0);
+  });
+});

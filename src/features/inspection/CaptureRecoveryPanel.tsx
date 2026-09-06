@@ -1,5 +1,8 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { runVoiceEngine } from './voiceEngine';
+import { voiceWav } from './voiceAudio';
+import { stageCaptureDraft } from '@/lib/captureJournal';
 import type { Area } from '@/types';
 import { CAPTURE_CLEARED_EVENT, CAPTURE_RECOVERY_EVENT, listCaptureDrafts, restoreCaptureDraft, type CaptureDraft } from './captureRecovery';
 
@@ -20,6 +23,12 @@ export default function CaptureRecovery({ projectId, area, canEdit, beforeRestor
     setBusy(true); setError(null);
     try {
       await beforeRestore();
+      if (draft.kind === 'voice' && !draft.transcript) {
+        const transcript = await runVoiceEngine(draft.audio);
+        if (!transcript.trim()) throw new Error('No speech detected. The recording is retained for playback.');
+        draft = { ...draft, transcript };
+        await stageCaptureDraft(draft);
+      }
       await restoreCaptureDraft(draft);
       setDrafts(await listCaptureDrafts(projectId, area.id));
       await onRestored();
@@ -36,10 +45,17 @@ export default function CaptureRecovery({ projectId, area, canEdit, beforeRestor
       const checkpoint = item?.checkpoints.find((checkpoint) => checkpoint.id === draft.checkpointId);
       return <div key={draft.key} className="mt-3 border-t border-amber-600/20 pt-3">
         <p className="font-medium">{item?.name ?? 'Original item'} › {checkpoint?.name ?? 'Unavailable checkpoint'}</p>
-        <p className="mt-1 whitespace-pre-wrap break-words text-xs">{draft.kind === 'note' ? draft.value || '(Empty note)' : 'Photo retained on this device'}</p>
-        <button type="button" className="mt-2 min-h-11 rounded-xl px-4 font-semibold accent-bg text-white disabled:opacity-50" disabled={!canEdit || busy} onClick={() => void restore(draft)}>{busy ? 'Restoring…' : 'Restore capture'}</button>
+        <p className="mt-1 whitespace-pre-wrap break-words text-xs">{draft.kind === 'note' ? draft.value || '(Empty note)' : draft.kind === 'voice' ? draft.transcript || 'Voice recording retained on this device' : 'Photo retained on this device'}</p>
+        {draft.kind === 'voice' && <VoicePlayback audio={draft.audio} />}
+        <button type="button" className="mt-2 min-h-11 rounded-xl px-4 font-semibold accent-bg text-white disabled:opacity-50" disabled={!canEdit || busy} onClick={() => void restore(draft)}>{busy ? 'Restoring…' : draft.kind === 'voice' ? 'Transcribe and restore note' : 'Restore capture'}</button>
       </div>;
     })}
     {error && <p role="alert" className="mt-2">{error}</p>}
   </section>;
+}
+
+function VoicePlayback({ audio }: { audio: Float32Array }) {
+  const player = useRef<HTMLAudioElement>(null);
+  useEffect(() => { const next = URL.createObjectURL(voiceWav(audio)); if (player.current) player.current.src = next; return () => URL.revokeObjectURL(next); }, [audio]);
+  return <audio ref={player} className="mt-2 w-full" controls aria-label="Play retained voice recording" />;
 }

@@ -34,3 +34,15 @@ Offline team reservations, voice-resource preparation, a detailed N/A workflow, 
 Phone camera operation, app termination during writes, quota exhaustion on real devices, airplane-mode cold start, multi-user conflicts, and live team delivery still need device/backend acceptance testing. A capture is recoverable after its journal write completes. If storage rejects that write, it is still only in memory. See [physical-device acceptance](offline-device-acceptance.md) for the exact checks still needed. No inspection-speed percentage is claimed. Measure repeated finding capture and room transitions against the current app with inspectors before deciding whether to merge.
 
 Implementation references: [Next.js PWA guidance](https://nextjs.org/docs/app/guides/progressive-web-apps) and [MDN service worker lifecycle](https://developer.mozilla.org/en-US/docs/Web/API/Service_Worker_API/Using_Service_Workers). No framework upgrade was required.
+
+## Voice reliability follow-up
+
+Voice capture now uses an AudioWorklet and writes approximately one-second PCM snapshots to the local recovery journal. Stop flushes the final partial block before transcription. A hard interruption can still lose audio that has not reached IndexedDB (normally the most recent second); storage failures remain visible and keep the in-memory recording available for retry while the editor stays open.
+
+The voice engine is reused within a tab, rejects overlapping jobs, and resets a hung worker after three minutes. Retained recordings have playback and transcribe/restore controls in area recovery. Successful notes clear their audio only after the stored text has been checked. Recovery appends to newer notes and avoids repeating the same recovered text. Project deletion purges associated retained voice audio.
+
+Prepare offline voice downloads/initializes the English model and exercises inference with silence. It does not guarantee speech accuracy or storage retention. The inspection offline cache includes the capture worklet; cached scripts use synthetic responses so worker bootstrap URL fragments are preserved.
+
+Validation includes worklet stop/flush, worker reuse/timeout, audio conversion, failed-save recovery, duplicate recovery, project deletion, and cached-worker URL regression tests. Physical iPhone/Android microphone, lock-screen interruption, quota failure and recognition of noisy site terminology still require device acceptance. The English model has not been replaced or benchmarked for accuracy.
+
+Browser verification on the local production preview successfully completed Prepare offline voice with the real model and inference runtime after activating the corrected service worker. This used silent test audio and did not record the user's microphone. The final automated suite passes 187 tests; live speech accuracy remains unmeasured.
