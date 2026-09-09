@@ -299,6 +299,7 @@ export default function AreaEditorModal({
       areaTypeKey: 'apartment_unit' as const,
       unitType: unit.unitType,
       areaNumber: unit.areaNumber.trim(),
+      unitFloor: undefined,
       customAreaName: '',
       facadeLevel: '',
       facadeLevelMode: '' as const,
@@ -1003,6 +1004,14 @@ export default function AreaEditorModal({
                 placeholder="Enter custom area name"
               />
             </div>
+          )}
+
+          {value.areaTypeKey === 'apartment_unit' && !isBulkApartmentCreation && (
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+              Floor override (optional)
+              <input className="field-shell mt-2" value={value.unitFloor ?? ''} maxLength={40} placeholder="Automatic from unit number" onChange={(event) => onChange({ ...value, unitFloor: event.target.value })} />
+              <span className="mt-1 block text-xs text-gray-500">Use for exceptions such as Ground, Mezzanine, or PH. Leave blank for automatic grouping.</span>
+            </label>
           )}
 
           {!selectedDefinition.requiresOrientation && !isBulkApartmentCreation && (

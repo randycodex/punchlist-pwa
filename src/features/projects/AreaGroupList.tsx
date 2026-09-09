@@ -4,9 +4,11 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { ChevronDown, ChevronRight } from 'lucide-react';
 import { AREA_TYPE_DEFINITIONS, getAreaGroupKey, type AreaGroupKey } from '@/lib/areas';
 import type { Area } from '@/types';
+import { groupUnitsByFloor, type UnitFloorNumbering } from '@/lib/unitFloors';
 import { shouldRenderAreaGroup } from './areaListView';
 
 type AreaGroupListProps = {
+  unitFloorNumbering?: UnitFloorNumbering;
   areas: Area[];
   renderArea: (area: Area) => ReactNode;
 };
@@ -22,7 +24,7 @@ const groupDefinitions: Array<{ key: AreaGroupKey; label: string }> = [
     })),
 ];
 
-export default function AreaGroupList({ areas, renderArea }: AreaGroupListProps) {
+export default function AreaGroupList({ areas, renderArea, unitFloorNumbering }: AreaGroupListProps) {
   const [collapsedGroups, setCollapsedGroups] = useState<Set<AreaGroupKey>>(new Set());
   const areaCountsByGroup = useMemo(
     () => areas.reduce((counts, area) => {
@@ -101,7 +103,12 @@ export default function AreaGroupList({ areas, renderArea }: AreaGroupListProps)
             </button>
             {!isCollapsed && (
               <div id={contentId} className="list-stack mt-2">
-                {groupedAreas.map(renderArea)}
+                {group.key === 'units' ? groupUnitsByFloor(groupedAreas, unitFloorNumbering).map(({ floor, units }) => (
+                  <section key={floor ?? '__unknown'} className="space-y-2">
+                    <h3 className="px-2 pt-3 text-sm font-semibold text-gray-600 dark:text-gray-300">{floor === null ? 'Floor not set' : `Floor ${floor}`} <span className="ml-2 font-normal text-gray-400">{units.length} {units.length === 1 ? 'unit' : 'units'}</span></h3>
+                    {units.map(renderArea)}
+                  </section>
+                )) : groupedAreas.map(renderArea)}
               </div>
             )}
           </section>

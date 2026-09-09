@@ -693,6 +693,7 @@ export async function saveProjectMetadataWithSharedSync(
           gcName: project.gcName,
           gcSignoff: project.gcSignoff,
           checkpointRules: mergeCheckpointRules(existingProject.checkpointRules, project.checkpointRules),
+          unitFloorNumbering: project.unitFloorNumbering,
           facadeLevelStart: project.facadeLevelStart,
           facadeLevelEnd: project.facadeLevelEnd,
           sharedMetadataVersion: project.sharedMetadataVersion,

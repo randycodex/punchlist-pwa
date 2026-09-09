@@ -828,6 +828,7 @@ export default function AreaDetailPage() {
     const originalTypeKey = targetArea.areaTypeKey;
     const originalUnitType = targetArea.unitType;
     const originalAreaNumber = targetArea.areaNumber;
+    const originalUnitFloor = targetArea.unitFloor;
     const originalElevationDrawingId = targetArea.elevationDrawingId;
     const originalFacadeLevels = getFacadeInspectionLevels(targetArea);
     const originalFacadeLevel = originalFacadeLevels.join(',');
@@ -839,6 +840,7 @@ export default function AreaDetailPage() {
     targetArea.unitType = areaForm.unitType || undefined;
     targetArea.customAreaName = areaForm.customAreaName.trim() || undefined;
     targetArea.areaNumber = areaForm.areaNumber.trim() || undefined;
+    targetArea.unitFloor = areaForm.areaTypeKey === 'apartment_unit' ? areaForm.unitFloor?.trim() || undefined : undefined;
     targetArea.facadeLevel = areaForm.facadeLevel.trim() || undefined;
     targetArea.elevationDrawingId =
       areaForm.areaTypeKey === 'facade' ? areaForm.elevationDrawingId || undefined : undefined;
@@ -861,6 +863,7 @@ export default function AreaDetailPage() {
         targetArea.unitType = originalUnitType;
         targetArea.customAreaName = area.customAreaName;
         targetArea.areaNumber = area.areaNumber;
+        targetArea.unitFloor = originalUnitFloor;
         targetArea.facadeLevel = originalFacadeLevel;
         targetArea.elevationDrawingId = originalElevationDrawingId;
         setConfirmDialog({
@@ -892,6 +895,7 @@ export default function AreaDetailPage() {
         targetArea.unitType = originalUnitType;
         targetArea.customAreaName = area.customAreaName;
         targetArea.areaNumber = area.areaNumber;
+        targetArea.unitFloor = originalUnitFloor;
         targetArea.facadeLevel = originalFacadeLevel;
         targetArea.elevationDrawingId = originalElevationDrawingId;
         setConfirmDialog({

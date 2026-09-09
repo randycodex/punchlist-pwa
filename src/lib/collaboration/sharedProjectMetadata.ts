@@ -1,3 +1,4 @@
+import { parseUnitFloorNumbering, type UnitFloorNumbering } from '@/lib/unitFloors';
 import { parseCheckpointRules, applyCheckpointRules, mergeCheckpointRules } from '@/lib/checkpointRules';
 import type { Project } from '@/types';
 import { ProjectPayloadValidationError } from '@/lib/projectPayload';
@@ -22,6 +23,7 @@ export type SharedProjectMetadataSnapshotChange = {
 };
 
 type SharedProjectMetadataPayload = {
+  unitFloorNumbering?: UnitFloorNumbering;
   checkpointRules?: Array<{ room: string; item: string; name: string }>;
   projectName: string;
   address: string;
@@ -35,6 +37,7 @@ type SharedProjectMetadataPayload = {
 
 const PAYLOAD_KEYS = new Set<keyof SharedProjectMetadataPayload>([
   'checkpointRules',
+  'unitFloorNumbering',
   'projectName',
   'address',
   'date',
@@ -109,6 +112,7 @@ function parseSharedProjectMetadataPayload(value: Json, payloadVersion: number) 
   const input = metadataRecord(value);
   return {
     checkpointRules: parseCheckpointRules(input.checkpointRules),
+    unitFloorNumbering: parseUnitFloorNumbering(input.unitFloorNumbering),
     projectName: requiredString(input.projectName, 'Shared project metadata.projectName', { maxLength: 200 }).trim(),
     address: requiredString(input.address, 'Shared project metadata.address', { allowEmpty: true, maxLength: 500 }),
     date: validDate(input.date, 'Shared project metadata.date'),
@@ -133,6 +137,7 @@ export function createSharedProjectMetadataPayload(project: Project): Json {
   }
   const payload: SharedProjectMetadataPayload = {
     ...(project.checkpointRules?.length ? { checkpointRules: project.checkpointRules } : {}),
+    ...(project.unitFloorNumbering ? { unitFloorNumbering: project.unitFloorNumbering } : {}),
     projectName: project.projectName.trim(),
     address: project.address,
     date: projectDate.toISOString(),
@@ -162,6 +167,7 @@ export function applySharedProjectMetadataSnapshot(
   return applyCheckpointRules({
     ...project,
     ...metadata,
+    unitFloorNumbering: metadata.unitFloorNumbering ?? project.unitFloorNumbering,
     checkpointRules: mergeCheckpointRules(project.checkpointRules, metadata.checkpointRules),
     sharedMetadataVersion: row.version,
     sharedMetadataPublishedAt: publishedAt,

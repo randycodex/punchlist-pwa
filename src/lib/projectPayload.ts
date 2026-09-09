@@ -1,3 +1,4 @@
+import { parseUnitFloorNumbering } from '@/lib/unitFloors';
 import { parseCheckpointRules } from '@/lib/checkpointRules';
 import type {
   Area,
@@ -208,6 +209,7 @@ function parseArea(value: unknown, path: string): Area {
     unitType: optionalString(input.unitType, `${path}.unitType`) as Area['unitType'],
     customAreaName: optionalString(input.customAreaName, `${path}.customAreaName`),
     areaNumber: optionalString(input.areaNumber, `${path}.areaNumber`),
+    unitFloor: optionalString(input.unitFloor, `${path}.unitFloor`),
     facadeLevel: optionalString(input.facadeLevel, `${path}.facadeLevel`),
     elevationDrawingId: optionalString(input.elevationDrawingId, `${path}.elevationDrawingId`),
     sortOrder: finiteNumber(input.sortOrder, `${path}.sortOrder`, 0),
@@ -273,6 +275,7 @@ export function parseProjectPayload(value: unknown, payloadVersion = CURRENT_PRO
     gcName: stringWithDefault(input.gcName, 'project.gcName'),
     gcSignoff: stringWithDefault(input.gcSignoff, 'project.gcSignoff'),
     checkpointRules: parseCheckpointRules(input.checkpointRules),
+    unitFloorNumbering: parseUnitFloorNumbering(input.unitFloorNumbering),
     facadeLevelStart: optionalFiniteNumber(input.facadeLevelStart, 'project.facadeLevelStart'),
     facadeLevelEnd: optionalFiniteNumber(input.facadeLevelEnd, 'project.facadeLevelEnd'),
     facadeElevationDrawings: input.facadeElevationDrawings === undefined

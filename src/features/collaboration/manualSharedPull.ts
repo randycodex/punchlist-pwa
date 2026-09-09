@@ -152,6 +152,7 @@ export function mergeSharedProjectAreas(
       gcName: localProject.gcName,
       gcSignoff: localProject.gcSignoff,
       checkpointRules: mergeCheckpointRules(sharedProject.checkpointRules, localProject.checkpointRules),
+      unitFloorNumbering: localProject.unitFloorNumbering,
       facadeLevelStart: localProject.facadeLevelStart,
       facadeLevelEnd: localProject.facadeLevelEnd,
       sharedMetadataVersion: sharedProject.sharedMetadataVersion,

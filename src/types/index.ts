@@ -122,6 +122,7 @@ export interface Area {
   unitType?: string;
   customAreaName?: string;
   areaNumber?: string;
+  unitFloor?: string;
   facadeLevel?: string;
   elevationDrawingId?: string;
   sortOrder: number;
@@ -147,6 +148,7 @@ export interface FacadeElevationDrawing {
 }
 
 export interface Project {
+  unitFloorNumbering?: 'prefix' | 'last-two-digits' | 'manual';
   checkpointRules?: Array<{ room: string; item: string; name: string }>;
   id: string;
   sharedProjectId?: string;

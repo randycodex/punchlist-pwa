@@ -12,6 +12,7 @@ interface ProjectEditModalProps {
 }
 
 export default function ProjectEditModal({ project, onSave, onDelete, onClose }: ProjectEditModalProps) {
+  const [unitFloorNumbering, setUnitFloorNumbering] = useState<NonNullable<Project['unitFloorNumbering']>>(project.unitFloorNumbering ?? 'prefix');
   const [projectName, setProjectName] = useState(project.projectName);
   const [address, setAddress] = useState(project.address);
   const [inspector, setInspector] = useState(project.inspector);
@@ -27,6 +28,7 @@ export default function ProjectEditModal({ project, onSave, onDelete, onClose }:
     const nextFacadeLevelEnd = Number.parseInt(facadeLevelEnd, 10);
 
     onSave({
+      unitFloorNumbering,
       projectName: projectName.trim(),
       address: address.trim(),
       inspector: inspector.trim(),
@@ -50,6 +52,14 @@ export default function ProjectEditModal({ project, onSave, onDelete, onClose }:
         </div>
 
         <div className="space-y-4 p-5">
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+            Unit floor numbering
+            <select className="field-shell mt-2" value={unitFloorNumbering} onChange={(event) => setUnitFloorNumbering(event.target.value as NonNullable<Project['unitFloorNumbering']>)}>
+              <option value="prefix">Number before letters: 14A / 14-A → Floor 14</option>
+              <option value="last-two-digits">Last two digits identify unit: 1401 → Floor 14</option>
+              <option value="manual">Set floors manually</option>
+            </select>
+          </label>
           <div>
             <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
               Project Name *

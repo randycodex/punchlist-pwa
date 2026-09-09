@@ -80,6 +80,7 @@ export type AreaFormValue = {
   unitType: ApartmentUnitType | FacadeOrientation | '';
   customAreaName: string;
   areaNumber: string;
+  unitFloor?: string;
   facadeLevel: string;
   facadeLevelMode: '' | 'yes' | 'no';
   elevationDrawingId: string;
@@ -237,6 +238,7 @@ export function getAreaFormValue(area?: Area | null): AreaFormValue {
     unitType,
     customAreaName: areaTypeKey === 'custom' ? area?.name ?? '' : '',
     areaNumber: area?.areaNumber ?? '',
+    unitFloor: area?.unitFloor ?? '',
     facadeLevel: areaTypeKey === 'facade' ? facadeLevels.join(',') : '',
     facadeLevelMode: areaTypeKey === 'facade' && facadeLevels.length > 0 ? 'yes' : 'no',
     elevationDrawingId: areaTypeKey === 'facade' ? area?.elevationDrawingId ?? '' : '',

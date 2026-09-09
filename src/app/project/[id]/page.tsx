@@ -681,6 +681,7 @@ export default function ProjectDetailPage() {
         area.unitType = areaForm.unitType || undefined;
         area.customAreaName = areaForm.customAreaName.trim() || undefined;
         area.areaNumber = areaForm.areaNumber.trim() || undefined;
+        area.unitFloor = areaForm.unitFloor?.trim() || undefined;
         area.facadeLevel = areaForm.facadeLevel.trim() || undefined;
         area.elevationDrawingId =
           areaForm.areaTypeKey === 'facade' ? areaForm.elevationDrawingId || undefined : undefined;
@@ -1813,7 +1814,7 @@ export default function ProjectDetailPage() {
                 </div>
               </div>
             ) : areaViewMode === 'grouped' ? (
-              <AreaGroupList areas={visibleAreas} renderArea={(area) => {
+              <AreaGroupList unitFloorNumbering={project.unitFloorNumbering} areas={visibleAreas} renderArea={(area) => {
               const metric = areaMetrics.get(area.id);
               const isSelected = selectedAreaIds.has(area.id);
               return (

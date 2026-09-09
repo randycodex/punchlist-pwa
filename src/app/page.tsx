@@ -1053,6 +1053,7 @@ export default function ProjectsPage() {
         area.facadeLevel = areaForm.facadeLevel.trim() || undefined;
         area.elevationDrawingId =
           areaForm.areaTypeKey === 'facade' ? areaForm.elevationDrawingId || undefined : undefined;
+        area.unitFloor = areaForm.unitFloor?.trim() || undefined;
         applyTemplateToArea(area);
         return area;
       }
@@ -2930,7 +2931,7 @@ export default function ProjectsPage() {
               </div>
             ) : (
               areaViewMode === 'grouped' ? (
-                <AreaGroupList areas={visibleAreas} renderArea={(area) => {
+                <AreaGroupList unitFloorNumbering={singleProject.unitFloorNumbering} areas={visibleAreas} renderArea={(area) => {
                 const metric = areaMetrics.get(area.id);
                 const isSelected = selectedAreaIds.has(area.id);
                 return (
