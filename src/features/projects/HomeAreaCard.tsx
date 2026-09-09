@@ -30,6 +30,7 @@ type HomeAreaCardProps = {
   displayName: string;
   metric?: HomeAreaCardMetrics;
   claimStatus?: HomeAreaClaimDisplay;
+  showOnlyIssues: boolean;
   onPhotosSaved: () => void;
   deleteMode: boolean;
   isSelected: boolean;
@@ -45,6 +46,7 @@ export const HomeAreaCard = memo(function HomeAreaCard({
   displayName,
   metric,
   claimStatus,
+  showOnlyIssues,
   onPhotosSaved,
   deleteMode,
   isSelected,
@@ -53,7 +55,7 @@ export const HomeAreaCard = memo(function HomeAreaCard({
   onPrimeOpen,
   onOpenArea,
 }: HomeAreaCardProps) {
-  const { homeShowOnlyIssues, setInspectionShowOnlyIssues } = useAppSettings();
+  const { setInspectionShowOnlyIssues } = useAppSettings();
   const areaStats = metric?.stats ?? { total: 0, ok: 0, issues: 0 };
   const photoCount = metric?.photoCount ?? 0;
   const blockedByClaim = claimStatus?.ownership === 'other';
@@ -101,7 +103,7 @@ export const HomeAreaCard = memo(function HomeAreaCard({
               if (blockedByClaim) onBlockedByClaim(blockedClaimMessage);
               return;
             }
-            setInspectionShowOnlyIssues(homeShowOnlyIssues);
+            setInspectionShowOnlyIssues(showOnlyIssues);
             onOpenArea(project, area.id);
           }}
           onContextMenu={(event) => {
@@ -142,7 +144,7 @@ export const HomeAreaCard = memo(function HomeAreaCard({
                 if (blockedByClaim) onBlockedByClaim(blockedClaimMessage);
                 return;
               }
-              setInspectionShowOnlyIssues(homeShowOnlyIssues);
+              setInspectionShowOnlyIssues(showOnlyIssues);
               onOpenArea(project, area.id);
             }}
             onContextMenu={(event) => {

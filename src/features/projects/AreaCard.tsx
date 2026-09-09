@@ -32,6 +32,7 @@ type AreaCardProps = {
   displayName: string;
   metric?: AreaCardMetrics;
   claimStatus?: AreaCardClaimDisplay;
+  showOnlyIssues: boolean;
   onPhotosSaved: () => void;
   deleteMode: boolean;
   isSelected: boolean;
@@ -47,6 +48,7 @@ export const AreaCard = memo(function AreaCard({
   displayName,
   metric,
   claimStatus,
+  showOnlyIssues,
   onPhotosSaved,
   deleteMode,
   isSelected,
@@ -55,7 +57,7 @@ export const AreaCard = memo(function AreaCard({
   onPrimeOpen,
   onOpenArea,
 }: AreaCardProps) {
-  const { projectShowOnlyIssues, setInspectionShowOnlyIssues } = useAppSettings();
+  const { setInspectionShowOnlyIssues } = useAppSettings();
   const areaStats = metric?.stats ?? { total: 0, ok: 0, issues: 0 };
   const photoCount = metric?.photoCount ?? 0;
   const blockedByClaim = claimStatus?.ownership === 'other';
@@ -98,7 +100,7 @@ export const AreaCard = memo(function AreaCard({
               if (blockedByClaim) onBlockedByClaim();
               return;
             }
-            setInspectionShowOnlyIssues(projectShowOnlyIssues);
+            setInspectionShowOnlyIssues(showOnlyIssues);
             onOpenArea(area.id);
           }}
           onContextMenu={(event) => {
@@ -138,7 +140,7 @@ export const AreaCard = memo(function AreaCard({
                 if (blockedByClaim) onBlockedByClaim();
                 return;
               }
-              setInspectionShowOnlyIssues(projectShowOnlyIssues);
+              setInspectionShowOnlyIssues(showOnlyIssues);
               onOpenArea(area.id);
             }}
             onContextMenu={(event) => {
