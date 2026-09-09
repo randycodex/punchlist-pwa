@@ -1,3 +1,4 @@
+import { mergeCheckpointRules } from '@/lib/checkpointRules';
 import { getSharedProjectSnapshot, hasNewerLocalChangesThanSharedSnapshot } from '@/lib/collaboration';
 import {
   getPendingSharedAreaSyncsForProject,
@@ -150,6 +151,7 @@ export function mergeSharedProjectAreas(
       inspector: localProject.inspector,
       gcName: localProject.gcName,
       gcSignoff: localProject.gcSignoff,
+      checkpointRules: mergeCheckpointRules(sharedProject.checkpointRules, localProject.checkpointRules),
       facadeLevelStart: localProject.facadeLevelStart,
       facadeLevelEnd: localProject.facadeLevelEnd,
       sharedMetadataVersion: sharedProject.sharedMetadataVersion,

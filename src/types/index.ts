@@ -147,6 +147,7 @@ export interface FacadeElevationDrawing {
 }
 
 export interface Project {
+  checkpointRules?: Array<{ room: string; item: string; name: string }>;
   id: string;
   sharedProjectId?: string;
   sharedProjectLinkedAt?: Date;

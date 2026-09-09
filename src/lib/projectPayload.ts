@@ -1,3 +1,4 @@
+import { parseCheckpointRules } from '@/lib/checkpointRules';
 import type {
   Area,
   Checkpoint,
@@ -271,6 +272,7 @@ export function parseProjectPayload(value: unknown, payloadVersion = CURRENT_PRO
     inspector: stringWithDefault(input.inspector, 'project.inspector'),
     gcName: stringWithDefault(input.gcName, 'project.gcName'),
     gcSignoff: stringWithDefault(input.gcSignoff, 'project.gcSignoff'),
+    checkpointRules: parseCheckpointRules(input.checkpointRules),
     facadeLevelStart: optionalFiniteNumber(input.facadeLevelStart, 'project.facadeLevelStart'),
     facadeLevelEnd: optionalFiniteNumber(input.facadeLevelEnd, 'project.facadeLevelEnd'),
     facadeElevationDrawings: input.facadeElevationDrawings === undefined

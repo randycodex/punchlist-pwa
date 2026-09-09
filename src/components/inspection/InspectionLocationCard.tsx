@@ -16,6 +16,7 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
 import type { Area, Checkpoint, IssueState } from '@/types';
 import { getCheckpointIssueState } from '@/types';
+import PhotoDropTarget, { type DroppedPhoto } from '@/components/inspection/PhotoDropTarget';
 import PhotoCapture from '@/components/PhotoCapture';
 import MetadataLine from '@/components/MetadataLine';
 import OfflineVoiceNoteButton from '@/features/inspection/OfflineVoiceNoteButton';
@@ -62,6 +63,9 @@ type InspectionLocationCardProps = {
   expandedCheckpointId: string | null;
   commentText: string;
   recentComments: string[];
+  onCreatePhotoCheckpoint: (locationId: string, itemId: string, name: string, allUnits: boolean) => Promise<{ id: string; name: string }>;
+  onDropPhotos: (locationId: string, itemId: string, checkpointId: string, photos: DroppedPhoto[]) => Promise<void>;
+  onUndoDroppedPhotos: (locationId: string, itemId: string, checkpointId: string, ids: string[]) => Promise<void>;
   onAddPhoto: (imageData: string, thumbnail?: string) => void | Promise<void>;
   onAddPhotos: (photos: Array<{ imageData: string; thumbnail?: string }>) => void | Promise<void>;
   onAddFiles: (files: Array<{ data: string; name: string; mimeType: string; size: number }>) => void | Promise<void>;
@@ -142,6 +146,9 @@ export default function InspectionLocationCard({
   recentComments,
   onAddPhoto,
   onAddPhotos,
+  onDropPhotos,
+  onCreatePhotoCheckpoint,
+  onUndoDroppedPhotos,
   onAddFiles,
   onDeletePhoto,
   onDeleteFile,
@@ -412,6 +419,9 @@ export default function InspectionLocationCard({
               return (
                 <div key={item.id} ref={(node) => registerItemRef(item.id, node)} className="space-y-2">
                   <CheckpointRow
+                    photoDrop={ { label: `${areaLabel ? `${areaLabel} › ` : ''}${location.name} › ${item.name} › ${customCheckpoint.name}`,
+                      onSave: (photos: DroppedPhoto[]) => onDropPhotos(location.id, item.id, customCheckpoint.id, photos),
+                      onUndo: (ids: string[]) => onUndoDroppedPhotos(location.id, item.id, customCheckpoint.id, ids) } }
                     checkpoint={customCheckpoint}
                     label={getCheckpointRowLabel(customCheckpoint, item.name)}
                     editContainerRef={isEditingCustomItem ? customItemEditRef : undefined}
@@ -541,6 +551,9 @@ export default function InspectionLocationCard({
                     return (
                       <div key={checkpoint.id} className="space-y-2">
                         <CheckpointRow
+                    photoDrop={ { label: `${areaLabel ? `${areaLabel} › ` : ''}${location.name} › ${item.name} › ${checkpoint.name}`,
+                      onSave: (photos: DroppedPhoto[]) => onDropPhotos(location.id, item.id, checkpoint.id, photos),
+                      onUndo: (ids: string[]) => onUndoDroppedPhotos(location.id, item.id, checkpoint.id, ids) } }
                           checkpoint={checkpoint}
                           label={getCheckpointRowLabel(checkpoint)}
                           issueState={issueState}
@@ -654,6 +667,11 @@ export default function InspectionLocationCard({
             }
 
             return (
+              <PhotoDropTarget key={item.id} label={`${areaLabel ? `${areaLabel} › ` : ''}${location.name} › ${item.name}`}
+                onCreate={(name, allUnits) => onCreatePhotoCheckpoint(location.id, item.id, name, allUnits)}
+                destinations={item.checkpoints.map(({ id, name }) => ({ id, name }))}
+                onSave={(checkpointId, photos) => onDropPhotos(location.id, item.id, checkpointId, photos)}
+                onUndo={(checkpointId, ids) => onUndoDroppedPhotos(location.id, item.id, checkpointId, ids)}>
               <div
                 key={item.id}
                 ref={(node) => registerItemRef(item.id, node)}
@@ -814,6 +832,9 @@ export default function InspectionLocationCard({
                         return (
                           <div key={checkpoint.id} className="space-y-2">
                           <CheckpointRow
+                    photoDrop={ { label: `${areaLabel ? `${areaLabel} › ` : ''}${location.name} › ${item.name} › ${checkpoint.name}`,
+                      onSave: (photos: DroppedPhoto[]) => onDropPhotos(location.id, item.id, checkpoint.id, photos),
+                      onUndo: (ids: string[]) => onUndoDroppedPhotos(location.id, item.id, checkpoint.id, ids) } }
                             checkpoint={checkpoint}
                             label={getCheckpointRowLabel(checkpoint)}
                             editContainerRef={editingCustomCheckpointId === checkpoint.id ? customCheckpointEditRef : undefined}
@@ -932,6 +953,7 @@ export default function InspectionLocationCard({
                   </div>
                 )}
               </div>
+              </PhotoDropTarget>
             );
           })}
           {addItemControl ? <div>{addItemControl}</div> : null}
@@ -944,6 +966,7 @@ export default function InspectionLocationCard({
 
 function CheckpointRow({
   checkpoint,
+  photoDrop,
   label,
   editContainerRef,
   editableLabel = false,
@@ -959,6 +982,7 @@ function CheckpointRow({
   extraActions,
 }: {
   checkpoint: Checkpoint;
+  photoDrop: { label: string; onSave: (photos: DroppedPhoto[]) => Promise<void>; onUndo: (ids: string[]) => Promise<void> };
   label?: string;
   editContainerRef?: RefObject<HTMLDivElement | null>;
   editableLabel?: boolean;
@@ -977,6 +1001,7 @@ function CheckpointRow({
   const hasComments = checkpoint.comments.trim().length > 0;
 
   return (
+    <PhotoDropTarget label={photoDrop.label} destinations={[{ id: checkpoint.id, name: checkpoint.name }]} onSave={(_id, photos) => photoDrop.onSave(photos)} onUndo={(_id, ids) => photoDrop.onUndo(ids)}>
     <div
       ref={editableLabel ? editContainerRef : undefined}
       className={`inspection-checkpoint-row rounded-[1.15rem] px-3.5 py-2 transition ${
@@ -1088,6 +1113,7 @@ function CheckpointRow({
         </div>
       </div>
     </div>
+    </PhotoDropTarget>
   );
 }
 

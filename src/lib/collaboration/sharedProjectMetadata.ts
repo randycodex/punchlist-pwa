@@ -1,3 +1,4 @@
+import { parseCheckpointRules, applyCheckpointRules, mergeCheckpointRules } from '@/lib/checkpointRules';
 import type { Project } from '@/types';
 import { ProjectPayloadValidationError } from '@/lib/projectPayload';
 import type { Json } from './database';
@@ -21,6 +22,7 @@ export type SharedProjectMetadataSnapshotChange = {
 };
 
 type SharedProjectMetadataPayload = {
+  checkpointRules?: Array<{ room: string; item: string; name: string }>;
   projectName: string;
   address: string;
   date: string;
@@ -32,6 +34,7 @@ type SharedProjectMetadataPayload = {
 };
 
 const PAYLOAD_KEYS = new Set<keyof SharedProjectMetadataPayload>([
+  'checkpointRules',
   'projectName',
   'address',
   'date',
@@ -105,6 +108,7 @@ function parseSharedProjectMetadataPayload(value: Json, payloadVersion: number) 
   }
   const input = metadataRecord(value);
   return {
+    checkpointRules: parseCheckpointRules(input.checkpointRules),
     projectName: requiredString(input.projectName, 'Shared project metadata.projectName', { maxLength: 200 }).trim(),
     address: requiredString(input.address, 'Shared project metadata.address', { allowEmpty: true, maxLength: 500 }),
     date: validDate(input.date, 'Shared project metadata.date'),
@@ -128,6 +132,7 @@ export function createSharedProjectMetadataPayload(project: Project): Json {
     throw new ProjectPayloadValidationError('Shared project metadata.date must be a valid date.');
   }
   const payload: SharedProjectMetadataPayload = {
+    ...(project.checkpointRules?.length ? { checkpointRules: project.checkpointRules } : {}),
     projectName: project.projectName.trim(),
     address: project.address,
     date: projectDate.toISOString(),
@@ -154,13 +159,14 @@ export function applySharedProjectMetadataSnapshot(
     throw new ProjectPayloadValidationError('Shared project metadata version must be a positive integer.');
   }
 
-  return {
+  return applyCheckpointRules({
     ...project,
     ...metadata,
+    checkpointRules: mergeCheckpointRules(project.checkpointRules, metadata.checkpointRules),
     sharedMetadataVersion: row.version,
     sharedMetadataPublishedAt: publishedAt,
     updatedAt: new Date(Math.max(project.updatedAt.getTime(), publishedAt.getTime())),
-  };
+  });
 }
 
 export function isMissingSharedProjectMetadataTableError(

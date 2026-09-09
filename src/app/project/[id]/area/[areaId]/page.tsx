@@ -1,5 +1,7 @@
 'use client';
 
+import { addCheckpointRule } from '@/lib/checkpointRules';
+
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import {
@@ -12,6 +14,8 @@ import {
 import {
   getActiveProjectCount,
   getProjectForArea,
+  getProjectMetadata,
+  saveProjectMetadataWithSharedSync,
   saveProjectArea,
   saveCheckpointInspectionChange,
   saveProjectAreaMetadataOnly,
@@ -177,6 +181,7 @@ export default function AreaDetailPage() {
   const [showCustomSubareaComposer, setShowCustomSubareaComposer] = useState(false);
   const [editingCustomItem, setEditingCustomItem] = useState<{ locationId: string; itemId: string } | null>(null);
   const [customItemTargetLocationId, setCustomItemTargetLocationId] = useState<string | null>(null);
+  const [checkpointAllUnits, setCheckpointAllUnits] = useState(false);
   const [customCheckpointName, setCustomCheckpointName] = useState('');
   const [showCustomCheckpointComposer, setShowCustomCheckpointComposer] = useState(false);
   const [customCheckpointTarget, setCustomCheckpointTarget] = useState<{
@@ -1092,6 +1097,14 @@ export default function AreaDetailPage() {
       return;
     }
 
+    if (checkpointAllUnits) {
+      try {
+        await handleCreatePhotoCheckpoint(customCheckpointTarget.locationId, customCheckpointTarget.itemId, customCheckpointName, true);
+        setCustomCheckpointName(''); setShowCustomCheckpointComposer(false); setCustomCheckpointTarget(null); setCheckpointAllUnits(false);
+      } catch (error) { setInspectionNotice(error instanceof Error ? error.message : 'Could not create checkpoint.'); }
+      return;
+    }
+
     const trimmedName = customCheckpointName.trim();
     if (targetItem.checkpoints.some((checkpoint) => inspectionNamesMatch(checkpoint.name, trimmedName))) {
       setInspectionNotice(`A sub-item named “${trimmedName}” already exists here.`);
@@ -1398,6 +1411,63 @@ export default function AreaDetailPage() {
     checkpoint.photos.push(...attachments.filter((photo) => !existing.has(photo.id)));
     checkpoint.updatedAt = new Date();
     syncAreaCompletion(area);
+    scheduleSync(project.id);
+    setArea({ ...area });
+  }
+
+  async function handleCreatePhotoCheckpoint(locationId: string, itemId: string, name: string, allUnits = false) {
+    if (!canEditSharedArea()) throw new Error('This area is locked.');
+    if (!project || !area) throw new Error('The inspection is not ready.');
+    const item = area.locations.find((entry) => entry.id === locationId)?.items.find((entry) => entry.id === itemId);
+    if (!item) throw new Error('This item is no longer available.');
+    const trimmed = name.trim();
+    if (!trimmed) throw new Error('Enter a checkpoint name.');
+    if (item.checkpoints.some((entry) => inspectionNamesMatch(entry.name, trimmed))) {
+      throw new Error(`A checkpoint named “${trimmed}” already exists. Choose it above.`);
+    }
+    if (allUnits) {
+      if (!isApartmentArea(area)) throw new Error('Project-wide checkpoint rules apply to apartment units.');
+      const current = await getProjectMetadata(project.id);
+      if (!current) throw new Error('The project is no longer available.');
+      const room = area.locations.find((entry) => entry.id === locationId)!;
+      addCheckpointRule(current, { room: room.name, item: item.name, name: trimmed });
+      await saveProjectMetadataWithSharedSync(current);
+      project.checkpointRules = current.checkpointRules;
+      addCheckpointRule(project, { room: room.name, item: item.name, name: trimmed });
+      const refreshed = await getProjectForArea(project.id, area.id);
+      if (!refreshed) throw new Error('Could not reload the saved checkpoint.');
+      const refreshedArea = refreshed.areas.find((entry) => entry.id === area.id)!;
+      const checkpoint = refreshedArea.locations.find((entry) => entry.id === locationId)!.items.find((entry) => entry.id === itemId)!.checkpoints.find((entry) => inspectionNamesMatch(entry.name, trimmed))!;
+      // Keep this callback's captured item in step with the saved deterministic checkpoint.
+      if (!item.checkpoints.some((entry) => entry.id === checkpoint.id)) item.checkpoints.push(checkpoint);
+      scheduleSync(project.id);
+      setProject(refreshed);
+      setArea(refreshedArea);
+      return { id: checkpoint.id, name: checkpoint.name };
+    }
+    const checkpoint = createCheckpoint(item.id, trimmed, item.checkpoints.length, { isCustom: true });
+    item.checkpoints.push(checkpoint);
+    syncAreaCompletion(area);
+    try { await saveProjectAreaMetadataOnly(project, area.id); }
+    catch (error) {
+      item.checkpoints = item.checkpoints.filter((entry) => entry.id !== checkpoint.id);
+      syncAreaCompletion(area);
+      throw error;
+    }
+    scheduleSync(project.id);
+    setArea({ ...area });
+    return { id: checkpoint.id, name: checkpoint.name };
+  }
+
+  async function handleUndoDroppedPhotos(locationId: string, itemId: string, checkpointId: string, ids: string[]) {
+    if (!canEditSharedArea()) throw new Error('This area is locked.');
+    if (!project || !area) throw new Error('The inspection is not ready.');
+    const checkpoint = findCheckpoint(locationId, itemId, checkpointId);
+    if (!checkpoint) throw new Error('The checkpoint is no longer available.');
+    const removed = new Set(ids);
+    await saveCheckpointInspectionChange(project.id, area.id, checkpointId, {}, [], { removePhotoIds: ids });
+    checkpoint.photos = checkpoint.photos.filter((photo) => !removed.has(photo.id));
+    checkpoint.updatedAt = new Date();
     scheduleSync(project.id);
     setArea({ ...area });
   }
@@ -2195,6 +2265,9 @@ export default function AreaDetailPage() {
                 </div>
               )}
               <InspectionLocationCard
+                onCreatePhotoCheckpoint={handleCreatePhotoCheckpoint}
+                onDropPhotos={handleAddPhotos}
+                onUndoDroppedPhotos={handleUndoDroppedPhotos}
                 projectId={project.id}
                 areaLabel={areaTitle}
                 onReviewLocation={reviewLocation}
@@ -2306,12 +2379,14 @@ export default function AreaDetailPage() {
                             customCheckpointTarget?.itemId === itemId
                           }
                           value={customCheckpointName}
+                          options={!editingCustomCheckpoint && isApartmentArea(area) ? <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={checkpointAllUnits} onChange={(event) => setCheckpointAllUnits(event.target.checked)} />Add to matching room and item in all existing and future units</label> : undefined}
                           triggerLabel="Add checkpoint"
                           valuePlaceholder="Sub-item name"
                           submitLabel={editingCustomCheckpoint ? 'Save' : 'Add'}
                           onOpen={() => {
                             setCustomCheckpointTarget({ locationId, itemId });
                             setCustomCheckpointName('');
+                            setCheckpointAllUnits(false);
                             setEditingCustomCheckpoint(null);
                             setShowCustomCheckpointComposer(true);
                           }}
@@ -2393,6 +2468,9 @@ export default function AreaDetailPage() {
           ) : null}
           {!deleteMode && filteredCustomItemsLocation && (
             <InspectionLocationCard
+                onCreatePhotoCheckpoint={handleCreatePhotoCheckpoint}
+                onDropPhotos={handleAddPhotos}
+                onUndoDroppedPhotos={handleUndoDroppedPhotos}
                 projectId={project.id}
               key={filteredCustomItemsLocation.id}
               location={filteredCustomItemsLocation}

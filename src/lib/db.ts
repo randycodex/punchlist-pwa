@@ -1,3 +1,4 @@
+import { applyCheckpointRules, mergeCheckpointRules } from '@/lib/checkpointRules';
 import { openDB, DBSchema, IDBPDatabase } from 'idb';
 import {
   Project,
@@ -578,13 +579,14 @@ export async function getAllProjects(): Promise<Project[]> {
   // IndexedDB already returns structured clones. Current writes keep binary
   // payloads in dedicated stores, so only legacy inline records need another
   // deep clone before they are exposed as dashboard metadata.
-  return projects.map(stripProjectMediaPayloadsIfNeeded);
+  return projects.map((project) => applyCheckpointRules(stripProjectMediaPayloadsIfNeeded(project)));
 }
 
 export async function getProject(id: string): Promise<Project | undefined> {
   const db = await getDB();
   const project = await db.get('projects', id);
   if (!project) return undefined;
+  applyCheckpointRules(project);
   const [mediaRecords, drawingRecords] = await Promise.all([
     db.getAllFromIndex('checkpointMedia', 'by-project', id),
     db.getAllFromIndex('elevationDrawings', 'by-project', id),
@@ -597,6 +599,7 @@ export async function getProjectForArea(id: string, areaId: string): Promise<Pro
   const db = await getDB();
   const project = await db.get('projects', id);
   if (!project) return undefined;
+  applyCheckpointRules(project);
   const [mediaRecords, drawingRecords] = await Promise.all([
     db.getAllFromIndex('checkpointMedia', 'by-project-area', [id, areaId]),
     db.getAllFromIndex('elevationDrawings', 'by-project', id),
@@ -608,7 +611,7 @@ export async function getProjectForArea(id: string, areaId: string): Promise<Pro
 export async function getProjectMetadata(id: string): Promise<Project | undefined> {
   const db = await getDB();
   const project = await db.get('projects', id);
-  return project ? stripProjectMediaPayloadsIfNeeded(project) : undefined;
+  return project ? applyCheckpointRules(stripProjectMediaPayloadsIfNeeded(project)) : undefined;
 }
 
 export async function getActiveProjectCount(): Promise<number> {
@@ -689,6 +692,7 @@ export async function saveProjectMetadataWithSharedSync(
           inspector: project.inspector,
           gcName: project.gcName,
           gcSignoff: project.gcSignoff,
+          checkpointRules: mergeCheckpointRules(existingProject.checkpointRules, project.checkpointRules),
           facadeLevelStart: project.facadeLevelStart,
           facadeLevelEnd: project.facadeLevelEnd,
           sharedMetadataVersion: project.sharedMetadataVersion,
@@ -697,7 +701,7 @@ export async function saveProjectMetadataWithSharedSync(
           updatedAt: project.updatedAt,
         }
       : cloneProjectWithoutMediaPayload(project);
-    await projectStore.put(storedProject);
+    await projectStore.put(applyCheckpointRules(storedProject));
     await markPendingProjectInStore(tx.objectStore('syncMetadata'), project.id);
 
     if (storedProject.sharedProjectId && storedProject.sharedSnapshotPublishedAt) {
@@ -896,7 +900,7 @@ export async function saveCheckpointInspectionChange(
   checkpointId: string,
   change: Partial<Pick<Checkpoint, 'comments' | 'status' | 'issueState' | 'fixStatus'>>,
   photos: PhotoAttachment[] = [],
-  options: { recoveredNote?: { baseValue: string; value: string }; recoveredVoice?: boolean } = {},
+  options: { recoveredNote?: { baseValue: string; value: string }; recoveredVoice?: boolean; removePhotoIds?: string[] } = {},
 ): Promise<void> {
   const compactPhotos = photos.length
     ? (await compactMediaRecord({ checkpointId, projectId, areaId, photos, files: [] })).photos
@@ -906,6 +910,7 @@ export async function saveCheckpointInspectionChange(
     const tx = db.transaction(['projects', 'checkpointMedia', 'syncMetadata', 'sharedAreaSyncQueue'], 'readwrite');
     try {
       const project = await tx.objectStore('projects').get(projectId);
+      if (project) applyCheckpointRules(project);
       const area = project?.areas.find((entry) => entry.id === areaId && !entry.deletedAt);
       const checkpoint = area?.locations.flatMap((location) => location.items)
         .flatMap((item) => item.checkpoints).find((entry) => entry.id === checkpointId);
@@ -920,13 +925,18 @@ export async function saveCheckpointInspectionChange(
         checkpoint.comments = current === value || (value && current.endsWith(`\n${value}`)) || (options.recoveredVoice && value && current.trimEnd().endsWith(value.trim())) ? current : current === baseValue ? value : `${current.trimEnd()}\n${value}`.trim();
       }
       Object.assign(checkpoint, change, { updatedAt: new Date() });
-      if (photos.length) {
+      if (photos.length || options.removePhotoIds?.length) {
         const store = tx.objectStore('checkpointMedia');
         const media = await store.get(checkpointId) ?? { checkpointId, projectId, areaId, photos: [], files: [] };
         const existingIds = new Set(media.photos.map((photo) => photo.id));
         media.photos.push(...compactPhotos.filter((photo) => !existingIds.has(photo.id)));
         const metadataIds = new Set(checkpoint.photos.map((photo) => photo.id));
         checkpoint.photos.push(...photos.filter((photo) => !metadataIds.has(photo.id)).map((photo) => ({ ...photo, imageData: '', thumbnail: undefined })));
+        if (options.removePhotoIds?.length) {
+          const removed = new Set(options.removePhotoIds);
+          media.photos = media.photos.filter((photo) => !removed.has(photo.id));
+          checkpoint.photos = checkpoint.photos.filter((photo) => !removed.has(photo.id));
+        }
         await store.put(media);
       }
       area.updatedAt = new Date();

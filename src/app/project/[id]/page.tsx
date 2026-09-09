@@ -1,5 +1,7 @@
 'use client';
 
+import { applyCheckpointRules } from '@/lib/checkpointRules';
+
 import ReportContentChoice from '@/components/inspection/ReportContentChoice';
 
 import PrepareSiteVisit from '@/features/offline/PrepareSiteVisit';
@@ -687,6 +689,7 @@ export default function ProjectDetailPage() {
     if (createdAreas.length === 0) return;
 
     projectForAreaCreation.areas.push(...createdAreas);
+    applyCheckpointRules(projectForAreaCreation);
     if (newAreaForm.pendingElevationDrawing) {
       await saveProject(projectForAreaCreation);
     } else {

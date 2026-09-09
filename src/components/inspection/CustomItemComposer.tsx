@@ -1,9 +1,10 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, type ReactNode } from 'react';
 import { X } from 'lucide-react';
 
 type CustomItemComposerProps = {
+  options?: ReactNode;
   open: boolean;
   value: string;
   triggerLabel?: string;
@@ -20,6 +21,7 @@ type CustomItemComposerProps = {
 
 export default function CustomItemComposer({
   open,
+  options,
   value,
   triggerLabel = '+ Item',
   valuePlaceholder = 'Custom item name',
@@ -81,6 +83,7 @@ export default function CustomItemComposer({
   return (
     <div ref={composerRef} className="px-1 pt-1">
       <div className="card-surface-subtle space-y-3 rounded-[1.5rem] p-3">
+        {options}
         <input
           type="text"
           value={value}
