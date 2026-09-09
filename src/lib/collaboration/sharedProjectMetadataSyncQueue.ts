@@ -45,7 +45,9 @@ function dispatchSharedProjectMetadataSync(detail: SharedProjectMetadataSyncEven
 }
 
 function getErrorMessage(error: unknown) {
-  return error instanceof Error ? error.message : 'Shared project details did not finish syncing.';
+  if (error instanceof Error) return error.message;
+  if (error && typeof error === 'object' && 'message' in error && typeof error.message === 'string') return error.message;
+  return 'Shared project details did not finish syncing.';
 }
 
 function shouldPauseAutomaticRetry(error: unknown) {
