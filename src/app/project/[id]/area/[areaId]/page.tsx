@@ -1,5 +1,7 @@
 'use client';
 
+import { rememberAreaReturnTarget } from '@/lib/areaReturnPosition';
+
 import { addCheckpointRule } from '@/lib/checkpointRules';
 
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
@@ -150,6 +152,7 @@ export default function AreaDetailPage() {
   const params = useParams<{ id: string; areaId: string }>();
   const id = Array.isArray(params.id) ? params.id[0] : params.id;
   const areaId = Array.isArray(params.areaId) ? params.areaId[0] : params.areaId;
+  useEffect(() => { rememberAreaReturnTarget(id, areaId); }, [id, areaId]);
   const router = useRouter();
   const cachedProject = useMemo(() => getCachedProjectPreview(id), [id]);
   const cachedArea = cachedProject?.areas.find((entry) => entry.id === areaId && !entry.deletedAt) ?? null;

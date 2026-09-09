@@ -1,5 +1,7 @@
 'use client';
 
+import AreaListReturnPosition from '@/features/projects/AreaListReturnPosition';
+
 import ReportContentChoice from '@/components/inspection/ReportContentChoice';
 
 import { useState, useEffect, useLayoutEffect, useMemo, useRef, useCallback } from 'react';
@@ -2710,6 +2712,7 @@ export default function ProjectsPage() {
       <main
         className="flex-1 min-h-0 overflow-y-auto overscroll-y-contain px-4 pt-5 pb-[calc(env(safe-area-inset-bottom)+6.5rem)] sm:px-5"
       >
+        <AreaListReturnPosition projectId={singleProject?.id} />
         {singleProjectMainView && <ResumeInspectionLink project={singleProject} />}
         {singleProjectMainView && <PrepareSiteVisit project={singleProject} />}
         {showTrash ? (

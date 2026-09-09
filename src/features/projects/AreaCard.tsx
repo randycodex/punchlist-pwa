@@ -58,6 +58,7 @@ export const AreaCard = memo(function AreaCard({
 
   return (
     <div
+      data-area-id={area.id}
       onPointerDown={(event) => {
         if (deleteMode || blockedByClaim) return;
         if (event.pointerType === 'mouse' && event.button !== 0) return;

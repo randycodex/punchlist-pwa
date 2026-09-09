@@ -1,5 +1,7 @@
 'use client';
 
+import AreaListReturnPosition from '@/features/projects/AreaListReturnPosition';
+
 import { applyCheckpointRules } from '@/lib/checkpointRules';
 
 import ReportContentChoice from '@/components/inspection/ReportContentChoice';
@@ -1721,6 +1723,7 @@ export default function ProjectDetailPage() {
       <main
         className="flex-1 min-h-0 overflow-y-scroll overscroll-y-contain touch-pan-y px-4 pt-5 pb-[calc(env(safe-area-inset-bottom)+6.5rem)] sm:px-5"
       >
+        <AreaListReturnPosition projectId={id} />
         {!showTrash && <ResumeInspectionLink project={project} />}
         {!showTrash && <PrepareSiteVisit project={project} />}
         {!showTrash && activeAreas.length === 0 ? (
