@@ -33,21 +33,30 @@ export default function PhotoDropTarget({ children, label, destinations, onSave,
     setPending([]);
     setBatch(null);
     const ids: string[] = [];
-    let skipped = 0;
+    const skipped: string[] = [];
     try {
       for (const [index, file] of files.entries()) {
         setStatus(`Adding ${index + 1} of ${files.length}…`);
-        if ((!file.type.startsWith('image/') && !/\.(jpe?g|png|webp|gif|heic|heif|avif|bmp)$/i.test(file.name)) || file.size > 25 * 1024 * 1024) {
-          skipped++;
+        if (file.size > 25 * 1024 * 1024) {
+          skipped.push(`${file.name}: exceeds 25 MB`);
           continue;
         }
-        const payload = await fileToPhotoPayload(file);
-        if (!payload) { skipped++; continue; }
+        if (!file.type.startsWith('image/') && !/\.(jpe?g|png|webp|gif|heic|heif|avif|bmp)$/i.test(file.name)) {
+          skipped.push(`${file.name}: unsupported file type`);
+          continue;
+        }
+        let payload;
+        try { payload = await fileToPhotoPayload(file); }
+        catch { payload = null; }
+        if (!payload) {
+          skipped.push(`${file.name}: could not read or decode this image; try exporting a new JPG or PNG`);
+          continue;
+        }
         const photo = { ...payload, id: crypto.randomUUID() };
         await onSave(destination.id, [photo]);
         ids.push(photo.id);
       }
-      setStatus(`${ids.length} photos saved to ${label} → ${destination.name}.${skipped ? ` ${skipped} files skipped: use readable images under 25 MB.` : ''}`);
+      setStatus(`${ids.length} photos saved to ${label} → ${destination.name}.${skipped.length ? ` ${skipped.length} files skipped. ${skipped.join('; ')}.` : ''}`);
     } catch {
       setStatus(`${ids.length} photos saved. The remaining photos could not be added. Try again with the remaining files.`);
     } finally {

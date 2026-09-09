@@ -36,7 +36,7 @@ export function getPhotoPayloadFromDataUrl(sourceData: string): Promise<{ imageD
       img.onload = null;
       img.onerror = null;
       img.src = '';
-      resolve(imageData && thumbnail ? { imageData, thumbnail } : null);
+      resolve(imageData ? { imageData, ...(thumbnail ? { thumbnail } : {}) } : null);
     };
     img.onerror = () => {
       img.onload = null;
@@ -47,19 +47,26 @@ export function getPhotoPayloadFromDataUrl(sourceData: string): Promise<{ imageD
   });
 }
 
-export function fileToPhotoPayload(file: File): Promise<{ imageData: string; thumbnail?: string } | null> {
-  return new Promise((resolve) => {
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const sourceData = event.target?.result;
-      if (typeof sourceData !== 'string') {
-        resolve(null);
-        return;
-      }
-      void getPhotoPayloadFromDataUrl(sourceData).then(resolve, () => resolve(null));
-    };
-    reader.onerror = () => resolve(null);
-    reader.onabort = () => resolve(null);
-    reader.readAsDataURL(file);
-  });
+export async function fileToPhotoPayload(file: File): Promise<{ imageData: string; thumbnail?: string } | null> {
+  // Decode the file directly without creating a second, base64 copy of the source.
+  // This also avoids relying on a missing or incorrect file MIME type.
+  if (typeof createImageBitmap === 'function') {
+    let bitmap: ImageBitmap | undefined;
+    try {
+      bitmap = await createImageBitmap(file);
+      const imageData = createScaledImageData(bitmap, bitmap.width, bitmap.height, 1280, 0.72);
+      const thumbnail = createScaledImageData(bitmap, bitmap.width, bitmap.height, 360, 0.6);
+      if (imageData) return { imageData, ...(thumbnail ? { thumbnail } : {}) };
+    } catch {
+      // Some browser/format combinations need the image-element decoder below.
+    } finally {
+      bitmap?.close();
+    }
+  }
+  const url = URL.createObjectURL(file);
+  try {
+    return await getPhotoPayloadFromDataUrl(url);
+  } finally {
+    URL.revokeObjectURL(url);
+  }
 }
