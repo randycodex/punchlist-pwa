@@ -1,5 +1,6 @@
 'use client';
 
+import UnitPhotoDropTarget from './UnitPhotoDropTarget';
 import { memo } from 'react';
 import Link from 'next/link';
 import { ChevronRight } from 'lucide-react';
@@ -28,6 +29,7 @@ type HomeAreaCardProps = {
   displayName: string;
   metric?: HomeAreaCardMetrics;
   claimStatus?: HomeAreaClaimDisplay;
+  onPhotosSaved: () => void;
   deleteMode: boolean;
   isSelected: boolean;
   onToggleSelection: (areaId: string) => void;
@@ -42,6 +44,7 @@ export const HomeAreaCard = memo(function HomeAreaCard({
   displayName,
   metric,
   claimStatus,
+  onPhotosSaved,
   deleteMode,
   isSelected,
   onToggleSelection,
@@ -59,6 +62,7 @@ export const HomeAreaCard = memo(function HomeAreaCard({
   const showOtherClaim = claimStatus?.ownership === 'other';
 
   return (
+    <UnitPhotoDropTarget projectId={project.id} area={area} label={displayName} disabled={deleteMode || blockedByClaim} onSaved={onPhotosSaved}>
     <div
       data-area-id={area.id}
       onPointerDown={(event) => {
@@ -156,5 +160,6 @@ export const HomeAreaCard = memo(function HomeAreaCard({
         </div>
       </div>
     </div>
+    </UnitPhotoDropTarget>
   );
 });

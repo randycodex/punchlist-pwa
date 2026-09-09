@@ -2936,6 +2936,7 @@ export default function ProjectsPage() {
                 const isSelected = selectedAreaIds.has(area.id);
                 return (
                   <HomeAreaCard
+                      onPhotosSaved={() => { scheduleSync(singleProject.id); void loadProjects(); }}
                     key={area.id}
                     project={singleProject}
                     area={area}
@@ -2958,6 +2959,7 @@ export default function ProjectsPage() {
                     const isSelected = selectedAreaIds.has(area.id);
                     return (
                       <HomeAreaCard
+                      onPhotosSaved={() => { scheduleSync(singleProject.id); void loadProjects(); }}
                         key={area.id}
                         project={singleProject}
                         area={area}
