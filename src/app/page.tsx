@@ -260,7 +260,6 @@ export default function ProjectsPage() {
   const [runningCollaborationHealth, setRunningCollaborationHealth] = useState(false);
   const [sortOption, setSortOption] = useState<SortOption>('issues');
   const [areaViewMode, setAreaViewMode] = useState<AreaListViewMode>('grouped');
-  const [showOnlyAreaIssues, setShowOnlyAreaIssues] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
   const [deleteMode, setDeleteMode] = useState(false);
@@ -301,7 +300,7 @@ export default function ProjectsPage() {
     sharedUpdateProjectIds,
     syncConflicts,
   } = useSyncStatus();
-  const { quickSort, setQuickSort, markSyncedNow } = useAppSettings();
+  const { homeShowOnlyIssues: showOnlyAreaIssues, setHomeShowOnlyIssues: setShowOnlyAreaIssues, quickSort, setQuickSort, markSyncedNow } = useAppSettings();
   const selectionMode = deleteMode || exportMode;
   loadProjectsRef.current = loadProjects;
 
@@ -2287,7 +2286,7 @@ export default function ProjectsPage() {
     }
 
     if (detail.action === 'toggle-area-issues') {
-      setShowOnlyAreaIssues((current) => !current);
+      setShowOnlyAreaIssues(!showOnlyAreaIssues);
       return;
     }
 

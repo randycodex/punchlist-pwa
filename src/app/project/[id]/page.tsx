@@ -177,7 +177,6 @@ export default function ProjectDetailPage() {
   const [recentAreaTypeKeys, setRecentAreaTypeKeys] = useState<AreaTypeKey[]>([]);
   const [sortOption, setSortOption] = useState<SortOption>('issues');
   const [areaViewMode, setAreaViewMode] = useState<AreaListViewMode>('grouped');
-  const [showOnlyAreaIssues, setShowOnlyAreaIssues] = useState(false);
   const [showTrash, setShowTrash] = useState(false);
   const [actionSheet, setActionSheet] = useState<'delete' | 'export' | 'export-scope' | null>(null);
   const [reportContent, setReportContent] = useState<'issues' | 'full'>('issues');
@@ -233,7 +232,7 @@ export default function ProjectDetailPage() {
     setSyncConflicts,
     sharedUpdateProjectIds,
   } = useSyncStatus();
-  const { quickSort, markSyncedNow } = useAppSettings();
+  const { projectShowOnlyIssues: showOnlyAreaIssues, setProjectShowOnlyIssues: setShowOnlyAreaIssues, quickSort, markSyncedNow } = useAppSettings();
   loadProjectRef.current = loadProject;
 
   const showMessage = useCallback((message: string, title = 'Punchlist') => {
@@ -1453,7 +1452,7 @@ export default function ProjectDetailPage() {
     }
 
     if (detail.action === 'toggle-area-issues') {
-      setShowOnlyAreaIssues((current) => !current);
+      setShowOnlyAreaIssues(!showOnlyAreaIssues);
       return;
     }
 
