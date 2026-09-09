@@ -221,6 +221,7 @@ const stairsTemplate: TemplateLocation[] = [
 
 function createLivingAreaItems(includeIntercom: boolean): TemplateItem[] {
   return [
+    { name: 'Ceiling', checkpoints: ['Paint', 'Clean'] },
     ...(!includeIntercom ? [{ name: 'Wall', checkpoints: ['Paint', 'Clean'] }] : []),
     { name: 'Paint', checkpoints: ['Walls', 'Ceiling'] },
     { name: 'Flooring', checkpoints: ['Adhesion', 'Edges', 'Joints', 'Finish'] },
@@ -349,7 +350,7 @@ function getApartmentTemplate(unitType?: Area['unitType']): TemplateLocation[] {
   for (let index = 0; index < bedroomCount; index += 1) {
     template.push({
       name: bedroomCount === 1 ? 'Bedroom' : `Bedroom ${index + 1}`,
-      items: [{ name: 'Ceiling', checkpoints: ['Paint', 'Clean'] }, ...createLivingAreaItems(false)],
+      items: createLivingAreaItems(false),
     });
   }
 

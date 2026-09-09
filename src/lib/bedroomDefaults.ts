@@ -7,7 +7,7 @@ export function ensureBedroomCeilings(project: Project): void {
   for (const area of project.areas) {
     if (area.deletedAt || !isApartmentArea(area)) continue;
     for (const room of area.locations) {
-      if (!/^(?:(?:primary|master)\s+)?bedroom(?:\s*\d+)?$/i.test(room.name.trim())) continue;
+      if (!/^(?:(?:(?:primary|master)\s+)?bedroom(?:\s*\d+)?|living(?:\s*\/\s*bedroom)?)$/i.test(room.name.trim())) continue;
       if (room.items.some((item) => item.name.trim().toLowerCase() === 'ceiling')) continue;
       const id = uuidv5(`${room.id}:default-bedroom-ceiling`, uuidv5.URL);
       room.items.push({
