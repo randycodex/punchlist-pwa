@@ -1,12 +1,13 @@
 'use client';
 
-import { useRef, useState, type ReactNode, type DragEvent } from 'react';
+import { useRef, useState, type ReactNode, type DragEvent, type RefObject } from 'react';
 import { fileToPhotoPayload } from '@/lib/photoPayload';
 
 export type DroppedPhoto = { id: string; imageData: string; thumbnail?: string };
 type Destination = { id: string; name: string };
 
-export default function PhotoDropTarget({ children, label, destinations, onSave, onUndo, onCreate }: {
+export default function PhotoDropTarget({ children, label, destinations, onSave, onUndo, onCreate, pickerRef }: {
+  pickerRef?: RefObject<HTMLInputElement | null>;
   onCreate?: (name: string, allUnits: boolean) => Promise<Destination>;
   children: ReactNode;
   label: string;
@@ -24,7 +25,6 @@ export default function PhotoDropTarget({ children, label, destinations, onSave,
   const [busy, setBusy] = useState(false);
   const busyRef = useRef(false);
   const depth = useRef(0);
-  const input = useRef<HTMLInputElement>(null);
 
   async function save(files: File[], destination: Destination) {
     if (busyRef.current) return;
@@ -84,9 +84,8 @@ export default function PhotoDropTarget({ children, label, destinations, onSave,
   >
     {over && <p className="px-4 py-2 text-sm font-medium accent-text">{busy ? 'Please wait for these photos to finish saving' : `Drop photos onto ${label}`}</p>}
     {children}
-    <div data-inspection-inline-action="true" className="px-3 pb-2" onClick={(event) => event.stopPropagation()}>
-      <button type="button" disabled={busy} onClick={() => input.current?.click()} className="min-h-9 px-2 text-xs font-medium accent-text disabled:opacity-50">Add photos</button>
-      <input ref={input} type="file" multiple accept="image/*,.heic,.heif" className="hidden" aria-label={`Add photos to ${label}`} onChange={(event) => { receive(Array.from(event.target.files ?? [])); event.target.value = ''; }} />
+    <input ref={pickerRef} type="file" disabled={busy} multiple accept="image/*,.heic,.heif" className="hidden" aria-label={`Choose photos for ${label}`} onChange={(event) => { receive(Array.from(event.target.files ?? [])); event.target.value = ''; }} />
+    {(pending.length > 0 || status || batch) && <div data-inspection-inline-action="true" className="px-3 pb-2" onClick={(event) => event.stopPropagation()}>
       {pending.length > 0 && <div className="space-y-2 py-2">
         <p className="text-sm">Add {pending.length} photos to {label}:</p>
         {destinations.map((destination) => <button key={destination.id} type="button" disabled={busy} className="m-1 min-h-11 rounded-xl px-3 soft-control text-sm" onClick={() => void save(pending, destination)}>{destination.name}</button>)}
@@ -118,6 +117,6 @@ export default function PhotoDropTarget({ children, label, destinations, onSave,
         catch { setStatus('Could not undo this batch. Try again.'); }
         finally { busyRef.current = false; setBusy(false); }
       }}>Undo batch</button>}
-    </div>
+    </div>}
   </div>;
 }

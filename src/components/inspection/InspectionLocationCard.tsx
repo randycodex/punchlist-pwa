@@ -997,11 +997,12 @@ function CheckpointRow({
   onOpenCamera: () => void;
   extraActions?: ReactNode;
 }) {
+  const photoPickerRef = useRef<HTMLInputElement>(null);
   const photoCount = checkpoint.photos.length;
   const hasComments = checkpoint.comments.trim().length > 0;
 
   return (
-    <PhotoDropTarget label={photoDrop.label} destinations={[{ id: checkpoint.id, name: checkpoint.name }]} onSave={(_id, photos) => photoDrop.onSave(photos)} onUndo={(_id, ids) => photoDrop.onUndo(ids)}>
+    <PhotoDropTarget pickerRef={photoPickerRef} label={photoDrop.label} destinations={[{ id: checkpoint.id, name: checkpoint.name }]} onSave={(_id, photos) => photoDrop.onSave(photos)} onUndo={(_id, ids) => photoDrop.onUndo(ids)}>
     <div
       ref={editableLabel ? editContainerRef : undefined}
       className={`inspection-checkpoint-row rounded-[1.15rem] px-3.5 py-2 transition ${
@@ -1080,14 +1081,18 @@ function CheckpointRow({
                 data-inspection-inline-action="true"
                 onClick={(event) => {
                   event.stopPropagation();
-                  onOpenCamera();
+                  if (window.matchMedia('(any-pointer: fine)').matches) {
+                    photoPickerRef.current?.click();
+                  } else {
+                    onOpenCamera();
+                  }
                 }}
                 className={`flex min-h-11 min-w-11 items-center justify-center gap-1.5 px-2.5 text-xs font-medium rounded-[0.8rem] transition ${
                   photoCount > 0
                     ? 'accent-bg text-white'
                     : 'soft-control text-gray-400 hover:bg-white hover:text-gray-700 dark:text-gray-400 dark:hover:bg-white/[0.08] dark:hover:text-gray-100'
                 }`}
-                aria-label={`Take multiple photos for ${checkpoint.name}`}
+                aria-label={`Add photos for ${checkpoint.name}`}
               >
                 <Camera className="h-4 w-4" /><span>Photo{photoCount ? ` ${photoCount}` : ""}</span>
               </button>

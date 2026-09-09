@@ -1,6 +1,6 @@
 # Photo drop and shared checkpoint rules
 
-Desktop users can drop multiple image files onto an item or checkpoint, or choose Add photos. A checkpoint accepts a batch directly. An item offers its checkpoints plus New checkpoint. Images are resized sequentially using the existing photo conversion code and saved through capture recovery. Undo removes only the saved photo IDs from the last batch using a checkpoint-level transaction.
+Desktop users can drop multiple image files onto an item or checkpoint, or use the existing Photo button to select multiple files on a desktop. Touch-only devices retain camera capture. There are no separate Add photos controls. A checkpoint accepts a batch directly. An item offers its checkpoints plus New checkpoint. Images are resized sequentially using the existing photo conversion code and saved through capture recovery. Undo removes only the saved photo IDs from the last batch using a checkpoint-level transaction.
 
 New checkpoint creation offers an unchecked option to add the checkpoint to the same room and item in all existing and future apartment units. This option is also available in the existing Add checkpoint composer. Matching ignores case and repeated whitespace. Existing checkpoint results and photos are preserved. Photos attach only to the original destination. Rules are additive; this change does not provide a project-rule removal editor.
 
