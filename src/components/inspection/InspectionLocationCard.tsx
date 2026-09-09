@@ -289,6 +289,25 @@ export default function InspectionLocationCard({
   }
 
   return (
+    <PhotoDropTarget
+      label={`${areaLabel ? `${areaLabel} › ` : ''}${location.name}`}
+      destinations={[]}
+      destinationGroups={location.items.map((item) => ({
+        id: item.id, name: item.name,
+        destinations: item.checkpoints.map(({ id, name }) => ({ id, name })),
+        onCreate: (name, allUnits) => onCreatePhotoCheckpoint(location.id, item.id, name, allUnits),
+      }))}
+      onSave={async (checkpointId, photos) => {
+        const item = location.items.find((entry) => entry.checkpoints.some((checkpoint) => checkpoint.id === checkpointId));
+        if (!item) throw new Error('The selected checkpoint is no longer available.');
+        await onDropPhotos(location.id, item.id, checkpointId, photos);
+      }}
+      onUndo={async (checkpointId, ids) => {
+        const item = location.items.find((entry) => entry.checkpoints.some((checkpoint) => checkpoint.id === checkpointId));
+        if (!item) throw new Error('The selected checkpoint is no longer available.');
+        await onUndoDroppedPhotos(location.id, item.id, checkpointId, ids);
+      }}
+    >
     <div
       className={
         hideHeader
@@ -961,6 +980,7 @@ export default function InspectionLocationCard({
         </div>
       )}
     </div>
+    </PhotoDropTarget>
   );
 }
 

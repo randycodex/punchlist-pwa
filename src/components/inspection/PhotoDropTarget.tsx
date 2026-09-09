@@ -6,7 +6,8 @@ import { fileToPhotoPayload } from '@/lib/photoPayload';
 export type DroppedPhoto = { id: string; imageData: string; thumbnail?: string };
 type Destination = { id: string; name: string };
 
-export default function PhotoDropTarget({ children, label, destinations, onSave, onUndo, onCreate, pickerRef }: {
+export default function PhotoDropTarget({ children, label, destinations, onSave, onUndo, onCreate, pickerRef, destinationGroups }: {
+  destinationGroups?: Array<{ id: string; name: string; destinations: Destination[]; onCreate?: (name: string, allUnits: boolean) => Promise<Destination> }>;
   pickerRef?: RefObject<HTMLInputElement | null>;
   onCreate?: (name: string, allUnits: boolean) => Promise<Destination>;
   children: ReactNode;
@@ -15,6 +16,10 @@ export default function PhotoDropTarget({ children, label, destinations, onSave,
   onSave: (checkpointId: string, photos: DroppedPhoto[]) => Promise<void>;
   onUndo: (checkpointId: string, ids: string[]) => Promise<void>;
 }) {
+  const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
+  const selectedGroup = destinationGroups?.find((group) => group.id === selectedGroupId);
+  const availableDestinations = selectedGroup?.destinations ?? destinations;
+  const createDestination = destinationGroups ? selectedGroup?.onCreate : onCreate;
   const [allUnits, setAllUnits] = useState(false);
   const [newName, setNewName] = useState('');
   const [creating, setCreating] = useState(false);
@@ -68,8 +73,8 @@ export default function PhotoDropTarget({ children, label, destinations, onSave,
 
   function receive(files: File[]) {
     if (busyRef.current || !files.length) return;
-    if (destinations.length === 1 && !onCreate) void save(files, destinations[0]);
-    else { setPending(files); setCreating(false); setNewName(''); setAllUnits(false); }
+    if (!destinationGroups && destinations.length === 1 && !onCreate) void save(files, destinations[0]);
+    else { setSelectedGroupId(null); setPending(files); setCreating(false); setNewName(''); setAllUnits(false); }
   }
 
   function drag(event: DragEvent<HTMLDivElement>) {
@@ -97,14 +102,20 @@ export default function PhotoDropTarget({ children, label, destinations, onSave,
     {(pending.length > 0 || status || batch) && <div data-inspection-inline-action="true" className="px-3 pb-2" onClick={(event) => event.stopPropagation()}>
       {pending.length > 0 && <div className="space-y-2 py-2">
         <p className="text-sm">Add {pending.length} photos to {label}:</p>
-        {destinations.map((destination) => <button key={destination.id} type="button" disabled={busy} className="m-1 min-h-11 rounded-xl px-3 soft-control text-sm" onClick={() => void save(pending, destination)}>{destination.name}</button>)}
-        {onCreate && <button type="button" disabled={busy} className="min-h-11 px-3 text-sm accent-text" onClick={() => setCreating(true)}>New checkpoint…</button>}
+        {destinationGroups && !selectedGroup && <>
+          <p className="text-sm font-medium">Choose an item:</p>
+          {destinationGroups.map((group) => <button key={group.id} type="button" className="m-1 min-h-11 rounded-xl px-3 soft-control text-sm" onClick={() => setSelectedGroupId(group.id)}>{group.name}</button>)}
+          {!destinationGroups.length && <p className="text-sm">Add an item to this sub-area first.</p>}
+        </>}
+        {selectedGroup && <div className="text-sm"><button type="button" className="min-h-11 px-2 accent-text" onClick={() => { setSelectedGroupId(null); setCreating(false); setNewName(''); setAllUnits(false); }}>← Items</button><span>{selectedGroup.name} — choose a checkpoint:</span></div>}
+        {availableDestinations.map((destination) => <button key={destination.id} type="button" disabled={busy} className="m-1 min-h-11 rounded-xl px-3 soft-control text-sm" onClick={() => void save(pending, destination)}>{destination.name}</button>)}
+        {createDestination && <button type="button" disabled={busy} className="min-h-11 px-3 text-sm accent-text" onClick={() => setCreating(true)}>New checkpoint…</button>}
         {creating && <form className="flex flex-wrap gap-2" onSubmit={async (event) => {
           event.preventDefault();
-          if (!onCreate || !newName.trim() || busyRef.current) return;
+          if (!createDestination || !newName.trim() || busyRef.current) return;
           busyRef.current = true; setBusy(true);
           try {
-            const destination = await onCreate(newName.trim(), allUnits);
+            const destination = await createDestination(newName.trim(), allUnits);
             busyRef.current = false;
             await save(pending, destination);
             setCreating(false); setNewName('');
