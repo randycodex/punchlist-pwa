@@ -104,10 +104,17 @@ export default function AreaGroupList({ areas, renderArea, unitFloorNumbering }:
             {!isCollapsed && (
               <div id={contentId} className="list-stack mt-2">
                 {group.key === 'units' ? groupUnitsByFloor(groupedAreas, unitFloorNumbering).map(({ floor, units }) => (
-                  <section key={floor ?? '__unknown'} className="space-y-2">
-                    <h3 className="px-2 pt-3 text-sm font-semibold text-gray-600 dark:text-gray-300">{floor === null ? 'Floor not set' : `Floor ${floor}`} <span className="ml-2 font-normal text-gray-400">{units.length} {units.length === 1 ? 'unit' : 'units'}</span></h3>
-                    {units.map(renderArea)}
-                  </section>
+                  <details key={floor ?? '__unknown'} open className="group/floor space-y-2">
+                    <summary className="soft-control flex w-full cursor-pointer list-none items-center justify-between rounded-[1.2rem] px-4 py-3 text-left text-sm font-semibold text-gray-600 transition hover:bg-white dark:text-gray-300 dark:hover:bg-white/[0.08] [&::-webkit-details-marker]:hidden">
+                      <span>{floor === null ? 'Floor not set' : `Floor ${floor}`}</span>
+                      <span className="flex items-center gap-2 text-xs font-normal text-gray-400">
+                        {units.length} {units.length === 1 ? 'unit' : 'units'}
+                        <ChevronRight aria-hidden="true" className="h-4 w-4 group-open/floor:hidden" />
+                        <ChevronDown aria-hidden="true" className="hidden h-4 w-4 group-open/floor:block" />
+                      </span>
+                    </summary>
+                    <div className="list-stack">{units.map(renderArea)}</div>
+                  </details>
                 )) : groupedAreas.map(renderArea)}
               </div>
             )}
