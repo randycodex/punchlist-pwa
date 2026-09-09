@@ -1,6 +1,7 @@
 'use client';
 
 import UnitPhotoDropTarget from './UnitPhotoDropTarget';
+import { useAppSettings } from '@/contexts/AppSettingsContext';
 import { memo } from 'react';
 import Link from 'next/link';
 import { ChevronRight } from 'lucide-react';
@@ -54,6 +55,7 @@ export const AreaCard = memo(function AreaCard({
   onPrimeOpen,
   onOpenArea,
 }: AreaCardProps) {
+  const { projectShowOnlyIssues, setInspectionShowOnlyIssues } = useAppSettings();
   const areaStats = metric?.stats ?? { total: 0, ok: 0, issues: 0 };
   const photoCount = metric?.photoCount ?? 0;
   const blockedByClaim = claimStatus?.ownership === 'other';
@@ -96,6 +98,7 @@ export const AreaCard = memo(function AreaCard({
               if (blockedByClaim) onBlockedByClaim();
               return;
             }
+            setInspectionShowOnlyIssues(projectShowOnlyIssues);
             onOpenArea(area.id);
           }}
           onContextMenu={(event) => {
@@ -135,6 +138,7 @@ export const AreaCard = memo(function AreaCard({
                 if (blockedByClaim) onBlockedByClaim();
                 return;
               }
+              setInspectionShowOnlyIssues(projectShowOnlyIssues);
               onOpenArea(area.id);
             }}
             onContextMenu={(event) => {
