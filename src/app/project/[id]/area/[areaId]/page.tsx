@@ -1453,6 +1453,9 @@ export default function AreaDetailPage() {
       return { id: checkpoint.id, name: checkpoint.name };
     }
     const checkpoint = createCheckpoint(item.id, trimmed, item.checkpoints.length, { isCustom: true });
+    checkpoint.status = 'needsReview';
+    checkpoint.issueState = 'open';
+    checkpoint.fixStatus = 'pending';
     item.checkpoints.push(checkpoint);
     syncAreaCompletion(area);
     try { await saveProjectAreaMetadataOnly(project, area.id); }

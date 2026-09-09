@@ -1,3 +1,4 @@
+import { ensureBedroomCeilings } from '@/lib/bedroomDefaults';
 import { isApartmentArea } from '@/lib/areas';
 import { v5 as uuidv5 } from 'uuid';
 import type { Project } from '@/types';
@@ -23,6 +24,7 @@ export function parseCheckpointRules(value: unknown): CheckpointRule[] {
 // Rules are additive schema, not edits to another inspector's checkpoint results.
 // Stable IDs let independently synced teammates materialize the same checkpoint.
 export function applyCheckpointRules(project: Project): Project {
+  ensureBedroomCeilings(project);
   for (const area of project.areas) {
     if (area.deletedAt || !isApartmentArea(area)) continue;
     for (const rule of project.checkpointRules ?? []) {
@@ -32,7 +34,7 @@ export function applyCheckpointRules(project: Project): Project {
           item.checkpoints.push({
             id: uuidv5(`${item.id}:${normalize(rule.name)}`, uuidv5.URL),
             itemId: item.id, name: rule.name, isCustom: true,
-            status: 'pending', fixStatus: 'pending', issueState: 'none', comments: '',
+            status: 'needsReview', fixStatus: 'pending', issueState: 'open', comments: '',
             sortOrder: item.checkpoints.length, photos: [], files: [],
             createdAt: project.createdAt, updatedAt: project.createdAt,
           });

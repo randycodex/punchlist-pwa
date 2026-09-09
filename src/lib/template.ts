@@ -349,7 +349,7 @@ function getApartmentTemplate(unitType?: Area['unitType']): TemplateLocation[] {
   for (let index = 0; index < bedroomCount; index += 1) {
     template.push({
       name: bedroomCount === 1 ? 'Bedroom' : `Bedroom ${index + 1}`,
-      items: createLivingAreaItems(false),
+      items: [{ name: 'Ceiling', checkpoints: ['Paint', 'Clean'] }, ...createLivingAreaItems(false)],
     });
   }
 
