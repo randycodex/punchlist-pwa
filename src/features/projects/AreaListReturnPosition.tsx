@@ -35,7 +35,14 @@ export default function AreaListReturnPosition({ projectId }: { projectId?: stri
       if (stopped || !scroller) return;
       const card = Array.from(scroller.querySelectorAll<HTMLElement>('[data-area-id]'))
         .find((node) => node.dataset.areaId === areaId);
-      if (!card || !card.getClientRects().length) return;
+      if (!card) return;
+      // Reveal the visited unit while keeping other floors collapsed.
+      let ancestor = card.parentElement;
+      while (ancestor && ancestor !== scroller) {
+        if (ancestor instanceof HTMLDetailsElement) ancestor.open = true;
+        ancestor = ancestor.parentElement;
+      }
+      if (!card.getClientRects().length) return;
       const bounds = scroller.getBoundingClientRect();
       const target = card.getBoundingClientRect();
       scroller.scrollTop += target.top - bounds.top - Math.max(0, (scroller.clientHeight - target.height) / 2);

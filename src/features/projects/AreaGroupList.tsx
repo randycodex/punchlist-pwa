@@ -104,7 +104,7 @@ export default function AreaGroupList({ areas, renderArea, unitFloorNumbering }:
             {!isCollapsed && (
               <div id={contentId} className="list-stack mt-2">
                 {group.key === 'units' ? groupUnitsByFloor(groupedAreas, unitFloorNumbering).map(({ floor, units }) => (
-                  <details key={floor ?? '__unknown'} open className="group/floor space-y-2">
+                  <details key={floor ?? '__unknown'} className="group/floor space-y-2">
                     <summary className="soft-control flex w-full cursor-pointer list-none items-center justify-between rounded-[1.2rem] px-4 py-3 text-left text-sm font-semibold text-gray-600 transition hover:bg-white dark:text-gray-300 dark:hover:bg-white/[0.08] [&::-webkit-details-marker]:hidden">
                       <span>{floor === null ? 'Floor not set' : `Floor ${floor}`}</span>
                       <span className="flex items-center gap-2 text-xs font-normal text-gray-400">
