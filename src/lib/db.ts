@@ -926,6 +926,11 @@ export async function saveCheckpointInspectionChange(
         checkpoint.comments = current === value || (value && current.endsWith(`\n${value}`)) || (options.recoveredVoice && value && current.trimEnd().endsWith(value.trim())) ? current : current === baseValue ? value : `${current.trimEnd()}\n${value}`.trim();
       }
       Object.assign(checkpoint, change, { updatedAt: new Date() });
+      if (photos.length && checkpoint.isCustom) {
+        checkpoint.status = 'needsReview';
+        checkpoint.issueState = 'open';
+        checkpoint.fixStatus = 'pending';
+      }
       if (photos.length || options.removePhotoIds?.length) {
         const store = tx.objectStore('checkpointMedia');
         const media = await store.get(checkpointId) ?? { checkpointId, projectId, areaId, photos: [], files: [] };

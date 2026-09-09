@@ -30,11 +30,28 @@ export function applyCheckpointRules(project: Project): Project {
     for (const rule of project.checkpointRules ?? []) {
       for (const location of area.locations.filter((entry) => normalize(entry.name) === normalize(rule.room))) {
         for (const item of location.items.filter((entry) => normalize(entry.name) === normalize(rule.item))) {
-          if (item.checkpoints.some((entry) => normalize(entry.name) === normalize(rule.name))) continue;
+          const existing = item.checkpoints.find((entry) => normalize(entry.name) === normalize(rule.name));
+          if (existing) {
+            // Repair untouched Soffit copies from the former issue-by-default rule.
+            // Recorded inspection actions change updatedAt; preserve all such results.
+            const unitNumber = (area.areaNumber || area.name.match(/^Unit\s*-\s*(.+?)\s*-/i)?.[1] || area.name).trim();
+            const hasOriginalUnit = project.areas.some((entry) =>
+              normalize(entry.areaNumber || entry.name.match(/^Unit\s*-\s*(.+?)\s*-/i)?.[1] || entry.name) === '14b');
+            if (normalize(rule.name) === 'soffit' && hasOriginalUnit && normalize(unitNumber) !== '14b'
+              && existing.id === uuidv5(`${item.id}:${normalize(rule.name)}`, uuidv5.URL)
+              && existing.isCustom && existing.status === 'needsReview' && existing.issueState === 'open'
+              && existing.fixStatus === 'pending' && !existing.comments.trim()
+              && !existing.photos.length && !existing.files?.length
+              && new Date(existing.updatedAt).getTime() === new Date(project.createdAt).getTime()) {
+              existing.status = 'pending';
+              existing.issueState = 'none';
+            }
+            continue;
+          }
           item.checkpoints.push({
             id: uuidv5(`${item.id}:${normalize(rule.name)}`, uuidv5.URL),
             itemId: item.id, name: rule.name, isCustom: true,
-            status: 'needsReview', fixStatus: 'pending', issueState: 'open', comments: '',
+            status: 'pending', fixStatus: 'pending', issueState: 'none', comments: '',
             sortOrder: item.checkpoints.length, photos: [], files: [],
             createdAt: project.createdAt, updatedAt: project.createdAt,
           });

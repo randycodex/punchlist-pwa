@@ -1416,6 +1416,11 @@ export default function AreaDetailPage() {
     await saveRecoverablePhotos(project.id, area.id, checkpointId, attachments);
     const existing = new Set(checkpoint.photos.map((photo) => photo.id));
     checkpoint.photos.push(...attachments.filter((photo) => !existing.has(photo.id)));
+    if (attachments.length && checkpoint.isCustom) {
+      checkpoint.status = 'needsReview';
+      checkpoint.issueState = 'open';
+      checkpoint.fixStatus = 'pending';
+    }
     checkpoint.updatedAt = new Date();
     syncAreaCompletion(area);
     scheduleSync(project.id);
@@ -1445,8 +1450,13 @@ export default function AreaDetailPage() {
       if (!refreshed) throw new Error('Could not reload the saved checkpoint.');
       const refreshedArea = refreshed.areas.find((entry) => entry.id === area.id)!;
       const checkpoint = refreshedArea.locations.find((entry) => entry.id === locationId)!.items.find((entry) => entry.id === itemId)!.checkpoints.find((entry) => inspectionNamesMatch(entry.name, trimmed))!;
+      await saveCheckpointInspectionChange(project.id, area.id, checkpoint.id, { status: 'needsReview', issueState: 'open', fixStatus: 'pending' });
+      Object.assign(checkpoint, { status: 'needsReview', issueState: 'open', fixStatus: 'pending' });
+      syncAreaCompletion(refreshedArea);
       // Keep this callback's captured item in step with the saved deterministic checkpoint.
-      if (!item.checkpoints.some((entry) => entry.id === checkpoint.id)) item.checkpoints.push(checkpoint);
+      const capturedCheckpoint = item.checkpoints.find((entry) => entry.id === checkpoint.id);
+      if (capturedCheckpoint) Object.assign(capturedCheckpoint, checkpoint);
+      else item.checkpoints.push(checkpoint);
       scheduleSync(project.id);
       setProject(refreshed);
       setArea(refreshedArea);

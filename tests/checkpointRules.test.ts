@@ -22,6 +22,18 @@ function fixture() {
 const rule = { room: 'Kitchen', item: 'Ceiling', name: 'Cracks' };
 
 describe('project checkpoint rules', () => {
+  it('repairs untouched automatic Soffit issues except the original 14B and inspected copies', () => {
+    const project = fixture();
+    addCheckpointRule(project, { ...rule, name: 'Soffit' });
+    const copies = project.areas.map((area) => area.locations[0].items[0].checkpoints[1]);
+    for (const checkpoint of copies) Object.assign(checkpoint, { status: 'needsReview', issueState: 'open' });
+    applyCheckpointRules(project);
+    expect(copies[0].issueState).toBe('none');
+    expect(copies[1].issueState).toBe('open');
+    Object.assign(copies[0], { status: 'needsReview', issueState: 'open', updatedAt: new Date(project.createdAt.getTime() + 1000) });
+    applyCheckpointRules(project);
+    expect(copies[0].issueState).toBe('open');
+  });
   it('adds only matching checkpoints, preserves results, and is idempotent', () => {
     const project = fixture();
     project.areas[0].locations[0].items[0].checkpoints[0].comments = 'Keep this note';
@@ -29,7 +41,7 @@ describe('project checkpoint rules', () => {
     for (const area of project.areas) {
       expect(area.locations[0].items[0].checkpoints.map((c) => c.name)).toEqual(['Paint', 'Cracks']);
       expect(area.locations[1].items[0].checkpoints).toHaveLength(1);
-      expect(area.locations[0].items[0].checkpoints[1]).toMatchObject({ photos: [], status: 'needsReview', issueState: 'open', fixStatus: 'pending' });
+      expect(area.locations[0].items[0].checkpoints[1]).toMatchObject({ photos: [], status: 'pending', issueState: 'none', fixStatus: 'pending' });
     }
     expect(project.areas[0].locations[0].items[0].checkpoints[0].comments).toBe('Keep this note');
   });
@@ -44,7 +56,7 @@ describe('project checkpoint rules', () => {
     const future = structuredClone(first.areas[0]); future.id = crypto.randomUUID();
     future.locations[0].items[0].id = crypto.randomUUID(); future.locations[0].items[0].checkpoints = [];
     remote.areas.push(future); applyCheckpointRules(remote);
-    expect(future.locations[0].items[0].checkpoints[0]).toMatchObject({ name: 'Cracks', issueState: 'open', status: 'needsReview' });
+    expect(future.locations[0].items[0].checkpoints[0]).toMatchObject({ name: 'Cracks', issueState: 'none', status: 'pending' });
     future.locations[0].items[0].checkpoints[0].status = 'ok';
     future.locations[0].items[0].checkpoints[0].issueState = 'none';
     applyCheckpointRules(remote);
@@ -62,6 +74,10 @@ describe('project checkpoint rules', () => {
     const reloaded = (await getProject(project.id))!;
     expect(reloaded.areas[0].locations[0].items[0].checkpoints[1].comments).toBe('Only 14A');
     expect(reloaded.areas[1].locations[0].items[0].checkpoints[1].comments).toBe('');
+    await saveCheckpointInspectionChange(project.id, saved.areas[0].id, checkpoint.id, {}, [createPhotoAttachment(checkpoint.id, 'data:image/png;base64,AA==')]);
+    const withPhoto = (await getProject(project.id))!;
+    expect(withPhoto.areas[0].locations[0].items[0].checkpoints[1].issueState).toBe('open');
+    expect(withPhoto.areas[1].locations[0].items[0].checkpoints[1].issueState).toBe('none');
   });
   it('undo removes only the batch while preserving a later photo and checkpoint edits', async () => {
     const project = fixture(); await saveProjectPreserveTimestamps(project);
