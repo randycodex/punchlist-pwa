@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { ChevronDown, ChevronRight } from 'lucide-react';
 import { AREA_TYPE_DEFINITIONS, getAreaGroupKey, type AreaGroupKey } from '@/lib/areas';
-import type { Area } from '@/types';
+import { getAreaStats, type Area } from '@/types';
 import { groupUnitsByFloor, type UnitFloorNumbering } from '@/lib/unitFloors';
 import { shouldRenderAreaGroup } from './areaListView';
 
@@ -11,6 +11,8 @@ type AreaGroupListProps = {
   unitFloorNumbering?: UnitFloorNumbering;
   areas: Area[];
   renderArea: (area: Area) => ReactNode;
+  selectedAreaIds?: ReadonlySet<string>;
+  onSelectAreas?: (areaIds: string[], selected: boolean) => void;
 };
 
 const groupDefinitions: Array<{ key: AreaGroupKey; label: string }> = [
@@ -24,7 +26,7 @@ const groupDefinitions: Array<{ key: AreaGroupKey; label: string }> = [
     })),
 ];
 
-export default function AreaGroupList({ areas, renderArea, unitFloorNumbering }: AreaGroupListProps) {
+export default function AreaGroupList({ areas, renderArea, unitFloorNumbering, selectedAreaIds, onSelectAreas }: AreaGroupListProps) {
   const [collapsedGroups, setCollapsedGroups] = useState<Set<AreaGroupKey>>(new Set());
   const areaCountsByGroup = useMemo(
     () => areas.reduce((counts, area) => {
@@ -76,6 +78,9 @@ export default function AreaGroupList({ areas, renderArea, unitFloorNumbering }:
       {groupedEntries.map(({ group, areas: groupedAreas }) => {
         const isCollapsed = collapsedGroups.has(group.key);
         const contentId = `area-group-${group.key}`;
+        const allSelected = groupedAreas.every((area) => selectedAreaIds?.has(area.id));
+        const areasWithIssues = onSelectAreas ? groupedAreas.filter((area) => getAreaStats(area).issues > 0) : [];
+        const allIssuesSelected = areasWithIssues.length > 0 && areasWithIssues.every((area) => selectedAreaIds?.has(area.id));
 
         return (
           <section key={group.key} aria-labelledby={`${contentId}-label`}>
@@ -101,6 +106,31 @@ export default function AreaGroupList({ areas, renderArea, unitFloorNumbering }:
                 {isCollapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
               </span>
             </button>
+            {onSelectAreas && (
+              <div className="mt-2 flex flex-wrap items-center gap-2 px-1">
+                <button
+                  type="button"
+                  className="segmented-chip min-h-11 px-3 py-2 text-sm"
+                  aria-label={`${allSelected ? 'Deselect' : 'Select'} all ${group.label}`}
+                  onClick={() => onSelectAreas(groupedAreas.map((area) => area.id), !allSelected)}
+                >
+                  {allSelected ? 'Deselect all' : 'Select all'} ({groupedAreas.length})
+                </button>
+                {areasWithIssues.length > 0 && (
+                  <button
+                    type="button"
+                    className="segmented-chip min-h-11 px-3 py-2 text-sm"
+                    aria-label={`${allIssuesSelected ? 'Deselect' : 'Select'} all ${group.label} with issues`}
+                    onClick={() => onSelectAreas(areasWithIssues.map((area) => area.id), !allIssuesSelected)}
+                  >
+                    {allIssuesSelected ? 'Deselect with issues' : 'Select all with issues'} ({areasWithIssues.length})
+                  </button>
+                )}
+                <span className="text-xs text-gray-500 dark:text-gray-400" aria-live="polite">
+                  {groupedAreas.filter((area) => selectedAreaIds?.has(area.id)).length} selected
+                </span>
+              </div>
+            )}
             {!isCollapsed && (
               <div id={contentId} className="list-stack mt-2">
                 {group.key === 'units' ? groupUnitsByFloor(groupedAreas, unitFloorNumbering).map(({ floor, units }) => (

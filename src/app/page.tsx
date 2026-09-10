@@ -1135,6 +1135,17 @@ export default function ProjectsPage() {
     setSelectedProjectIds(new Set([projectId]));
   }, []);
 
+  const selectAreaGroup = useCallback((areaIds: string[], selected: boolean) => {
+    setSelectedAreaIds((current) => {
+      const next = new Set(current);
+      for (const id of areaIds) {
+        if (selected) next.add(id);
+        else next.delete(id);
+      }
+      return next;
+    });
+  }, []);
+
   const toggleAreaSelection = useCallback((id: string) => {
     setSelectedAreaIds((prev) => {
       const next = new Set(prev);
@@ -2930,7 +2941,7 @@ export default function ProjectsPage() {
               </div>
             ) : (
               areaViewMode === 'grouped' ? (
-                <AreaGroupList unitFloorNumbering={singleProject.unitFloorNumbering} areas={visibleAreas} renderArea={(area) => {
+                <AreaGroupList selectedAreaIds={selectedAreaIds} onSelectAreas={deleteMode ? selectAreaGroup : undefined} unitFloorNumbering={singleProject.unitFloorNumbering} areas={visibleAreas} renderArea={(area) => {
                 const metric = areaMetrics.get(area.id);
                 const isSelected = selectedAreaIds.has(area.id);
                 return (
