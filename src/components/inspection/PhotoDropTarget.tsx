@@ -101,7 +101,6 @@ export default function PhotoDropTarget({ children, label, destinations, onSave,
       receive(Array.from(event.dataTransfer.files));
     }}
   >
-    {over && <p className="px-4 py-2 text-sm font-medium accent-text">{busy ? 'Please wait for these photos to finish saving' : `Drop photos onto ${label}`}</p>}
     {children}
     <input ref={pickerRef} type="file" disabled={busy} multiple accept="image/*,.heic,.heif" className="hidden" aria-label={`Choose photos for ${label}`} onChange={(event) => { receive(Array.from(event.target.files ?? [])); event.target.value = ''; }} />
     {(pending.length > 0 || status || batch) && <div data-inspection-inline-action="true" className="px-3 pb-2" onClick={(event) => event.stopPropagation()}>
