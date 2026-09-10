@@ -1,4 +1,5 @@
 import { jsPDF } from 'jspdf';
+import { comparePdfAreas } from '@/lib/pdfAreaOrder';
 import { Area, Checkpoint, FacadeElevationDrawing, Item, Location, Project, checkpointHasIssue, getCheckpointIssueState } from '@/types';
 import {
   buildElevationMarkerReferenceMap,
@@ -465,7 +466,9 @@ function estimateLocationBlockHeight(pdf: jsPDF, location: ExportLocation, layou
 
 function getActiveAreas(project: Project, options?: PdfExportOptions) {
   const areaIds = options?.areaIds ? new Set(options.areaIds) : null;
-  return project.areas.filter((area) => !area.deletedAt && (!areaIds || areaIds.has(area.id)));
+  return project.areas
+    .filter((area) => !area.deletedAt && (!areaIds || areaIds.has(area.id)))
+    .sort((a, b) => comparePdfAreas(a, b, project.unitFloorNumbering));
 }
 
 function checkpointShouldRenderAsPdfIssue(checkpoint: Checkpoint) {
