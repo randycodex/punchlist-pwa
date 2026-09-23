@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { Project } from '@/types';
-import { findPreferredLocalSharedProject, getSharedProjectDirectoryLocalStatus } from '@/features/collaboration/sharedProjectDirectoryLocal';
+import { findPreferredLocalSharedProject, getInactiveLocalSharedProjects, getSharedProjectDirectoryLocalStatus } from '@/features/collaboration/sharedProjectDirectoryLocal';
 
 const homePage = readFileSync(resolve(process.cwd(), 'src/app/page.tsx'), 'utf8');
 const persistentTopBar = readFileSync(
@@ -41,6 +41,18 @@ describe('shared project directory local status', () => {
       projectId: 'shared-1', localProjectId: local.id,
     })).toEqual({ isLinkedOnDevice: false, isInTrash: false, needsReconnect: true });
     expect(homePage).toContain("'Connect existing copy'");
+  });
+
+  it('reports an active local team copy missing from the account directory once', () => {
+    const first = project('first-copy');
+    const second = project('second-copy');
+    const trashed = project('old-trash', new Date());
+    const activeElsewhere = project('other-team');
+    activeElsewhere.sharedProjectId = 'shared-2';
+
+    expect(getInactiveLocalSharedProjects([first, second, trashed, activeElsewhere], [
+      { projectId: 'shared-2' },
+    ])).toEqual([first]);
   });
 
   it('opens Trash when the shared project local copy is trashed', () => {

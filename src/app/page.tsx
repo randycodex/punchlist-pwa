@@ -58,7 +58,7 @@ import {
   findDetachedSharedProject,
   relinkDetachedSharedProject,
 } from '@/features/collaboration/detachedSharedProject';
-import { findPreferredLocalSharedProject, getSharedProjectDirectoryLocalStatus } from '@/features/collaboration/sharedProjectDirectoryLocal';
+import { findPreferredLocalSharedProject, getInactiveLocalSharedProjects, getSharedProjectDirectoryLocalStatus } from '@/features/collaboration/sharedProjectDirectoryLocal';
 import { ProjectCard, type ProjectCardMetrics as ProjectMetrics } from '@/features/projects/ProjectCard';
 import { compareProjectCopies, isLikelyPersonalProjectCopy } from '@/features/projects/compareProjectCopies';
 import { areasChangedSinceTeamCopy, areasWithMissingMedia, mergeDuplicatePersonalProjects, mergeDuplicateTeamProjects, projectCheckpointCount } from '@/features/projects/mergeDuplicateTeamProjects';
@@ -558,6 +558,9 @@ export default function ProjectsPage() {
       if (collaborationAuth.isSignedIn) {
         try {
           const directory = await listMySharedProjects();
+          for (const project of getInactiveLocalSharedProjects(await getAllProjects(), directory)) {
+            problems.push(`${project.projectName}: this team copy is not active for your account. Its changes stayed on this device. Open Team Projects to reconnect or keep it local only`);
+          }
           for (const entry of directory) {
             try {
               const localProjects = await getAllProjects();

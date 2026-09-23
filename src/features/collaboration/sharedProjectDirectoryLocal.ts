@@ -27,3 +27,16 @@ export function getSharedProjectDirectoryLocalStatus(
     needsReconnect: Boolean(project && !isInTrash && !isLinkedOnDevice),
   };
 }
+
+export function getInactiveLocalSharedProjects(
+  projects: readonly Project[],
+  activeEntries: readonly SharedProjectIdentity[]
+): Project[] {
+  const activeIds = new Set(activeEntries.map((entry) => entry.projectId));
+  const inactive = new Map<string, Project>();
+  for (const project of projects) {
+    if (project.deletedAt || !project.sharedProjectId || activeIds.has(project.sharedProjectId)) continue;
+    if (!inactive.has(project.sharedProjectId)) inactive.set(project.sharedProjectId, project);
+  }
+  return [...inactive.values()];
+}
