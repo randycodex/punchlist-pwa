@@ -108,8 +108,18 @@ function buildGraphError(response: Response, message: string) {
   return error;
 }
 
+async function fetchGraphWithThrottleRetry(url: string, options: RequestInit): Promise<Response> {
+  const response = await fetch(url, options);
+  if (response.status !== 429) {
+    return response;
+  }
+
+  await wait(getRetryAfterMs(response) ?? 60_000);
+  return fetch(url, options);
+}
+
 async function graphFetch<T>(token: string, path: string, options?: RequestInit): Promise<T> {
-  const response = await fetch(`${GRAPH_API}${path}`, {
+  const response = await fetchGraphWithThrottleRetry(`${GRAPH_API}${path}`, {
     ...options,
     headers: {
       Authorization: `Bearer ${token}`,
@@ -133,7 +143,7 @@ async function graphFetch<T>(token: string, path: string, options?: RequestInit)
 }
 
 async function graphFetchAbsolute<T>(token: string, url: string, options?: RequestInit): Promise<T> {
-  const response = await fetch(url, {
+  const response = await fetchGraphWithThrottleRetry(url, {
     ...options,
     headers: {
       Authorization: `Bearer ${token}`,
@@ -177,7 +187,7 @@ function isGraphConflictError(error: unknown) {
 }
 
 function wait(ms: number) {
-  return new Promise((resolve) => window.setTimeout(resolve, ms));
+  return new Promise((resolve) => globalThis.setTimeout(resolve, ms));
 }
 
 async function getItemByPath(token: string, path: string): Promise<DriveItem | null> {
@@ -197,7 +207,7 @@ async function getItemByPath(token: string, path: string): Promise<DriveItem | n
 
 async function downloadTextFileByPath(token: string, path: string): Promise<string | null> {
   try {
-    const response = await fetch(`${GRAPH_API}/me/drive/root:/${encodeURI(path)}:/content`, {
+    const response = await fetchGraphWithThrottleRetry(`${GRAPH_API}/me/drive/root:/${encodeURI(path)}:/content`, {
       headers: {
         Authorization: `Bearer ${token}`,
       },
@@ -374,11 +384,19 @@ export async function listProjectFiles(token: string) {
     listProjectRootFolders(token, false),
     listProjectRootFolders(token, true),
   ]);
-  const nestedFiles = await Promise.all(
-    [...activeProjectFolders, ...trashedProjectFolders].map((folder) =>
-      listFolderChildrenByPath(token, folder.punchlistPath ?? getProjectRootPath(folder.name, isDriveItemInTrash(folder)))
-    )
-  );
+  const folders = [...activeProjectFolders, ...trashedProjectFolders];
+  const nestedFiles: DriveItem[][] = new Array(folders.length);
+  let nextFolder = 0;
+  await Promise.all(Array.from({ length: Math.min(2, folders.length) }, async () => {
+    while (nextFolder < folders.length) {
+      const index = nextFolder++;
+      const folder = folders[index];
+      nestedFiles[index] = await listFolderChildrenByPath(
+        token,
+        folder.punchlistPath ?? getProjectRootPath(folder.name, isDriveItemInTrash(folder))
+      );
+    }
+  }));
   return [...legacyFiles, ...nestedFiles.flat()].filter((item) => item.name.endsWith('.json'));
 }
 
@@ -399,7 +417,7 @@ export async function getProjectFileMetadata(token: string, filename: string): P
 }
 
 export async function downloadProjectFile(token: string, id: string): Promise<string> {
-  const response = await fetch(`${GRAPH_API}/me/drive/items/${id}/content`, {
+  const response = await fetchGraphWithThrottleRetry(`${GRAPH_API}/me/drive/items/${id}/content`, {
     headers: {
       Authorization: `Bearer ${token}`,
     },
@@ -411,7 +429,7 @@ export async function downloadProjectFile(token: string, id: string): Promise<st
 }
 
 export async function downloadDriveItemAsDataUrl(token: string, id: string): Promise<string> {
-  const response = await fetch(`${GRAPH_API}/me/drive/items/${id}/content`, {
+  const response = await fetchGraphWithThrottleRetry(`${GRAPH_API}/me/drive/items/${id}/content`, {
     headers: {
       Authorization: `Bearer ${token}`,
     },
@@ -692,7 +710,7 @@ export async function moveDriveItemToFolder(
 
 export async function downloadDeletionLog(token: string): Promise<Record<string, unknown>> {
   try {
-    const response = await fetch(`${GRAPH_API}/me/drive/root:/PunchList/deletions.json:/content`, {
+    const response = await fetchGraphWithThrottleRetry(`${GRAPH_API}/me/drive/root:/PunchList/deletions.json:/content`, {
       headers: {
         Authorization: `Bearer ${token}`,
       },
