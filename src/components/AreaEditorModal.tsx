@@ -90,6 +90,7 @@ type AreaEditorModalProps = {
   value: AreaFormValue;
   recentAreaTypeKeys: AreaTypeKey[];
   facadeLevelOptions?: string[];
+  projectFloorLevels?: string[];
   facadeElevationDrawings?: FacadeElevationDrawing[];
   enableFacadeLevelBatch?: boolean;
   lockAreaType?: boolean;
@@ -105,6 +106,7 @@ export default function AreaEditorModal({
   value,
   recentAreaTypeKeys,
   facadeLevelOptions = [],
+  projectFloorLevels = [],
   facadeElevationDrawings = [],
   enableFacadeLevelBatch = false,
   lockAreaType = false,
@@ -1006,18 +1008,25 @@ export default function AreaEditorModal({
             </div>
           )}
 
-          {value.areaTypeKey === 'apartment_unit' && !isBulkApartmentCreation && (
+          {value.areaTypeKey !== 'facade' && !isBulkApartmentCreation && (
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-              Floor override (optional)
-              <input className="field-shell mt-2" value={value.unitFloor ?? ''} maxLength={40} placeholder="Automatic from unit number" onChange={(event) => onChange({ ...value, unitFloor: event.target.value })} />
-              <span className="mt-1 block text-xs text-gray-500">Use for exceptions such as Ground, Mezzanine, or PH. Leave blank for automatic grouping.</span>
+              {value.areaTypeKey === 'apartment_unit' ? 'Floor override (optional)' : 'Floor (optional)'}
+              <input className="field-shell mt-2" list="area-floor-options" value={value.unitFloor ?? ''} maxLength={40} placeholder={value.areaTypeKey === 'apartment_unit' ? 'Automatic from unit number' : 'e.g., 3 or 3rd Floor'} onChange={(event) => onChange({ ...value, unitFloor: event.target.value })} />
+              <datalist id="area-floor-options">
+                {projectFloorLevels.map((floor) => <option key={floor} value={floor} />)}
+              </datalist>
+              <span className="mt-1 block text-xs text-gray-500">
+                {value.areaTypeKey === 'apartment_unit'
+                  ? 'Leave blank for automatic grouping from the unit number.'
+                  : 'Assign this area to a floor. You can enter 3rd Floor or choose a project level.'}
+              </span>
             </label>
           )}
 
           {!selectedDefinition.requiresOrientation && !isBulkApartmentCreation && (
             <div>
               <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
-                Number / Floor
+                {value.areaTypeKey === 'apartment_unit' ? 'Unit Number' : 'Area Number / Label'}
               </label>
               <input
                 type="text"
@@ -1031,6 +1040,9 @@ export default function AreaEditorModal({
                 className="field-shell"
                 placeholder="e.g., 306, 12F, B1"
               />
+              {value.areaTypeKey !== 'apartment_unit' && (
+                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">A label such as 3rd Floor also places the area on Floor 3.</p>
+              )}
             </div>
           )}
 

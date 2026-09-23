@@ -64,6 +64,7 @@ import { HomeAreaCard,
   type HomeAreaClaimDisplay as AreaClaimDisplay,
 } from '@/features/projects/HomeAreaCard';
 import AreaGroupList from '@/features/projects/AreaGroupList';
+import { getProjectFloorLevels, hasFloorGroupedAreas, hasProjectFloorLevels, normalizeFloorLabel } from '@/lib/unitFloors';
 import type { ListSortOption } from '@/components/ListSortMenu';
 import {
   ALL_AREA_SORT_STORAGE_KEY,
@@ -1052,7 +1053,7 @@ export default function ProjectsPage() {
         area.facadeLevel = areaForm.facadeLevel.trim() || undefined;
         area.elevationDrawingId =
           areaForm.areaTypeKey === 'facade' ? areaForm.elevationDrawingId || undefined : undefined;
-        area.unitFloor = areaForm.unitFloor?.trim() || undefined;
+        area.unitFloor = normalizeFloorLabel(areaForm.unitFloor);
         applyTemplateToArea(area);
         return area;
       }
@@ -2471,7 +2472,7 @@ export default function ProjectsPage() {
           showTrash,
           canAddArea: !!singleProject,
           hasProjects: activeProjects.length > 0,
-          hasAreaGroups: !!singleProject && hasRepeatedAreaGroups(visibleAreas),
+          hasAreaGroups: !!singleProject && (hasRepeatedAreaGroups(visibleAreas) || hasFloorGroupedAreas(visibleAreas) || hasProjectFloorLevels(singleProject)),
           showOnlyAreaIssues,
           isSingleProject: !!singleProject,
           singleProjectName: singleProject?.projectName ?? '',
@@ -2906,7 +2907,7 @@ export default function ProjectsPage() {
           )
         ) : singleProjectMainView ? (
           <div className="mx-auto min-h-[calc(100%+1px)] w-full max-w-6xl">
-            {visibleAreas.length === 0 ? (
+            {visibleAreas.length === 0 && (showOnlyAreaIssues || areaViewMode !== 'grouped' || !hasProjectFloorLevels(singleProject)) ? (
               <div className="flex min-h-[50vh] items-center justify-center py-12">
                 <div className="empty-state-card w-full max-w-sm rounded-[1.9rem] p-8 text-center">
                   <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
@@ -2941,7 +2942,7 @@ export default function ProjectsPage() {
               </div>
             ) : (
               areaViewMode === 'grouped' ? (
-                <AreaGroupList selectedAreaIds={selectedAreaIds} onSelectAreas={deleteMode ? selectAreaGroup : undefined} unitFloorNumbering={singleProject.unitFloorNumbering} areas={visibleAreas} renderArea={(area) => {
+                <AreaGroupList selectedAreaIds={selectedAreaIds} onSelectAreas={deleteMode ? selectAreaGroup : undefined} unitFloorNumbering={singleProject.unitFloorNumbering} projectLevelRange={singleProject} areas={visibleAreas} renderArea={(area) => {
                 const metric = areaMetrics.get(area.id);
                 const isSelected = selectedAreaIds.has(area.id);
                 return (
@@ -3289,6 +3290,7 @@ export default function ProjectsPage() {
         value={newAreaForm}
         recentAreaTypeKeys={recentAreaTypeKeys}
         facadeLevelOptions={facadeLevelOptions}
+        projectFloorLevels={getProjectFloorLevels(areaTargetProject)}
         facadeElevationDrawings={areaTargetProject?.facadeElevationDrawings ?? []}
         enableFacadeLevelBatch
         onChange={setNewAreaForm}
@@ -3425,6 +3427,7 @@ export default function ProjectsPage() {
                     placeholder="To"
                   />
                 </div>
+                <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">Roof is added above the highest level automatically.</p>
               </div>
             </div>
             <div className="flex gap-3 mt-6">

@@ -71,6 +71,7 @@ import { AreaCard,
   type AreaCardClaimDisplay as AreaClaimDisplay,
 } from '@/features/projects/AreaCard';
 import AreaGroupList from '@/features/projects/AreaGroupList';
+import { getProjectFloorLevels, hasFloorGroupedAreas, hasProjectFloorLevels, normalizeFloorLabel } from '@/lib/unitFloors';
 import type { ListSortOption } from '@/components/ListSortMenu';
 import {
   ALL_AREA_SORT_STORAGE_KEY,
@@ -680,7 +681,7 @@ export default function ProjectDetailPage() {
         area.unitType = areaForm.unitType || undefined;
         area.customAreaName = areaForm.customAreaName.trim() || undefined;
         area.areaNumber = areaForm.areaNumber.trim() || undefined;
-        area.unitFloor = areaForm.unitFloor?.trim() || undefined;
+        area.unitFloor = normalizeFloorLabel(areaForm.unitFloor);
         area.facadeLevel = areaForm.facadeLevel.trim() || undefined;
         area.elevationDrawingId =
           areaForm.areaTypeKey === 'facade' ? areaForm.elevationDrawingId || undefined : undefined;
@@ -1590,7 +1591,7 @@ export default function ProjectDetailPage() {
           showTrash,
           canAddArea: true,
           hasProjects: true,
-          hasAreaGroups: hasRepeatedAreaGroups(visibleAreas),
+          hasAreaGroups: hasRepeatedAreaGroups(visibleAreas) || hasFloorGroupedAreas(visibleAreas) || hasProjectFloorLevels(project),
           showOnlyAreaIssues,
           isSingleProject: true,
           singleProjectName: project.projectName,
@@ -1737,7 +1738,7 @@ export default function ProjectDetailPage() {
         <AreaListReturnPosition projectId={id} />
         {!showTrash && <ResumeInspectionLink project={project} />}
         {!showTrash && <PrepareSiteVisit project={project} />}
-        {!showTrash && activeAreas.length === 0 ? (
+        {!showTrash && activeAreas.length === 0 && (areaViewMode !== 'grouped' || !hasProjectFloorLevels(project)) ? (
           <div className="mx-auto flex min-h-[calc(100%+1px)] w-full max-w-6xl flex-col">
             <div className="flex flex-1 items-center justify-center py-12">
               <div className="empty-state-card w-full max-w-sm rounded-[1.9rem] p-8 text-center">
@@ -1800,7 +1801,7 @@ export default function ProjectDetailPage() {
           )
         ) : (
           <div className="mx-auto min-h-[calc(100%+1px)] w-full max-w-6xl">
-            {visibleAreas.length === 0 ? (
+            {visibleAreas.length === 0 && (showOnlyAreaIssues || areaViewMode !== 'grouped' || !hasProjectFloorLevels(project)) ? (
               <div className="flex min-h-[50vh] items-center justify-center py-12">
                 <div className="empty-state-card w-full max-w-sm rounded-[1.9rem] p-8 text-center">
                   <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
@@ -1824,7 +1825,7 @@ export default function ProjectDetailPage() {
                 </div>
               </div>
             ) : areaViewMode === 'grouped' ? (
-              <AreaGroupList selectedAreaIds={selectedAreaIds} onSelectAreas={deleteMode ? selectAreaGroup : undefined} unitFloorNumbering={project.unitFloorNumbering} areas={visibleAreas} renderArea={(area) => {
+              <AreaGroupList selectedAreaIds={selectedAreaIds} onSelectAreas={deleteMode ? selectAreaGroup : undefined} unitFloorNumbering={project.unitFloorNumbering} projectLevelRange={project} areas={visibleAreas} renderArea={(area) => {
               const metric = areaMetrics.get(area.id);
               const isSelected = selectedAreaIds.has(area.id);
               return (
@@ -2139,6 +2140,7 @@ export default function ProjectDetailPage() {
         value={newAreaForm}
         recentAreaTypeKeys={recentAreaTypeKeys}
         facadeLevelOptions={buildFacadeLevelOptions(project)}
+        projectFloorLevels={getProjectFloorLevels(project)}
         facadeElevationDrawings={project?.facadeElevationDrawings ?? []}
         enableFacadeLevelBatch
         onChange={setNewAreaForm}

@@ -3,12 +3,13 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { ChevronDown, ChevronRight } from 'lucide-react';
 import { AREA_TYPE_DEFINITIONS, getAreaGroupKey, type AreaGroupKey } from '@/lib/areas';
-import { getAreaStats, type Area } from '@/types';
-import { groupUnitsByFloor, type UnitFloorNumbering } from '@/lib/unitFloors';
+import { getAreaStats, type Area, type Project } from '@/types';
+import { getAreaFloor, getProjectFloorLevels, groupAreasByFloor, type UnitFloorNumbering } from '@/lib/unitFloors';
 import { shouldRenderAreaGroup } from './areaListView';
 
 type AreaGroupListProps = {
   unitFloorNumbering?: UnitFloorNumbering;
+  projectLevelRange?: Pick<Project, 'facadeLevelStart' | 'facadeLevelEnd'> | null;
   areas: Area[];
   renderArea: (area: Area) => ReactNode;
   selectedAreaIds?: ReadonlySet<string>;
@@ -16,7 +17,7 @@ type AreaGroupListProps = {
 };
 
 const groupDefinitions: Array<{ key: AreaGroupKey; label: string }> = [
-  { key: 'units', label: 'Units' },
+  { key: 'units', label: 'Floors' },
   { key: 'facades', label: 'Facades' },
   ...AREA_TYPE_DEFINITIONS
     .filter((definition) => definition.key !== 'apartment_unit' && definition.key !== 'facade')
@@ -26,11 +27,16 @@ const groupDefinitions: Array<{ key: AreaGroupKey; label: string }> = [
     })),
 ];
 
-export default function AreaGroupList({ areas, renderArea, unitFloorNumbering, selectedAreaIds, onSelectAreas }: AreaGroupListProps) {
+function getDisplayGroupKey(area: Area): AreaGroupKey {
+  return getAreaGroupKey(area) === 'units' || getAreaFloor(area) !== null ? 'units' : getAreaGroupKey(area);
+}
+
+export default function AreaGroupList({ areas, renderArea, unitFloorNumbering, projectLevelRange, selectedAreaIds, onSelectAreas }: AreaGroupListProps) {
   const [collapsedGroups, setCollapsedGroups] = useState<Set<AreaGroupKey>>(new Set());
+  const projectFloorLevels = getProjectFloorLevels(projectLevelRange);
   const areaCountsByGroup = useMemo(
     () => areas.reduce((counts, area) => {
-      const key = getAreaGroupKey(area);
+      const key = getDisplayGroupKey(area);
       counts.set(key, (counts.get(key) ?? 0) + 1);
       return counts;
     }, new Map<AreaGroupKey, number>()),
@@ -39,11 +45,14 @@ export default function AreaGroupList({ areas, renderArea, unitFloorNumbering, s
   const groupedEntries = groupDefinitions
     .map((group) => ({
       group,
-      areas: areas.filter((area) => getAreaGroupKey(area) === group.key),
+      areas: areas.filter((area) => getDisplayGroupKey(area) === group.key),
     }))
-    .filter((entry) => shouldRenderAreaGroup(entry.areas.length));
+    .filter((entry) => entry.group.key === 'units'
+      ? entry.areas.length > 0 || projectFloorLevels.length > 0
+      : shouldRenderAreaGroup(entry.areas.length));
   const ungroupedAreas = areas.filter(
-    (area) => !shouldRenderAreaGroup(areaCountsByGroup.get(getAreaGroupKey(area)) ?? 0)
+    (area) => getDisplayGroupKey(area) !== 'units' &&
+      !shouldRenderAreaGroup(areaCountsByGroup.get(getDisplayGroupKey(area)) ?? 0)
   );
   const expandableGroupKeys = groupedEntries.map(({ group }) => group.key);
   const areAllGroupsCollapsed = expandableGroupKeys.length > 0 &&
@@ -106,7 +115,7 @@ export default function AreaGroupList({ areas, renderArea, unitFloorNumbering, s
                 {isCollapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
               </span>
             </button>
-            {onSelectAreas && (
+            {onSelectAreas && groupedAreas.length > 0 && (
               <div className="mt-2 flex flex-wrap items-center gap-2 px-1">
                 <button
                   type="button"
@@ -133,17 +142,21 @@ export default function AreaGroupList({ areas, renderArea, unitFloorNumbering, s
             )}
             {!isCollapsed && (
               <div id={contentId} className="list-stack mt-2">
-                {group.key === 'units' ? groupUnitsByFloor(groupedAreas, unitFloorNumbering).map(({ floor, units }) => (
+                {group.key === 'units' ? groupAreasByFloor(groupedAreas, unitFloorNumbering, projectLevelRange).map(({ floor, areas: floorAreas }) => (
                   <details key={floor ?? '__unknown'} className="group/floor space-y-2">
                     <summary className="soft-control flex w-full cursor-pointer list-none items-center justify-between rounded-[1.2rem] px-4 py-3 text-left text-sm font-semibold text-gray-600 transition hover:bg-white dark:text-gray-300 dark:hover:bg-white/[0.08] [&::-webkit-details-marker]:hidden">
-                      <span>{floor === null ? 'Floor not set' : `Floor ${floor}`}</span>
+                      <span>{floor === null ? 'Floor not set' : floor === 'Roof' ? 'Roof' : `Floor ${floor}`}</span>
                       <span className="flex items-center gap-2 text-xs font-normal text-gray-400">
-                        {units.length} {units.length === 1 ? 'unit' : 'units'}
+                        {floorAreas.length} {floorAreas.length === 1 ? 'area' : 'areas'}
                         <ChevronRight aria-hidden="true" className="h-4 w-4 group-open/floor:hidden" />
                         <ChevronDown aria-hidden="true" className="hidden h-4 w-4 group-open/floor:block" />
                       </span>
                     </summary>
-                    <div className="list-stack">{units.map(renderArea)}</div>
+                    <div className="list-stack">
+                      {floorAreas.length > 0 ? floorAreas.map(renderArea) : (
+                        <p className="px-4 py-2 text-sm text-gray-500 dark:text-gray-400">No areas yet</p>
+                      )}
+                    </div>
                   </details>
                 )) : groupedAreas.map(renderArea)}
               </div>

@@ -1,6 +1,7 @@
 'use client';
 
 import { clearAreaReturnTarget, rememberAreaReturnTarget } from '@/lib/areaReturnPosition';
+import { getProjectFloorLevels, normalizeFloorLabel } from '@/lib/unitFloors';
 
 import { addCheckpointRule } from '@/lib/checkpointRules';
 
@@ -841,7 +842,7 @@ export default function AreaDetailPage() {
     targetArea.unitType = areaForm.unitType || undefined;
     targetArea.customAreaName = areaForm.customAreaName.trim() || undefined;
     targetArea.areaNumber = areaForm.areaNumber.trim() || undefined;
-    targetArea.unitFloor = areaForm.areaTypeKey === 'apartment_unit' ? areaForm.unitFloor?.trim() || undefined : undefined;
+    targetArea.unitFloor = areaForm.areaTypeKey === 'facade' ? undefined : normalizeFloorLabel(areaForm.unitFloor);
     targetArea.facadeLevel = areaForm.facadeLevel.trim() || undefined;
     targetArea.elevationDrawingId =
       areaForm.areaTypeKey === 'facade' ? areaForm.elevationDrawingId || undefined : undefined;
@@ -2685,6 +2686,7 @@ export default function AreaDetailPage() {
         value={areaForm}
         recentAreaTypeKeys={recentAreaTypeKeys}
         facadeLevelOptions={buildFacadeLevelOptions(project)}
+        projectFloorLevels={getProjectFloorLevels(project)}
         facadeElevationDrawings={project.facadeElevationDrawings ?? []}
         enableFacadeLevelBatch
         lockAreaType

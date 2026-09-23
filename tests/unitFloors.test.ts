@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { parseBulkApartmentSchedule } from '@/lib/apartmentSchedule';
 import { describe, expect, it } from 'vitest';
-import { getUnitFloor, groupUnitsByFloor, parseUnitFloorNumbering } from '@/lib/unitFloors';
+import { getAreaFloor, getProjectFloorLevels, getUnitFloor, groupAreasByFloor, groupUnitsByFloor, normalizeFloorLabel, parseUnitFloorNumbering } from '@/lib/unitFloors';
 import { createArea, createProject } from '@/lib/db';
 import { createSharedProjectMetadataPayload, applySharedProjectMetadataSnapshot } from '@/lib/collaboration/sharedProjectMetadata';
 import { parseProjectPayload } from '@/lib/projectPayload';
@@ -31,6 +31,33 @@ describe('unit floors', () => {
     const groups = groupUnitsByFloor(units);
     expect(groups.map((g) => g.floor)).toEqual(['2','14',null]);
     expect(groups[0].units.map((a) => a.areaNumber)).toEqual(['2B','2-A']);
+  });
+  it('places non-unit areas on an explicit floor and keeps an empty Roof above the selected levels', () => {
+    const project = createProject('Tower');
+    project.facadeLevelStart = 1;
+    project.facadeLevelEnd = 3;
+    const corridor = createArea(project.id, 'Corridor', 0, { areaTypeKey: 'corridor' });
+    corridor.unitFloor = '3rd Floor';
+    const unit = createArea(project.id, 'Unit - 3A - 1BR', 1, { areaTypeKey: 'apartment_unit', areaNumber: '3A' });
+
+    expect(normalizeFloorLabel('3rd Floor')).toBe('3');
+    expect(normalizeFloorLabel('Floor 3')).toBe('3');
+    expect(getAreaFloor(corridor)).toBe('3');
+    expect(getProjectFloorLevels(project)).toEqual(['1', '2', '3', 'Roof']);
+    const groups = groupAreasByFloor([corridor, unit], project.unitFloorNumbering, project);
+    expect(groups.map(({ floor }) => floor)).toEqual(['1', '2', '3', 'Roof']);
+    expect(groups[2].areas.map(({ id }) => id)).toEqual([corridor.id, unit.id]);
+    expect(groups[3].areas).toEqual([]);
+
+    const labeledCorridor = createArea(project.id, 'Corridor 3rd Floor', 2, { areaTypeKey: 'corridor', areaNumber: '3rd Floor' });
+    expect(getAreaFloor(labeledCorridor)).toBe('3');
+    expect(groupAreasByFloor([labeledCorridor], project.unitFloorNumbering, project)[2].areas[0].id).toBe(labeledCorridor.id);
+  });
+  it('places Roof after a reversed project level range and skips level zero', () => {
+    const project = createProject('Tower');
+    project.facadeLevelStart = 2;
+    project.facadeLevelEnd = -1;
+    expect(getProjectFloorLevels(project)).toEqual(['-1', '1', '2', 'Roof']);
   });
   it('preserves settings and overrides in shared metadata and backups', () => {
     const project = createProject('Floors'); project.unitFloorNumbering = 'last-two-digits';

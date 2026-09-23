@@ -136,6 +136,7 @@ export default function ProjectEditModal({ project, onSave, onDelete, onClose }:
                 placeholder="To"
               />
             </div>
+            <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">Roof is added above the highest level automatically.</p>
           </div>
         </div>
 
