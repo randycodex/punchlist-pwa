@@ -59,6 +59,7 @@ import {
   relinkDetachedSharedProject,
 } from '@/features/collaboration/detachedSharedProject';
 import { ProjectCard, type ProjectCardMetrics as ProjectMetrics } from '@/features/projects/ProjectCard';
+import { compareProjectCopies } from '@/features/projects/compareProjectCopies';
 import { HomeAreaCard,
   type HomeAreaCardMetrics as AreaMetrics,
   type HomeAreaClaimDisplay as AreaClaimDisplay,
@@ -274,6 +275,11 @@ export default function ProjectsPage() {
   const [reportContent, setReportContent] = useState<'issues' | 'full'>('issues');
   const [exportScope, setExportScope] = useState<ExportScope>('selected-projects');
   const [showProjectMenuId, setShowProjectMenuId] = useState<string | null>(null);
+  const [copyReview, setCopyReview] = useState<{
+    selectedId: string;
+    comparisons: Array<{ otherId: string; result: ReturnType<typeof compareProjectCopies> }>;
+  } | null>(null);
+  const [loadingCopyReview, setLoadingCopyReview] = useState(false);
   const [editingProject, setEditingProject] = useState<Project | null>(null);
   const [showAddArea, setShowAddArea] = useState(false);
   const [showAreaProjectPicker, setShowAreaProjectPicker] = useState(false);
@@ -1385,6 +1391,36 @@ export default function ProjectsPage() {
       prev.map((entry) => (entry.id === project.id ? { ...project, areas: [...project.areas] } : entry))
     );
   }, []);
+
+  async function handleCompareProjectCopies(project: Project) {
+    if (!project.sharedProjectId || loadingCopyReview) return;
+    setLoadingCopyReview(true);
+    try {
+      const candidates = (await getAllProjects()).filter((entry) =>
+        !entry.deletedAt
+        && entry.id !== project.id
+        && entry.sharedProjectId === project.sharedProjectId
+      );
+      const selected = await getProject(project.id);
+      if (!selected || candidates.length === 0) {
+        showMessage('No other local copy of this team project was found.');
+        return;
+      }
+      const comparisons = await Promise.all(candidates.map(async (candidate) => {
+        const other = await getProject(candidate.id);
+        return other ? { otherId: other.id, result: compareProjectCopies(selected, other) } : null;
+      }));
+      setCopyReview({
+        selectedId: project.id,
+        comparisons: comparisons.filter((entry): entry is NonNullable<typeof entry> => entry !== null),
+      });
+    } catch (error) {
+      console.error('Could not compare project copies:', error);
+      showMessage('Could not compare these copies. Please try again.');
+    } finally {
+      setLoadingCopyReview(false);
+    }
+  }
 
   async function handleDeleteSelectedAreas() {
     if (!singleProject) return;
@@ -3185,6 +3221,9 @@ export default function ProjectsPage() {
                       onCloseMenu={handleCloseProjectMenu}
                       onEditProject={handleOpenProjectEditor}
                       onDeleteProject={handleTrashProject}
+                      onCompareCopies={project.sharedProjectId && activeProjects.some((other) =>
+                        other.id !== project.id && other.sharedProjectId === project.sharedProjectId
+                      ) ? handleCompareProjectCopies : undefined}
                       onLongPressSelect={handleProjectCardLongPress}
                       onPrimeOpen={primeProjectOpen}
                     />
@@ -3195,6 +3234,46 @@ export default function ProjectsPage() {
           </div>
         )}
       </main>
+
+      {copyReview && (
+        <div className="modal-overlay fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="modal-panel max-h-[82dvh] w-full max-w-lg overflow-y-auto rounded-[1.9rem] p-6">
+            <h2 className="text-xl font-semibold text-gray-900 dark:text-white">Compare project copies</h2>
+            <p className="mt-2 text-sm text-gray-500 dark:text-gray-300">
+              These copies belong to the same team project. Counts below compare saved IDs on this device; they do not change either copy.
+            </p>
+            {copyReview.comparisons.map(({ otherId, result }) => (
+              <div key={otherId} className="mt-4 rounded-2xl soft-control p-4 text-sm text-gray-700 dark:text-gray-200">
+                <div className="font-semibold">Copy {copyReview.selectedId.slice(0,8)} vs {otherId.slice(0,8)}</div>
+                <div className="mt-3 grid grid-cols-2 gap-3">
+                  <div>
+                    <div className="font-medium">Only in selected copy</div>
+                    <div>{result.firstOnlyAreaIds.length} areas</div>
+                    <div>{result.firstOnlyCheckpointIds.length} checkpoints</div>
+                    <div>{result.firstOnlyPhotoIds.length} photos</div>
+                    <div>{result.firstPhotosWithoutData} photos without a local file</div>
+                  </div>
+                  <div>
+                    <div className="font-medium">Only in other copy</div>
+                    <div>{result.secondOnlyAreaIds.length} areas</div>
+                    <div>{result.secondOnlyCheckpointIds.length} checkpoints</div>
+                    <div>{result.secondOnlyPhotoIds.length} photos</div>
+                    <div>{result.secondPhotosWithoutData} photos without a local file</div>
+                  </div>
+                </div>
+                <div className="mt-3">{result.differingCheckpointIds.length} shared checkpoints have different outcomes or comments.</div>
+              </div>
+            ))}
+            <button
+              type="button"
+              onClick={() => setCopyReview(null)}
+              className="mt-6 w-full rounded-2xl bg-zinc-900 px-4 py-3 font-medium text-white dark:bg-white dark:text-gray-900"
+            >
+              Done
+            </button>
+          </div>
+        </div>
+      )}
 
       {!showTrash && !selectionMode && (
         <div className="floating-action-rail pointer-events-none fixed bottom-[calc(env(safe-area-inset-bottom)+1.25rem)] z-20">

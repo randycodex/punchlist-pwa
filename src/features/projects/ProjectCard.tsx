@@ -2,7 +2,7 @@
 
 import { memo, useEffect, useRef } from 'react';
 import Link from 'next/link';
-import { ChevronRight, MoreVertical, Pencil, Trash2 } from 'lucide-react';
+import { ChevronRight, GitCompareArrows, MoreVertical, Pencil, Trash2 } from 'lucide-react';
 import MetadataLine from '@/components/MetadataLine';
 import type { Project } from '@/types';
 
@@ -30,6 +30,7 @@ type ProjectCardProps = {
   onCloseMenu: () => void;
   onEditProject: (project: Project) => void;
   onDeleteProject: (project: Project) => void;
+  onCompareCopies?: (project: Project) => void;
   onLongPressSelect: (projectId: string) => void;
   onPrimeOpen: (project: Project) => void;
 };
@@ -46,6 +47,7 @@ export const ProjectCard = memo(function ProjectCard({
   onCloseMenu,
   onEditProject,
   onDeleteProject,
+  onCompareCopies,
   onLongPressSelect,
   onPrimeOpen,
 }: ProjectCardProps) {
@@ -161,6 +163,19 @@ export const ProjectCard = memo(function ProjectCard({
                     <Pencil className="w-4 h-4" />
                     Edit Project
                   </button>
+                  {onCompareCopies && (
+                    <button
+                      onClick={() => {
+                        onCloseMenu();
+                        onCompareCopies(project);
+                      }}
+                      className="flex w-full items-center gap-2 rounded-[1rem] px-4 py-3 text-left text-sm text-gray-700 transition hover:bg-black/[0.04] dark:text-gray-300 dark:hover:bg-white/[0.05]"
+                      role="menuitem"
+                    >
+                      <GitCompareArrows className="w-4 h-4" />
+                      Compare Copies
+                    </button>
+                  )}
                   <button
                     onClick={() => {
                       onCloseMenu();
