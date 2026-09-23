@@ -8,8 +8,10 @@ import {
 } from '@/lib/pendingSync';
 import {
   formatMicrosoftManualRetryMessage,
+  formatMicrosoftRestoreRetryMessage,
   getMicrosoftErrorMessage,
   getMicrosoftRetryDelayMs,
+  isMicrosoftConnectionError,
   isMicrosoftMissingObjectError,
 } from '@/lib/microsoftErrors';
 import {
@@ -129,7 +131,7 @@ export async function runManualOneDriveRestore(options: {
     try {
       result = await restoreProjects(token);
     } catch (error) {
-      if (!isMicrosoftMissingObjectError(error)) throw error;
+      if (!isMicrosoftMissingObjectError(error) && !isMicrosoftConnectionError(error)) throw error;
       result = await restoreProjects(token);
     }
     return {
@@ -142,7 +144,7 @@ export async function runManualOneDriveRestore(options: {
     if (retryDelayMs) {
       return {
         status: 'retry',
-        message: `OneDrive is still catching up. Try Restore Backup again in about ${Math.ceil(retryDelayMs / 1000)} seconds.`,
+        message: formatMicrosoftRestoreRetryMessage(error, Math.ceil(retryDelayMs / 1000)),
       };
     }
     return {

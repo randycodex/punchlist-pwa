@@ -23,6 +23,11 @@ export function isMicrosoftMissingObjectError(error: unknown): boolean {
   );
 }
 
+export function isMicrosoftConnectionError(error: unknown): boolean {
+  const message = extractErrorMessage(error).trim().toLowerCase();
+  return message.includes('failed to fetch') || message.includes('load failed') || message.includes('network');
+}
+
 export function isMicrosoftTransientSyncError(error: unknown): boolean {
   const message = extractErrorMessage(error).trim().toLowerCase();
   if (isMicrosoftMissingObjectError(error)) return true;
@@ -114,9 +119,17 @@ export function getMicrosoftRetryDelayMs(error: unknown): number | null {
   return null;
 }
 
+export function formatMicrosoftRestoreRetryMessage(error: unknown, retryInSeconds: number) {
+  if (isMicrosoftConnectionError(error)) {
+    return 'Could not reach OneDrive. Your projects are still saved on this device. Check your connection, then tap Sync Projects again.';
+  }
+
+  return `OneDrive is temporarily unavailable. Your projects are still saved on this device. Tap Sync Projects again in about ${retryInSeconds} seconds.`;
+}
+
 export function formatMicrosoftManualRetryMessage(retryInSeconds?: number) {
   if (retryInSeconds && retryInSeconds > 0) {
-    return `Saved locally. OneDrive is still catching up. Tap Backup to try again in about ${retryInSeconds} seconds.`;
+    return `Saved locally. OneDrive is temporarily unavailable. Tap Sync Projects again in about ${retryInSeconds} seconds.`;
   }
-  return 'Saved locally. OneDrive needs a manual retry. Tap Backup when you are ready.';
+  return 'Saved locally. OneDrive needs a manual retry. Tap Sync Projects when you are ready.';
 }

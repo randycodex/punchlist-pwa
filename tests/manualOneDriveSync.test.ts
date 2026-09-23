@@ -144,7 +144,7 @@ describe('manual OneDrive backup coordinator', () => {
     expect(backupProjects).toHaveBeenCalledTimes(2);
     expect(result).toEqual({
       status: 'retry',
-      message: 'Saved locally. OneDrive is still catching up. Tap Backup to try again in about 15 seconds.',
+      message: 'Saved locally. OneDrive is temporarily unavailable. Tap Sync Projects again in about 15 seconds.',
     });
     expect(hasPendingSyncState()).toBe(true);
   });
@@ -160,6 +160,33 @@ describe('manual OneDrive backup coordinator', () => {
     });
 
     expect(restoreProjects).toHaveBeenCalledWith('token');
+    expect(result).toEqual({ status: 'success', restoredProjectCount: 1 });
+  });
+
+  it('reports a failed OneDrive connection without blaming a missing backup', async () => {
+    const restoreProjects = vi.fn().mockRejectedValue(new TypeError('Failed to fetch'));
+    const result = await runManualOneDriveRestore({
+      ensureAccessToken: async () => 'token',
+      restoreProjects,
+    });
+
+    expect(restoreProjects).toHaveBeenCalledTimes(2);
+    expect(result).toEqual({
+      status: 'retry',
+      message: 'Could not reach OneDrive. Your projects are still saved on this device. Check your connection, then tap Sync Projects again.',
+    });
+  });
+
+  it('completes a restore when a brief connection failure clears on retry', async () => {
+    const restoreProjects = vi.fn()
+      .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+      .mockResolvedValueOnce({ restoredProjectIds: ['project-2'], skippedProjectIds: [] });
+    const result = await runManualOneDriveRestore({
+      ensureAccessToken: async () => 'token',
+      restoreProjects,
+    });
+
+    expect(restoreProjects).toHaveBeenCalledTimes(2);
     expect(result).toEqual({ status: 'success', restoredProjectCount: 1 });
   });
 });
