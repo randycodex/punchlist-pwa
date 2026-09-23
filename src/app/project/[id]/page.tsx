@@ -6,7 +6,6 @@ import { applyCheckpointRules } from '@/lib/checkpointRules';
 
 import ReportContentChoice from '@/components/inspection/ReportContentChoice';
 
-import PrepareSiteVisit from '@/features/offline/PrepareSiteVisit';
 import ResumeInspectionLink from '@/components/inspection/ResumeInspectionLink';
 
 import { useState, useEffect, useLayoutEffect, useMemo, useRef, useCallback } from 'react';
@@ -1664,7 +1663,6 @@ export default function ProjectDetailPage() {
       >
         <AreaListReturnPosition projectId={id} />
         {!showTrash && <ResumeInspectionLink project={project} />}
-        {!showTrash && <PrepareSiteVisit project={project} />}
         {!showTrash && activeAreas.length === 0 && (areaViewMode !== 'grouped' || !hasProjectFloorLevels(project)) ? (
           <div className="mx-auto flex min-h-[calc(100%+1px)] w-full max-w-6xl flex-col">
             <div className="flex flex-1 items-center justify-center py-12">

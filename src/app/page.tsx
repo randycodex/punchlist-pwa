@@ -30,7 +30,6 @@ import {
   hasPendingSyncState,
   queuePendingSync,
 } from '@/lib/pendingSync';
-import PrepareSiteVisit from '@/features/offline/PrepareSiteVisit';
 import ResumeInspectionLink from '@/components/inspection/ResumeInspectionLink';
 import { uploadPdfToOneDrive, getNextOneDriveExportFilename } from '@/lib/oneDrive';
 import {
@@ -2822,7 +2821,6 @@ export default function ProjectsPage() {
       >
         <AreaListReturnPosition projectId={singleProject?.id} />
         {singleProjectMainView && <ResumeInspectionLink project={singleProject} />}
-        {singleProjectMainView && <PrepareSiteVisit project={singleProject} />}
         {showTrash ? (
           trashedProjects.length === 0 && trashedAreaEntries.length === 0 ? (
             <div className="empty-state-card mx-auto max-w-md rounded-[2rem] p-10 text-center">
