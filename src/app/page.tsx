@@ -1492,7 +1492,7 @@ export default function ProjectsPage() {
           if (comparison.firstOnlyAreaIds.length || comparison.firstOnlyCheckpointIds.length
             || comparison.firstOnlyPhotoIds.length || comparison.firstOnlyPhotoDataIds.length
             || comparison.firstOnlyFileIds.length || comparison.firstOnlyFileDataIds.length) {
-            console.error('Copy merge preservation check failed', {
+            console.error('Copy merge preservation check failed', JSON.stringify({
               stage,
               originalId: original.id,
               areas: comparison.firstOnlyAreaIds.length,
@@ -1501,7 +1501,7 @@ export default function ProjectsPage() {
               photoFiles: comparison.firstOnlyPhotoDataIds.length,
               files: comparison.firstOnlyFileIds.length,
               fileData: comparison.firstOnlyFileDataIds.length,
-            });
+            }));
             throw new Error('The merge could not preserve every item or file. Original copies are still available.');
           }
         }
