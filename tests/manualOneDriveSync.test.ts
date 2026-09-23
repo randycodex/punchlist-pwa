@@ -184,6 +184,24 @@ describe('manual OneDrive backup coordinator', () => {
     expect(result).toEqual({ status: 'success', restoredProjectCount: 1, restoredProjectIds: ['project-2'] });
   });
 
+  it('reports an unavailable personal restore while retaining completed restores', async () => {
+    const result = await runManualOneDriveRestore({
+      ensureAccessToken: async () => 'token',
+      restoreProjects: async () => ({
+        restoredProjectIds: ['project-2'],
+        skippedProjectIds: [],
+        failedProjects: [{ id: 'project-1', name: 'First project', message: 'Download unavailable' }],
+      }),
+    });
+
+    expect(result).toEqual({
+      status: 'partial',
+      restoredProjectCount: 1,
+      restoredProjectIds: ['project-2'],
+      failedProjects: [{ id: 'project-1', name: 'First project', message: 'Download unavailable' }],
+    });
+  });
+
   it('reports a failed OneDrive connection without blaming a missing backup', async () => {
     const restoreProjects = vi.fn().mockRejectedValue(new TypeError('Failed to fetch'));
     const result = await runManualOneDriveRestore({

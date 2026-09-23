@@ -55,6 +55,7 @@ export type OneDriveBackupResult = {
 export type OneDriveRestoreResult = {
   restoredProjectIds: string[];
   skippedProjectIds: string[];
+  failedProjects?: Array<{ id: string; name: string; message: string }>;
 };
 
 type RemoteProjectFile = {
@@ -1736,38 +1737,47 @@ export async function restoreMissingProjectsFromOneDrive(
     const remoteIndex: OneDriveSyncRemoteIndex = {};
     const restoredProjectIds: string[] = [];
     const skippedProjectIds: string[] = [];
+    const failedProjects: NonNullable<OneDriveRestoreResult['failedProjects']> = [];
 
     await runWithConcurrency([...remoteFilesById.entries()], 2, async ([projectId, remoteEntries]) => {
-      if (localProjectIds.has(projectId)) {
-        skippedProjectIds.push(projectId);
-        return;
-      }
+      try {
+        if (localProjectIds.has(projectId)) {
+          skippedProjectIds.push(projectId);
+          return;
+        }
 
-      const remote = pickPrimaryRemoteProjectFile(remoteEntries);
-      if (!remote?.id || !remote.name.endsWith('.json')) return;
-      const remoteProject = await downloadRemoteProject(token, remote.id);
-      if (!remoteProject) return;
-      // Team projects are restored through active team membership, not old
-      // personal OneDrive backups. An inactive team's backup must not bring a
-      // locally deleted copy back or create another device-local card.
-      if (remoteProject.sharedProjectId || remoteProject.deletedAt) {
-        skippedProjectIds.push(projectId);
-        return;
+        const remote = pickPrimaryRemoteProjectFile(remoteEntries);
+        if (!remote?.id || !remote.name.endsWith('.json')) return;
+        const remoteProject = await downloadRemoteProject(token, remote.id);
+        if (!remoteProject) throw new Error('The OneDrive backup disappeared while restoring it.');
+        // Team projects are restored through active team membership, not old
+        // personal OneDrive backups. An inactive team's backup must not bring a
+        // locally deleted copy back or create another device-local card.
+        if (remoteProject.sharedProjectId || remoteProject.deletedAt) {
+          skippedProjectIds.push(projectId);
+          return;
+        }
+        const folderName = getProjectFolderNameFromRemoteFile(remote);
+        const projectWithFolder = withProjectFolderName(remoteProject, folderName);
+        const hydratedProject = await hydrateProjectPhotosFromOneDrive(
+          token,
+          projectWithFolder,
+          folderName ?? undefined,
+          remoteIndex
+        );
+        await saveProjectPreserveTimestamps(hydratedProject);
+        localProjectIds.add(projectId);
+        restoredProjectIds.push(projectId);
+      } catch (error) {
+        failedProjects.push({
+          id: projectId,
+          name: remoteEntries[0]?.name.replace(/_[0-9a-f-]{36}\.json$/i, '').replace(/[-_]/g, ' ') || 'Personal project',
+          message: error instanceof Error ? error.message : 'OneDrive restore failed.',
+        });
       }
-      const folderName = getProjectFolderNameFromRemoteFile(remote);
-      const projectWithFolder = withProjectFolderName(remoteProject, folderName);
-      const hydratedProject = await hydrateProjectPhotosFromOneDrive(
-        token,
-        projectWithFolder,
-        folderName ?? undefined,
-        remoteIndex
-      );
-      await saveProjectPreserveTimestamps(hydratedProject);
-      localProjectIds.add(projectId);
-      restoredProjectIds.push(projectId);
     });
 
-    return { restoredProjectIds, skippedProjectIds };
+    return { restoredProjectIds, skippedProjectIds, failedProjects };
   } finally {
     await releaseSyncLease();
   }

@@ -141,15 +141,18 @@ describe('OneDrive and team project identity', () => {
     });
 
     let settled = false;
-    const restore = restoreMissingProjectsFromOneDrive('test-token').then(
-      () => { settled = true; return 'success'; },
-      () => { settled = true; return 'failed'; }
-    );
+    const restore = restoreMissingProjectsFromOneDrive('test-token').then((result) => {
+      settled = true;
+      return result;
+    });
     await slowStarted;
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(settled).toBe(false);
     releaseSlowDownload(serializeProjectPayload(second));
-    expect(await restore).toBe('failed');
+    expect(await restore).toMatchObject({
+      restoredProjectIds: [second.id],
+      failedProjects: [{ id: first.id, message: 'First download unavailable' }],
+    });
     expect(await getProject(second.id)).toBeDefined();
   });
 

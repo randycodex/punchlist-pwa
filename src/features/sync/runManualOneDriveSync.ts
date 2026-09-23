@@ -30,6 +30,7 @@ export type ManualOneDriveSyncResult =
 
 export type ManualOneDriveRestoreResult =
   | { status: 'success'; restoredProjectCount: number; restoredProjectIds: string[] }
+  | { status: 'partial'; restoredProjectCount: number; restoredProjectIds: string[]; failedProjects: Array<{ id: string; name: string; message: string }> }
   | { status: 'needs-auth' }
   | { status: 'retry'; message: string; retryAfterMs: number }
   | { status: 'error'; message: string };
@@ -153,6 +154,14 @@ export async function runManualOneDriveRestore(options: {
     } catch (error) {
       if (!isMicrosoftMissingObjectError(error) && !isMicrosoftConnectionError(error)) throw error;
       result = await restoreProjects(token);
+    }
+    if (result.failedProjects?.length) {
+      return {
+        status: 'partial',
+        restoredProjectCount: result.restoredProjectIds.length,
+        restoredProjectIds: result.restoredProjectIds,
+        failedProjects: result.failedProjects,
+      };
     }
     return {
       status: 'success',

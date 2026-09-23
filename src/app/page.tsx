@@ -553,6 +553,7 @@ export default function ProjectsPage() {
       } else showMessage(message, title);
     };
     let personalReady = true;
+    let personalRestoreIncomplete = false;
     let mergedPersonalProjectIds: string[] = [];
     try {
       if (collaborationAuth.isSignedIn) {
@@ -686,7 +687,13 @@ export default function ProjectsPage() {
           return;
         }
       }
-      if (restore.status === 'success') {
+      if (restore.status === 'success' || restore.status === 'partial') {
+        if (restore.status === 'partial') {
+          personalRestoreIncomplete = true;
+          for (const failed of restore.failedProjects) {
+            problems.push(`${failed.name}: personal restore could not finish. ${failed.message}`);
+          }
+        }
         if (restore.restoredProjectCount > 0) {
           const restoredProjects = await getAllProjects();
           const namesById = new Map(restoredProjects.map((project) => [project.id, project.projectName]));
@@ -723,6 +730,7 @@ export default function ProjectsPage() {
       }
 
       if (!personalReady) {
+        if (personalRestoreIncomplete) queuePendingSync(undefined, { fullSync: true });
         setSyncStatus(restore.status === 'retry' ? 'pending' : 'error');
         await loadProjects();
         showSyncResult([...completed, ...problems].join('\n'), 'Sync Projects');
@@ -787,7 +795,8 @@ export default function ProjectsPage() {
       setSyncConflicts([]);
       setSyncError(null);
       setRetryAt(null);
-      setSyncStatus(problems.length > 0 ? 'error' : hasPendingSyncState() ? 'pending' : 'idle');
+      if (personalRestoreIncomplete) queuePendingSync(undefined, { fullSync: true });
+      setSyncStatus(personalRestoreIncomplete ? 'pending' : problems.length > 0 ? 'error' : hasPendingSyncState() ? 'pending' : 'idle');
       if (problems.length === 0) markSyncedNow();
       await loadProjects();
       showSyncResult([...completed, ...problems].join('\n') || 'Everything is up to date.', 'Sync Projects');
