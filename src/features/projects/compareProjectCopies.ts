@@ -45,6 +45,28 @@ function onlyIn(left: Set<string>, right: Set<string>) {
   return [...left].filter((id) => !right.has(id));
 }
 
+function normalized(value: string) {
+  return value.trim().replace(/\s+/g, ' ').toLocaleLowerCase();
+}
+
+export function isLikelyPersonalProjectCopy(first: Project, second: Project) {
+  if (first.id === second.id || first.sharedProjectId || second.sharedProjectId) return false;
+  if (!normalized(first.projectName) || !normalized(first.address)) return false;
+  if (normalized(first.projectName) !== normalized(second.projectName)
+    || normalized(first.address) !== normalized(second.address)) return false;
+
+  const firstAreas = new Map(first.areas.filter((area) => !area.deletedAt && !area.purgedAt)
+    .map((area) => [area.id, area]));
+  return second.areas.some((area) => {
+    const match = firstAreas.get(area.id);
+    if (!match || area.deletedAt || area.purgedAt) return false;
+    const checkpointIds = new Set(match.locations.flatMap((location) =>
+      location.items.flatMap((item) => item.checkpoints.map((checkpoint) => checkpoint.id))));
+    return area.locations.some((location) => location.items.some((item) =>
+      item.checkpoints.some((checkpoint) => checkpointIds.has(checkpoint.id))));
+  });
+}
+
 export function compareProjectCopies(first: Project, second: Project) {
   const left = contents(first);
   const right = contents(second);

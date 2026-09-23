@@ -2,10 +2,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createProject, getProject, saveProjectPreserveTimestamps } from '@/lib/db';
 import { serializeProjectPayload } from '@/lib/projectPayload';
 
-const { listProjectFilesMock, downloadProjectFileMock, uploadProjectFileMock } = vi.hoisted(() => ({
+const { listProjectFilesMock, downloadProjectFileMock, uploadProjectFileMock, deleteDriveItemMock } = vi.hoisted(() => ({
   listProjectFilesMock: vi.fn(),
   downloadProjectFileMock: vi.fn(),
   uploadProjectFileMock: vi.fn(),
+  deleteDriveItemMock: vi.fn(),
 }));
 
 vi.mock('@/lib/oneDrive', async (importOriginal) => ({
@@ -16,15 +17,17 @@ vi.mock('@/lib/oneDrive', async (importOriginal) => ({
   downloadProjectFile: downloadProjectFileMock,
   listPhotoProjectFolders: async () => [],
   uploadProjectFile: uploadProjectFileMock,
+  deleteDriveItem: deleteDriveItemMock,
 }));
 
-import { backupProjectsToOneDrive, restoreMissingProjectsFromOneDrive } from '@/lib/oneDriveSync';
+import { backupProjectsToOneDrive, mergePersonalProjectsFromOneDrive, restoreMissingProjectsFromOneDrive } from '@/lib/oneDriveSync';
 
 describe('OneDrive and team project identity', () => {
   beforeEach(() => {
     listProjectFilesMock.mockReset().mockResolvedValue([]);
     downloadProjectFileMock.mockReset();
     uploadProjectFileMock.mockReset();
+    deleteDriveItemMock.mockReset().mockResolvedValue(undefined);
   });
 
   it('does not restore another local copy of a team project with a different device ID', async () => {
@@ -61,6 +64,81 @@ describe('OneDrive and team project identity', () => {
 
     expect(result.backedUpProjectIds).toEqual([]);
     expect(uploadProjectFileMock).not.toHaveBeenCalled();
+  });
+
+  it('archives a trashed personal copy in OneDrive so another device cannot restore it', async () => {
+    const oldCopy = createProject('Personal site');
+    oldCopy.updatedAt = new Date('2025-01-01');
+    const trashedCopy = { ...oldCopy, deletedAt: new Date('2026-09-23'), updatedAt: new Date('2026-09-23') };
+    await saveProjectPreserveTimestamps(trashedCopy);
+    listProjectFilesMock.mockResolvedValue([{
+      id: 'active-file',
+      name: `Personal_site_${oldCopy.id}.json`,
+      punchlistPath: `PunchList/Personal_site/Personal_site_${oldCopy.id}.json`,
+    }]);
+    downloadProjectFileMock.mockResolvedValue(serializeProjectPayload(oldCopy));
+    uploadProjectFileMock.mockResolvedValue({ id: 'trash-file' });
+
+    const result = await backupProjectsToOneDrive('test-token', [oldCopy.id]);
+
+    expect(result.conflicts).toEqual([]);
+    expect(uploadProjectFileMock).toHaveBeenCalledWith(
+      'test-token', 'Personal_site', `Personal-site_${oldCopy.id}.json`,
+      expect.any(String), true, undefined
+    );
+    expect(deleteDriveItemMock).toHaveBeenCalledWith('test-token', 'active-file');
+  });
+
+  it('does not restore a personal backup marked as deleted even if its file is still active', async () => {
+    const trashedCopy = createProject('Personal site');
+    trashedCopy.deletedAt = new Date();
+    listProjectFilesMock.mockResolvedValue([{
+      id: 'stale-active-file',
+      name: `Personal-site_${trashedCopy.id}.json`,
+    }]);
+    downloadProjectFileMock.mockResolvedValue(serializeProjectPayload(trashedCopy));
+
+    const result = await restoreMissingProjectsFromOneDrive('test-token');
+
+    expect(result.restoredProjectIds).toEqual([]);
+    expect(result.skippedProjectIds).toContain(trashedCopy.id);
+    expect(await getProject(trashedCopy.id)).toBeUndefined();
+  });
+
+  it('moves an older local personal copy to Trash when another device archived it', async () => {
+    const localCopy = createProject('Personal site');
+    localCopy.updatedAt = new Date('2025-01-01');
+    await saveProjectPreserveTimestamps(localCopy);
+    const remoteCopy = { ...localCopy, updatedAt: new Date('2026-09-23'), deletedAt: new Date('2026-09-23') };
+    listProjectFilesMock.mockResolvedValue([{
+      id: 'trash-file',
+      name: `Personal-site_${localCopy.id}.json`,
+      punchlistPath: `PunchList/Trash Bin/Personal_site/Personal-site_${localCopy.id}.json`,
+    }]);
+    downloadProjectFileMock.mockResolvedValue(serializeProjectPayload(remoteCopy));
+
+    const result = await mergePersonalProjectsFromOneDrive('test-token');
+
+    expect(result.archivedLocalProjectIds).toContain(localCopy.id);
+    expect((await getProject(localCopy.id))?.deletedAt).toEqual(remoteCopy.deletedAt);
+  });
+
+  it('keeps personal edits made after a remote copy was archived', async () => {
+    const localCopy = createProject('Personal site');
+    localCopy.updatedAt = new Date('2026-09-24');
+    await saveProjectPreserveTimestamps(localCopy);
+    const remoteCopy = { ...localCopy, updatedAt: new Date('2026-09-23'), deletedAt: new Date('2026-09-23') };
+    listProjectFilesMock.mockResolvedValue([{
+      id: 'trash-file',
+      name: `Personal-site_${localCopy.id}.json`,
+      punchlistPath: `PunchList/Trash Bin/Personal_site/Personal-site_${localCopy.id}.json`,
+    }]);
+    downloadProjectFileMock.mockResolvedValue(serializeProjectPayload(remoteCopy));
+
+    const result = await mergePersonalProjectsFromOneDrive('test-token');
+
+    expect(result.archivedLocalProjectIds).toEqual([]);
+    expect((await getProject(localCopy.id))?.deletedAt).toBeUndefined();
   });
 
   it('does not restore old team backups after their local copies are removed', async () => {

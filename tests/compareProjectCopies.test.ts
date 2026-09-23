@@ -1,11 +1,16 @@
 import { describe, expect, it } from 'vitest';
-import { compareProjectCopies } from '../src/features/projects/compareProjectCopies';
+import { compareProjectCopies, isLikelyPersonalProjectCopy } from '../src/features/projects/compareProjectCopies';
+import { mergeDuplicatePersonalProjects } from '../src/features/projects/mergeDuplicateTeamProjects';
 import type { Checkpoint, Project } from '../src/types';
 
 function project(id: string, checkpoints: Checkpoint[]): Project {
   return {
     id,
+    projectName: 'Ilse Hoffman House - K&J (Kwassi)',
+    address: '1760 Jerome Ave',
     sharedProjectId: 'shared-one',
+    createdAt: new Date('2026-01-01'),
+    updatedAt: new Date('2026-01-01'),
     areas: [{
       id: 'area-one', projectId: id, name: 'Area', sortOrder: 0,
       isComplete: false, notes: '', createdAt: new Date(), updatedAt: new Date(),
@@ -30,6 +35,37 @@ function checkpoint(id: string, photos: Array<{ id: string; imageData: string }>
 }
 
 describe('compareProjectCopies', () => {
+  it('recognizes personal copies by shared saved IDs, not their name alone', () => {
+    const first = project('first', [checkpoint('same-checkpoint', [])]);
+    const second = project('second', [checkpoint('same-checkpoint', [])]);
+    delete first.sharedProjectId;
+    delete second.sharedProjectId;
+    expect(isLikelyPersonalProjectCopy(first, second)).toBe(true);
+    expect(isLikelyPersonalProjectCopy(first, { ...second, address: 'Another address' })).toBe(false);
+    expect(isLikelyPersonalProjectCopy(first, { ...second, areas: [] })).toBe(false);
+  });
+
+  it('keeps unique personal work and photo files under the retained project ID', () => {
+    const first = project('first', [checkpoint('shared', [{ id: 'photo-one', imageData: 'data:first' }])]);
+    const second = project('second', [
+      checkpoint('shared', [{ id: 'photo-one', imageData: '' }], 'Later note'),
+      checkpoint('unique', [{ id: 'photo-two', imageData: 'data:second' }]),
+    ]);
+    delete first.sharedProjectId;
+    delete second.sharedProjectId;
+    first.areas[0].locations[0].items[0].checkpoints[0].updatedAt = new Date('2025-01-01');
+    second.areas[0].updatedAt = new Date('2027-02-01');
+    second.areas[0].locations[0].items[0].checkpoints[0].updatedAt = new Date('2027-02-01');
+
+    const merged = mergeDuplicatePersonalProjects(first, [first, second]);
+    expect(merged.id).toBe(first.id);
+    expect(merged.areas[0].projectId).toBe(first.id);
+    expect(merged.areas[0].locations[0].items[0].checkpoints).toHaveLength(2);
+    expect(merged.areas[0].locations[0].items[0].checkpoints.find((checkpoint) => checkpoint.id === 'shared')?.comments).toBe('Later note');
+    expect(compareProjectCopies(first, merged).firstOnlyPhotoDataIds).toEqual([]);
+    expect(compareProjectCopies(second, merged).firstOnlyPhotoDataIds).toEqual([]);
+  });
+
   it('finds unique checkpoint and photo IDs and missing local photo files', () => {
     const first = project('first', [checkpoint('shared', [{ id: 'old-photo', imageData: '' }])]);
     const second = project('second', [

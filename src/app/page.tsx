@@ -59,8 +59,8 @@ import {
   relinkDetachedSharedProject,
 } from '@/features/collaboration/detachedSharedProject';
 import { ProjectCard, type ProjectCardMetrics as ProjectMetrics } from '@/features/projects/ProjectCard';
-import { compareProjectCopies } from '@/features/projects/compareProjectCopies';
-import { areasChangedSinceTeamCopy, areasWithMissingMedia, mergeDuplicateTeamProjects, projectCheckpointCount } from '@/features/projects/mergeDuplicateTeamProjects';
+import { compareProjectCopies, isLikelyPersonalProjectCopy } from '@/features/projects/compareProjectCopies';
+import { areasChangedSinceTeamCopy, areasWithMissingMedia, mergeDuplicatePersonalProjects, mergeDuplicateTeamProjects, projectCheckpointCount } from '@/features/projects/mergeDuplicateTeamProjects';
 import { HomeAreaCard,
   type HomeAreaCardMetrics as AreaMetrics,
   type HomeAreaClaimDisplay as AreaClaimDisplay,
@@ -277,6 +277,7 @@ export default function ProjectsPage() {
   const [exportScope, setExportScope] = useState<ExportScope>('selected-projects');
   const [showProjectMenuId, setShowProjectMenuId] = useState<string | null>(null);
   const [copyReview, setCopyReview] = useState<{
+    kind: 'team' | 'personal';
     selectedId: string;
     primaryId: string;
     comparisons: Array<{ otherId: string; result: ReturnType<typeof compareProjectCopies> }>;
@@ -680,6 +681,10 @@ export default function ProjectsPage() {
           if (merged.updatedLocalProjectIds.length > 0) {
             const count = merged.updatedLocalProjectIds.length;
             completed.push(`${count} personal project${count === 1 ? '' : 's'} updated`);
+          }
+          if (merged.archivedLocalProjectIds.length > 0) {
+            const count = merged.archivedLocalProjectIds.length;
+            completed.push(`${count} archived personal ${count === 1 ? 'copy' : 'copies'} moved to Trash`);
           }
           await loadProjects();
         } catch (error) {
@@ -1407,17 +1412,19 @@ export default function ProjectsPage() {
   }, []);
 
   async function handleCompareProjectCopies(project: Project) {
-    if (!project.sharedProjectId || loadingCopyReview) return;
+    if (loadingCopyReview) return;
     setLoadingCopyReview(true);
     try {
       const candidates = (await getAllProjects()).filter((entry) =>
         !entry.deletedAt
         && entry.id !== project.id
-        && entry.sharedProjectId === project.sharedProjectId
+        && (project.sharedProjectId
+          ? entry.sharedProjectId === project.sharedProjectId
+          : isLikelyPersonalProjectCopy(project, entry))
       );
       const selected = await getProject(project.id);
       if (!selected || candidates.length === 0) {
-        showMessage('No other local copy of this team project was found.');
+        showMessage('No other verified local copy of this project was found.');
         return;
       }
       const fullCopies = await Promise.all(candidates.map((candidate) => getProject(candidate.id)));
@@ -1429,6 +1436,7 @@ export default function ProjectsPage() {
       const primary = [selected, ...availableCopies]
         .sort((left, right) => projectCheckpointCount(right) - projectCheckpointCount(left))[0];
       setCopyReview({
+        kind: project.sharedProjectId ? 'team' : 'personal',
         selectedId: project.id,
         primaryId: primary.id,
         comparisons,
@@ -1451,26 +1459,33 @@ export default function ProjectsPage() {
         .map((entry) => getProject(entry.id)));
       const copies = originals.filter((entry): entry is Project => Boolean(entry));
       const primary = copies.find((entry) => entry.id === copyReview.primaryId);
-      if (!primary || copies.length < 2 || copies.some((entry) => entry.sharedProjectId !== primary.sharedProjectId)) {
+      if (!primary || copies.length < 2 || copies.some((entry) => copyReview.kind === 'team'
+        ? !primary.sharedProjectId || entry.sharedProjectId !== primary.sharedProjectId
+        : entry.id !== primary.id && !isLikelyPersonalProjectCopy(primary, entry))) {
         throw new Error('The project copies changed. Compare them again before merging.');
       }
       const duplicates = copies.filter((entry) => entry.id !== primary.id);
-      const teamSnapshot = await getSharedProjectSnapshot(primary);
-      const mergedCopy = mergeDuplicateTeamProjects(teamSnapshot.project, copies);
-      const teamAreas = new Map(teamSnapshot.project.areas.map((area) => [area.id, area]));
-      const merged: Project = {
-        ...mergedCopy,
-        sharedSnapshotPublishedAt: teamSnapshot.project.sharedSnapshotPublishedAt,
-        sharedBaselinePublishedAt: teamSnapshot.project.sharedBaselinePublishedAt,
-        areas: mergedCopy.areas.map((area) => {
-          const teamArea = teamAreas.get(area.id);
-          return teamArea ? {
-            ...area,
-            sharedVersion: teamArea.sharedVersion,
-            sharedPublishedAt: teamArea.sharedPublishedAt,
-          } : area;
-        }),
-      };
+      const teamSnapshot = copyReview.kind === 'team' ? await getSharedProjectSnapshot(primary) : null;
+      let merged: Project;
+      if (teamSnapshot) {
+        const mergedCopy = mergeDuplicateTeamProjects(teamSnapshot.project, copies);
+        const teamAreas = new Map(teamSnapshot.project.areas.map((area) => [area.id, area]));
+        merged = {
+          ...mergedCopy,
+          sharedSnapshotPublishedAt: teamSnapshot.project.sharedSnapshotPublishedAt,
+          sharedBaselinePublishedAt: teamSnapshot.project.sharedBaselinePublishedAt,
+          areas: mergedCopy.areas.map((area) => {
+            const teamArea = teamAreas.get(area.id);
+            return teamArea ? {
+              ...area,
+              sharedVersion: teamArea.sharedVersion,
+              sharedPublishedAt: teamArea.sharedPublishedAt,
+            } : area;
+          }),
+        };
+      } else {
+        merged = { ...mergeDuplicatePersonalProjects(primary, copies), updatedAt: new Date() };
+      }
       const verifyCopyPreserved = (candidate: Project) => {
         for (const original of copies) {
           const comparison = compareProjectCopies(original, candidate);
@@ -1482,7 +1497,7 @@ export default function ProjectsPage() {
         }
       };
       verifyCopyPreserved(merged);
-      const changedAreaIds = areasChangedSinceTeamCopy(teamSnapshot.project, merged);
+      const changedAreaIds = teamSnapshot ? areasChangedSinceTeamCopy(teamSnapshot.project, merged) : [];
       const latestLocalCopies = new Map((await getAllProjects()).map((entry) => [entry.id, entry]));
       if (copies.some((copy) => {
         const current = latestLocalCopies.get(copy.id);
@@ -1495,22 +1510,27 @@ export default function ProjectsPage() {
       const savedMerge = await getProject(primary.id);
       if (!savedMerge) throw new Error('The merged project could not be loaded. Original copies are still available.');
       verifyCopyPreserved(savedMerge);
-      const teamComparison = compareProjectCopies(teamSnapshot.project, savedMerge);
-      if (teamComparison.firstOnlyAreaIds.length || teamComparison.firstOnlyCheckpointIds.length
-        || teamComparison.firstOnlyPhotoIds.length || teamComparison.firstOnlyPhotoDataIds.length
-        || teamComparison.firstOnlyFileIds.length || teamComparison.firstOnlyFileDataIds.length) {
-        throw new Error('The latest team items could not be preserved. Original copies are still available.');
+      if (teamSnapshot) {
+        const teamComparison = compareProjectCopies(teamSnapshot.project, savedMerge);
+        if (teamComparison.firstOnlyAreaIds.length || teamComparison.firstOnlyCheckpointIds.length
+          || teamComparison.firstOnlyPhotoIds.length || teamComparison.firstOnlyPhotoDataIds.length
+          || teamComparison.firstOnlyFileIds.length || teamComparison.firstOnlyFileDataIds.length) {
+          throw new Error('The latest team items could not be preserved. Original copies are still available.');
+        }
       }
       const unavailableMediaIds = new Set(areasWithMissingMedia(savedMerge, changedAreaIds));
       const safeAreaIds = changedAreaIds.filter((areaId) => !unavailableMediaIds.has(areaId));
       for (const duplicate of duplicates) {
-        await saveProjectMetadataOnly({ ...duplicate, deletedAt: new Date() }, { touch: false });
+        await saveProjectMetadataOnly({ ...duplicate, deletedAt: new Date() }, { touch: copyReview.kind === 'personal' });
+        if (!teamSnapshot) scheduleSyncRef.current(duplicate.id);
       }
-      await queueSharedProjectAreaSyncs(savedMerge, safeAreaIds);
+      if (teamSnapshot) await queueSharedProjectAreaSyncs(savedMerge, safeAreaIds);
       scheduleSyncRef.current(merged.id);
       setProjects(await getAllProjects());
       setCopyReview(null);
-      showMessage(`Merged ${copies.length} local copies into one project. Original copies are in Trash for 30 days. ${safeAreaIds.length} changed areas are queued for team sync.${unavailableMediaIds.size ? ` ${unavailableMediaIds.size} areas still have photos or files missing on this device and were kept local for recovery.` : ''}`);
+      showMessage(teamSnapshot
+        ? `Merged ${copies.length} local copies into one project. Original copies are in Trash for 30 days. ${safeAreaIds.length} changed areas are queued for team sync.${unavailableMediaIds.size ? ` ${unavailableMediaIds.size} areas still have photos or files missing on this device and were kept local for recovery.` : ''}`
+        : `Merged ${copies.length} personal copies into one project. The extra copy is in Trash for 30 days. Tap Sync Projects to update your personal backup and archive the extra copy.`);
     } catch (error) {
       console.error('Could not merge project copies:', error);
       showMessage(error instanceof Error ? error.message : 'Could not merge these copies. No copies were removed.');
@@ -3320,8 +3340,10 @@ export default function ProjectsPage() {
                       onCloseMenu={handleCloseProjectMenu}
                       onEditProject={handleOpenProjectEditor}
                       onDeleteProject={handleTrashProject}
-                      onCompareCopies={project.sharedProjectId && activeProjects.some((other) =>
-                        other.id !== project.id && other.sharedProjectId === project.sharedProjectId
+                      onCompareCopies={activeProjects.some((other) =>
+                        other.id !== project.id && (project.sharedProjectId
+                          ? other.sharedProjectId === project.sharedProjectId
+                          : isLikelyPersonalProjectCopy(project, other))
                       ) ? handleCompareProjectCopies : undefined}
                       onLongPressSelect={handleProjectCardLongPress}
                       onPrimeOpen={primeProjectOpen}
@@ -3339,7 +3361,9 @@ export default function ProjectsPage() {
           <div className="modal-panel max-h-[82dvh] w-full max-w-lg overflow-y-auto rounded-[1.9rem] p-6">
             <h2 className="text-xl font-semibold text-gray-900 dark:text-white">Compare project copies</h2>
             <p className="mt-2 text-sm text-gray-500 dark:text-gray-300">
-              These copies belong to the same team project. Counts below compare saved IDs on this device; they do not change either copy.
+              {copyReview.kind === 'team'
+                ? 'These copies belong to the same team project. Counts below compare saved IDs on this device; they do not change either copy.'
+                : 'These personal copies share saved area and checkpoint IDs. Counts below compare their saved work on this device; they do not change either copy.'}
             </p>
             {copyReview.comparisons.map(({ otherId, result }) => (
               <div key={otherId} className="mt-4 rounded-2xl soft-control p-4 text-sm text-gray-700 dark:text-gray-200">

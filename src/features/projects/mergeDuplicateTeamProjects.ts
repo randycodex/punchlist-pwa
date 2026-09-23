@@ -1,5 +1,6 @@
 import type { Project } from '@/types';
 import { mergeProjects } from '@/lib/oneDriveSync';
+import { isLikelyPersonalProjectCopy } from './compareProjectCopies';
 
 export function projectCheckpointCount(project: Project) {
   return project.areas.reduce((total, area) => total + (
@@ -33,6 +34,40 @@ export function mergeDuplicateTeamProjects(primary: Project, duplicates: Project
     result = {
       ...result,
       updatedAt: merged.updatedAt,
+      areas: merged.areas.map((area) => ({ ...area, projectId: primary.id })),
+      facadeElevationDrawings: [...drawings.values()],
+      checkpointRules: [...rules.values()],
+    };
+  }
+  return result;
+}
+
+export function mergeDuplicatePersonalProjects(primary: Project, copies: Project[]): Project {
+  if (primary.sharedProjectId || copies.some((copy) =>
+    copy.id !== primary.id && !isLikelyPersonalProjectCopy(primary, copy)
+  )) {
+    throw new Error('These are not verified copies of the same personal project.');
+  }
+
+  let result = primary;
+  for (const copy of copies) {
+    if (copy.id === primary.id) continue;
+    const merged = mergeProjects(result, copy);
+    const drawings = new Map((result.facadeElevationDrawings ?? []).map((drawing) => [drawing.id, drawing]));
+    for (const drawing of copy.facadeElevationDrawings ?? []) {
+      const existing = drawings.get(drawing.id);
+      if (!existing || (!existing.dataUrl && drawing.dataUrl)) drawings.set(drawing.id, drawing);
+    }
+    const rules = new Map((result.checkpointRules ?? []).map((rule) =>
+      [`${rule.room}\u0000${rule.item}\u0000${rule.name}`, rule]
+    ));
+    for (const rule of copy.checkpointRules ?? []) {
+      rules.set(`${rule.room}\u0000${rule.item}\u0000${rule.name}`, rule);
+    }
+    result = {
+      ...result,
+      id: primary.id,
+      oneDriveFolderName: primary.oneDriveFolderName,
       areas: merged.areas.map((area) => ({ ...area, projectId: primary.id })),
       facadeElevationDrawings: [...drawings.values()],
       checkpointRules: [...rules.values()],

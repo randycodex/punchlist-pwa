@@ -1511,21 +1511,51 @@ export async function backupProjectsToOneDrive(
       ? await Promise.all([...new Set(projectIds)].map((projectId) => getProject(projectId)))
       : await Promise.all(
           (await getAllProjects())
-            .filter((project) => !project.deletedAt)
             .map((project) => getProject(project.id))
         );
     const localProjects = localProjectEntries.filter(
-      (project): project is Project => Boolean(project && !project.deletedAt && !project.sharedProjectId)
+      (project): project is Project => Boolean(project && !project.sharedProjectId)
     );
-    const remoteFilesById = buildRemoteProjectFileIndex(
-      (await listProjectFiles(token)).filter((entry) => !isRemoteProjectFileInTrash(entry))
-    );
+    const allRemoteFilesById = buildRemoteProjectFileIndex(await listProjectFiles(token));
+    const remoteFilesById = new Map([...allRemoteFilesById].map(([id, entries]) =>
+      [id, entries.filter((entry) => !isRemoteProjectFileInTrash(entry))] as const
+    ));
     const remoteIndex: OneDriveSyncRemoteIndex = {};
     const conflictsById = new Map<string, SyncConflict>();
     const backedUpProjectIds: string[] = [];
     const forceIds = new Set(forceProjectIds ?? []);
 
     await runWithConcurrency(localProjects, 2, async (localProject) => {
+      if (localProject.deletedAt) {
+        const remoteEntries = allRemoteFilesById.get(localProject.id) ?? [];
+        const targetFolderName = resolveRemoteProjectFolderName(localProject, remoteEntries);
+        const canonicalRemote = remoteEntries.find((entry) =>
+          isCanonicalRemoteProjectFile(localProject, entry, targetFolderName)
+        );
+        const remote = canonicalRemote ?? pickPrimaryRemoteProjectFile(remoteEntries);
+        const remoteUpdatedAt = await getRemoteProjectPayloadUpdatedAt(token, remote);
+        if (compareTimestampsWithTolerance(getProjectUpdatedAt(localProject), remoteUpdatedAt) < 0) {
+          conflictsById.set(localProject.id, { id: localProject.id, name: localProject.projectName });
+          return;
+        }
+        const projectForBackup = withProjectFolderName(localProject, targetFolderName);
+        let keepRemoteId = canonicalRemote?.id;
+        if (!canonicalRemote || compareTimestampsWithTolerance(getProjectUpdatedAt(localProject), remoteUpdatedAt) > 0) {
+          const uploaded = await uploadProjectFileRecoveringMissingRemote(
+            token,
+            targetFolderName,
+            projectJsonFilename(projectForBackup),
+            serializeProjectPayload(stripProjectMediaPayload(projectForBackup)),
+            true,
+            canonicalRemote?.eTag
+          );
+          keepRemoteId = uploaded.id;
+        }
+        await deleteStaleRemoteProjectFiles(
+          token, projectForBackup, remoteEntries, true, targetFolderName, keepRemoteId
+        );
+        return;
+      }
       const remoteEntries = remoteFilesById.get(localProject.id) ?? [];
       const targetFolderName = resolveRemoteProjectFolderName(localProject, remoteEntries);
       const canonicalRemote = remoteEntries.find((entry) =>
@@ -1596,6 +1626,7 @@ export async function backupProjectsToOneDrive(
  */
 export async function mergePersonalProjectsFromOneDrive(token: string): Promise<{
   updatedLocalProjectIds: string[];
+  archivedLocalProjectIds: string[];
   forceBackupProjectIds: string[];
 }> {
   const releaseSyncLease = await acquireSyncLease(token);
@@ -1609,8 +1640,12 @@ export async function mergePersonalProjectsFromOneDrive(token: string): Promise<
     const remoteFilesById = buildRemoteProjectFileIndex(
       remoteFiles.filter((entry) => !isRemoteProjectFileInTrash(entry))
     );
+    const trashedRemoteFilesById = buildRemoteProjectFileIndex(
+      remoteFiles.filter((entry) => isRemoteProjectFileInTrash(entry))
+    );
     const remoteIndex: OneDriveSyncRemoteIndex = {};
     const updatedLocalProjectIds: string[] = [];
+    const archivedLocalProjectIds: string[] = [];
     const forceBackupProjectIds: string[] = [];
 
     await runWithConcurrency([...remoteFilesById.entries()], 2, async ([projectId, remoteEntries]) => {
@@ -1637,7 +1672,28 @@ export async function mergePersonalProjectsFromOneDrive(token: string): Promise<
       updatedLocalProjectIds.push(projectId);
     });
 
-    return { updatedLocalProjectIds, forceBackupProjectIds };
+    await runWithConcurrency([...trashedRemoteFilesById.entries()], 2, async ([projectId, remoteEntries]) => {
+      if (remoteFilesById.has(projectId)) return;
+      const local = localById.get(projectId);
+      if (!local || local.deletedAt || local.sharedProjectId) return;
+      const remote = pickPrimaryRemoteProjectFile(remoteEntries);
+      if (!remote?.id) return;
+      const remoteProject = await downloadRemoteProject(token, remote.id);
+      if (!remoteProject?.deletedAt || remoteProject.sharedProjectId) return;
+      const fullLocal = await getProject(projectId);
+      if (!fullLocal || fullLocal.deletedAt) return;
+      // Keep edits made after another device archived the copy. They need a
+      // deliberate review before this device can move them to Trash.
+      if (timestampMs(remoteProject.deletedAt) <= getProjectUpdatedAt(fullLocal) + CLOCK_SKEW_TOLERANCE_MS) return;
+      await saveProjectPreserveTimestamps({
+        ...fullLocal,
+        deletedAt: remoteProject.deletedAt,
+        updatedAt: maxDate(fullLocal.updatedAt, remoteProject.deletedAt) ?? fullLocal.updatedAt,
+      });
+      archivedLocalProjectIds.push(projectId);
+    });
+
+    return { updatedLocalProjectIds, archivedLocalProjectIds, forceBackupProjectIds };
   } finally {
     await releaseSyncLease();
   }
@@ -1679,7 +1735,7 @@ export async function restoreMissingProjectsFromOneDrive(
       // Team projects are restored through active team membership, not old
       // personal OneDrive backups. An inactive team's backup must not bring a
       // locally deleted copy back or create another device-local card.
-      if (remoteProject.sharedProjectId) {
+      if (remoteProject.sharedProjectId || remoteProject.deletedAt) {
         skippedProjectIds.push(projectId);
         return;
       }
