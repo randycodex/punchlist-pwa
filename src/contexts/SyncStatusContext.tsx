@@ -3,6 +3,7 @@
 import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { restorePendingSyncStateFromDurableStorage } from '@/lib/pendingSync';
 import {
+  getAllProjects,
   getPendingSharedAreaSyncs,
   getPendingSharedProjectMetadataSyncs,
   SHARED_SYNC_QUEUE_CHANGED_EVENT,
@@ -71,12 +72,14 @@ export function SyncStatusProvider({ children }: { children: ReactNode }) {
 
     async function refreshSharedSyncSummary() {
       try {
-        const [areaRecords, metadataRecords] = await Promise.all([
+        const [areaRecords, metadataRecords, projects] = await Promise.all([
           getPendingSharedAreaSyncs(),
           getPendingSharedProjectMetadataSyncs(),
+          getAllProjects(),
         ]);
         if (active) {
-          const nextSummary = summarizePendingSharedSyncs([...areaRecords, ...metadataRecords]);
+          const activeProjectIds = new Set(projects.filter((project) => !project.deletedAt).map((project) => project.id));
+          const nextSummary = summarizePendingSharedSyncs([...areaRecords, ...metadataRecords], activeProjectIds);
           setSharedSyncSummary((current) => (
             current.pendingCount === nextSummary.pendingCount
             && current.conflictCount === nextSummary.conflictCount

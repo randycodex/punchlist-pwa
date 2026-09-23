@@ -13,10 +13,23 @@ import {
   resumeReviewedPendingSharedAreaSyncs,
   saveProjectPreserveTimestamps,
   summarizePendingSharedAreaSyncs,
+  summarizePendingSharedSyncs,
 } from '@/lib/db';
 import { queueSharedProjectAreaSyncs } from '@/lib/collaboration/sharedAreaSyncQueue';
 
 describe('durable shared area sync queue', () => {
+  it('does not count conflicts on project copies moved to Trash', () => {
+    const records = [
+      { localProjectId: 'trashed-copy', blockedByConflict: true, lastError: 'Newer team data' },
+      { localProjectId: 'active-copy', blockedByConflict: false, lastError: null },
+    ];
+    expect(summarizePendingSharedSyncs(records, new Set(['active-copy']))).toEqual({
+      pendingCount: 1,
+      conflictCount: 0,
+      lastConflictError: null,
+    });
+  });
+
   it('coalesces rapid edits without deleting a newer edit when an older request finishes', async () => {
     const project = createProject('Shared queue project');
     project.sharedProjectId = 'shared-project-queue';

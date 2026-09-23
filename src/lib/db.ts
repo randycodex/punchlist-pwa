@@ -668,6 +668,7 @@ export async function saveProjectMetadataOnly(
     }
     await tx.done;
   });
+  reportSharedSyncQueueChanged();
 }
 
 export async function saveProjectMetadataWithSharedSync(
@@ -1274,12 +1275,16 @@ export async function clearPendingSharedProjectMetadataSyncForProject(localProje
 export function summarizePendingSharedSyncs(
   records: ReadonlyArray<Pick<
     PendingSharedAreaSyncRecord | PendingSharedProjectMetadataSyncRecord,
-    'blockedByConflict' | 'lastError'
-  >>
+    'localProjectId' | 'blockedByConflict' | 'lastError'
+  >>,
+  activeProjectIds?: ReadonlySet<string>
 ): SharedSyncQueueSummary {
-  const conflicts = records.filter((record) => record.blockedByConflict);
+  const visibleRecords = activeProjectIds
+    ? records.filter((record) => activeProjectIds.has(record.localProjectId))
+    : records;
+  const conflicts = visibleRecords.filter((record) => record.blockedByConflict);
   return {
-    pendingCount: records.length,
+    pendingCount: visibleRecords.length,
     conflictCount: conflicts.length,
     lastConflictError: conflicts.find((record) => record.lastError)?.lastError ?? null,
   };
