@@ -200,7 +200,6 @@ export default function AreaDetailPage() {
   const [syncing, setSyncing] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
   const [noteSaveError, setNoteSaveError] = useState<string | null>(null);
-  const [savingNotes, setSavingNotes] = useState(false);
   const pendingNotesRef = useRef(new Map<string, { locationId: string; itemId: string; checkpointId: string; value: string }>());
   const [inspectionNotice, setInspectionNotice] = useState<string | null>(null);
   const [areaClaimError, setAreaClaimError] = useState<string | null>(null);
@@ -237,7 +236,6 @@ export default function AreaDetailPage() {
     setRetryAt,
     setStatus: setSyncStatus,
     setSyncConflicts,
-    sharedUpdateProjectIds,
   } = useSyncStatus();
   const { inspectionShowOnlyIssues, setInspectionShowOnlyIssues, quickSort, markSyncedNow } = useAppSettings();
 
@@ -799,7 +797,6 @@ export default function AreaDetailPage() {
     }
     if (checkpoint.comments === value && !pendingNotesRef.current.has(checkpointId)) return;
     pendingNotesRef.current.set(checkpointId, { locationId, itemId, checkpointId, value });
-    setSavingNotes(true);
     try {
       const committed = await saveRecoverableNote(project.id, area.id, checkpointId, value, checkpoint.comments);
       if (!committed) return;
@@ -808,12 +805,10 @@ export default function AreaDetailPage() {
       if (pendingNotesRef.current.get(checkpointId)?.value === value) {
         pendingNotesRef.current.delete(checkpointId);
       }
-      setSavingNotes(pendingNotesRef.current.size > 0);
       if (pendingNotesRef.current.size === 0) setNoteSaveError(null);
       scheduleSync(project.id);
     } catch {
       setNoteSaveError('Your latest note could not be saved. Keep this page open and retry.');
-      setSavingNotes(false);
       throw new Error('Note was not saved.');
     }
 
@@ -2036,11 +2031,6 @@ export default function AreaDetailPage() {
     !areaClaimError &&
     !areaClaimProblem
   );
-  const visibleLiveSharedUpdate = Boolean(
-    collaborationAuth.isSignedIn &&
-    project.sharedProjectId &&
-    sharedUpdateProjectIds.has(project.id)
-  );
   const sharedAreaClaimLabel = visibleAreaClaimProblem
     ? visibleAreaClaimProblem.kind === 'blocked'
       ? 'In use by someone else'
@@ -2173,11 +2163,11 @@ export default function AreaDetailPage() {
             </div>
           </div>
         )}
-        <div className="mx-auto flex w-full max-w-6xl flex-wrap items-center justify-between gap-2 px-4 pb-3 pt-3">
+        <div className="mx-auto flex w-full max-w-6xl flex-wrap items-center justify-between gap-2 px-4 py-2">
           <div className="flex gap-1" role="group" aria-label="Inspection view">
             {(['All', 'To inspect', 'Issues'] as const).map((label) => {
               const selected = label === 'Issues' ? inspectionShowOnlyIssues : label === 'To inspect' ? showToInspect : !showToInspect && !inspectionShowOnlyIssues;
-              return <button key={label} type="button" aria-pressed={selected} className={`min-h-11 rounded-xl px-3 text-sm font-medium ${selected ? 'accent-bg text-white' : 'soft-control'}`} onClick={() => { setShowToInspect(label === 'To inspect'); setInspectionShowOnlyIssues(label === 'Issues'); }}>{label}</button>;
+              return <button key={label} type="button" aria-pressed={selected} className={`h-9 rounded-lg px-2.5 text-xs font-medium ${selected ? 'accent-bg text-white' : 'soft-control'}`} onClick={() => { setShowToInspect(label === 'To inspect'); setInspectionShowOnlyIssues(label === 'Issues'); }}>{label}</button>;
             })}
           </div>
           <span className="text-xs text-gray-500 dark:text-gray-400">{area.locations.filter((location) => location.reviewedAt).length} / {area.locations.length} rooms reviewed</span>
@@ -2229,18 +2219,22 @@ export default function AreaDetailPage() {
         />
       )}
 
-      <div className="shrink-0 px-4 py-2 text-xs" aria-live="polite">
-        {noteSaveError ? (
-          <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 text-red-700 dark:text-red-300" role="alert">
-            <span>{noteSaveError}</span>
-            <button type="button" className="min-h-11 rounded-xl px-4 font-semibold" onClick={() => {
-              for (const note of pendingNotesRef.current.values()) {
-                void persistCheckpointComment(note.locationId, note.itemId, note.checkpointId, note.value).catch(() => {});
-              }
-            }}>Retry save</button>
-          </div>
-        ) : <p className="mx-auto max-w-6xl text-gray-500 dark:text-gray-400">{localSaveStatus === 'error' ? `Save needs attention: ${localSaveError ?? 'retry the last action'}` : savingNotes || localSaveStatus === 'saving' ? 'Saving on this device…' : 'Saved on this device'}</p>}
-      </div>
+      {(noteSaveError || localSaveStatus === 'error') && (
+        <div className="shrink-0 px-4 py-2 text-xs" role="alert">
+          {noteSaveError ? (
+            <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 text-red-700 dark:text-red-300">
+              <span>{noteSaveError}</span>
+              <button type="button" className="min-h-11 rounded-xl px-4 font-semibold" onClick={() => {
+                for (const note of pendingNotesRef.current.values()) {
+                  void persistCheckpointComment(note.locationId, note.itemId, note.checkpointId, note.value).catch(() => {});
+                }
+              }}>Retry save</button>
+            </div>
+          ) : (
+            <p className="mx-auto max-w-6xl text-red-700 dark:text-red-300">Save needs attention: {localSaveError ?? 'retry the last action'}</p>
+          )}
+        </div>
+      )}
 
       {syncError && (
         <div className="shrink-0 border-b border-transparent bg-white/70 px-4 py-2 text-sm text-gray-700 dark:bg-white/[0.03] dark:text-gray-200">
@@ -2254,25 +2248,6 @@ export default function AreaDetailPage() {
         </div>
       )}
 
-      {visibleLiveSharedUpdate && (
-        <div
-          className="shrink-0 border-b border-transparent bg-sky-50 px-4 py-2 text-sm text-sky-950 dark:bg-sky-400/10 dark:text-sky-100"
-          aria-live="polite"
-        >
-          <div className="mx-auto flex w-full max-w-6xl flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-            <p className="min-w-0 flex-1 font-medium">
-              Team updates are ready. Finish this area first — your work here stays on this device until you apply updates.
-            </p>
-            <button
-              type="button"
-              onClick={() => router.push(`/project/${project.id}`)}
-              className="inline-flex h-9 w-fit items-center justify-center rounded-full bg-sky-700 px-3 text-xs font-semibold text-white transition hover:bg-sky-800 dark:bg-sky-200 dark:text-sky-950 dark:hover:bg-sky-100"
-            >
-              Review updates
-            </button>
-          </div>
-        </div>
-      )}
       {/* Inspection Items */}
       <main
         ref={listRef}
