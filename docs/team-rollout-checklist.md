@@ -13,7 +13,7 @@ Before step 4, apply `20260923200000_owner_area_lock_recovery.sql` to the **test
 5. Put one member offline while editing a shared area. Confirm their changes stay on the device, appear as pending, and are reviewed or merged when back online. No other person's changes should disappear.
 6. Make one project need review, then sync with another team project and a personal project present. The unrelated team project should finish, and the personal backup should still run. The result must name the project needing review.
 7. Simulate a OneDrive retry or sign-in delay. Team delivery and lock release must report their own result. The personal backup should remain queued without claiming that everything synced.
-8. Restore or join a project that already has a local copy, including a trashed older copy. The directory must prefer the active copy. If divergent copies exist, **Review and merge copies** must preserve every area, checkpoint, photo, file, and team update before the extra copy goes to recoverable Trash.
+8. Restore or join a project that already has a local copy, including a trashed older copy. The directory must prefer the active copy. If divergent copies exist, use **Compare Copies → Merge copies**. Confirm every area, checkpoint, photo, file, and team update remains before the extra copy goes to recoverable Trash.
 9. On each device, search by exact unit, area name, and floor, then inspect the intended area. Test narrow phone layout and a large project with hundreds of areas.
 10. Restart the app after a saved note/photo, after a sync, and while offline. Verify the work and project list still load; if a recovery screen appears, copy its reference and error details.
 
