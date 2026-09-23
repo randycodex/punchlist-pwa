@@ -66,6 +66,24 @@ describe('OneDrive and team project identity', () => {
     expect(uploadProjectFileMock).not.toHaveBeenCalled();
   });
 
+  it('finishes another personal backup when one project upload fails', async () => {
+    const first = createProject('First personal project');
+    const second = createProject('Second personal project');
+    await saveProjectPreserveTimestamps(first);
+    await saveProjectPreserveTimestamps(second);
+    uploadProjectFileMock.mockImplementation(async (_token: string, _folder: string, filename: string) => {
+      if (filename.includes(first.id)) throw new Error('First upload unavailable');
+      return { id: 'second-upload' };
+    });
+
+    const result = await backupProjectsToOneDrive('test-token', [first.id, second.id]);
+
+    expect(result.backedUpProjectIds).toContain(second.id);
+    expect(result.backedUpProjectIds).not.toContain(first.id);
+    expect(result.failedProjects).toEqual([{ id: first.id, name: first.projectName, message: 'First upload unavailable' }]);
+    expect(uploadProjectFileMock).toHaveBeenCalledTimes(2);
+  });
+
   it('archives a trashed personal copy in OneDrive so another device cannot restore it', async () => {
     const oldCopy = createProject('Personal site');
     oldCopy.updatedAt = new Date('2025-01-01');

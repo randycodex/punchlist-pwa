@@ -48,6 +48,7 @@ export type PushSyncResult = {
 export type OneDriveBackupResult = {
   conflicts: SyncConflict[];
   backedUpProjectIds: string[];
+  failedProjects?: Array<{ id: string; name: string; message: string }>;
   syncedAt: string;
 };
 
@@ -1523,95 +1524,105 @@ export async function backupProjectsToOneDrive(
     const remoteIndex: OneDriveSyncRemoteIndex = {};
     const conflictsById = new Map<string, SyncConflict>();
     const backedUpProjectIds: string[] = [];
+    const failedProjects: NonNullable<OneDriveBackupResult['failedProjects']> = [];
     const forceIds = new Set(forceProjectIds ?? []);
 
     await runWithConcurrency(localProjects, 2, async (localProject) => {
-      if (localProject.deletedAt) {
-        const remoteEntries = allRemoteFilesById.get(localProject.id) ?? [];
+      try {
+        if (localProject.deletedAt) {
+          const remoteEntries = allRemoteFilesById.get(localProject.id) ?? [];
+          const targetFolderName = resolveRemoteProjectFolderName(localProject, remoteEntries);
+          const canonicalRemote = remoteEntries.find((entry) =>
+            isCanonicalRemoteProjectFile(localProject, entry, targetFolderName)
+          );
+          const remote = canonicalRemote ?? pickPrimaryRemoteProjectFile(remoteEntries);
+          const remoteUpdatedAt = await getRemoteProjectPayloadUpdatedAt(token, remote);
+          if (compareTimestampsWithTolerance(getProjectUpdatedAt(localProject), remoteUpdatedAt) < 0) {
+            conflictsById.set(localProject.id, { id: localProject.id, name: localProject.projectName });
+            return;
+          }
+          const projectForBackup = withProjectFolderName(localProject, targetFolderName);
+          let keepRemoteId = canonicalRemote?.id;
+          if (!canonicalRemote || compareTimestampsWithTolerance(getProjectUpdatedAt(localProject), remoteUpdatedAt) > 0) {
+            const uploaded = await uploadProjectFileRecoveringMissingRemote(
+              token,
+              targetFolderName,
+              projectJsonFilename(projectForBackup),
+              serializeProjectPayload(stripProjectMediaPayload(projectForBackup)),
+              true,
+              canonicalRemote?.eTag
+            );
+            keepRemoteId = uploaded.id;
+          }
+          await deleteStaleRemoteProjectFiles(
+            token, projectForBackup, remoteEntries, true, targetFolderName, keepRemoteId
+          );
+          return;
+        }
+        const remoteEntries = remoteFilesById.get(localProject.id) ?? [];
         const targetFolderName = resolveRemoteProjectFolderName(localProject, remoteEntries);
         const canonicalRemote = remoteEntries.find((entry) =>
           isCanonicalRemoteProjectFile(localProject, entry, targetFolderName)
         );
         const remote = canonicalRemote ?? pickPrimaryRemoteProjectFile(remoteEntries);
+        const localUpdatedAt = getProjectUpdatedAt(localProject);
         const remoteUpdatedAt = await getRemoteProjectPayloadUpdatedAt(token, remote);
-        if (compareTimestampsWithTolerance(getProjectUpdatedAt(localProject), remoteUpdatedAt) < 0) {
-          conflictsById.set(localProject.id, { id: localProject.id, name: localProject.projectName });
-          return;
-        }
-        const projectForBackup = withProjectFolderName(localProject, targetFolderName);
-        let keepRemoteId = canonicalRemote?.id;
-        if (!canonicalRemote || compareTimestampsWithTolerance(getProjectUpdatedAt(localProject), remoteUpdatedAt) > 0) {
-          const uploaded = await uploadProjectFileRecoveringMissingRemote(
-            token,
-            targetFolderName,
-            projectJsonFilename(projectForBackup),
-            serializeProjectPayload(stripProjectMediaPayload(projectForBackup)),
-            true,
-            canonicalRemote?.eTag
-          );
-          keepRemoteId = uploaded.id;
-        }
-        await deleteStaleRemoteProjectFiles(
-          token, projectForBackup, remoteEntries, true, targetFolderName, keepRemoteId
-        );
-        return;
-      }
-      const remoteEntries = remoteFilesById.get(localProject.id) ?? [];
-      const targetFolderName = resolveRemoteProjectFolderName(localProject, remoteEntries);
-      const canonicalRemote = remoteEntries.find((entry) =>
-        isCanonicalRemoteProjectFile(localProject, entry, targetFolderName)
-      );
-      const remote = canonicalRemote ?? pickPrimaryRemoteProjectFile(remoteEntries);
-      const localUpdatedAt = getProjectUpdatedAt(localProject);
-      const remoteUpdatedAt = await getRemoteProjectPayloadUpdatedAt(token, remote);
-      const freshnessComparison = compareTimestampsWithTolerance(localUpdatedAt, remoteUpdatedAt);
+        const freshnessComparison = compareTimestampsWithTolerance(localUpdatedAt, remoteUpdatedAt);
 
-      // A personal backup from another device may be newer. Preserve it and
-      // ask the user to restore/review instead of silently overwriting it.
-      if (freshnessComparison < 0) {
-        conflictsById.set(localProject.id, {
-          id: localProject.id,
-          name: localProject.projectName,
-        });
-        return;
-      }
-
-      const projectForBackup = withProjectFolderName(localProject, targetFolderName);
-      await saveProjectPreserveTimestamps(projectForBackup);
-
-      try {
-        if (freshnessComparison > 0 || !canonicalRemote || forceIds.has(localProject.id)) {
-          await uploadProjectFileRecoveringMissingRemote(
-            token,
-            targetFolderName,
-            projectJsonFilename(projectForBackup),
-            serializeProjectPayload(stripProjectMediaPayload(projectForBackup)),
-            false,
-            canonicalRemote?.eTag
-          );
-        }
-
-        // Photo backups are append-only. Deleting a photo on the device does not
-        // remove the computer-accessible JPEG from OneDrive.
-        await backupProjectPhotosToOneDrive(token, projectForBackup, targetFolderName, remoteIndex);
-        backedUpProjectIds.push(projectForBackup.id);
-      } catch (error) {
-        if (isConflictError(error)) {
-          conflictsById.set(projectForBackup.id, {
-            id: projectForBackup.id,
-            name: projectForBackup.projectName,
+        // A personal backup from another device may be newer. Preserve it and
+        // ask the user to restore/review instead of silently overwriting it.
+        if (freshnessComparison < 0) {
+          conflictsById.set(localProject.id, {
+            id: localProject.id,
+            name: localProject.projectName,
           });
           return;
         }
-        throw error;
+
+        const projectForBackup = withProjectFolderName(localProject, targetFolderName);
+        await saveProjectPreserveTimestamps(projectForBackup);
+
+        try {
+          if (freshnessComparison > 0 || !canonicalRemote || forceIds.has(localProject.id)) {
+            await uploadProjectFileRecoveringMissingRemote(
+              token,
+              targetFolderName,
+              projectJsonFilename(projectForBackup),
+              serializeProjectPayload(stripProjectMediaPayload(projectForBackup)),
+              false,
+              canonicalRemote?.eTag
+            );
+          }
+
+          // Photo backups are append-only. Deleting a photo on the device does not
+          // remove the computer-accessible JPEG from OneDrive.
+          await backupProjectPhotosToOneDrive(token, projectForBackup, targetFolderName, remoteIndex);
+          backedUpProjectIds.push(projectForBackup.id);
+        } catch (error) {
+          if (isConflictError(error)) {
+            conflictsById.set(projectForBackup.id, {
+              id: projectForBackup.id,
+              name: projectForBackup.projectName,
+            });
+            return;
+          }
+          throw error;
+        }
+      } catch (error) {
+        failedProjects.push({
+          id: localProject.id,
+          name: localProject.projectName,
+          message: error instanceof Error ? error.message : 'OneDrive backup failed.',
+        });
       }
     });
 
     const syncedAt = new Date();
-    setLastSyncTime(syncedAt);
+    if (failedProjects.length === 0 && conflictsById.size === 0) setLastSyncTime(syncedAt);
     return {
       conflicts: [...conflictsById.values()],
       backedUpProjectIds,
+      failedProjects,
       syncedAt: syncedAt.toISOString(),
     };
   } finally {

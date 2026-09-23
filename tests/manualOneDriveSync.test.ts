@@ -93,6 +93,26 @@ describe('manual OneDrive backup coordinator', () => {
     expect(hasPendingSyncState()).toBe(true);
   });
 
+  it('reports completed backups while leaving a failed project queued', async () => {
+    const result = await runManualOneDriveSync({
+      ensureAccessToken: async () => 'token',
+      projectIds: ['project-1', 'project-2'],
+      backupProjects: async () => ({
+        conflicts: [],
+        backedUpProjectIds: ['project-2'],
+        failedProjects: [{ id: 'project-1', name: 'First project', message: 'Upload unavailable' }],
+        syncedAt: '2026-01-01T12:00:00.000Z',
+      }),
+    });
+
+    expect(result).toMatchObject({
+      status: 'partial',
+      backedUpProjectIds: ['project-2'],
+      message: expect.stringContaining('First project: Upload unavailable'),
+    });
+    expect(loadPendingSyncState().fullSyncNeeded).toBe(true);
+  });
+
   it('does not clear edits queued while a sync is still running', async () => {
     queuePendingSync('project-1');
 

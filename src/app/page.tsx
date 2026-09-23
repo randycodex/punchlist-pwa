@@ -749,10 +749,23 @@ export default function ProjectsPage() {
           return;
         }
       }
+      if (result.status === 'success' || result.status === 'conflict' || result.status === 'partial') {
+        const namesById = new Map(currentProjects.map((project) => [project.id, project.projectName]));
+        for (const projectId of result.backedUpProjectIds) {
+          completed.push(`${namesById.get(projectId) ?? 'Personal project'}: personal backup saved`);
+        }
+      }
       if (result.status === 'conflict') {
         setSyncConflicts(result.conflicts);
         setSyncError(result.message);
         setSyncStatus('error');
+        showSyncResult([...completed, ...problems, result.message].join('\n'), 'Sync Projects');
+        return;
+      }
+      if (result.status === 'partial') {
+        setSyncConflicts([]);
+        setSyncError(result.message);
+        setSyncStatus('pending');
         showSyncResult([...completed, ...problems, result.message].join('\n'), 'Sync Projects');
         return;
       }
@@ -774,10 +787,6 @@ export default function ProjectsPage() {
       setSyncStatus(problems.length > 0 ? 'error' : hasPendingSyncState() ? 'pending' : 'idle');
       if (problems.length === 0) markSyncedNow();
       await loadProjects();
-      const namesById = new Map(currentProjects.map((project) => [project.id, project.projectName]));
-      for (const projectId of result.backedUpProjectIds) {
-        completed.push(`${namesById.get(projectId) ?? 'Personal project'}: personal backup saved`);
-      }
       showSyncResult([...completed, ...problems].join('\n') || 'Everything is up to date.', 'Sync Projects');
     } catch (error) {
       console.error('Sync failed:', error);

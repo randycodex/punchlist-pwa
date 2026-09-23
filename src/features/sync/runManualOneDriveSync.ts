@@ -23,7 +23,8 @@ import {
 export type ManualOneDriveSyncResult =
   | { status: 'success'; syncedAt: string; backedUpProjectCount: number; backedUpProjectIds: string[] }
   | { status: 'needs-auth' }
-  | { status: 'conflict'; conflicts: SyncConflict[]; message: string }
+  | { status: 'conflict'; conflicts: SyncConflict[]; backedUpProjectIds: string[]; message: string }
+  | { status: 'partial'; backedUpProjectIds: string[]; message: string }
   | { status: 'retry'; message: string }
   | { status: 'error'; message: string };
 
@@ -72,11 +73,29 @@ export async function runManualOneDriveSync(options: {
     }
 
     if (result.conflicts.length > 0) {
+      if (!hasPendingSyncState()) queuePendingSync(undefined, { fullSync: true });
       pausePendingSyncAutoRetry();
       return {
         status: 'conflict',
         conflicts: result.conflicts,
-        message: formatBackupConflictReviewMessage(result.conflicts),
+        backedUpProjectIds: result.backedUpProjectIds,
+        message: [
+          formatBackupConflictReviewMessage(result.conflicts),
+          ...(result.failedProjects ?? []).map((project) => `${project.name}: ${project.message}`),
+        ].join('\n'),
+      };
+    }
+
+    if (result.failedProjects?.length) {
+      if (!hasPendingSyncState()) queuePendingSync(undefined, { fullSync: true });
+      pausePendingSyncAutoRetry();
+      return {
+        status: 'partial',
+        backedUpProjectIds: result.backedUpProjectIds,
+        message: [
+          ...(result.failedProjects ?? []).map((project) => `${project.name}: ${project.message}`),
+          'These personal backups stayed queued. Tap Sync Projects again to retry them.',
+        ].join('\n'),
       };
     }
 
