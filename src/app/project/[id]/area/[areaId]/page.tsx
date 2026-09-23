@@ -1,6 +1,6 @@
 'use client';
 
-import { rememberAreaReturnTarget } from '@/lib/areaReturnPosition';
+import { clearAreaReturnTarget, rememberAreaReturnTarget } from '@/lib/areaReturnPosition';
 
 import { addCheckpointRule } from '@/lib/checkpointRules';
 
@@ -213,6 +213,7 @@ export default function AreaDetailPage() {
   const [generalNotes, setGeneralNotes] = useState('');
   const [returnToHome, setReturnToHome] = useState(false);
   const notesTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const deletingAreaRef = useRef(false);
   const notesDraftRef = useRef('');
   const commentDraftRef = useRef('');
   const projectRef = useRef<Project | null>(null);
@@ -1637,6 +1638,45 @@ export default function AreaDetailPage() {
     }
   }
 
+  async function handleDeleteArea() {
+    if (!project || !area || !canEditSharedArea() || deletingAreaRef.current) return;
+    deletingAreaRef.current = true;
+    try {
+      await closeExpandedCheckpoint();
+      if (pendingNotesRef.current.size > 0) {
+        throw new Error('A note is still saving. Retry the note save before deleting this area.');
+      }
+      if (notesTimerRef.current) {
+        clearTimeout(notesTimerRef.current);
+        notesTimerRef.current = null;
+        await persistGeneralNotes(notesDraftRef.current);
+      }
+
+      const deletedAt = new Date();
+      const nextProject = {
+        ...project,
+        areas: project.areas.map((entry) => entry.id === area.id
+          ? { ...entry, deletedAt, updatedAt: deletedAt }
+          : entry),
+      };
+      await saveProjectAreaMetadataOnly(nextProject, area.id);
+      cacheProjectPreview(nextProject);
+      scheduleSync(project.id);
+      setConfirmDialog(null);
+      clearAreaReturnTarget(project.id, area.id);
+      if (project.sharedProjectId && hasAreaClaim) {
+        void flushPendingSharedAreaSyncs()
+          .then(() => releaseSharedProjectArea(project.sharedProjectId!, area.id))
+          .catch((error) => console.info('Area deleted; shared lock release will retry after its lease:', error));
+      }
+      router.replace(getAreaReturnPath(project.id, returnToHome));
+    } catch (error) {
+      setSyncError(error instanceof Error ? error.message : 'Could not delete this area. Please try again.');
+    } finally {
+      deletingAreaRef.current = false;
+    }
+  }
+
   function handleGeneralNotesChange(value: string) {
     if (!canEditSharedArea()) return;
     notesDraftRef.current = value;
@@ -2085,6 +2125,26 @@ export default function AreaDetailPage() {
                         <ChevronsDown className="h-4 w-4" />
                       )}
                       {bulkExpansionMode === 'expanded' ? 'Collapse all' : 'Expand all'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowHeaderMenu(false);
+                        if (areaEditingLocked) return;
+                        const unit = isApartmentArea(area);
+                        setConfirmDialog({
+                          title: unit ? 'Delete unit?' : 'Delete area?',
+                          message: `Move “${areaTitle}” to Trash? You can restore it from the project's Trash.`,
+                          confirmLabel: unit ? 'Delete unit' : 'Delete area',
+                          danger: true,
+                          onConfirm: handleDeleteArea,
+                        });
+                      }}
+                      disabled={areaEditingLocked}
+                      className="flex w-full items-center gap-3 rounded-[1rem] px-3 py-2.5 text-left text-[0.98rem] text-red-600 transition hover:bg-red-500/[0.08] disabled:opacity-50 dark:text-red-400"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                      {isApartmentArea(area) ? 'Delete unit' : 'Delete area'}
                     </button>
                   </div>
                 </div>

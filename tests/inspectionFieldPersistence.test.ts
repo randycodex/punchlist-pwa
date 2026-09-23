@@ -82,6 +82,23 @@ describe('field inspection persistence', () => {
     expect(await getPendingSharedAreaSyncsForProject(project.id)).toHaveLength(1);
   });
 
+  it('keeps a deleted unit recoverable and queues its tombstone for the team', async () => {
+    const { project, area } = await fixture();
+    const deletedAt = new Date('2026-09-23T12:00:00.000Z');
+    area.deletedAt = deletedAt;
+    area.updatedAt = deletedAt;
+    await saveProjectAreaMetadataOnly(project, area.id);
+
+    const stored = await getProject(project.id);
+    expect(stored?.areas[0].deletedAt).toEqual(deletedAt);
+    expect(stored?.areas[0].locations).toHaveLength(1);
+    expect((await getPendingSharedAreaSyncsForProject(project.id)).map((record) => record.areaId)).toContain(area.id);
+
+    delete area.deletedAt;
+    await saveProjectAreaMetadataOnly(project, area.id);
+    expect((await getProject(project.id))?.areas[0].deletedAt).toBeUndefined();
+  });
+
   it('advances in walking order and stops at the end', async () => {
     const { area, location, item } = await fixture();
     const secondRoom = createLocation(area.id, 'Bedroom', 1);
