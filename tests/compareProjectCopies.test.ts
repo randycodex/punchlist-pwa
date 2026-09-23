@@ -66,6 +66,30 @@ describe('compareProjectCopies', () => {
     expect(compareProjectCopies(second, merged).firstOnlyPhotoDataIds).toEqual([]);
   });
 
+  it('keeps a complete personal facade copy when an older copy has fewer selected levels', () => {
+    const first = project('first', [checkpoint('shared', [])]);
+    const second = project('second', [checkpoint('shared', [])]);
+    delete first.sharedProjectId;
+    delete second.sharedProjectId;
+    first.areas[0].areaTypeKey = 'facade';
+    second.areas[0].areaTypeKey = 'facade';
+    first.areas[0].facadeLevel = 'Floor 1, Floor 2';
+    second.areas[0].facadeLevel = 'Floor 1';
+    first.areas[0].locations.push({
+      ...first.areas[0].locations[0], id: 'floor-two', name: 'Floor 2', sortOrder: 1,
+      items: [{
+        ...first.areas[0].locations[0].items[0], id: 'floor-two-item', locationId: 'floor-two',
+        checkpoints: [checkpoint('floor-two-checkpoint', [])],
+      }],
+    });
+    second.areas[0].updatedAt = new Date('2027-01-01');
+    second.updatedAt = new Date('2027-01-01');
+
+    const merged = mergeDuplicatePersonalProjects(first, [first, second]);
+    expect(compareProjectCopies(first, merged).firstOnlyCheckpointIds).toEqual([]);
+    expect(merged.areas[0].locations.map((location) => location.name)).toContain('Floor 2');
+  });
+
   it('finds unique checkpoint and photo IDs and missing local photo files', () => {
     const first = project('first', [checkpoint('shared', [{ id: 'old-photo', imageData: '' }])]);
     const second = project('second', [
