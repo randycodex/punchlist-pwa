@@ -262,6 +262,27 @@ export async function releaseSharedProjectArea(sharedProjectId: string, areaId: 
   }
 }
 
+export async function releaseAbandonedSharedProjectArea(
+  sharedProjectId: string,
+  areaId: string,
+  claimId: string
+): Promise<boolean> {
+  const supabase = getCollaborationSupabaseClient();
+  if (!supabase) throw new Error('Collaboration is not configured.');
+  const { data, error } = await supabase.rpc('release_abandoned_shared_project_area', {
+    p_project_id: sharedProjectId,
+    p_area_id: areaId,
+    p_claim_id: claimId,
+  });
+  if (error) {
+    if (error.code === 'PGRST202' || error.code === '42883') {
+      throw new Error('Owner lock recovery needs the branch database migration before it can be used.');
+    }
+    throw error;
+  }
+  return data === true;
+}
+
 /**
  * Releases every active area lock held by the signed-in user on one shared project.
  * Other people's locks are left alone.

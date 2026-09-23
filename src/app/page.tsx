@@ -58,6 +58,7 @@ import {
   findDetachedSharedProject,
   relinkDetachedSharedProject,
 } from '@/features/collaboration/detachedSharedProject';
+import { findPreferredLocalSharedProject } from '@/features/collaboration/sharedProjectDirectoryLocal';
 import { ProjectCard, type ProjectCardMetrics as ProjectMetrics } from '@/features/projects/ProjectCard';
 import { compareProjectCopies, isLikelyPersonalProjectCopy } from '@/features/projects/compareProjectCopies';
 import { areasChangedSinceTeamCopy, areasWithMissingMedia, mergeDuplicatePersonalProjects, mergeDuplicateTeamProjects, projectCheckpointCount } from '@/features/projects/mergeDuplicateTeamProjects';
@@ -66,6 +67,7 @@ import { HomeAreaCard,
   type HomeAreaClaimDisplay as AreaClaimDisplay,
 } from '@/features/projects/HomeAreaCard';
 import AreaGroupList from '@/features/projects/AreaGroupList';
+import { matchesAreaSearch } from '@/features/projects/areaSearch';
 import { getProjectFloorLevels, hasFloorGroupedAreas, hasProjectFloorLevels, normalizeFloorLabel } from '@/lib/unitFloors';
 import type { ListSortOption } from '@/components/ListSortMenu';
 import {
@@ -156,6 +158,7 @@ import {
   RotateCcw,
   Plus,
   CloudUpload,
+  Search,
 } from 'lucide-react';
 
 type SortOption = ListSortOption;
@@ -263,6 +266,7 @@ export default function ProjectsPage() {
   const [runningCollaborationHealth, setRunningCollaborationHealth] = useState(false);
   const [sortOption, setSortOption] = useState<SortOption>('issues');
   const [areaViewMode, setAreaViewMode] = useState<AreaListViewMode>('grouped');
+  const [areaSearch, setAreaSearch] = useState('');
   const [syncing, setSyncing] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
   const [deleteMode, setDeleteMode] = useState(false);
@@ -540,8 +544,7 @@ export default function ProjectsPage() {
     setSyncStatus('syncing');
     const completed: string[] = [];
     const problems: string[] = [];
-    let needsTeamReview = false;
-    let duplicateTeamCopyWarning: string | null = null;
+    let pendingPullAssigned = false;
     let personalReady = true;
     let mergedPersonalProjectIds: string[] = [];
     try {
@@ -549,92 +552,100 @@ export default function ProjectsPage() {
         try {
           const directory = await listMySharedProjects();
           for (const entry of directory) {
-            const localProjects = await getAllProjects();
-            const localProject = localProjects.find((project) => !project.deletedAt && (
-              project.sharedProjectId === entry.projectId || project.id === entry.localProjectId
-            )) ?? localProjects.find((project) =>
-              project.sharedProjectId === entry.projectId || project.id === entry.localProjectId
-            );
-            if (localProject?.deletedAt) continue;
-            if (!localProject || localProject.sharedProjectId !== entry.projectId) {
-              await addSharedProjectToDevice(entry.projectId, entry.projectName, entry.localProjectId);
-              completed.push(`${entry.projectName} added`);
+            try {
+              const localProjects = await getAllProjects();
+              const localProject = findPreferredLocalSharedProject(localProjects, entry);
+              if (localProject?.deletedAt) continue;
+              if (!localProject || localProject.sharedProjectId !== entry.projectId) {
+                await addSharedProjectToDevice(entry.projectId, entry.projectName, entry.localProjectId);
+                completed.push(`${entry.projectName} added`);
+              }
+            } catch (error) {
+              console.error(`Could not add ${entry.projectName} during sync:`, error);
+              problems.push(`${entry.projectName}: ${getCollaborationErrorMessage(error, 'Could not add this team project.')}`);
             }
           }
 
           for (const entry of directory) {
-            const copies = (await getAllProjects()).filter((candidate) =>
-              !candidate.deletedAt && candidate.sharedProjectId === entry.projectId
-            );
-            if (copies.length > 1) {
-              needsTeamReview = true;
-              duplicateTeamCopyWarning = `${entry.projectName} has ${copies.length} copies on this device. Open that project's • menu, choose Compare Copies, then Merge copies before syncing.`;
-              problems.push(duplicateTeamCopyWarning);
-              continue;
-            }
-            const project = copies[0];
-            if (!project) continue;
-            const fullProject = await getProject(project.id);
-            if (!fullProject) continue;
-            const metadata = await getSharedProjectSnapshotMetadata(entry.projectId);
-            if (metadata && isSharedSnapshotNewer(fullProject, metadata.publishedAt)) {
-              const pull = await getPendingSharedPullState(fullProject, 'manual-pull');
-              const pendingAreas = await getPendingSharedAreaSyncsForProject(fullProject.id);
-              if (pendingAreas.length > 0 || pull.hasNewerLocalChanges || pull.preservedLocalAreaCount > 0 || pull.preservedLocalProjectMetadata) {
-                setPendingPull(pull);
-                needsTeamReview = true;
-                problems.push(`${entry.projectName} needs review before sending or releasing areas`);
-                break;
-              }
-              await saveProjectPreserveTimestamps(pull.resolutionProject);
-              clearSharedUpdateAvailable(fullProject.id);
-              cacheProjectPreview(pull.resolutionProject);
-              setProjects((prev) => prev.map((candidate) =>
-                candidate.id === fullProject.id ? pull.resolutionProject : candidate
-              ));
-            }
-
-            const currentProject = await getProject(project.id);
-            if (!currentProject) continue;
-            if (!currentProject.sharedSnapshotPublishedAt) {
-              if (!collaborationAuth.user) throw new Error(TEAM_PROJECTS_SIGNIN_HINT);
-              await publishSharedProjectSnapshot(currentProject, collaborationAuth.user.id);
-              await saveProjectMetadataOnly(currentProject, { touch: false });
-            } else {
-              const pushed = await pushQueuedSharedChanges(project.id);
-              if (pushed.remainingAreaCount > 0 || pushed.metadataRemaining) {
-                if (pushed.conflictedAreaCount > 0 || pushed.metadataConflicted) {
-                  setPendingPull(await getPendingSharedPullState(currentProject, 'publish-conflict'));
-                  needsTeamReview = true;
-                  problems.push(`${entry.projectName} needs review before sending or releasing areas`);
-                  break;
-                }
-                problems.push(`${entry.projectName} still has team changes waiting to send`);
+            try {
+              const copies = (await getAllProjects()).filter((candidate) =>
+                !candidate.deletedAt && candidate.sharedProjectId === entry.projectId
+              );
+              if (copies.length > 1) {
+                problems.push(`${entry.projectName} has ${copies.length} copies on this device. Open that project's • menu, choose Compare Copies, then Merge copies before syncing.`);
                 continue;
               }
-            }
-            const verifiedProject = await getProject(project.id);
-            const latestMetadata = await getSharedProjectSnapshotMetadata(entry.projectId);
-            if (verifiedProject && latestMetadata && isSharedSnapshotNewer(verifiedProject, latestMetadata.publishedAt)) {
-              markSharedUpdateAvailable(project.id);
-              problems.push(`${entry.projectName} received a newer team update; areas stayed locked. Sync again to review it`);
-              continue;
-            }
-            if (verifiedProject && latestMetadata && hasNewerLocalChangesThanSharedSnapshot(verifiedProject, latestMetadata.publishedAt)) {
-              problems.push(`${entry.projectName} still has local changes to send; areas stayed locked`);
-              continue;
-            }
-            const released = await releaseAllMySharedProjectAreaClaims(entry.projectId);
-            if (released.releasedCount > 0 && singleProject?.id === project.id) {
-              setSharedAreaClaims((current) => {
-                const next = new Map(current);
-                for (const [areaId, claim] of next) {
-                  if (claim.ownership === 'mine') next.delete(areaId);
+              const project = copies[0];
+              if (!project) continue;
+              const fullProject = await getProject(project.id);
+              if (!fullProject) continue;
+              const metadata = await getSharedProjectSnapshotMetadata(entry.projectId);
+              if (metadata && isSharedSnapshotNewer(fullProject, metadata.publishedAt)) {
+                const pull = await getPendingSharedPullState(fullProject, 'manual-pull');
+                const pendingAreas = await getPendingSharedAreaSyncsForProject(fullProject.id);
+                if (pendingAreas.length > 0 || pull.hasNewerLocalChanges || pull.preservedLocalAreaCount > 0 || pull.preservedLocalProjectMetadata) {
+                  if (!pendingPullAssigned) {
+                    setPendingPull(pull);
+                    pendingPullAssigned = true;
+                  }
+                  problems.push(`${entry.projectName} needs review before sending or releasing areas`);
+                  continue;
                 }
-                return next;
-              });
+                await saveProjectPreserveTimestamps(pull.resolutionProject);
+                clearSharedUpdateAvailable(fullProject.id);
+                cacheProjectPreview(pull.resolutionProject);
+                setProjects((prev) => prev.map((candidate) =>
+                  candidate.id === fullProject.id ? pull.resolutionProject : candidate
+                ));
+              }
+
+              const currentProject = await getProject(project.id);
+              if (!currentProject) continue;
+              if (!currentProject.sharedSnapshotPublishedAt) {
+                if (!collaborationAuth.user) throw new Error(TEAM_PROJECTS_SIGNIN_HINT);
+                await publishSharedProjectSnapshot(currentProject, collaborationAuth.user.id);
+                await saveProjectMetadataOnly(currentProject, { touch: false });
+              } else {
+                const pushed = await pushQueuedSharedChanges(project.id);
+                if (pushed.remainingAreaCount > 0 || pushed.metadataRemaining) {
+                  if (pushed.conflictedAreaCount > 0 || pushed.metadataConflicted) {
+                    if (!pendingPullAssigned) {
+                      setPendingPull(await getPendingSharedPullState(currentProject, 'publish-conflict'));
+                      pendingPullAssigned = true;
+                    }
+                    problems.push(`${entry.projectName} needs review before sending or releasing areas`);
+                    continue;
+                  }
+                  problems.push(`${entry.projectName} still has team changes waiting to send`);
+                  continue;
+                }
+              }
+              const verifiedProject = await getProject(project.id);
+              const latestMetadata = await getSharedProjectSnapshotMetadata(entry.projectId);
+              if (verifiedProject && latestMetadata && isSharedSnapshotNewer(verifiedProject, latestMetadata.publishedAt)) {
+                markSharedUpdateAvailable(project.id);
+                problems.push(`${entry.projectName} received a newer team update; areas stayed locked. Sync again to review it`);
+                continue;
+              }
+              if (verifiedProject && latestMetadata && hasNewerLocalChangesThanSharedSnapshot(verifiedProject, latestMetadata.publishedAt)) {
+                problems.push(`${entry.projectName} still has local changes to send; areas stayed locked`);
+                continue;
+              }
+              const released = await releaseAllMySharedProjectAreaClaims(entry.projectId);
+              if (released.releasedCount > 0 && singleProject?.id === project.id) {
+                setSharedAreaClaims((current) => {
+                  const next = new Map(current);
+                  for (const [areaId, claim] of next) {
+                    if (claim.ownership === 'mine') next.delete(areaId);
+                  }
+                  return next;
+                });
+              }
+              completed.push(`${entry.projectName}: team changes synced${released.releasedCount ? `; ${released.releasedCount} area${released.releasedCount === 1 ? '' : 's'} released` : ''}`);
+            } catch (error) {
+              console.error(`Team sync failed for ${entry.projectName}:`, error);
+              problems.push(`${entry.projectName}: ${getCollaborationErrorMessage(error, 'Team sync failed. Please try again.')}`);
             }
-            completed.push(`${entry.projectName} synced${released.releasedCount ? `; ${released.releasedCount} area${released.releasedCount === 1 ? '' : 's'} released` : ''}`);
           }
         } catch (error) {
           console.error('Team sync failed:', error);
@@ -644,18 +655,11 @@ export default function ProjectsPage() {
         problems.push('Team projects are not connected on this device. Enable Team Projects, then sync again.');
       }
 
-      if (needsTeamReview) {
-        setSyncStatus('pending');
-        await loadProjects();
-        if (duplicateTeamCopyWarning) showMessage(duplicateTeamCopyWarning);
-        return;
-      }
-
       if (retryAt && retryAt.getTime() > Date.now()) {
         const remainingSeconds = Math.ceil((retryAt.getTime() - Date.now()) / 1000);
         setSyncStatus('pending');
         await loadProjects();
-        showMessage([...completed, ...problems, `OneDrive can be retried in about ${remainingSeconds} seconds.`].join('\n'));
+        showMessage([...completed, ...problems, `Personal backup: OneDrive can be retried in about ${remainingSeconds} seconds.`].join('\n'), 'Sync Projects');
         return;
       }
       setRetryAt(null);
@@ -703,7 +707,7 @@ export default function ProjectsPage() {
       if (!personalReady) {
         setSyncStatus(restore.status === 'retry' ? 'pending' : 'error');
         await loadProjects();
-        showMessage([...completed, ...problems].join('\n'));
+        showMessage([...completed, ...problems].join('\n'), 'Sync Projects');
         return;
       }
       const currentProjects = await getAllProjects();
@@ -722,30 +726,29 @@ export default function ProjectsPage() {
         setSyncConflicts(result.conflicts);
         setSyncError(result.message);
         setSyncStatus('error');
-        showMessage([...completed, ...problems, result.message].join('\n'));
+        showMessage([...completed, ...problems, result.message].join('\n'), 'Sync Projects');
         return;
       }
       if (result.status === 'retry') {
         setSyncError(result.message);
         setSyncStatus('pending');
-        showMessage([...completed, ...problems, result.message].join('\n'));
+        showMessage([...completed, ...problems, result.message].join('\n'), 'Sync Projects');
         return;
       }
       if (result.status === 'error') {
         setSyncError(result.message);
         setSyncStatus('error');
-        showMessage([...completed, ...problems, result.message].join('\n'));
+        showMessage([...completed, ...problems, result.message].join('\n'), 'Sync Projects');
         return;
       }
       setSyncConflicts([]);
       setSyncError(null);
       setRetryAt(null);
       setSyncStatus(problems.length > 0 ? 'error' : hasPendingSyncState() ? 'pending' : 'idle');
-      markSyncedNow();
+      if (problems.length === 0) markSyncedNow();
       await loadProjects();
       if (result.backedUpProjectCount > 0) completed.push(`${result.backedUpProjectCount} personal backup${result.backedUpProjectCount === 1 ? '' : 's'} saved`);
-      if (!needsTeamReview) showMessage([...completed, ...problems].join('\n') || 'Everything is up to date.');
-      else if (completed.length > 0) console.info('Sync progress before team review:', completed.join('; '));
+      showMessage([...completed, ...problems].join('\n') || 'Everything is up to date.', 'Sync Projects');
     } catch (error) {
       console.error('Sync failed:', error);
       setSyncStatus('error');
@@ -1154,10 +1157,11 @@ export default function ProjectsPage() {
     });
   }, [activeAreas, areaMetrics, sortOption]);
   const visibleAreas = useMemo(
-    () => showOnlyAreaIssues
-      ? sortedAreas.filter((area) => (areaMetrics.get(area.id)?.stats.issues ?? 0) > 0)
-      : sortedAreas,
-    [areaMetrics, showOnlyAreaIssues, sortedAreas]
+    () => sortedAreas.filter((area) =>
+      (!showOnlyAreaIssues || (areaMetrics.get(area.id)?.stats.issues ?? 0) > 0)
+      && (!singleProject || matchesAreaSearch(area, areaDisplayNames.get(area.id) ?? area.name, areaSearch, singleProject.unitFloorNumbering))
+    ),
+    [areaMetrics, areaSearch, areaDisplayNames, showOnlyAreaIssues, singleProject, sortedAreas]
   );
 
   async function handleCreateProject() {
@@ -2415,6 +2419,10 @@ export default function ProjectsPage() {
 
     setReleasingMyAreaLocks(true);
     try {
+      const pending = await getPendingSharedAreaSyncsForProject(targetProject.id);
+      if (pending.length > 0) {
+        throw new Error(`${pending.length} area${pending.length === 1 ? '' : 's'} still have changes waiting to reach the team. Sync and review them before releasing your locks.`);
+      }
       const result = await releaseAllMySharedProjectAreaClaims(sharedProjectId);
       setReleaseMyLocksConfirm(null);
       setSharedAreaClaims((current) => {
@@ -3005,6 +3013,14 @@ export default function ProjectsPage() {
       >
         <AreaListReturnPosition projectId={singleProject?.id} />
         {singleProjectMainView && <ResumeInspectionLink project={singleProject} />}
+        {singleProjectMainView && !showTrash && (
+          <label className="soft-control mx-auto mb-4 flex h-11 w-full max-w-6xl items-center gap-2 rounded-xl px-3 text-gray-500 dark:text-gray-400">
+            <Search className="h-4 w-4 shrink-0" aria-hidden="true" />
+            <span className="sr-only">Find an area or floor</span>
+            <input value={areaSearch} onChange={(event) => setAreaSearch(event.target.value)}
+              placeholder="Find unit, area, or floor" className="min-w-0 flex-1 bg-transparent text-sm text-gray-900 outline-none placeholder:text-gray-500 dark:text-white" />
+          </label>
+        )}
         {showTrash ? (
           trashedProjects.length === 0 && trashedAreaEntries.length === 0 ? (
             <div className="empty-state-card mx-auto max-w-md rounded-[2rem] p-10 text-center">
@@ -3185,18 +3201,20 @@ export default function ProjectsPage() {
           )
         ) : singleProjectMainView ? (
           <div className="mx-auto min-h-[calc(100%+1px)] w-full max-w-6xl">
-            {visibleAreas.length === 0 && (showOnlyAreaIssues || areaViewMode !== 'grouped' || !hasProjectFloorLevels(singleProject)) ? (
+            {visibleAreas.length === 0 && (areaSearch.trim() || showOnlyAreaIssues || areaViewMode !== 'grouped' || !hasProjectFloorLevels(singleProject)) ? (
               <div className="flex min-h-[50vh] items-center justify-center py-12">
                 <div className="empty-state-card w-full max-w-sm rounded-[1.9rem] p-8 text-center">
                   <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
-                    {showOnlyAreaIssues ? 'No areas with issues' : 'No areas yet'}
+                    {areaSearch.trim() ? 'No matching areas' : showOnlyAreaIssues ? 'No areas with issues' : 'No areas yet'}
                   </h2>
                   <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
-                    {showOnlyAreaIssues
+                    {areaSearch.trim() ? 'Try another unit number, area name, or floor.' : showOnlyAreaIssues
                       ? 'All areas are currently clear.'
                       : 'Add the first unit, floor, or location to start inspecting.'}
                   </p>
-                  {showOnlyAreaIssues ? (
+                  {areaSearch.trim() ? (
+                    <button type="button" onClick={() => setAreaSearch('')} className="mt-5 inline-flex h-11 items-center justify-center rounded-full soft-control px-5 text-sm font-semibold">Clear search</button>
+                  ) : showOnlyAreaIssues ? (
                     <button
                       type="button"
                       onClick={() => setShowOnlyAreaIssues(false)}
@@ -3220,7 +3238,7 @@ export default function ProjectsPage() {
               </div>
             ) : (
               areaViewMode === 'grouped' ? (
-                <AreaGroupList selectedAreaIds={selectedAreaIds} onSelectAreas={deleteMode ? selectAreaGroup : undefined} unitFloorNumbering={singleProject.unitFloorNumbering} projectLevelRange={singleProject} areas={visibleAreas} renderArea={(area) => {
+                <AreaGroupList selectedAreaIds={selectedAreaIds} onSelectAreas={deleteMode ? selectAreaGroup : undefined} unitFloorNumbering={singleProject.unitFloorNumbering} projectLevelRange={areaSearch.trim() ? null : singleProject} areas={visibleAreas} renderArea={(area) => {
                 const metric = areaMetrics.get(area.id);
                 const isSelected = selectedAreaIds.has(area.id);
                 return (
@@ -3809,10 +3827,17 @@ export default function ProjectsPage() {
       {showMySharedProjects && (
         <div className="modal-overlay fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="modal-panel max-h-[82dvh] w-full max-w-md overflow-y-auto rounded-[1.9rem] p-6">
-            <h2 className="mb-1 text-xl font-semibold tracking-[-0.02em] text-gray-900 dark:text-white">Manage Shared Projects</h2>
+            <h2 className="mb-1 text-xl font-semibold tracking-[-0.02em] text-gray-900 dark:text-white">Team Projects</h2>
             <p className="mb-5 text-sm text-gray-500 dark:text-gray-400">
-              Download, reconnect, or leave projects linked to your shared-project account.
+              Join, download, or manage projects shared with your team.
             </p>
+            <button type="button" onClick={() => {
+              setShowMySharedProjects(false);
+              setMySharedProjects([]);
+              setShowJoinProject(true);
+            }} className="mb-4 w-full rounded-2xl bg-zinc-900 px-4 py-3 text-sm font-semibold text-white dark:bg-white dark:text-gray-900">
+              Join with invite code
+            </button>
             {loadingMySharedProjects ? (
               <div className="flex items-center gap-3 rounded-[1.25rem] soft-control px-4 py-5 text-sm text-gray-500 dark:bg-white/[0.04] dark:text-gray-400">
                 <Loader2 className="h-4 w-4 animate-spin" />
@@ -3825,9 +3850,7 @@ export default function ProjectsPage() {
             ) : (
               <div className="space-y-3">
                 {mySharedProjects.map((entry) => {
-                  const activeLocalProject = projects.find((project) => project.sharedProjectId === entry.projectId);
-                  const localProject = activeLocalProject
-                    ?? projects.find((project) => project.id === entry.localProjectId);
+                  const localProject = findPreferredLocalSharedProject(projects, entry);
                   const needsReconnect = Boolean(
                     localProject?.sharedProjectId
                     && localProject.sharedProjectId !== entry.projectId
@@ -3865,13 +3888,13 @@ export default function ProjectsPage() {
                               : localProject ? 'Available on this device' : 'Download to this device'}
                       </button>
                       <button
-                        onClick={() => handleDirectoryDisconnect(entry, activeLocalProject)}
+                        onClick={() => handleDirectoryDisconnect(entry, localProject)}
                         disabled={!!addingSharedProjectId || !!disconnectingDirectoryProjectId}
                         className="mt-2 w-full rounded-2xl bg-red-50/80 px-4 py-3 text-sm font-medium text-red-700 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-red-400/[0.08] dark:text-red-300 dark:hover:bg-red-400/[0.14]"
                       >
                         {isDisconnecting
                           ? (isOwner ? 'Stopping...' : 'Leaving...')
-                          : isOwner ? 'Leave project (stops sharing)' : 'Leave project'}
+                          : isOwner ? 'Stop sharing for everyone' : 'Leave project'}
                       </button>
                     </div>
                   );

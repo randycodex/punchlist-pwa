@@ -119,6 +119,11 @@ export const ProjectCard = memo(function ProjectCard({
                   Team
                 </span>
               )}
+              {!project.sharedProjectId && (
+                <span className="shrink-0 rounded-full bg-zinc-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-zinc-600 dark:text-zinc-300">
+                  Personal
+                </span>
+              )}
               {hasTeamUpdate && (
                 <span className="shrink-0 rounded-full bg-sky-500/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-sky-700 dark:text-sky-300">
                   Updates
@@ -214,6 +219,12 @@ export const ProjectCard = memo(function ProjectCard({
           </Link>
         </div>
       </div>
+      {onCompareCopies && !selectionMode && (
+        <button type="button" onClick={() => onCompareCopies(project)}
+          className="mt-3 inline-flex min-h-9 items-center gap-2 rounded-xl bg-amber-500/10 px-3 text-xs font-semibold text-amber-800 dark:text-amber-200">
+          <GitCompareArrows className="h-4 w-4" /> Review and merge copies
+        </button>
+      )}
     </div>
   );
 });

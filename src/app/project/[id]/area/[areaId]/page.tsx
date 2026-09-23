@@ -18,6 +18,7 @@ import {
   getActiveProjectCount,
   getProjectForArea,
   getProjectMetadata,
+  getPendingSharedAreaSyncsForProject,
   saveProjectMetadataWithSharedSync,
   saveProjectArea,
   saveCheckpointInspectionChange,
@@ -75,6 +76,7 @@ import { useSyncStatus } from '@/contexts/SyncStatusContext';
 import { useAppSettings } from '@/contexts/AppSettingsContext';
 import {
   claimSharedProjectArea,
+  getActiveSharedProjectAreaClaims,
   isSharedAreaClaimBlockedError,
   shouldBlockSharedAreaEdits,
   getCollaborationErrorMessage,
@@ -86,6 +88,7 @@ import {
   resumePendingSharedAreaSyncs,
   SHARED_AREA_SYNC_EVENT,
   subscribeToSharedProjectAreaSnapshotChanges,
+  subscribeToSharedProjectAreaClaimChanges,
   subscribeToSharedProjectSnapshotChanges,
   type SharedAreaSyncEventDetail,
 } from '@/lib/collaboration';
@@ -95,7 +98,6 @@ import FacadeElevationViewer, {
   type FacadeElevationSelection,
 } from '@/components/inspection/FacadeElevationViewer';
 import InspectionLocationCard from '@/components/inspection/InspectionLocationCard';
-import Link from 'next/link';
 import CaptureRecovery from '@/features/inspection/CaptureRecoveryPanel';
 import { saveRecoverableNote, saveRecoverablePhotos } from '@/features/inspection/captureRecovery';
 import { readInspectionPosition, rememberInspectionPosition, nextInspectionPosition, type InspectionPosition } from '@/features/inspection/inspectionPosition';
@@ -143,7 +145,7 @@ type SharedAreaLockProblem =
 const SHARED_AREA_LOCK_BLOCKED_MESSAGE =
   'Someone else is working in this area. Wait until they release it, or go back and pick another area.';
 const SHARED_AREA_LOCK_LOST_MESSAGE =
-  'Team locking is unavailable. You can keep working on this device. Tap Try again when the connection returns; team changes may need review before they reach others.';
+  'Team locking is unavailable. Changes will stay on this device until you reconnect and sync. Another teammate may edit this area meanwhile, so review any conflict before sending your work. Tap Try again when the connection returns.';
 
 export default function AreaDetailPage() {
   const params = useParams<{ id: string; areaId: string }>();
@@ -525,6 +527,30 @@ export default function AreaDetailPage() {
       cancelled = true;
     };
   }, [area?.id, areaClaimRetryNonce, collaborationAuth.isSignedIn, project?.sharedProjectId]);
+
+  useEffect(() => {
+    const sharedProjectId = project?.sharedProjectId;
+    const currentAreaId = area?.id;
+    const userId = collaborationAuth.user?.id;
+    if (!sharedProjectId || !currentAreaId || !userId || !hasAreaClaim) return;
+    let active = true;
+    const unsubscribe = subscribeToSharedProjectAreaClaimChanges(sharedProjectId, () => {
+      void getActiveSharedProjectAreaClaims(sharedProjectId).then((claims) => {
+        if (!active) return;
+        const current = claims.find((claim) => claim.areaId === currentAreaId);
+        if (current?.claimedByUserId === userId) return;
+        setHasAreaClaim(false);
+        setAreaClaimProblem({
+          kind: 'blocked',
+          message: 'Your team lock was released. Work already saved on this device remains here. Sync and review it before editing this area again.',
+        });
+      }).catch((error) => console.info('Could not refresh this area lock:', error));
+    });
+    return () => {
+      active = false;
+      unsubscribe();
+    };
+  }, [area?.id, collaborationAuth.user?.id, hasAreaClaim, project?.sharedProjectId]);
 
   useEffect(() => {
     if (!areaClaimProblem) return;
@@ -1575,7 +1601,19 @@ export default function AreaDetailPage() {
     setSyncError(null);
     try {
       await closeExpandedCheckpoint();
+      if (pendingNotesRef.current.size > 0) {
+        throw new Error('A note is still saving. Wait for it to finish before releasing this area.');
+      }
+      if (notesTimerRef.current) {
+        clearTimeout(notesTimerRef.current);
+        notesTimerRef.current = null;
+        await persistGeneralNotes(notesDraftRef.current);
+      }
       await flushPendingSharedAreaSyncs();
+      const remaining = await getPendingSharedAreaSyncsForProject(project.id);
+      if (remaining.some((record) => record.areaId === area.id)) {
+        throw new Error('This area still has changes waiting to reach the team. Its lock is staying with you. Sync Projects and review any conflicts, then release it.');
+      }
       await releaseSharedProjectArea(project.sharedProjectId, area.id);
       setHasAreaClaim(false);
       setAreaClaimError(null);
@@ -2005,12 +2043,18 @@ export default function AreaDetailPage() {
       <header className="header-stable shrink-0 border-b z-20">
         <div className="page-header-surface mx-auto flex min-h-[4.9rem] w-full max-w-6xl items-center px-4 py-3 sm:px-5">
           <div className="flex w-full items-center gap-3">
-            <Link
-              href={getAreaReturnPath(project.id, returnToHome)}
+            <button
+              type="button"
+              onClick={() => {
+                if (canReleaseAreaClaim) void handleReleaseAreaClaim();
+                else router.push(getAreaReturnPath(project.id, returnToHome));
+              }}
+              disabled={releasingAreaClaim || claimingArea}
+              aria-label={canReleaseAreaClaim ? 'Finish area and release lock' : 'Back to project'}
               className="flex h-10 w-10 items-center justify-center soft-control rounded-[1rem] text-gray-600 transition hover:bg-white dark:text-gray-300 dark:hover:bg-white/[0.08]"
             >
               <ArrowLeft className="w-5 h-5" />
-            </Link>
+            </button>
             <div className="min-w-0 flex flex-1 flex-col">
               <h1 className="truncate text-[1.12rem] font-semibold tracking-[-0.02em] text-gray-900 dark:text-white">
                 {areaTitle}
@@ -2021,6 +2065,17 @@ export default function AreaDetailPage() {
                 </div>
               )}
             </div>
+
+            {canReleaseAreaClaim && (
+              <button
+                type="button"
+                onClick={() => void handleReleaseAreaClaim()}
+                disabled={releasingAreaClaim}
+                className="h-10 shrink-0 rounded-xl bg-emerald-700 px-3 text-xs font-semibold text-white disabled:opacity-60"
+              >
+                {releasingAreaClaim ? 'Finishing…' : 'Done · release'}
+              </button>
+            )}
 
             <div ref={headerMenuRef} className="relative">
               <button

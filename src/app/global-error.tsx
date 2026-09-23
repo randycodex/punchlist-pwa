@@ -11,7 +11,7 @@ export default function GlobalError({ error, reset }: { error: Error & { digest?
   return (
     <html lang="en">
       <body>
-        <AppErrorFallback onRetry={reset} />
+        <AppErrorFallback onRetry={reset} error={error} />
       </body>
     </html>
   );

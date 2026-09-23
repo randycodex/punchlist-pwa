@@ -21,6 +21,7 @@ import {
   isSharedAreaClaimBlockedError,
   shouldBlockSharedAreaEdits,
   releaseAllMySharedProjectAreaClaims,
+  releaseAbandonedSharedProjectArea,
 } from '@/lib/collaboration/areaClaims';
 
 describe('persistent shared area claims', () => {
@@ -94,6 +95,14 @@ describe('persistent shared area claims', () => {
       p_project_id: 'shared-project-id',
       p_area_id: 'area-id',
       p_expires_at: null,
+    });
+  });
+
+  it('recovers only the exact abandoned claim selected by the owner', async () => {
+    rpcMock.mockResolvedValue({ data: true, error: null });
+    await expect(releaseAbandonedSharedProjectArea('project-id', 'area-id', 'claim-id')).resolves.toBe(true);
+    expect(rpcMock).toHaveBeenCalledWith('release_abandoned_shared_project_area', {
+      p_project_id: 'project-id', p_area_id: 'area-id', p_claim_id: 'claim-id',
     });
   });
 

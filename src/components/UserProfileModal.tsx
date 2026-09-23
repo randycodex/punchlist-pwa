@@ -9,6 +9,7 @@ import { getCollaborationProfileInitials } from '@/lib/collaboration';
 type UserProfileModalProps = {
   open: boolean;
   onClose: () => void;
+  onSignOut?: () => void;
 };
 
 const PROFILE_USERNAME_PATTERN = /^[a-z0-9][a-z0-9._-]{2,29}$/;
@@ -18,7 +19,7 @@ function getMetadataName(userMetadata: Record<string, unknown>, key: string) {
   return typeof value === 'string' ? value.trim() : '';
 }
 
-export default function UserProfileModal({ open, onClose }: UserProfileModalProps) {
+export default function UserProfileModal({ open, onClose, onSignOut }: UserProfileModalProps) {
   const collaborationAuth = useCollaborationAuth();
   const [username, setUsername] = useState('');
   const [firstName, setFirstName] = useState('');
@@ -195,6 +196,10 @@ export default function UserProfileModal({ open, onClose }: UserProfileModalProp
             {isSaving ? 'Saving...' : 'Save Profile'}
           </button>
         </div>
+        {onSignOut && <button type="button" onClick={onSignOut} disabled={isSaving}
+          className="mt-4 w-full rounded-xl px-4 py-2 text-sm font-medium text-gray-500 hover:bg-black/[0.04] dark:text-gray-400 dark:hover:bg-white/[0.06]">
+          Sign Out
+        </button>}
       </form>
     </div>,
     document.body

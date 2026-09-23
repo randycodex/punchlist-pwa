@@ -8,19 +8,23 @@ import { createPortal } from 'react-dom';
 import { useMicrosoftAuth } from '@/contexts/MicrosoftAuthContext';
 import { useCollaborationAuth } from '@/contexts/CollaborationAuthContext';
 import { useSyncStatus } from '@/contexts/SyncStatusContext';
-import { getProjectMetadata } from '@/lib/db';
+import { getAllProjects, getProjectMetadata } from '@/lib/db';
 import { hasPendingSyncState } from '@/lib/pendingSync';
 import { getCachedProjectName } from '@/lib/projectNavigationCache';
 import {
   getCollaborationProfileDisplayName,
   getCollaborationProfileInitials,
+  getActiveSharedProjectAreaClaimSummaries,
   getSharedProjectAccess,
+  releaseAbandonedSharedProjectArea,
   resumePendingSharedAreaSyncs,
   resumePendingSharedProjectMetadataSyncs,
 } from '@/lib/collaboration';
+import type { CollaborationAreaClaimSummary } from '@/lib/collaboration';
 import CollaborationAvatar from '@/components/CollaborationAvatar';
 import UserProfileModal from '@/components/UserProfileModal';
 import AppMessageDialog from '@/components/AppMessageDialog';
+import AppConfirmDialog from '@/components/AppConfirmDialog';
 import ListSortMenu, { type ListSortOption } from '@/components/ListSortMenu';
 import AreaListViewToggle from '@/components/AreaListViewToggle';
 import type { AreaListViewMode } from '@/features/projects/areaListView';
@@ -110,6 +114,13 @@ export default function PersistentTopBar() {
   const [areAreaGroupsCollapsed, setAreAreaGroupsCollapsed] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
   const [infoDialog, setInfoDialog] = useState<{ title: string; message: string } | null>(null);
+  const [showRecoverLocks, setShowRecoverLocks] = useState(false);
+  const [recoverClaims, setRecoverClaims] = useState<CollaborationAreaClaimSummary[]>([]);
+  const [recoverAreaNames, setRecoverAreaNames] = useState<Map<string, string>>(new Map());
+  const [recoverLoading, setRecoverLoading] = useState(false);
+  const [recoverError, setRecoverError] = useState('');
+  const [recoverConfirm, setRecoverConfirm] = useState<CollaborationAreaClaimSummary | null>(null);
+  const [recoverBusy, setRecoverBusy] = useState(false);
   const [sharedProjectAccessSnapshot, setSharedProjectAccessSnapshot] = useState<{
     projectId: string;
     isActiveMember: boolean;
@@ -381,6 +392,46 @@ export default function PersistentTopBar() {
     }));
   }
 
+  async function openRecoverLocks() {
+    const sharedProjectId = homeMenuState.sharedProjectId;
+    if (!sharedProjectId || !sharedProjectAccess.isOwner) return;
+    setShowHomeMenu(false);
+    setShowRecoverLocks(true);
+    setRecoverLoading(true);
+    setRecoverError('');
+    try {
+      const [claims, projects] = await Promise.all([
+        getActiveSharedProjectAreaClaimSummaries(sharedProjectId), getAllProjects(),
+      ]);
+      const local = projects.find((entry) => !entry.deletedAt && entry.sharedProjectId === sharedProjectId);
+      setRecoverAreaNames(new Map(local?.areas.map((area) => [area.id, area.name]) ?? []));
+      setRecoverClaims(claims.filter((claim) => claim.claimedByUserId !== collaborationAuth.user?.id));
+    } catch (error) {
+      setRecoverError(error instanceof Error ? error.message : 'Could not load area locks.');
+    } finally {
+      setRecoverLoading(false);
+    }
+  }
+
+  async function confirmRecoverLock() {
+    const claim = recoverConfirm;
+    const sharedProjectId = homeMenuState.sharedProjectId;
+    if (!claim || !sharedProjectId || recoverBusy) return;
+    setRecoverBusy(true);
+    setRecoverError('');
+    try {
+      const released = await releaseAbandonedSharedProjectArea(sharedProjectId, claim.areaId, claim.id);
+      setRecoverConfirm(null);
+      setRecoverClaims((current) => current.filter((entry) => entry.id !== claim.id));
+      if (!released) setRecoverError('That lock changed before it could be released. Reopen recovery to see the current holder.');
+    } catch (error) {
+      setRecoverConfirm(null);
+      setRecoverError(error instanceof Error ? error.message : 'Could not release this area lock.');
+    } finally {
+      setRecoverBusy(false);
+    }
+  }
+
   function renderSyncButton() {
     const label = localSaveStatus === 'error'
       ? 'Local save needs attention'
@@ -437,7 +488,7 @@ export default function PersistentTopBar() {
     const label = needsReview
       ? `${count} team update${count === 1 ? '' : 's'} need review.${sharedSyncSummary.lastConflictError ? ` ${sharedSyncSummary.lastConflictError}` : ''}`
       : `${count} team change${count === 1 ? '' : 's'} waiting to send`;
-    const shortLabel = needsReview ? 'Needs review' : count === 1 ? 'Sending…' : `${count} to send`;
+    const shortLabel = needsReview ? 'Review changes' : count === 1 ? 'Sending…' : `${count} to send`;
     const SharedSyncIcon = needsReview ? Activity : CloudUpload;
     const classes = needsReview
       ? 'bg-red-50 text-red-600 hover:bg-red-100 dark:bg-red-400/10 dark:text-red-300 dark:hover:bg-red-400/15'
@@ -448,11 +499,13 @@ export default function PersistentTopBar() {
         type="button"
         onClick={() => {
           setHomeMenuOpen(false);
+          if (needsReview) {
+            dispatchHomeAction('sync-now');
+            return;
+          }
           setInfoDialog({
-            title: needsReview ? 'Team updates need review' : 'Team changes queued',
-            message: needsReview
-              ? `Some of your work needs a quick review before it can reach the team.\n\nTap Sync Projects, review the changes, then tap Sync Projects again to finish.${sharedSyncSummary.lastConflictError ? `\n\n${sharedSyncSummary.lastConflictError}` : ''}`
-              : 'Your team changes are saved on this device and will send automatically when you have a connection and team projects are enabled.',
+            title: 'Team changes queued',
+            message: 'Your team changes are saved on this device and will send automatically when you have a connection and team projects are enabled.',
           });
         }}
         className={`flex h-10 min-w-10 shrink-0 items-center justify-center gap-2 rounded-[1rem] px-2.5 transition ${classes}`}
@@ -618,7 +671,7 @@ export default function PersistentTopBar() {
                             className={menuRowClass}
                           >
                             <CheckCircle2 className="h-4 w-4 shrink-0" />
-                            {homeMenuState.selectionMode ? 'Cancel Selection' : 'Select Areas'}
+                            {homeMenuState.selectionMode ? 'Cancel Selection' : 'Manage Areas'}
                           </button>
                         )}
                         <button onClick={() => dispatchHomeAction('export-project')} className={menuRowClass}>
@@ -644,7 +697,13 @@ export default function PersistentTopBar() {
                           </button>
                         )}
                         {homeMenuState.isSingleProject && homeMenuState.isSharedProject && (!sharedProjectAccess.isReady || sharedProjectAccess.isActiveMember || sharedProjectAccess.hasError) && (
-                          <>
+                          <details className="group/team col-span-2">
+                            <summary className={`${menuRowClass} cursor-pointer list-none [&::-webkit-details-marker]:hidden`}>
+                              <Users className="h-4 w-4 shrink-0" />
+                              Team settings
+                              <ChevronDown className="ml-auto h-4 w-4 group-open/team:rotate-180" />
+                            </summary>
+                            <div className={`${menuListGridClass} mt-2`}>
                           <button
                             onClick={() => dispatchHomeAction('invite-people')}
                             disabled={!!homeMenuState.isCreatingJoinCode}
@@ -665,6 +724,12 @@ export default function PersistentTopBar() {
                             <ArchiveRestore className="h-4 w-4 shrink-0" />
                             Team Backups
                           </button>
+                          {sharedProjectAccess.isOwner && (
+                            <button onClick={() => void openRecoverLocks()} className={menuRowSecondaryClass}>
+                              <KeyRound className="h-4 w-4 shrink-0" />
+                              Recover area locks
+                            </button>
+                          )}
                           {sharedProjectAccess.isReady && sharedProjectAccess.isActiveMember && (
                             <button
                               onClick={() => dispatchHomeAction('disconnect-shared-project')}
@@ -674,10 +739,11 @@ export default function PersistentTopBar() {
                               <LogOut className="h-4 w-4 shrink-0" />
                               {homeMenuState.isDisconnectingSharedProject
                                 ? sharedProjectAccess.isOwner ? 'Stopping…' : 'Leaving…'
-                                : sharedProjectAccess.isOwner ? 'Stop Team Sharing' : 'Leave Team Project'}
+                                : sharedProjectAccess.isOwner ? 'Stop sharing for everyone' : 'Leave Team Project'}
                             </button>
                           )}
-                          </>
+                            </div>
+                          </details>
                         )}
                         {homeMenuState.isSingleProject &&
                           homeMenuState.isSharedProject &&
@@ -735,16 +801,10 @@ export default function PersistentTopBar() {
                               {collaborationAuth.isSigningIn ? 'Enabling…' : 'Enable Team Projects'}
                             </button>
                           )}
-                        {showAuth && collaborationAuth.isSignedIn && (
-                          <button onClick={() => dispatchHomeAction('join-shared-project')} className={menuRowClass}>
-                            <UserPlus className="h-4 w-4 shrink-0" />
-                            Join Team Project
-                          </button>
-                        )}
                         {collaborationAuth.isSignedIn && (
                           <button onClick={() => dispatchHomeAction('my-shared-projects')} className={menuRowClass}>
                             <Users className="h-4 w-4 shrink-0" />
-                            My Team Projects
+                            Team Projects
                           </button>
                         )}
                         {showAuth && (
@@ -794,12 +854,12 @@ export default function PersistentTopBar() {
                           <LogIn className="h-4 w-4 shrink-0" />
                           Sign In
                         </button>
-                      ) : (
+                      ) : !collaborationAuth.isSignedIn ? (
                         <button onClick={() => void handleMicrosoftAuthAction()} className={menuRowClass}>
                           <LogOut className="h-4 w-4 shrink-0" />
                           Sign Out
                         </button>
-                      )}
+                      ) : null}
                     </div>
                   </div>
                 </div>
@@ -809,7 +869,46 @@ export default function PersistentTopBar() {
           </div>
         )}
       </div>
-      <UserProfileModal open={showProfile} onClose={() => setShowProfile(false)} />
+      {showRecoverLocks && typeof document !== 'undefined' && createPortal(
+        <div className="modal-overlay fixed inset-0 z-[150] flex items-center justify-center p-4">
+          <div className="modal-panel max-h-[82dvh] w-full max-w-md overflow-y-auto rounded-[1.9rem] p-6" role="dialog" aria-modal="true" aria-labelledby="recover-locks-title">
+            <h2 id="recover-locks-title" className="text-xl font-semibold">Recover area locks</h2>
+            <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">For a teammate who has left an area locked. Ask them to sync and release it first when possible.</p>
+            {recoverLoading ? <p className="mt-5 text-sm">Loading locks…</p> : recoverClaims.length === 0 ? (
+              <p className="mt-5 text-sm">No areas are locked by other teammates.</p>
+            ) : (
+              <div className="mt-5 space-y-2">
+                {recoverClaims.map((claim) => (
+                  <div key={claim.id} className="soft-control flex items-center justify-between gap-3 rounded-xl p-3">
+                    <div className="min-w-0 text-sm">
+                      <p className="truncate font-semibold">{recoverAreaNames.get(claim.areaId) ?? `Area ${claim.areaId.slice(0, 8)}`}</p>
+                      <p className="truncate text-gray-500 dark:text-gray-400">{claim.claimedByDisplayName || claim.claimedByEmail || 'Team member'}</p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400">Claimed {claim.claimedAt.toLocaleString()}</p>
+                    </div>
+                    <button type="button" onClick={() => setRecoverConfirm(claim)} className="shrink-0 rounded-xl bg-amber-500/15 px-3 py-2 text-xs font-semibold text-amber-800 dark:text-amber-200">Release</button>
+                  </div>
+                ))}
+              </div>
+            )}
+            {recoverError && <p className="mt-4 text-sm text-red-600 dark:text-red-300" role="alert">{recoverError}</p>}
+            <button type="button" onClick={() => setShowRecoverLocks(false)} className="soft-control mt-5 w-full rounded-xl px-4 py-3 text-sm font-semibold">Done</button>
+          </div>
+        </div>, document.body
+      )}
+      {recoverConfirm && (
+        <AppConfirmDialog
+          title="Release teammate's lock?"
+          message={`Release the lock on ${recoverAreaNames.get(recoverConfirm.areaId) ?? 'this area'} held by ${recoverConfirm.claimedByDisplayName || recoverConfirm.claimedByEmail || 'a teammate'}?\n\nTheir unsent changes stay on their device and may need review when they sync. Confirm with them first if possible.`}
+          confirmLabel={recoverBusy ? 'Releasing…' : 'Release lock'}
+          danger
+          onCancel={() => { if (!recoverBusy) setRecoverConfirm(null); }}
+          onConfirm={() => void confirmRecoverLock()}
+        />
+      )}
+      <UserProfileModal open={showProfile} onClose={() => setShowProfile(false)} onSignOut={() => {
+        setShowProfile(false);
+        void handleMicrosoftAuthAction();
+      }} />
       {infoDialog && (
         <AppMessageDialog
           title={infoDialog.title}

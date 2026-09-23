@@ -428,6 +428,14 @@ export interface CollaborationDatabase {
         };
         Returns: undefined;
       };
+      release_abandoned_shared_project_area: {
+        Args: {
+          p_project_id: string;
+          p_area_id: string;
+          p_claim_id: string;
+        };
+        Returns: boolean;
+      };
       transfer_shared_project_ownership: {
         Args: {
           p_project_id: string;

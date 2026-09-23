@@ -3,15 +3,39 @@
 import Link from 'next/link';
 import { AlertTriangle, RefreshCw } from 'lucide-react';
 
+function getErrorReference(error?: Error & { digest?: string }) {
+  if (error?.digest) return error.digest;
+  if (!error) return 'screen-load';
+  let hash = 2166136261;
+  for (const character of `${error.name}:${error.message}`) {
+    hash = Math.imul(hash ^ character.charCodeAt(0), 16777619);
+  }
+  return `CLIENT-${(hash >>> 0).toString(16).toUpperCase().padStart(8, '0')}`;
+}
+
 export default function AppErrorFallback({
   title = 'Punchlist needs to recover',
-  message = 'Your locally saved project data is still on this device. Try loading this screen again.',
+  message = 'This screen could not load. Try again, then check your latest work and sync status before continuing.',
   onRetry,
+  error,
 }: {
   title?: string;
   message?: string;
   onRetry?: () => void;
+  error?: Error & { digest?: string };
 }) {
+  const reference = getErrorReference(error);
+  const copyDetails = () => {
+    if (!error || typeof navigator === 'undefined') return;
+    const details = [
+      'Punchlist screen error',
+      `Reference: ${reference}`,
+      `Page: ${window.location.pathname}`,
+      `Time: ${new Date().toISOString()}`,
+      `Message: ${error.message}`,
+    ].join('\n');
+    void navigator.clipboard?.writeText(details);
+  };
   return (
     <main className="flex min-h-[100dvh] items-center justify-center bg-[var(--background)] px-5 py-10 text-[var(--foreground)]">
       <section className="card-surface w-full max-w-md rounded-[2rem] p-7 text-center sm:p-9" role="alert">
@@ -20,6 +44,7 @@ export default function AppErrorFallback({
         </div>
         <h1 className="mt-5 text-xl font-semibold tracking-[-0.02em] text-gray-950 dark:text-white">{title}</h1>
         <p className="mt-2 text-sm leading-6 text-gray-600 dark:text-gray-300">{message}</p>
+        {error && <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">Reference: {reference}</p>}
         <div className="mt-6 grid gap-2 sm:grid-cols-2">
           {onRetry && (
             <button
@@ -38,6 +63,7 @@ export default function AppErrorFallback({
             Go to projects
           </Link>
         </div>
+        {error && <button type="button" onClick={copyDetails} className="mt-3 text-sm font-medium underline underline-offset-4">Copy error details</button>}
       </section>
     </main>
   );

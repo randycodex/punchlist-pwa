@@ -8,5 +8,5 @@ export default function AppError({ error, reset }: { error: Error & { digest?: s
     console.error('Punchlist route failed:', error);
   }, [error]);
 
-  return <AppErrorFallback onRetry={reset} />;
+  return <AppErrorFallback onRetry={reset} error={error} />;
 }

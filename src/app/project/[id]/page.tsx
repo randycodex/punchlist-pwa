@@ -69,6 +69,7 @@ import { AreaCard,
   type AreaCardClaimDisplay as AreaClaimDisplay,
 } from '@/features/projects/AreaCard';
 import AreaGroupList from '@/features/projects/AreaGroupList';
+import { matchesAreaSearch } from '@/features/projects/areaSearch';
 import { getProjectFloorLevels, hasFloorGroupedAreas, hasProjectFloorLevels, normalizeFloorLabel } from '@/lib/unitFloors';
 import type { ListSortOption } from '@/components/ListSortMenu';
 import {
@@ -133,6 +134,7 @@ import {
   RotateCcw,
   Plus,
   CloudUpload,
+  Search,
 } from 'lucide-react';
 
 type SortOption = ListSortOption;
@@ -176,6 +178,7 @@ export default function ProjectDetailPage() {
   const [recentAreaTypeKeys, setRecentAreaTypeKeys] = useState<AreaTypeKey[]>([]);
   const [sortOption, setSortOption] = useState<SortOption>('issues');
   const [areaViewMode, setAreaViewMode] = useState<AreaListViewMode>('grouped');
+  const [areaSearch, setAreaSearch] = useState('');
   const [showTrash, setShowTrash] = useState(false);
   const [actionSheet, setActionSheet] = useState<'delete' | 'export' | 'export-scope' | null>(null);
   const [reportContent, setReportContent] = useState<'issues' | 'full'>('issues');
@@ -643,10 +646,11 @@ export default function ProjectDetailPage() {
     });
   }, [activeAreas, sortOption, areaMetrics]);
   const visibleAreas = useMemo(
-    () => showOnlyAreaIssues
-      ? sortedAreas.filter((area) => (areaMetrics.get(area.id)?.stats.issues ?? 0) > 0)
-      : sortedAreas,
-    [areaMetrics, showOnlyAreaIssues, sortedAreas]
+    () => sortedAreas.filter((area) =>
+      (!showOnlyAreaIssues || (areaMetrics.get(area.id)?.stats.issues ?? 0) > 0)
+      && matchesAreaSearch(area, areaDisplayNames.get(area.id) ?? area.name, areaSearch, project?.unitFloorNumbering)
+    ),
+    [areaMetrics, areaSearch, areaDisplayNames, project?.unitFloorNumbering, showOnlyAreaIssues, sortedAreas]
   );
 
   async function handleAddArea(submittedForms?: AreaFormValue[]) {
@@ -1288,6 +1292,10 @@ export default function ProjectDetailPage() {
 
     setReleasingMyAreaLocks(true);
     try {
+      const pending = await getPendingSharedAreaSyncsForProject(project.id);
+      if (pending.length > 0) {
+        throw new Error(`${pending.length} area${pending.length === 1 ? '' : 's'} still have changes waiting to reach the team. Sync and review them before releasing your locks.`);
+      }
       const result = await releaseAllMySharedProjectAreaClaims(sharedProjectId);
       setReleaseMyLocksConfirm(false);
       setSharedAreaClaims((current) => {
@@ -1663,6 +1671,14 @@ export default function ProjectDetailPage() {
       >
         <AreaListReturnPosition projectId={id} />
         {!showTrash && <ResumeInspectionLink project={project} />}
+        {!showTrash && (
+          <label className="soft-control mx-auto mb-4 flex h-11 w-full max-w-6xl items-center gap-2 rounded-xl px-3 text-gray-500 dark:text-gray-400">
+            <Search className="h-4 w-4 shrink-0" aria-hidden="true" />
+            <span className="sr-only">Find an area or floor</span>
+            <input value={areaSearch} onChange={(event) => setAreaSearch(event.target.value)}
+              placeholder="Find unit, area, or floor" className="min-w-0 flex-1 bg-transparent text-sm text-gray-900 outline-none placeholder:text-gray-500 dark:text-white" />
+          </label>
+        )}
         {!showTrash && activeAreas.length === 0 && (areaViewMode !== 'grouped' || !hasProjectFloorLevels(project)) ? (
           <div className="mx-auto flex min-h-[calc(100%+1px)] w-full max-w-6xl flex-col">
             <div className="flex flex-1 items-center justify-center py-12">
@@ -1726,31 +1742,32 @@ export default function ProjectDetailPage() {
           )
         ) : (
           <div className="mx-auto min-h-[calc(100%+1px)] w-full max-w-6xl">
-            {visibleAreas.length === 0 && (showOnlyAreaIssues || areaViewMode !== 'grouped' || !hasProjectFloorLevels(project)) ? (
+            {visibleAreas.length === 0 && (areaSearch.trim() || showOnlyAreaIssues || areaViewMode !== 'grouped' || !hasProjectFloorLevels(project)) ? (
               <div className="flex min-h-[50vh] items-center justify-center py-12">
                 <div className="empty-state-card w-full max-w-sm rounded-[1.9rem] p-8 text-center">
                   <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
-                    {showOnlyAreaIssues ? 'No areas with issues' : 'No areas yet'}
+                    {areaSearch.trim() ? 'No matching areas' : showOnlyAreaIssues ? 'No areas with issues' : 'No areas yet'}
                   </h2>
                   <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
-                    {showOnlyAreaIssues
+                    {areaSearch.trim() ? 'Try another unit number, area name, or floor.' : showOnlyAreaIssues
                       ? 'All areas are currently clear.'
                       : 'Add the first unit, floor, or location to start inspecting.'}
                   </p>
                   <button
                     type="button"
                     onClick={() => {
-                      if (showOnlyAreaIssues) setShowOnlyAreaIssues(false);
+                      if (areaSearch.trim()) setAreaSearch('');
+                      else if (showOnlyAreaIssues) setShowOnlyAreaIssues(false);
                       else setShowAddArea(true);
                     }}
                     className="mt-5 inline-flex h-11 items-center justify-center rounded-full soft-control px-5 text-sm font-semibold text-gray-800 transition hover:bg-white dark:text-gray-100 dark:hover:bg-white/[0.1]"
                   >
-                    {showOnlyAreaIssues ? 'Show all areas' : 'Add first area'}
+                    {areaSearch.trim() ? 'Clear search' : showOnlyAreaIssues ? 'Show all areas' : 'Add first area'}
                   </button>
                 </div>
               </div>
             ) : areaViewMode === 'grouped' ? (
-              <AreaGroupList selectedAreaIds={selectedAreaIds} onSelectAreas={deleteMode ? selectAreaGroup : undefined} unitFloorNumbering={project.unitFloorNumbering} projectLevelRange={project} areas={visibleAreas} renderArea={(area) => {
+              <AreaGroupList selectedAreaIds={selectedAreaIds} onSelectAreas={deleteMode ? selectAreaGroup : undefined} unitFloorNumbering={project.unitFloorNumbering} projectLevelRange={areaSearch.trim() ? null : project} areas={visibleAreas} renderArea={(area) => {
               const metric = areaMetrics.get(area.id);
               const isSelected = selectedAreaIds.has(area.id);
               return (
