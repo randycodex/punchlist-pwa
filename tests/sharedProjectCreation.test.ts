@@ -17,7 +17,7 @@ vi.mock('@/lib/collaboration/supabaseClient', () => ({
   }),
 }));
 
-import { createSharedProjectFromLocalProject } from '@/lib/collaboration/sharedProjects';
+import { createSharedProjectFromLocalProject, joinSharedProjectByCode } from '@/lib/collaboration/sharedProjects';
 
 const baseline = new Date('2026-07-15T16:00:00.000Z');
 
@@ -74,5 +74,30 @@ describe('shared project creation', () => {
 
     expect(getUserMock).not.toHaveBeenCalled();
     expect(rpcMock).not.toHaveBeenCalled();
+  });
+
+  it('resolves the stable local project ID after joining by code', async () => {
+    getUserMock.mockResolvedValue({ data: { user: { email: 'member@uai-ny.com' } }, error: null });
+    rpcMock.mockImplementation(async (name: string) => name === 'join_shared_project_by_code'
+      ? { data: { shared_project_id: 'shared-1', project_name: 'Team site' }, error: null }
+      : { data: [{
+          project_id: 'shared-1', local_project_id: 'owner-local-1', project_name: 'Team site',
+          owner_user_id: 'owner-1', updated_at: baseline.toISOString(),
+        }], error: null });
+
+    await expect(joinSharedProjectByCode('JOIN-CODE', 'member@uai-ny.com')).resolves.toEqual({
+      sharedProjectId: 'shared-1', projectName: 'Team site', localProjectId: 'owner-local-1',
+    });
+    expect(rpcMock).toHaveBeenCalledWith('list_my_shared_projects');
+  });
+
+  it('does not create a random local copy when the joined project identity cannot be confirmed', async () => {
+    getUserMock.mockResolvedValue({ data: { user: { email: 'member@uai-ny.com' } }, error: null });
+    rpcMock.mockImplementation(async (name: string) => name === 'join_shared_project_by_code'
+      ? { data: { shared_project_id: 'shared-1', project_name: 'Team site' }, error: null }
+      : { data: [], error: null });
+
+    await expect(joinSharedProjectByCode('JOIN-CODE', 'member@uai-ny.com'))
+      .rejects.toThrow('Tap Sync Projects to finish adding it');
   });
 });

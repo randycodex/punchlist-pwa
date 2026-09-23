@@ -58,7 +58,7 @@ import {
   findDetachedSharedProject,
   relinkDetachedSharedProject,
 } from '@/features/collaboration/detachedSharedProject';
-import { findPreferredLocalSharedProject } from '@/features/collaboration/sharedProjectDirectoryLocal';
+import { findPreferredLocalSharedProject, getSharedProjectDirectoryLocalStatus } from '@/features/collaboration/sharedProjectDirectoryLocal';
 import { ProjectCard, type ProjectCardMetrics as ProjectMetrics } from '@/features/projects/ProjectCard';
 import { compareProjectCopies, isLikelyPersonalProjectCopy } from '@/features/projects/compareProjectCopies';
 import { areasChangedSinceTeamCopy, areasWithMissingMedia, mergeDuplicatePersonalProjects, mergeDuplicateTeamProjects, projectCheckpointCount } from '@/features/projects/mergeDuplicateTeamProjects';
@@ -664,17 +664,31 @@ export default function ProjectsPage() {
       }
       setRetryAt(null);
 
-      const restore = await runManualOneDriveRestore({
+      let restore = await runManualOneDriveRestore({
         ensureAccessToken: () => ensureAccessToken({ interactive: true }),
       });
       if (restore.status === 'needs-auth') {
         setSyncStatus('needs-auth');
-        await signIn({ selectAccount: true });
-        return;
+        try {
+          await signIn({ selectAccount: true });
+          restore = await runManualOneDriveRestore({
+            ensureAccessToken: () => ensureAccessToken({ interactive: true }),
+          });
+        } catch (error) {
+          problems.push(`Microsoft sign-in: ${error instanceof Error ? error.message : 'Could not sign in.'}`);
+        }
+        if (restore.status === 'needs-auth') {
+          showMessage([...completed, ...problems, 'Personal backup was not completed. Tap Sync Projects again after Microsoft sign-in.'].join('\n'), 'Sync Projects');
+          return;
+        }
       }
       if (restore.status === 'success') {
         if (restore.restoredProjectCount > 0) {
-          completed.push(`${restore.restoredProjectCount} personal project${restore.restoredProjectCount === 1 ? '' : 's'} added`);
+          const restoredProjects = await getAllProjects();
+          const namesById = new Map(restoredProjects.map((project) => [project.id, project.projectName]));
+          for (const projectId of restore.restoredProjectIds) {
+            completed.push(`${namesById.get(projectId) ?? 'Personal project'}: added from personal backup`);
+          }
         }
         await loadProjects();
         try {
@@ -711,7 +725,7 @@ export default function ProjectsPage() {
         return;
       }
       const currentProjects = await getAllProjects();
-      const result = await runManualOneDriveSync({
+      let result = await runManualOneDriveSync({
         ensureAccessToken: () => ensureAccessToken({ interactive: true }),
         projectIds: currentProjects.filter((project) => !project.deletedAt).map((project) => project.id),
         forceProjectIds: mergedPersonalProjectIds,
@@ -719,8 +733,20 @@ export default function ProjectsPage() {
       if (result.status === 'needs-auth') {
         setSyncError('Please sign in to back up to OneDrive.');
         setSyncStatus('needs-auth');
-        await signIn({ selectAccount: true });
-        return;
+        try {
+          await signIn({ selectAccount: true });
+          result = await runManualOneDriveSync({
+            ensureAccessToken: () => ensureAccessToken({ interactive: true }),
+            projectIds: currentProjects.filter((project) => !project.deletedAt).map((project) => project.id),
+            forceProjectIds: mergedPersonalProjectIds,
+          });
+        } catch (error) {
+          problems.push(`Microsoft sign-in: ${error instanceof Error ? error.message : 'Could not sign in.'}`);
+        }
+        if (result.status === 'needs-auth') {
+          showMessage([...completed, ...problems, 'Personal backup was not completed. Tap Sync Projects again after Microsoft sign-in.'].join('\n'), 'Sync Projects');
+          return;
+        }
       }
       if (result.status === 'conflict') {
         setSyncConflicts(result.conflicts);
@@ -747,7 +773,10 @@ export default function ProjectsPage() {
       setSyncStatus(problems.length > 0 ? 'error' : hasPendingSyncState() ? 'pending' : 'idle');
       if (problems.length === 0) markSyncedNow();
       await loadProjects();
-      if (result.backedUpProjectCount > 0) completed.push(`${result.backedUpProjectCount} personal backup${result.backedUpProjectCount === 1 ? '' : 's'} saved`);
+      const namesById = new Map(currentProjects.map((project) => [project.id, project.projectName]));
+      for (const projectId of result.backedUpProjectIds) {
+        completed.push(`${namesById.get(projectId) ?? 'Personal project'}: personal backup saved`);
+      }
       showMessage([...completed, ...problems].join('\n') || 'Everything is up to date.', 'Sync Projects');
     } catch (error) {
       console.error('Sync failed:', error);
@@ -1877,13 +1906,17 @@ export default function ProjectsPage() {
   async function addSharedProjectToDevice(
     sharedProjectId: string,
     projectName: string,
-    localProjectId?: string
+    localProjectId?: string,
+    allowReconnect = false
   ) {
     const deviceProjects = await getAllProjects();
     const existingProject = deviceProjects.find((project) =>
       !project.deletedAt && project.sharedProjectId === sharedProjectId
     ) ?? deviceProjects.find((project) => project.sharedProjectId === sharedProjectId);
     if (existingProject) {
+      if (existingProject.deletedAt) {
+        throw new Error('This team project is in Trash on this device. Restore that copy before joining or syncing it again.');
+      }
       return {
         project: existingProject,
         alreadyLocal: true,
@@ -1897,6 +1930,17 @@ export default function ProjectsPage() {
     const matchingLocalProject = localProjectId
       ? deviceProjects.find((project) => !project.deletedAt && project.id === localProjectId)
       : undefined;
+    const reservedLocalProject = localProjectId
+      ? deviceProjects.find((project) => project.id === localProjectId)
+      : undefined;
+    if (reservedLocalProject?.deletedAt && reservedLocalProject.sharedProjectId !== sharedProjectId) {
+      throw new Error('A different local project with this ID is in Trash. Review or restore that copy before adding the team project.');
+    }
+    if (matchingLocalProject?.sharedProjectId
+      && matchingLocalProject.sharedProjectId !== sharedProjectId
+      && !allowReconnect) {
+      throw new Error('This device has a different team link for the same project. Open Team Projects and choose Reconnect on this device after reviewing the local copy.');
+    }
     const reusableProject = detachedProject ?? matchingLocalProject;
     const isReconnecting = Boolean(
       matchingLocalProject?.sharedProjectId
@@ -1909,6 +1953,7 @@ export default function ProjectsPage() {
         ])
       : [[], null];
     const pendingAreaIds = new Set(pendingAreaSyncs.map((record) => record.areaId));
+    const newProject = reusableProject ? null : createProject(projectName);
     const project = detachedProject
       ? relinkDetachedSharedProject(detachedProject, sharedProjectId)
       : reusableProject
@@ -1918,7 +1963,7 @@ export default function ProjectsPage() {
             sharedProjectId,
             sharedProjectLinkedAt: new Date(),
           }
-      : createProject(projectName);
+      : { ...newProject!, id: localProjectId ?? newProject!.id };
     if (!reusableProject) {
       project.sharedProjectId = sharedProjectId;
       project.sharedProjectLinkedAt = new Date();
@@ -2005,7 +2050,8 @@ export default function ProjectsPage() {
       const result = await joinSharedProjectByCode(code, accountEmail, accountName);
       const { alreadyLocal, pulledSnapshot, reusedDetached } = await addSharedProjectToDevice(
         result.sharedProjectId,
-        result.projectName
+        result.projectName,
+        result.localProjectId
       );
       setShowJoinProject(false);
       setJoinProjectCode('');
@@ -2071,7 +2117,8 @@ export default function ProjectsPage() {
       const { alreadyLocal, pulledSnapshot, reconnected } = await addSharedProjectToDevice(
         entry.projectId,
         entry.projectName,
-        entry.localProjectId
+        entry.localProjectId,
+        true
       );
       if (alreadyLocal) {
         showMessage(`"${entry.projectName}" is already on this device.`);
@@ -2107,7 +2154,7 @@ export default function ProjectsPage() {
     localProject?: Project
   ) {
     const isOwner = entry.ownerUserId === collaborationAuth.user?.id;
-    if (localProject) {
+    if (localProject?.sharedProjectId === entry.projectId) {
       setShowMySharedProjects(false);
       setMySharedProjects([]);
       handleDisconnectSharedProject(localProject, isOwner);
@@ -3851,11 +3898,7 @@ export default function ProjectsPage() {
               <div className="space-y-3">
                 {mySharedProjects.map((entry) => {
                   const localProject = findPreferredLocalSharedProject(projects, entry);
-                  const needsReconnect = Boolean(
-                    localProject?.sharedProjectId
-                    && localProject.sharedProjectId !== entry.projectId
-                  );
-                  const isInTrash = Boolean(localProject?.deletedAt);
+                  const { isLinkedOnDevice, needsReconnect, isInTrash } = getSharedProjectDirectoryLocalStatus(localProject, entry);
                   const isAdding = addingSharedProjectId === entry.projectId;
                   const isDisconnecting = disconnectingDirectoryProjectId === entry.projectId;
                   const isOwner = entry.ownerUserId === collaborationAuth.user?.id;
@@ -3878,14 +3921,14 @@ export default function ProjectsPage() {
                           }
                           void handleAddSharedProjectFromDirectory(entry);
                         }}
-                        disabled={(!isInTrash && !!localProject && !needsReconnect) || !!addingSharedProjectId || !!disconnectingDirectoryProjectId}
+                        disabled={(isLinkedOnDevice && !isInTrash) || !!addingSharedProjectId || !!disconnectingDirectoryProjectId}
                         className="mt-4 w-full rounded-2xl bg-zinc-900 px-4 py-3 text-sm font-medium text-white transition hover:bg-black disabled:cursor-not-allowed disabled:opacity-50 dark:bg-white dark:text-gray-900 dark:hover:bg-gray-200"
                       >
                         {isAdding
                           ? needsReconnect ? 'Reconnecting...' : 'Downloading...'
-                          : needsReconnect ? 'Reconnect on this device'
+                          : needsReconnect ? localProject?.sharedProjectId ? 'Reconnect on this device' : 'Connect existing copy'
                             : isInTrash ? 'In Trash — restore from Trash'
-                              : localProject ? 'Available on this device' : 'Download to this device'}
+                              : isLinkedOnDevice ? 'Available on this device' : 'Download to this device'}
                       </button>
                       <button
                         onClick={() => handleDirectoryDisconnect(entry, localProject)}

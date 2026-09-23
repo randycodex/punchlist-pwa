@@ -21,14 +21,14 @@ import {
 } from '@/lib/oneDriveSync';
 
 export type ManualOneDriveSyncResult =
-  | { status: 'success'; syncedAt: string; backedUpProjectCount: number }
+  | { status: 'success'; syncedAt: string; backedUpProjectCount: number; backedUpProjectIds: string[] }
   | { status: 'needs-auth' }
   | { status: 'conflict'; conflicts: SyncConflict[]; message: string }
   | { status: 'retry'; message: string }
   | { status: 'error'; message: string };
 
 export type ManualOneDriveRestoreResult =
-  | { status: 'success'; restoredProjectCount: number }
+  | { status: 'success'; restoredProjectCount: number; restoredProjectIds: string[] }
   | { status: 'needs-auth' }
   | { status: 'retry'; message: string; retryAfterMs: number }
   | { status: 'error'; message: string };
@@ -85,6 +85,7 @@ export async function runManualOneDriveSync(options: {
       status: 'success',
       syncedAt: result.syncedAt,
       backedUpProjectCount: result.backedUpProjectIds.length,
+      backedUpProjectIds: result.backedUpProjectIds,
     };
   } catch (error) {
     console.error('OneDrive backup failed:', error);
@@ -137,6 +138,7 @@ export async function runManualOneDriveRestore(options: {
     return {
       status: 'success',
       restoredProjectCount: result.restoredProjectIds.length,
+      restoredProjectIds: result.restoredProjectIds,
     };
   } catch (error) {
     console.error('OneDrive restore failed:', error);

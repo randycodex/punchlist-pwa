@@ -2,6 +2,8 @@
 
 Run this on a **disposable shared project** using the owner and three separate member accounts on the phones and browsers the team will use. Keep production work out of the test project. Record each device, browser version, project ID, area IDs, issue/photo counts, and time of the last successful sync.
 
+A Git branch or Vercel Preview isolates app code, but it does not isolate browser storage, OneDrive, or Supabase data. Confirm the preview's environment points to a separate test backend before exercising team recovery or intentionally creating conflicts. This repository currently has only the live Supabase project linked; a separate test project and four test accounts are required for a safe full rehearsal.
+
 Before step 4, apply `20260923200000_owner_area_lock_recovery.sql` to the **test** Supabase project. The branch UI deliberately reports that the database update is missing if the owner tries recovery before it is installed. Do not apply this test migration to the live team database as part of a branch-only preview.
 
 1. Owner invites three people. Each joins once, taps Sync Projects, and sees one team card with the same project ID and area count. Sign out and back in on one device; the project must reconnect without making a second card.

@@ -2,6 +2,24 @@
 
 import Link from 'next/link';
 import { AlertTriangle, RefreshCw } from 'lucide-react';
+import { useSyncExternalStore } from 'react';
+
+const subscribeRecoveryTimes = () => () => {};
+
+function readRecoveryTimes() {
+  try {
+    const settings = JSON.parse(window.localStorage.getItem('punchlist:app-settings') ?? '{}') as { lastSyncAt?: string };
+    return `${window.localStorage.getItem('punchlist:last-confirmed-local-save') ?? ''}|${settings.lastSyncAt ?? ''}`;
+  } catch {
+    return '|';
+  }
+}
+
+function readableTime(value: string | null | undefined) {
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isFinite(date.getTime()) ? date.toLocaleString() : null;
+}
 
 function getErrorReference(error?: Error & { digest?: string }) {
   if (error?.digest) return error.digest;
@@ -25,6 +43,8 @@ export default function AppErrorFallback({
   error?: Error & { digest?: string };
 }) {
   const reference = getErrorReference(error);
+  const recoveryTimes = useSyncExternalStore(subscribeRecoveryTimes, readRecoveryTimes, () => '');
+  const [localSaveAt, fullSyncAt] = recoveryTimes.split('|');
   const copyDetails = () => {
     if (!error || typeof navigator === 'undefined') return;
     const details = [
@@ -45,6 +65,13 @@ export default function AppErrorFallback({
         <h1 className="mt-5 text-xl font-semibold tracking-[-0.02em] text-gray-950 dark:text-white">{title}</h1>
         <p className="mt-2 text-sm leading-6 text-gray-600 dark:text-gray-300">{message}</p>
         {error && <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">Reference: {reference}</p>}
+        {recoveryTimes && (
+          <div className="mt-4 rounded-xl soft-control p-3 text-left text-xs leading-5 text-gray-600 dark:text-gray-300">
+            <p>Last confirmed device save: {readableTime(localSaveAt) ?? 'time unavailable'}</p>
+            <p>Last completed full sync: {readableTime(fullSyncAt) ?? 'time unavailable'}</p>
+            <p className="mt-1">These times do not confirm that your latest change reached the team. Check the project before editing again.</p>
+          </div>
+        )}
         <div className="mt-6 grid gap-2 sm:grid-cols-2">
           {onRetry && (
             <button

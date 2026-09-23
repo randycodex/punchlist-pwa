@@ -56,6 +56,7 @@ describe('manual OneDrive backup coordinator', () => {
       status: 'success',
       syncedAt: '2026-01-01T12:00:00.000Z',
       backedUpProjectCount: 1,
+      backedUpProjectIds: ['project-1'],
     });
     expect(hasPendingSyncState()).toBe(false);
   });
@@ -160,7 +161,7 @@ describe('manual OneDrive backup coordinator', () => {
     });
 
     expect(restoreProjects).toHaveBeenCalledWith('token');
-    expect(result).toEqual({ status: 'success', restoredProjectCount: 1 });
+    expect(result).toEqual({ status: 'success', restoredProjectCount: 1, restoredProjectIds: ['project-2'] });
   });
 
   it('reports a failed OneDrive connection without blaming a missing backup', async () => {
@@ -188,7 +189,7 @@ describe('manual OneDrive backup coordinator', () => {
     });
 
     expect(restoreProjects).toHaveBeenCalledTimes(2);
-    expect(result).toEqual({ status: 'success', restoredProjectCount: 1 });
+    expect(result).toEqual({ status: 'success', restoredProjectCount: 1, restoredProjectIds: ['project-2'] });
   });
 
   it('preserves the OneDrive throttle delay for the Sync Projects countdown', async () => {

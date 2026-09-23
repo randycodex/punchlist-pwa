@@ -148,6 +148,11 @@ type LocalSaveStatusDetail = {
 
 function reportLocalSaveStatus(detail: LocalSaveStatusDetail) {
   if (typeof window === 'undefined' || typeof window.dispatchEvent !== 'function') return;
+  if (detail.status === 'saved') {
+    try {
+      window.localStorage.setItem('punchlist:last-confirmed-local-save', new Date().toISOString());
+    } catch {}
+  }
   window.dispatchEvent(new CustomEvent('punchlist-local-save-status', { detail }));
 }
 

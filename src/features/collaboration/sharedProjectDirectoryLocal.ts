@@ -14,3 +14,16 @@ export function findPreferredLocalSharedProject(
     ?? projects.find((project) => project.sharedProjectId === entry.projectId)
     ?? projects.find((project) => project.id === entry.localProjectId);
 }
+
+export function getSharedProjectDirectoryLocalStatus(
+  project: Project | undefined,
+  entry: SharedProjectIdentity
+) {
+  const isLinkedOnDevice = project?.sharedProjectId === entry.projectId;
+  const isInTrash = Boolean(project?.deletedAt);
+  return {
+    isLinkedOnDevice,
+    isInTrash,
+    needsReconnect: Boolean(project && !isInTrash && !isLinkedOnDevice),
+  };
+}

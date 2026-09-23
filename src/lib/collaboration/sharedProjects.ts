@@ -12,6 +12,7 @@ type JoinCodeResult = {
 type JoinedSharedProjectResult = {
   sharedProjectId: string;
   projectName: string;
+  localProjectId: string;
 };
 
 type OwnershipTransferResult = {
@@ -328,7 +329,17 @@ export async function joinSharedProjectByCode(
     throw new Error('Unable to join shared project.');
   }
 
-  return { sharedProjectId, projectName };
+  let directoryEntry: CollaborationSharedProjectDirectoryEntry | undefined;
+  try {
+    directoryEntry = (await listMySharedProjects()).find((entry) => entry.projectId === sharedProjectId);
+  } catch (directoryError) {
+    console.info('Joined team project, but could not load its directory identity:', directoryError);
+  }
+  if (!directoryEntry?.localProjectId) {
+    throw new Error('You joined the team project, but this device could not confirm its project ID. Tap Sync Projects to finish adding it.');
+  }
+
+  return { sharedProjectId, projectName, localProjectId: directoryEntry.localProjectId };
 }
 
 export async function transferSharedProjectOwnership(

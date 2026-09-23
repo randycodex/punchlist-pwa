@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { Project } from '@/types';
-import { findPreferredLocalSharedProject } from '@/features/collaboration/sharedProjectDirectoryLocal';
+import { findPreferredLocalSharedProject, getSharedProjectDirectoryLocalStatus } from '@/features/collaboration/sharedProjectDirectoryLocal';
 
 const homePage = readFileSync(resolve(process.cwd(), 'src/app/page.tsx'), 'utf8');
 const persistentTopBar = readFileSync(
@@ -28,8 +28,19 @@ describe('shared project directory local status', () => {
   });
 
   it('identifies a matching local project that is currently in Trash', () => {
-    expect(homePage).toContain('const isInTrash = Boolean(localProject?.deletedAt);');
+    expect(getSharedProjectDirectoryLocalStatus(project('older-copy', new Date()), {
+      projectId: 'shared-1', localProjectId: 'older-copy',
+    })).toEqual({ isLinkedOnDevice: true, isInTrash: true, needsReconnect: false });
     expect(homePage).toContain("isInTrash ? 'In Trash — restore from Trash'");
+  });
+
+  it('does not call an unlinked local copy available to the team', () => {
+    const local = project('owner-copy');
+    delete local.sharedProjectId;
+    expect(getSharedProjectDirectoryLocalStatus(local, {
+      projectId: 'shared-1', localProjectId: local.id,
+    })).toEqual({ isLinkedOnDevice: false, isInTrash: false, needsReconnect: true });
+    expect(homePage).toContain("'Connect existing copy'");
   });
 
   it('opens Trash when the shared project local copy is trashed', () => {

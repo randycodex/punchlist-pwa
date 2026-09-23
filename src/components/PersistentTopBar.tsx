@@ -488,7 +488,7 @@ export default function PersistentTopBar() {
     const label = needsReview
       ? `${count} team update${count === 1 ? '' : 's'} need review.${sharedSyncSummary.lastConflictError ? ` ${sharedSyncSummary.lastConflictError}` : ''}`
       : `${count} team change${count === 1 ? '' : 's'} waiting to send`;
-    const shortLabel = needsReview ? 'Review changes' : count === 1 ? 'Sending…' : `${count} to send`;
+    const shortLabel = needsReview ? 'Review changes' : `${count} waiting`;
     const SharedSyncIcon = needsReview ? Activity : CloudUpload;
     const classes = needsReview
       ? 'bg-red-50 text-red-600 hover:bg-red-100 dark:bg-red-400/10 dark:text-red-300 dark:hover:bg-red-400/15'
@@ -499,14 +499,7 @@ export default function PersistentTopBar() {
         type="button"
         onClick={() => {
           setHomeMenuOpen(false);
-          if (needsReview) {
-            dispatchHomeAction('sync-now');
-            return;
-          }
-          setInfoDialog({
-            title: 'Team changes queued',
-            message: 'Your team changes are saved on this device and will send automatically when you have a connection and team projects are enabled.',
-          });
+          dispatchHomeAction('sync-now');
         }}
         className={`flex h-10 min-w-10 shrink-0 items-center justify-center gap-2 rounded-[1rem] px-2.5 transition ${classes}`}
         aria-live="polite"
