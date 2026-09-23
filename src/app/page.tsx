@@ -3390,7 +3390,7 @@ export default function ProjectsPage() {
               </div>
             ))}
             <p className="mt-4 text-sm text-gray-500 dark:text-gray-300">
-              Merge into copy {copyReview.primaryId.slice(0, 8)}. Unique work from every copy will be combined. The originals will stay in Trash for 30 days.
+              Merge into copy {copyReview.primaryId.slice(0, 8)}. Unique work from every copy will be combined. Extra copies will stay in Trash for 30 days.
             </p>
             <button
               type="button"
