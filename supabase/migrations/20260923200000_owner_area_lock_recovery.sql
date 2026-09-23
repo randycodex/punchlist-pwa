@@ -1,27 +1,5 @@
--- Only the holder or project owner may change an area claim. The owner recovery
--- action is explicit and checks the claim ID so a newer claim cannot be released.
-drop policy if exists "claim holders can update area claims" on public.area_claims;
-
-create policy "claim holder or owner can update area claims"
-  on public.area_claims for update
-  using (
-    claimed_by_user_id = auth.uid()
-    or exists (
-      select 1 from public.shared_projects sp
-      where sp.id = area_claims.project_id
-        and sp.owner_user_id = auth.uid()
-        and sp.archived_at is null
-    )
-  )
-  with check (
-    claimed_by_user_id = auth.uid()
-    or exists (
-      select 1 from public.shared_projects sp
-      where sp.id = area_claims.project_id
-        and sp.owner_user_id = auth.uid()
-        and sp.archived_at is null
-    )
-  );
+-- Owner recovery is restricted to this RPC, which checks the exact claim ID.
+-- Keep the existing area_claims row policy unchanged.
 
 create or replace function public.release_abandoned_shared_project_area(
   p_project_id uuid,
