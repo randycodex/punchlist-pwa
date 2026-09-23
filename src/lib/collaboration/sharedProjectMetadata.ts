@@ -196,6 +196,7 @@ export function isSharedProjectMetadataConflictError(
     .join(' ')
     .toLowerCase();
   return code === '40001'
+    || code === 'PT409'
     || message.includes('project metadata has newer team data')
     || message.includes('project has newer team details');
 }

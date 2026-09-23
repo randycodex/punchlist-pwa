@@ -175,6 +175,7 @@ export function isSharedProjectPublishConflictError(error: unknown): error is Sh
     .toLowerCase();
 
   return code === '40001'
+    || code === 'PT409'
     || code === 'SHARED_PROJECT_METADATA_CONFLICT'
     || message.includes('newer published data')
     || message.includes('newer team details')

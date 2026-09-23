@@ -4,9 +4,16 @@ import { ProjectPayloadValidationError } from '@/lib/projectPayload';
 import {
   applySharedProjectMetadataSnapshot,
   createSharedProjectMetadataPayload,
+  isSharedProjectMetadataConflictError,
 } from '@/lib/collaboration/sharedProjectMetadata';
+import { isSharedProjectPublishConflictError } from '@/lib/collaboration/sharedProjectSnapshots';
 
 describe('shared project metadata payloads', () => {
+  it.each(['40001', 'PT409'])('recognizes revision conflict %s without retrying it', (code) => {
+    expect(isSharedProjectMetadataConflictError({ code })).toBe(true);
+    expect(isSharedProjectPublishConflictError({ code })).toBe(true);
+  });
+
   it('serializes only bounded project detail fields', () => {
     const project = createProject('Project details', '123 Main Street', 'Inspector One');
     project.gcName = 'GC One';
