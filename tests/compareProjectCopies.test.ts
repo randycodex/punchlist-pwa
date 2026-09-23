@@ -90,6 +90,32 @@ describe('compareProjectCopies', () => {
     expect(merged.areas[0].locations.map((location) => location.name)).toContain('Floor 2');
   });
 
+  it('does not let a stale deleted area erase active work in another personal copy', () => {
+    const first = project('first', [checkpoint('shared', [])]);
+    const second = project('second', [checkpoint('shared', [], 'Different note')]);
+    delete first.sharedProjectId;
+    delete second.sharedProjectId;
+    first.areas.push({
+      ...first.areas[0], id: 'active-area', projectId: first.id,
+      locations: [{
+        ...first.areas[0].locations[0], id: 'active-location', areaId: 'active-area',
+        items: [{
+          ...first.areas[0].locations[0].items[0], id: 'active-item', locationId: 'active-location',
+          checkpoints: [checkpoint('active-checkpoint', [{ id: 'active-photo', imageData: 'data:photo' }])],
+        }],
+      }],
+    });
+    second.areas.push({
+      ...first.areas[1], projectId: second.id, deletedAt: new Date('2027-01-01'),
+      purgedAt: new Date('2027-01-01'), locations: [],
+    });
+
+    const merged = mergeDuplicatePersonalProjects(first, [first, second]);
+    expect(compareProjectCopies(first, merged).firstOnlyAreaIds).toEqual([]);
+    expect(compareProjectCopies(first, merged).firstOnlyCheckpointIds).toEqual([]);
+    expect(compareProjectCopies(first, merged).firstOnlyPhotoDataIds).toEqual([]);
+  });
+
   it('finds unique checkpoint and photo IDs and missing local photo files', () => {
     const first = project('first', [checkpoint('shared', [{ id: 'old-photo', imageData: '' }])]);
     const second = project('second', [

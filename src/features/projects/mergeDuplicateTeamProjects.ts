@@ -79,7 +79,22 @@ export function mergeDuplicatePersonalProjects(primary: Project, copies: Project
   let result = primary;
   for (const copy of copies) {
     if (copy.id === primary.id) continue;
-    const merged = mergeProjects(result, copy);
+    // A stale personal backup can carry an area deletion marker for an area
+    // that remains active in another copy. Keep the active area and its work;
+    // the older copy remains recoverable in Trash after the merge.
+    const activeResultAreaIds = new Set(result.areas.filter((area) =>
+      !area.deletedAt && !area.purgedAt).map((area) => area.id));
+    const activeCopyAreaIds = new Set(copy.areas.filter((area) =>
+      !area.deletedAt && !area.purgedAt).map((area) => area.id));
+    const merged = mergeProjects({
+      ...result,
+      areas: result.areas.filter((area) =>
+        (!area.deletedAt && !area.purgedAt) || !activeCopyAreaIds.has(area.id)),
+    }, {
+      ...copy,
+      areas: copy.areas.filter((area) =>
+        (!area.deletedAt && !area.purgedAt) || !activeResultAreaIds.has(area.id)),
+    });
     const drawings = new Map((result.facadeElevationDrawings ?? []).map((drawing) => [drawing.id, drawing]));
     for (const drawing of copy.facadeElevationDrawings ?? []) {
       const existing = drawings.get(drawing.id);
