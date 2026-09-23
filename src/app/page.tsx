@@ -24,6 +24,7 @@ import {
   markProjectDeleted,
   unmarkProjectDeleted,
   hydrateProjectMediaFromOneDrive,
+  mergePersonalProjectsFromOneDrive,
 } from '@/lib/oneDriveSync';
 import {
   hasPendingSyncState,
@@ -286,6 +287,7 @@ export default function ProjectsPage() {
   const backgroundAreaClaimKeysRef = useRef(new Set<string>());
   const projectsRef = useRef<Project[]>(cachedProjects);
   const homeMenuActionHandlerRef = useRef<((event: Event) => void) | null>(null);
+  const handleSyncRef = useRef<() => Promise<void>>(async () => {});
   const loadProjectsRef = useRef<() => Promise<void>>(() => Promise.resolve());
   const scheduleSyncRef = useRef<(projectId?: string, options?: { fullSync?: boolean }) => void>(() => {});
   const { signIn, signOut, isReady, isSignedIn, ensureAccessToken, accountEmail, accountName } = useMicrosoftAuth();
@@ -294,7 +296,6 @@ export default function ProjectsPage() {
     clearSharedUpdateAvailable,
     markSharedUpdateAvailable,
     setSharedTransferStatus,
-    sharedTransferStatus,
     setRetryAt,
     setStatus: setSyncStatus,
     setSyncConflicts,
@@ -528,10 +529,145 @@ export default function ProjectsPage() {
     setSyncError(null);
     setRetryAt(null);
     setSyncStatus('syncing');
+    const completed: string[] = [];
+    const problems: string[] = [];
+    let needsTeamReview = false;
+    let personalReady = true;
+    let mergedPersonalProjectIds: string[] = [];
     try {
+      const restore = await runManualOneDriveRestore({
+        ensureAccessToken: () => ensureAccessToken({ interactive: true }),
+      });
+      if (restore.status === 'needs-auth') {
+        setSyncStatus('needs-auth');
+        await signIn({ selectAccount: true });
+        return;
+      }
+      if (restore.status === 'success') {
+        if (restore.restoredProjectCount > 0) {
+          completed.push(`${restore.restoredProjectCount} personal project${restore.restoredProjectCount === 1 ? '' : 's'} added`);
+        }
+        await loadProjects();
+        try {
+          const token = await ensureAccessToken({ interactive: true });
+          if (!token) throw new Error('Sign in to sync personal projects.');
+          const merged = await mergePersonalProjectsFromOneDrive(token);
+          mergedPersonalProjectIds = merged.forceBackupProjectIds;
+          if (merged.updatedLocalProjectIds.length > 0) {
+            const count = merged.updatedLocalProjectIds.length;
+            completed.push(`${count} personal project${count === 1 ? '' : 's'} updated`);
+          }
+          await loadProjects();
+        } catch (error) {
+          personalReady = false;
+          problems.push(error instanceof Error ? error.message : 'Personal project merge failed.');
+        }
+      } else {
+        personalReady = false;
+        problems.push(`Personal restore: ${restore.message}`);
+      }
+
+      if (collaborationAuth.isSignedIn) {
+        try {
+          const directory = await listMySharedProjects();
+          for (const entry of directory) {
+            const localProjects = await getAllProjects();
+            const localProject = localProjects.find((project) =>
+              project.sharedProjectId === entry.projectId || project.id === entry.localProjectId
+            );
+            if (localProject?.deletedAt) continue;
+            if (!localProject || localProject.sharedProjectId !== entry.projectId) {
+              await addSharedProjectToDevice(entry.projectId, entry.projectName, entry.localProjectId);
+              completed.push(`${entry.projectName} added`);
+            }
+          }
+
+          for (const entry of directory) {
+            const project = (await getAllProjects()).find((candidate) =>
+              !candidate.deletedAt && candidate.sharedProjectId === entry.projectId
+            );
+            if (!project) continue;
+            const fullProject = await getProject(project.id);
+            if (!fullProject) continue;
+            const metadata = await getSharedProjectSnapshotMetadata(entry.projectId);
+            if (metadata && isSharedSnapshotNewer(fullProject, metadata.publishedAt)) {
+              const pull = await getPendingSharedPullState(fullProject, 'manual-pull');
+              const pendingAreas = await getPendingSharedAreaSyncsForProject(fullProject.id);
+              if (pendingAreas.length > 0 || pull.hasNewerLocalChanges || pull.preservedLocalAreaCount > 0 || pull.preservedLocalProjectMetadata) {
+                setPendingPull(pull);
+                needsTeamReview = true;
+                problems.push(`${entry.projectName} needs review before sending or releasing areas`);
+                break;
+              }
+              await saveProjectPreserveTimestamps(pull.resolutionProject);
+              clearSharedUpdateAvailable(fullProject.id);
+              cacheProjectPreview(pull.resolutionProject);
+              setProjects((prev) => prev.map((candidate) =>
+                candidate.id === fullProject.id ? pull.resolutionProject : candidate
+              ));
+            }
+
+            const currentProject = await getProject(project.id);
+            if (!currentProject) continue;
+            if (!currentProject.sharedSnapshotPublishedAt) {
+              if (!collaborationAuth.user) throw new Error(TEAM_PROJECTS_SIGNIN_HINT);
+              await publishSharedProjectSnapshot(currentProject, collaborationAuth.user.id);
+              await saveProjectMetadataOnly(currentProject, { touch: false });
+            } else {
+              const pushed = await pushQueuedSharedChanges(project.id);
+              if (pushed.remainingAreaCount > 0 || pushed.metadataRemaining) {
+                if (pushed.conflictedAreaCount > 0 || pushed.metadataConflicted) {
+                  setPendingPull(await getPendingSharedPullState(currentProject, 'publish-conflict'));
+                  needsTeamReview = true;
+                  problems.push(`${entry.projectName} needs review before sending or releasing areas`);
+                  break;
+                }
+                problems.push(`${entry.projectName} still has team changes waiting to send`);
+                continue;
+              }
+            }
+            const verifiedProject = await getProject(project.id);
+            const latestMetadata = await getSharedProjectSnapshotMetadata(entry.projectId);
+            if (verifiedProject && latestMetadata && isSharedSnapshotNewer(verifiedProject, latestMetadata.publishedAt)) {
+              markSharedUpdateAvailable(project.id);
+              problems.push(`${entry.projectName} received a newer team update; areas stayed locked. Sync again to review it`);
+              continue;
+            }
+            if (verifiedProject && latestMetadata && hasNewerLocalChangesThanSharedSnapshot(verifiedProject, latestMetadata.publishedAt)) {
+              problems.push(`${entry.projectName} still has local changes to send; areas stayed locked`);
+              continue;
+            }
+            const released = await releaseAllMySharedProjectAreaClaims(entry.projectId);
+            if (released.releasedCount > 0 && singleProject?.id === project.id) {
+              setSharedAreaClaims((current) => {
+                const next = new Map(current);
+                for (const [areaId, claim] of next) {
+                  if (claim.ownership === 'mine') next.delete(areaId);
+                }
+                return next;
+              });
+            }
+            completed.push(`${entry.projectName} synced${released.releasedCount ? `; ${released.releasedCount} area${released.releasedCount === 1 ? '' : 's'} released` : ''}`);
+          }
+        } catch (error) {
+          console.error('Team sync failed:', error);
+          problems.push(getCollaborationErrorMessage(error, 'Team sync failed. Please try again.'));
+        }
+      } else if ((await getAllProjects()).some((project) => project.sharedProjectId)) {
+        problems.push('Team projects are not connected on this device. Enable Team Projects, then sync again.');
+      }
+
+      if (!personalReady) {
+        setSyncStatus('error');
+        await loadProjects();
+        showMessage([...completed, ...problems].join('\n'));
+        return;
+      }
+      const currentProjects = await getAllProjects();
       const result = await runManualOneDriveSync({
         ensureAccessToken: () => ensureAccessToken({ interactive: true }),
-        projectIds: projects.filter((project) => !project.deletedAt).map((project) => project.id),
+        projectIds: currentProjects.filter((project) => !project.deletedAt).map((project) => project.id),
+        forceProjectIds: mergedPersonalProjectIds,
       });
       if (result.status === 'needs-auth') {
         setSyncError('Please sign in to back up to OneDrive.');
@@ -543,67 +679,48 @@ export default function ProjectsPage() {
         setSyncConflicts(result.conflicts);
         setSyncError(result.message);
         setSyncStatus('error');
+        showMessage([...completed, ...problems, result.message].join('\n'));
         return;
       }
       if (result.status === 'retry') {
         setSyncError(result.message);
         setSyncStatus('pending');
+        showMessage([...completed, ...problems, result.message].join('\n'));
         return;
       }
       if (result.status === 'error') {
         setSyncError(result.message);
         setSyncStatus('error');
+        showMessage([...completed, ...problems, result.message].join('\n'));
         return;
       }
       setSyncConflicts([]);
       setSyncError(null);
       setRetryAt(null);
-      setSyncStatus(hasPendingSyncState() ? 'pending' : 'idle');
+      setSyncStatus(problems.length > 0 ? 'error' : hasPendingSyncState() ? 'pending' : 'idle');
       markSyncedNow();
       await loadProjects();
-      showMessage(
-        result.backedUpProjectCount === 1
-          ? 'OneDrive backup complete. Project data and photos are available in your PunchList folder.'
-          : `OneDrive backup complete for ${result.backedUpProjectCount} projects. Project data and photos are available in your PunchList folder.`
-      );
+      if (result.backedUpProjectCount > 0) completed.push(`${result.backedUpProjectCount} personal backup${result.backedUpProjectCount === 1 ? '' : 's'} saved`);
+      if (!needsTeamReview) showMessage([...completed, ...problems].join('\n') || 'Everything is up to date.');
+      else if (completed.length > 0) console.info('Sync progress before team review:', completed.join('; '));
+    } catch (error) {
+      console.error('Sync failed:', error);
+      setSyncStatus('error');
+      showMessage(error instanceof Error ? error.message : 'Sync failed. Please try again.');
     } finally {
       setSyncing(false);
     }
   }
 
-  async function handleRestoreOneDriveBackup() {
-    if (syncing) return;
-    setSyncing(true);
-    setSyncError(null);
-    setRetryAt(null);
-    setSyncStatus('syncing');
-    try {
-      const result = await runManualOneDriveRestore({
-        ensureAccessToken: () => ensureAccessToken({ interactive: true }),
-      });
-      if (result.status === 'needs-auth') {
-        setSyncError('Please sign in to restore a OneDrive backup.');
-        setSyncStatus('needs-auth');
-        await signIn({ selectAccount: true });
-        return;
-      }
-      if (result.status === 'retry' || result.status === 'error') {
-        setSyncError(result.message);
-        setSyncStatus(result.status === 'retry' ? 'pending' : 'error');
-        return;
-      }
-      setSyncError(null);
-      setSyncStatus(hasPendingSyncState() ? 'pending' : 'idle');
-      await loadProjects();
-      showMessage(
-        result.restoredProjectCount > 0
-          ? `Restored ${result.restoredProjectCount} project${result.restoredProjectCount === 1 ? '' : 's'} and its OneDrive photo backup to this device.`
-          : 'No missing personal backups were found. Team projects are restored from My Team Projects.'
-      );
-    } finally {
-      setSyncing(false);
-    }
-  }
+  handleSyncRef.current = handleSync;
+  useEffect(() => {
+    if (loading || !isReady || !collaborationAuth.isReady) return;
+    const url = new URL(window.location.href);
+    if (url.searchParams.get('sync') !== '1') return;
+    url.searchParams.delete('sync');
+    window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}${url.hash}`);
+    void handleSyncRef.current();
+  }, [loading, isReady, collaborationAuth.isReady]);
 
   function scheduleSync(projectId?: string, options?: { fullSync?: boolean }) {
     queuePendingSync(projectId, options);
@@ -1577,7 +1694,8 @@ export default function ProjectsPage() {
     projectName: string,
     localProjectId?: string
   ) {
-    const existingProject = projects.find((project) => project.sharedProjectId === sharedProjectId);
+    const deviceProjects = await getAllProjects();
+    const existingProject = deviceProjects.find((project) => project.sharedProjectId === sharedProjectId);
     if (existingProject) {
       return {
         project: existingProject,
@@ -1588,9 +1706,9 @@ export default function ProjectsPage() {
       };
     }
 
-    const detachedProject = findDetachedSharedProject(projects, sharedProjectId);
+    const detachedProject = findDetachedSharedProject(deviceProjects, sharedProjectId);
     const matchingLocalProject = localProjectId
-      ? projects.find((project) => !project.deletedAt && project.id === localProjectId)
+      ? deviceProjects.find((project) => !project.deletedAt && project.id === localProjectId)
       : undefined;
     const reusableProject = detachedProject ?? matchingLocalProject;
     const isReconnecting = Boolean(
@@ -1649,7 +1767,11 @@ export default function ProjectsPage() {
       }
       pulledSnapshot = true;
     } catch (error) {
-      if (isReconnecting) throw error;
+      if (
+        isReconnecting
+        || !(error instanceof Error)
+        || error.message !== 'No shared data has been published for this project yet.'
+      ) throw error;
       console.info('Joined shared project before shared data was published:', error);
     }
 
@@ -1876,7 +1998,7 @@ export default function ProjectsPage() {
           setPendingPull(await getPendingSharedPullState(fullProject, 'publish-conflict'));
         } catch (reviewError) {
           console.error('Failed to load shared data for publish conflict review:', reviewError);
-          showMessage('The team has newer work. Tap Get Team Updates, then try Send to Team again.');
+          showMessage('The team has newer work. Tap Sync Projects to review it, then sync again.');
         }
         return;
       }
@@ -2304,11 +2426,6 @@ export default function ProjectsPage() {
 
     if (detail.action === 'sync-now') {
       void handleSync();
-      return;
-    }
-
-    if (detail.action === 'restore-onedrive-backup') {
-      void handleRestoreOneDriveBackup();
       return;
     }
 
@@ -2978,7 +3095,7 @@ export default function ProjectsPage() {
                 <div className="empty-state-card w-full max-w-md rounded-[1.9rem] p-8 text-center">
                   <h2 className="text-lg font-semibold text-gray-900 dark:text-white">No projects yet</h2>
                   <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
-                    Start a new job, join a team project, or restore a personal backup.
+                    Start a new job or sync your projects from this account.
                   </p>
                   <div className="mt-5 flex flex-col gap-2">
                     <button
@@ -3017,10 +3134,11 @@ export default function ProjectsPage() {
                     {isSignedIn && (
                       <button
                         type="button"
-                        onClick={() => void handleRestoreOneDriveBackup()}
+                        onClick={() => void handleSync()}
+                        disabled={syncing}
                         className="inline-flex h-11 items-center justify-center rounded-full px-5 text-sm font-medium text-gray-600 transition hover:bg-black/[0.04] dark:text-gray-300 dark:hover:bg-white/[0.06]"
                       >
-                        Restore My Backup
+                        {syncing ? 'Syncing…' : 'Sync Projects'}
                       </button>
                     )}
                   </div>

@@ -77,7 +77,7 @@ export async function pushQueuedSharedChanges(
 export function formatQueuedSharedPushMessage(result: QueuedSharedPushResult) {
   const conflictCount = result.conflictedAreaCount + (result.metadataConflicted ? 1 : 0);
   if (conflictCount > 0) {
-    return `${conflictCount} change${conflictCount === 1 ? '' : 's'} need review before the team can take them. Tap Get Team Updates, review the project, then try Send to Team again.`;
+    return `${conflictCount} change${conflictCount === 1 ? '' : 's'} need review before the team can take them. Tap Sync Projects, review the project, then sync again.`;
   }
 
   if (result.remainingAreaCount > 0 || result.metadataRemaining) {

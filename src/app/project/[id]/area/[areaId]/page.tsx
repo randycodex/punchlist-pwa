@@ -56,7 +56,6 @@ import {
   hasPendingSyncState,
   queuePendingSync,
 } from '@/lib/pendingSync';
-import { runManualOneDriveSync } from '@/features/sync/runManualOneDriveSync';
 import { getInspectionAreaMetrics } from '@/features/inspection/inspectionMetrics';
 import {
   CUSTOM_ITEMS_LOCATION_NAME,
@@ -194,7 +193,6 @@ export default function AreaDetailPage() {
     itemId: string;
     checkpointId: string;
   } | null>(null);
-  const [syncing, setSyncing] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
   const [noteSaveError, setNoteSaveError] = useState<string | null>(null);
   const pendingNotesRef = useRef(new Map<string, { locationId: string; itemId: string; checkpointId: string; value: string }>());
@@ -223,7 +221,7 @@ export default function AreaDetailPage() {
   const locationRefs = useRef(new Map<string, HTMLDivElement | null>());
   const headerMenuRef = useRef<HTMLDivElement | null>(null);
   const topMenuActionHandlerRef = useRef<((event: Event) => void) | null>(null);
-  const { ensureAccessToken, signIn, isReady, isSignedIn } = useMicrosoftAuth();
+  const { isReady, isSignedIn } = useMicrosoftAuth();
   const collaborationAuth = useCollaborationAuth();
   const {
     localSaveStatus,
@@ -232,9 +230,8 @@ export default function AreaDetailPage() {
     markSharedUpdateAvailable,
     setRetryAt,
     setStatus: setSyncStatus,
-    setSyncConflicts,
   } = useSyncStatus();
-  const { inspectionShowOnlyIssues, setInspectionShowOnlyIssues, quickSort, markSyncedNow } = useAppSettings();
+  const { inspectionShowOnlyIssues, setInspectionShowOnlyIssues, quickSort } = useAppSettings();
 
   useEffect(() => {
     projectRef.current = project;
@@ -1559,57 +1556,15 @@ export default function AreaDetailPage() {
     setArea({ ...area });
   }
 
-  async function handleSync() {
-    if (syncing) return;
-    setSyncing(true);
-    setSyncError(null);
-    setRetryAt(null);
-    setSyncStatus('syncing');
-    try {
-      const result = await runManualOneDriveSync({
-        ensureAccessToken: () => ensureAccessToken({ interactive: true }),
-        projectIds: project ? [project.id] : [],
-      });
-      if (result.status === 'needs-auth') {
-        setSyncError('Please sign in to back up to OneDrive.');
-        setSyncStatus('needs-auth');
-        await signIn({ selectAccount: true });
-        return;
-      }
-      if (result.status === 'conflict') {
-        setSyncConflicts(result.conflicts);
-        setSyncError(result.message);
-        setSyncStatus('error');
-        return;
-      }
-      if (result.status === 'retry') {
-        setSyncError(result.message);
-        setSyncStatus('pending');
-        return;
-      }
-      if (result.status === 'error') {
-        setSyncError(result.message);
-        setSyncStatus('error');
-        return;
-      }
-      setSyncConflicts([]);
-      setSyncError(null);
-      setRetryAt(null);
-      setSyncStatus(hasPendingSyncState() ? 'pending' : 'idle');
-      markSyncedNow();
-      await loadData();
-    } finally {
-      setSyncing(false);
-    }
-  }
-
   topMenuActionHandlerRef.current = (event: Event) => {
     const customEvent = event as CustomEvent<{ action: string }>;
     const detail = customEvent.detail;
     if (!detail) return;
 
     if (detail.action === 'sync-now') {
-      void handleSync();
+      void closeExpandedCheckpoint()
+        .then(() => router.push('/?sync=1'))
+        .catch((error) => setSyncError(error instanceof Error ? error.message : 'Save this area before syncing projects.'));
     }
   };
 

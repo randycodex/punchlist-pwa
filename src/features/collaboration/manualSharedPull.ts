@@ -207,7 +207,7 @@ export function formatPendingSharedPullMessage(pendingPull: PendingSharedPullSta
     ? '\n\nYour edited project name/details on this device will stay and be re-sent to the team afterward.'
     : '';
   const conflictSummary = pendingPull.conflictingAreaNames.length > 0
-    ? `\n\nChanged on both sides (keeping your version for now): ${pendingPull.conflictingAreaNames.join(', ')}. Review those areas before Send to Team.`
+    ? `\n\nChanged on both sides (keeping your version for now): ${pendingPull.conflictingAreaNames.join(', ')}. Review those areas before syncing again.`
     : '';
 
   if (pendingPull.reason === 'publish-conflict') {

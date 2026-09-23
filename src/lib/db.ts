@@ -1478,7 +1478,7 @@ export async function rebasePendingSharedAreaSyncsForReview(
       blockedByConflict: true,
       readyAfterConflictReview: true,
       queuedAt: existing?.queuedAt ?? new Date(),
-      lastError: 'Team updates were merged. Review this area, then tap Send to Team.',
+      lastError: 'Team updates were merged. Review this area, then tap Sync Projects.',
     };
     await store.put(record);
     records.push(record);

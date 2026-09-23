@@ -50,7 +50,6 @@ import {
   hasPendingSyncState,
   queuePendingSync,
 } from '@/lib/pendingSync';
-import { runManualOneDriveSync } from '@/features/sync/runManualOneDriveSync';
 import {
   formatPendingSharedPullMessage,
   formatPendingSharedPullSuccessMessage,
@@ -182,8 +181,6 @@ export default function ProjectDetailPage() {
   const [actionSheet, setActionSheet] = useState<'delete' | 'export' | 'export-scope' | null>(null);
   const [reportContent, setReportContent] = useState<'issues' | 'full'>('issues');
   const [exportScope, setExportScope] = useState<ExportScope>('project');
-  const [syncing, setSyncing] = useState(false);
-  const [syncError, setSyncError] = useState<string | null>(null);
   const [editingProject, setEditingProject] = useState<Project | null>(null);
   const [sharedAreaClaims, setSharedAreaClaims] = useState<Map<string, AreaClaimDisplay>>(new Map());
   const [messageDialog, setMessageDialog] = useState<MessageDialogState | null>(null);
@@ -227,13 +224,11 @@ export default function ProjectDetailPage() {
     clearSharedUpdateAvailable,
     markSharedUpdateAvailable,
     setSharedTransferStatus,
-    sharedTransferStatus,
     setRetryAt,
     setStatus: setSyncStatus,
-    setSyncConflicts,
     sharedUpdateProjectIds,
   } = useSyncStatus();
-  const { projectShowOnlyIssues: showOnlyAreaIssues, setProjectShowOnlyIssues: setShowOnlyAreaIssues, quickSort, markSyncedNow } = useAppSettings();
+  const { projectShowOnlyIssues: showOnlyAreaIssues, setProjectShowOnlyIssues: setShowOnlyAreaIssues, quickSort } = useAppSettings();
   loadProjectRef.current = loadProject;
 
   const showMessage = useCallback((message: string, title = 'Punchlist') => {
@@ -864,51 +859,6 @@ export default function ProjectDetailPage() {
     setProject({ ...project, areas: [...project.areas] });
   }
 
-  async function handleSync() {
-    if (syncing) return;
-    setSyncing(true);
-    setSyncError(null);
-    setRetryAt(null);
-    setSyncStatus('syncing');
-    try {
-      const result = await runManualOneDriveSync({
-        ensureAccessToken: () => ensureAccessToken({ interactive: true }),
-        projectIds: project ? [project.id] : [],
-      });
-      if (result.status === 'needs-auth') {
-        setSyncError('Please sign in to back up to OneDrive.');
-        setSyncStatus('needs-auth');
-        await signIn({ selectAccount: true });
-        return;
-      }
-      if (result.status === 'conflict') {
-        setSyncConflicts(result.conflicts);
-        setSyncError(result.message);
-        setSyncStatus('error');
-        return;
-      }
-      if (result.status === 'retry') {
-        setSyncError(result.message);
-        setSyncStatus('pending');
-        return;
-      }
-      if (result.status === 'error') {
-        setSyncError(result.message);
-        setSyncStatus('error');
-        return;
-      }
-      setSyncConflicts([]);
-      setSyncError(null);
-      setRetryAt(null);
-      setSyncStatus(hasPendingSyncState() ? 'pending' : 'idle');
-      markSyncedNow();
-      await loadProject();
-      showMessage('OneDrive backup complete. Project data and photos are available in your PunchList folder.');
-    } finally {
-      setSyncing(false);
-    }
-  }
-
   function scheduleSync(projectId?: string, options?: { fullSync?: boolean }) {
     queuePendingSync(projectId, options);
     setSyncStatus('pending');
@@ -1082,7 +1032,7 @@ export default function ProjectDetailPage() {
           setPendingPull(await getPendingSharedPullState(fullProject, 'publish-conflict'));
         } catch (reviewError) {
           console.error('Failed to load shared data for publish conflict review:', reviewError);
-          showMessage('The team has newer work. Tap Get Team Updates, then try Send to Team again.');
+          showMessage('The team has newer work. Tap Sync Projects to review it, then sync again.');
         }
         return;
       }
@@ -1469,7 +1419,7 @@ export default function ProjectDetailPage() {
     }
 
     if (detail.action === 'sync-now') {
-      void handleSync();
+      router.push('/?sync=1');
       return;
     }
 
@@ -1708,11 +1658,6 @@ export default function ProjectDetailPage() {
         )}
       </header>
 
-      {syncError && (
-        <div className="shrink-0 border-b border-transparent bg-white/70 px-4 py-2 text-sm text-gray-700 dark:bg-white/[0.03] dark:text-gray-200">
-          {syncError}
-        </div>
-      )}
       {/* Areas List */}
       <main
         className="flex-1 min-h-0 overflow-y-scroll overscroll-y-contain touch-pan-y px-4 pt-5 pb-[calc(env(safe-area-inset-bottom)+6.5rem)] sm:px-5"

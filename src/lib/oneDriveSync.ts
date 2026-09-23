@@ -1500,7 +1500,8 @@ export async function pushProjectsToOneDrive(token: string, projectIds: string[]
  */
 export async function backupProjectsToOneDrive(
   token: string,
-  projectIds?: string[]
+  projectIds?: string[],
+  forceProjectIds?: string[]
 ): Promise<OneDriveBackupResult> {
   const releaseSyncLease = await acquireSyncLease(token);
 
@@ -1522,6 +1523,7 @@ export async function backupProjectsToOneDrive(
     const remoteIndex: OneDriveSyncRemoteIndex = {};
     const conflictsById = new Map<string, SyncConflict>();
     const backedUpProjectIds: string[] = [];
+    const forceIds = new Set(forceProjectIds ?? []);
 
     await runWithConcurrency(localProjects, 2, async (localProject) => {
       const remoteEntries = remoteFilesById.get(localProject.id) ?? [];
@@ -1548,7 +1550,7 @@ export async function backupProjectsToOneDrive(
       await saveProjectPreserveTimestamps(projectForBackup);
 
       try {
-        if (freshnessComparison > 0 || !canonicalRemote) {
+        if (freshnessComparison > 0 || !canonicalRemote || forceIds.has(localProject.id)) {
           await uploadProjectFileRecoveringMissingRemote(
             token,
             targetFolderName,
@@ -1582,6 +1584,60 @@ export async function backupProjectsToOneDrive(
       backedUpProjectIds,
       syncedAt: syncedAt.toISOString(),
     };
+  } finally {
+    await releaseSyncLease();
+  }
+}
+
+/**
+ * Brings changes from an existing personal backup into this device before the
+ * next backup. Shared projects stay under the team server's versioned sync.
+ * Neither side's project is deleted by this operation.
+ */
+export async function mergePersonalProjectsFromOneDrive(token: string): Promise<{
+  updatedLocalProjectIds: string[];
+  forceBackupProjectIds: string[];
+}> {
+  const releaseSyncLease = await acquireSyncLease(token);
+  try {
+    await ensurePunchListFolders(token);
+    const [localProjects, remoteFiles] = await Promise.all([
+      getAllProjects(),
+      listProjectFiles(token),
+    ]);
+    const localById = new Map(localProjects.map((project) => [project.id, project]));
+    const remoteFilesById = buildRemoteProjectFileIndex(
+      remoteFiles.filter((entry) => !isRemoteProjectFileInTrash(entry))
+    );
+    const remoteIndex: OneDriveSyncRemoteIndex = {};
+    const updatedLocalProjectIds: string[] = [];
+    const forceBackupProjectIds: string[] = [];
+
+    await runWithConcurrency([...remoteFilesById.entries()], 2, async ([projectId, remoteEntries]) => {
+      const local = localById.get(projectId);
+      if (!local || local.deletedAt || local.sharedProjectId) return;
+      const remote = pickPrimaryRemoteProjectFile(remoteEntries);
+      if (!remote?.id || !remote.name.endsWith('.json')) return;
+      const remoteProject = await downloadRemoteProject(token, remote.id);
+      if (!remoteProject || remoteProject.sharedProjectId) return;
+      const fullLocal = await getProject(projectId);
+      if (!fullLocal) return;
+      const folderName = getProjectFolderNameFromRemoteFile(remote);
+      const remoteWithFolder = withProjectFolderName(remoteProject, folderName);
+      const merged = mergeProjects(fullLocal, remoteWithFolder);
+      if (!projectsEqual(merged, remoteWithFolder)) forceBackupProjectIds.push(projectId);
+      if (projectsEqual(merged, fullLocal)) return;
+      const hydrated = await hydrateProjectPhotosFromOneDrive(
+        token,
+        merged,
+        folderName ?? undefined,
+        remoteIndex
+      );
+      await saveProjectPreserveTimestamps(hydrated);
+      updatedLocalProjectIds.push(projectId);
+    });
+
+    return { updatedLocalProjectIds, forceBackupProjectIds };
   } finally {
     await releaseSyncLease();
   }

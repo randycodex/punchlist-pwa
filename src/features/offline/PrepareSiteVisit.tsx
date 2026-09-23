@@ -34,7 +34,7 @@ export default function PrepareSiteVisit({ project }: { project: Project }) {
   return <details className="mx-auto mb-4 w-full max-w-6xl rounded-2xl soft-control px-4 py-3 text-sm">
     <summary className="cursor-pointer font-semibold">Prepare for site visit</summary>
     <p className="mt-3 text-xs text-gray-600 dark:text-gray-300" role="status">{message}</p>
-    <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">Preparation does not fetch newer team changes; Get Team Updates first.</p>
+    <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">Preparation does not fetch newer team changes; Sync Projects first.</p>
     <button type="button" disabled={busy || offlineBuild === 'development'} onClick={() => void prepare()} className="mt-3 min-h-11 rounded-xl accent-bg px-4 font-semibold text-white disabled:opacity-50">{busy ? 'Preparing…' : 'Prepare this project'}</button>
     <button type="button" disabled={busy || offlineBuild === 'development'} onClick={() => void prepare(false)} className="ml-2 mt-3 min-h-11 rounded-xl px-3 font-semibold disabled:opacity-50">Check saved copy</button>
     <div className="mt-3 border-t border-gray-400/20 pt-3"><p className="text-xs" role="status">{voiceStatus}</p><button type="button" disabled={voiceBusy} onClick={() => void prepareVoice()} className="mt-2 min-h-11 rounded-xl px-3 font-semibold disabled:opacity-50">{voiceBusy ? 'Preparing voice…' : 'Prepare offline voice'}</button></div>

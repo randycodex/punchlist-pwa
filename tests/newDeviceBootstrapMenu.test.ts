@@ -12,11 +12,13 @@ describe('new device project restoration menu', () => {
     expect(persistentTopBar).toContain('{homeMenuState.hasProjects && (');
   });
 
-  it('offers an explicit personal backup restore before a local project exists', () => {
-    expect(persistentTopBar).toContain(
-      "dispatchHomeAction('restore-onedrive-backup')"
-    );
-    expect(persistentTopBar).toContain('Restore My Backup');
+  it('offers one sync action for personal and team projects', () => {
+    expect(persistentTopBar).toContain("dispatchHomeAction('sync-now')");
+    expect(persistentTopBar).toContain('Sync Projects');
+    expect(persistentTopBar).not.toContain("dispatchHomeAction('restore-onedrive-backup')");
+    expect(persistentTopBar).not.toContain("dispatchHomeAction('publish-shared-project')");
+    expect(persistentTopBar).not.toContain("dispatchHomeAction('pull-shared-project')");
+    expect(persistentTopBar).not.toContain("dispatchHomeAction('release-my-area-locks')");
   });
 
   it('offers team-project authentication after Microsoft sign-in', () => {
@@ -25,18 +27,12 @@ describe('new device project restoration menu', () => {
     expect(persistentTopBar).toContain("'Enable Team Projects'");
   });
 
-  it('keeps all Team actions visible without a More or Less toggle', () => {
-    const releaseActionIndex = persistentTopBar.indexOf("dispatchHomeAction('release-my-area-locks')");
-    const membersActionIndex = persistentTopBar.indexOf("dispatchHomeAction('shared-members')");
-
-    expect(releaseActionIndex).toBeGreaterThan(-1);
-    expect(releaseActionIndex).toBeLessThan(membersActionIndex);
-    expect(persistentTopBar).toContain("'Release Areas'");
+  it('keeps team management actions available', () => {
+    expect(persistentTopBar).toContain("dispatchHomeAction('shared-members')");
     expect(persistentTopBar).toContain("dispatchHomeAction('shared-backups')");
     expect(persistentTopBar).toContain("dispatchHomeAction('disconnect-shared-project')");
     expect(persistentTopBar).not.toContain('showTeamMore');
     expect(persistentTopBar).not.toContain('setShowTeamMore');
-    expect(persistentTopBar.match(/dispatchHomeAction\('release-my-area-locks'\)/g)).toHaveLength(1);
   });
 
   it('does not add a redundant All Projects section on project routes', () => {

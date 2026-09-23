@@ -98,7 +98,7 @@ describe('queued shared changes push', () => {
     });
 
     expect(formatQueuedSharedPushMessage(result)).toBe(
-      '2 changes need review before the team can take them. Tap Get Team Updates, review the project, then try Send to Team again.'
+      '2 changes need review before the team can take them. Tap Sync Projects, review the project, then sync again.'
     );
   });
 

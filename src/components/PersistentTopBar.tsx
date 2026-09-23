@@ -30,7 +30,6 @@ import {
   CheckCircle2,
   ChevronDown,
   ChevronUp,
-  CloudDownload,
   CloudUpload,
   FileDown,
   KeyRound,
@@ -43,7 +42,6 @@ import {
   RefreshCw,
   Share2,
   Trash2,
-  UnlockKeyhole,
   UserRound,
   UserPlus,
   Users,
@@ -74,7 +72,6 @@ type HomeMenuState = {
   isCreatingJoinCode?: boolean;
   isLoadingSharedMembers?: boolean;
   isDisconnectingSharedProject?: boolean;
-  isReleasingMyAreaLocks?: boolean;
 };
 
 function setAppMenuOpenAttribute(open: boolean) {
@@ -192,18 +189,18 @@ export default function PersistentTopBar() {
   } as const;
 
   const syncButtonLabel = {
-    idle: 'Save a personal backup of project data and photos to your OneDrive',
-    syncing: 'Saving personal OneDrive backup now',
-    pending: 'Save pending changes to your personal OneDrive backup',
-    'needs-auth': 'Sign in to save a personal OneDrive backup',
-    error: 'Personal OneDrive backup needs attention',
+    idle: 'Sync personal and team projects, then release your team areas',
+    syncing: 'Syncing projects now',
+    pending: 'Sync personal and team projects, then release your team areas',
+    'needs-auth': 'Sign in to sync projects',
+    error: 'Project sync needs attention',
   } as const;
   const syncButtonShortLabel = {
-    idle: 'Personal Backup',
-    syncing: 'Backing up',
-    pending: 'Personal Backup',
-    'needs-auth': 'Sign in',
-    error: 'Error',
+    idle: 'Sync Projects',
+    syncing: 'Syncing…',
+    pending: 'Sync Projects',
+    'needs-auth': 'Sync Projects',
+    error: 'Sync Projects',
   } as const;
   const syncButtonIcons = {
     idle: RefreshCw,
@@ -384,11 +381,11 @@ export default function PersistentTopBar() {
     }));
   }
 
-  function renderOneDriveBackupButton() {
+  function renderSyncButton() {
     const label = localSaveStatus === 'error'
       ? 'Local save needs attention'
       : displayRetryInSeconds > 0
-      ? `Backup available in ${displayRetryInSeconds} seconds`
+      ? `Sync available in ${displayRetryInSeconds} seconds`
       : syncButtonLabel[displayStatus];
     const shortLabel = localSaveStatus === 'error'
       ? 'Save error'
@@ -400,7 +397,9 @@ export default function PersistentTopBar() {
       : displayRetryInSeconds > 0
         ? CloudUpload
         : syncButtonIcons[displayStatus];
-    const buttonClasses = localSaveStatus === 'error'
+    const buttonClasses = homeMenuState.hasTeamUpdates && displayStatus !== 'syncing'
+      ? 'bg-sky-100 text-sky-700 hover:bg-sky-200 dark:bg-sky-400/20 dark:text-sky-100 dark:hover:bg-sky-400/30'
+      : localSaveStatus === 'error'
       ? syncButtonClasses.error
       : syncButtonClasses[displayStatus];
 
@@ -417,7 +416,7 @@ export default function PersistentTopBar() {
           }
           dispatchHomeAction('sync-now');
         }}
-        disabled={displayStatus === 'syncing' || displayRetryInSeconds > 0}
+        disabled={displayStatus === 'syncing' || sharedTransferStatus !== null || displayRetryInSeconds > 0}
         className={`${syncMenuRowBaseClass} ${buttonClasses}`}
         aria-label={label}
         title={label}
@@ -452,7 +451,7 @@ export default function PersistentTopBar() {
           setInfoDialog({
             title: needsReview ? 'Team updates need review' : 'Team changes queued',
             message: needsReview
-              ? `Some of your work needs a quick review before it can reach the team.\n\n1. Open the project\n2. Tap Get Team Updates\n3. Review anything that stayed on this device\n4. Tap Send to Team when you are ready${sharedSyncSummary.lastConflictError ? `\n\n${sharedSyncSummary.lastConflictError}` : ''}`
+              ? `Some of your work needs a quick review before it can reach the team.\n\nTap Sync Projects, review the changes, then tap Sync Projects again to finish.${sharedSyncSummary.lastConflictError ? `\n\n${sharedSyncSummary.lastConflictError}` : ''}`
               : 'Your team changes are saved on this device and will send automatically when you have a connection and team projects are enabled.',
           });
         }}
@@ -477,10 +476,6 @@ export default function PersistentTopBar() {
   const syncMenuRowBaseClass = `${menuRowClass} disabled:cursor-default`;
   const disabledMenuRowClass = `${menuRowClass} disabled:cursor-default disabled:opacity-60`;
   const disabledMenuRowSecondaryClass = `${menuRowSecondaryClass} disabled:cursor-default disabled:opacity-60`;
-  const activeTransferMenuRowBaseClass = `${menuRowClass} cursor-wait font-semibold`;
-  const activePushMenuRowClass = `${activeTransferMenuRowBaseClass} bg-violet-100 text-violet-700 dark:bg-violet-400/20 dark:text-violet-100`;
-  const activePullMenuRowClass = `${activeTransferMenuRowBaseClass} bg-sky-100 text-sky-700 dark:bg-sky-400/20 dark:text-sky-100`;
-  const availablePullMenuRowClass = `${disabledMenuRowClass} bg-sky-100 text-sky-700 hover:bg-sky-200 dark:bg-sky-400/20 dark:text-sky-100 dark:hover:bg-sky-400/30`;
   return (
     <div className="persistent-top-bar fixed top-0 left-0 right-0 z-30 pt-[env(safe-area-inset-top)] md:border-b">
       <div className="top-bar-surface mx-auto flex h-14 w-full max-w-6xl items-center justify-between px-4 sm:px-5">
@@ -610,7 +605,7 @@ export default function PersistentTopBar() {
                           <Pencil className="h-4 w-4 shrink-0" />
                           Edit
                         </button>
-                        {renderOneDriveBackupButton()}
+                        {!showAuth && isSignedIn && renderSyncButton()}
                         {homeMenuState.canAddArea && (
                           <button
                             onClick={() => {
@@ -651,42 +646,12 @@ export default function PersistentTopBar() {
                         {homeMenuState.isSingleProject && homeMenuState.isSharedProject && (!sharedProjectAccess.isReady || sharedProjectAccess.isActiveMember || sharedProjectAccess.hasError) && (
                           <>
                           <button
-                            onClick={() => dispatchHomeAction('publish-shared-project')}
-                            disabled={sharedTransferStatus !== null}
-                            className={sharedTransferStatus === 'publishing' ? activePushMenuRowClass : disabledMenuRowClass}
-                            aria-busy={sharedTransferStatus === 'publishing'}
-                          >
-                            <CloudUpload className={`h-4 w-4 shrink-0 ${sharedTransferStatus === 'publishing' ? 'animate-pulse' : ''}`} />
-                            {sharedTransferStatus === 'publishing' ? 'Sending…' : 'Send to Team'}
-                          </button>
-                          <button
-                            onClick={() => dispatchHomeAction('pull-shared-project')}
-                            disabled={sharedTransferStatus !== null}
-                            className={sharedTransferStatus === 'pulling'
-                              ? activePullMenuRowClass
-                              : homeMenuState.hasTeamUpdates
-                                ? availablePullMenuRowClass
-                                : disabledMenuRowClass}
-                            aria-busy={sharedTransferStatus === 'pulling'}
-                          >
-                            <CloudDownload className={`h-4 w-4 shrink-0 ${sharedTransferStatus === 'pulling' ? 'animate-pulse' : ''}`} />
-                            {sharedTransferStatus === 'pulling' ? 'Updating…' : 'Get Team Updates'}
-                          </button>
-                          <button
                             onClick={() => dispatchHomeAction('invite-people')}
                             disabled={!!homeMenuState.isCreatingJoinCode}
                             className={disabledMenuRowClass}
                           >
                             <UserPlus className="h-4 w-4 shrink-0" />
                             {homeMenuState.isCreatingJoinCode ? 'Preparing…' : 'Invite'}
-                          </button>
-                          <button
-                            onClick={() => dispatchHomeAction('release-my-area-locks')}
-                            disabled={!!homeMenuState.isReleasingMyAreaLocks || sharedTransferStatus !== null}
-                            className={disabledMenuRowClass}
-                          >
-                            <UnlockKeyhole className="h-4 w-4 shrink-0" />
-                            {homeMenuState.isReleasingMyAreaLocks ? 'Releasing…' : 'Release Areas'}
                           </button>
                           <button
                             onClick={() => dispatchHomeAction('shared-members')}
@@ -755,19 +720,7 @@ export default function PersistentTopBar() {
                             New Project
                           </button>
                         )}
-                        {showAuth && isSignedIn && !homeMenuState.isSingleProject && homeMenuState.hasProjects && renderOneDriveBackupButton()}
-                        {showAuth && isSignedIn && !homeMenuState.isSingleProject && (
-                          <button
-                            type="button"
-                            onClick={() => dispatchHomeAction('restore-onedrive-backup')}
-                            disabled={displayStatus === 'syncing'}
-                            className={disabledMenuRowClass}
-                            aria-label="Restore missing projects and photos from your personal OneDrive backup"
-                          >
-                            <ArchiveRestore className="h-4 w-4 shrink-0" />
-                            Restore My Backup
-                          </button>
-                        )}
+                        {showAuth && isSignedIn && renderSyncButton()}
                         {showAuth &&
                           isSignedIn &&
                           collaborationAuth.canUseCollaboration &&

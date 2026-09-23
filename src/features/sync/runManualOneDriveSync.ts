@@ -33,14 +33,15 @@ export type ManualOneDriveRestoreResult =
 
 function formatBackupConflictReviewMessage(conflicts: SyncConflict[]) {
   if (conflicts.length === 1) {
-    return `OneDrive has a newer backup for ${conflicts[0].name}. Restore that backup on another device or review it before replacing it.`;
+    return `OneDrive changed while syncing ${conflicts[0].name}. Your work is safe on this device. Tap Sync Projects again to get the latest backup.`;
   }
-  return `OneDrive has newer backups for ${conflicts.length} projects. Restore or review them before replacing them.`;
+  return `OneDrive changed while syncing ${conflicts.length} projects. Your work is safe on this device. Tap Sync Projects again to get the latest backups.`;
 }
 
 export async function runManualOneDriveSync(options: {
   ensureAccessToken: () => Promise<string | null>;
   projectIds?: string[];
+  forceProjectIds?: string[];
   backupProjects?: typeof backupProjectsToOneDrive;
 }): Promise<ManualOneDriveSyncResult> {
   resumePendingSyncAutoRetry();
@@ -58,10 +59,14 @@ export async function runManualOneDriveSync(options: {
     const backupProjects = options.backupProjects ?? backupProjectsToOneDrive;
     let result;
     try {
-      result = await backupProjects(token, requestedProjectIds);
+      result = options.forceProjectIds?.length
+        ? await backupProjects(token, requestedProjectIds, options.forceProjectIds)
+        : await backupProjects(token, requestedProjectIds);
     } catch (error) {
       if (!isMicrosoftMissingObjectError(error)) throw error;
-      result = await backupProjects(token, requestedProjectIds);
+      result = options.forceProjectIds?.length
+        ? await backupProjects(token, requestedProjectIds, options.forceProjectIds)
+        : await backupProjects(token, requestedProjectIds);
     }
 
     if (result.conflicts.length > 0) {

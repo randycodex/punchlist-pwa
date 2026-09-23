@@ -60,6 +60,23 @@ describe('manual OneDrive backup coordinator', () => {
     expect(hasPendingSyncState()).toBe(false);
   });
 
+  it('uploads a merged personal project even when its timestamp matches the backup', async () => {
+    const backupProjects = vi.fn(async () => ({
+      conflicts: [],
+      backedUpProjectIds: ['project-1'],
+      syncedAt: '2026-01-01T12:00:00.000Z',
+    }));
+
+    await runManualOneDriveSync({
+      ensureAccessToken: async () => 'token',
+      projectIds: ['project-1'],
+      forceProjectIds: ['project-1'],
+      backupProjects,
+    });
+
+    expect(backupProjects).toHaveBeenCalledWith('token', ['project-1'], ['project-1']);
+  });
+
   it('keeps local work pending when OneDrive has a newer backup', async () => {
     queuePendingSync('project-1');
     const result = await runManualOneDriveSync({
