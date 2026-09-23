@@ -123,6 +123,36 @@ describe('OneDrive and team project identity', () => {
     expect(await getProject(trashedCopy.id)).toBeUndefined();
   });
 
+  it('waits for an in-flight restore before reporting another project failure', async () => {
+    const first = createProject('Unavailable backup');
+    const second = createProject('Available backup');
+    listProjectFilesMock.mockResolvedValue([
+      { id: 'failed-file', name: `Unavailable_${first.id}.json` },
+      { id: 'slow-file', name: `Available_${second.id}.json` },
+    ]);
+    let releaseSlowDownload!: (value: string) => void;
+    let markSlowStarted!: () => void;
+    const slowDownload = new Promise<string>((resolve) => { releaseSlowDownload = resolve; });
+    const slowStarted = new Promise<void>((resolve) => { markSlowStarted = resolve; });
+    downloadProjectFileMock.mockImplementation(async (_token: string, fileId: string) => {
+      if (fileId === 'failed-file') throw new Error('First download unavailable');
+      markSlowStarted();
+      return slowDownload;
+    });
+
+    let settled = false;
+    const restore = restoreMissingProjectsFromOneDrive('test-token').then(
+      () => { settled = true; return 'success'; },
+      () => { settled = true; return 'failed'; }
+    );
+    await slowStarted;
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(settled).toBe(false);
+    releaseSlowDownload(serializeProjectPayload(second));
+    expect(await restore).toBe('failed');
+    expect(await getProject(second.id)).toBeDefined();
+  });
+
   it('moves an older local personal copy to Trash when another device archived it', async () => {
     const localCopy = createProject('Personal site');
     localCopy.updatedAt = new Date('2025-01-01');

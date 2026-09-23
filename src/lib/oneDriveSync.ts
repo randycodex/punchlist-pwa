@@ -133,7 +133,11 @@ async function runWithConcurrency<T>(
     }
   });
 
-  await Promise.all(runners);
+  // A failed worker must not release the OneDrive sync lease while another
+  // worker is still writing files. Wait for every runner before surfacing it.
+  const results = await Promise.allSettled(runners);
+  const firstFailure = results.find((result): result is PromiseRejectedResult => result.status === 'rejected');
+  if (firstFailure) throw firstFailure.reason;
 }
 
 function sanitizeNamePart(value: string | undefined, fallback: string) {
