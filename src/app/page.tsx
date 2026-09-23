@@ -295,6 +295,7 @@ export default function ProjectsPage() {
     clearSharedUpdateAvailable,
     markSharedUpdateAvailable,
     setSharedTransferStatus,
+    retryAt,
     setRetryAt,
     setStatus: setSyncStatus,
     setSyncConflicts,
@@ -526,7 +527,6 @@ export default function ProjectsPage() {
     if (syncing) return;
     setSyncing(true);
     setSyncError(null);
-    setRetryAt(null);
     setSyncStatus('syncing');
     const completed: string[] = [];
     const problems: string[] = [];
@@ -534,42 +534,6 @@ export default function ProjectsPage() {
     let personalReady = true;
     let mergedPersonalProjectIds: string[] = [];
     try {
-      const restore = await runManualOneDriveRestore({
-        ensureAccessToken: () => ensureAccessToken({ interactive: true }),
-      });
-      if (restore.status === 'needs-auth') {
-        setSyncStatus('needs-auth');
-        await signIn({ selectAccount: true });
-        return;
-      }
-      if (restore.status === 'success') {
-        if (restore.restoredProjectCount > 0) {
-          completed.push(`${restore.restoredProjectCount} personal project${restore.restoredProjectCount === 1 ? '' : 's'} added`);
-        }
-        await loadProjects();
-        try {
-          const token = await ensureAccessToken({ interactive: true });
-          if (!token) throw new Error('Sign in to sync personal projects.');
-          const merged = await mergePersonalProjectsFromOneDrive(token);
-          mergedPersonalProjectIds = merged.forceBackupProjectIds;
-          if (merged.updatedLocalProjectIds.length > 0) {
-            const count = merged.updatedLocalProjectIds.length;
-            completed.push(`${count} personal project${count === 1 ? '' : 's'} updated`);
-          }
-          await loadProjects();
-        } catch (error) {
-          personalReady = false;
-          problems.push(error instanceof Error ? error.message : 'Personal project merge failed.');
-        }
-      } else {
-        personalReady = false;
-        problems.push(`Personal restore: ${restore.message}`);
-        if (restore.status === 'retry') {
-          queuePendingSync(undefined, { fullSync: true });
-          setRetryAt(new Date(Date.now() + restore.retryAfterMs));
-        }
-      }
-
       if (collaborationAuth.isSignedIn) {
         try {
           const directory = await listMySharedProjects();
@@ -658,6 +622,57 @@ export default function ProjectsPage() {
         }
       } else if ((await getAllProjects()).some((project) => project.sharedProjectId)) {
         problems.push('Team projects are not connected on this device. Enable Team Projects, then sync again.');
+      }
+
+      if (needsTeamReview) {
+        setSyncStatus('pending');
+        await loadProjects();
+        return;
+      }
+
+      if (retryAt && retryAt.getTime() > Date.now()) {
+        const remainingSeconds = Math.ceil((retryAt.getTime() - Date.now()) / 1000);
+        setSyncStatus('pending');
+        await loadProjects();
+        showMessage([...completed, ...problems, `OneDrive can be retried in about ${remainingSeconds} seconds.`].join('\n'));
+        return;
+      }
+      setRetryAt(null);
+
+      const restore = await runManualOneDriveRestore({
+        ensureAccessToken: () => ensureAccessToken({ interactive: true }),
+      });
+      if (restore.status === 'needs-auth') {
+        setSyncStatus('needs-auth');
+        await signIn({ selectAccount: true });
+        return;
+      }
+      if (restore.status === 'success') {
+        if (restore.restoredProjectCount > 0) {
+          completed.push(`${restore.restoredProjectCount} personal project${restore.restoredProjectCount === 1 ? '' : 's'} added`);
+        }
+        await loadProjects();
+        try {
+          const token = await ensureAccessToken({ interactive: true });
+          if (!token) throw new Error('Sign in to sync personal projects.');
+          const merged = await mergePersonalProjectsFromOneDrive(token);
+          mergedPersonalProjectIds = merged.forceBackupProjectIds;
+          if (merged.updatedLocalProjectIds.length > 0) {
+            const count = merged.updatedLocalProjectIds.length;
+            completed.push(`${count} personal project${count === 1 ? '' : 's'} updated`);
+          }
+          await loadProjects();
+        } catch (error) {
+          personalReady = false;
+          problems.push(error instanceof Error ? error.message : 'Personal project merge failed.');
+        }
+      } else {
+        personalReady = false;
+        problems.push(`Personal restore: ${restore.message}`);
+        if (restore.status === 'retry') {
+          queuePendingSync(undefined, { fullSync: true });
+          setRetryAt(new Date(Date.now() + restore.retryAfterMs));
+        }
       }
 
       if (!personalReady) {

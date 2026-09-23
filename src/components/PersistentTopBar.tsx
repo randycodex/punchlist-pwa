@@ -385,12 +385,12 @@ export default function PersistentTopBar() {
     const label = localSaveStatus === 'error'
       ? 'Local save needs attention'
       : displayRetryInSeconds > 0
-      ? `Sync available in ${displayRetryInSeconds} seconds`
+      ? `Sync team projects now. OneDrive available in ${displayRetryInSeconds} seconds`
       : syncButtonLabel[displayStatus];
     const shortLabel = localSaveStatus === 'error'
       ? 'Save error'
       : displayRetryInSeconds > 0
-      ? `${displayRetryInSeconds}s`
+      ? 'Sync Projects'
       : syncButtonShortLabel[displayStatus];
     const SyncIcon = localSaveStatus === 'error'
       ? Activity
@@ -416,7 +416,7 @@ export default function PersistentTopBar() {
           }
           dispatchHomeAction('sync-now');
         }}
-        disabled={displayStatus === 'syncing' || sharedTransferStatus !== null || displayRetryInSeconds > 0}
+        disabled={displayStatus === 'syncing' || sharedTransferStatus !== null}
         className={`${syncMenuRowBaseClass} ${buttonClasses}`}
         aria-label={label}
         title={label}
