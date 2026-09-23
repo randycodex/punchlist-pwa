@@ -1598,6 +1598,7 @@ export default function ProjectDetailPage() {
           selectionMode: deleteMode,
           isSharedProject: !!project.sharedProjectId,
           sharedProjectId: project.sharedProjectId,
+          hasTeamUpdates: sharedUpdateProjectIds.has(project.id),
           isCreatingJoinCode: creatingJoinCode,
           isLoadingSharedMembers: loadingSharedMembers,
           isDisconnectingSharedProject: disconnectingSharedProject,
@@ -1611,6 +1612,7 @@ export default function ProjectDetailPage() {
     disconnectingSharedProject,
     loadingSharedMembers,
     project,
+    sharedUpdateProjectIds,
     releasingMyAreaLocks,
     visibleAreas,
     showOnlyAreaIssues,
@@ -1709,26 +1711,6 @@ export default function ProjectDetailPage() {
       {syncError && (
         <div className="shrink-0 border-b border-transparent bg-white/70 px-4 py-2 text-sm text-gray-700 dark:bg-white/[0.03] dark:text-gray-200">
           {syncError}
-        </div>
-      )}
-      {project.sharedProjectId && sharedUpdateProjectIds.has(project.id) && (
-        <div
-          className="shrink-0 border-b border-transparent bg-sky-50 px-4 py-2 text-sm text-sky-950 dark:bg-sky-400/10 dark:text-sky-100"
-          aria-live="polite"
-        >
-          <div className="mx-auto flex w-full max-w-6xl flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-            <p className="min-w-0 flex-1 font-medium">
-              Team updates are ready. Your work on this device stays until you choose to apply them.
-            </p>
-            <button
-              type="button"
-              onClick={() => void handlePullSharedProject()}
-              disabled={sharedTransferStatus !== null}
-              className="inline-flex h-9 w-fit items-center justify-center rounded-full bg-sky-700 px-3 text-xs font-semibold text-white transition hover:bg-sky-800 disabled:opacity-50 dark:bg-sky-200 dark:text-sky-950 dark:hover:bg-sky-100"
-            >
-              {sharedTransferStatus === 'pulling' ? 'Updating…' : 'Get Team Updates'}
-            </button>
-          </div>
         </div>
       )}
       {/* Areas List */}

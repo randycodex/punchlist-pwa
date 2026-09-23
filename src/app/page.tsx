@@ -2479,6 +2479,7 @@ export default function ProjectsPage() {
           selectionMode: deleteMode,
           isSharedProject: !!singleProject?.sharedProjectId,
           sharedProjectId: singleProject?.sharedProjectId,
+          hasTeamUpdates: !!singleProject && sharedUpdateProjectIds.has(singleProject.id),
           isCreatingJoinCode: creatingJoinCode,
           isLoadingSharedMembers: loadingSharedMembers,
           isDisconnectingSharedProject: disconnectingSharedProject,
@@ -2499,6 +2500,7 @@ export default function ProjectsPage() {
     areaViewMode,
     showTrash,
     singleProject,
+    sharedUpdateProjectIds,
   ]);
 
   function toggleTrashView() {
@@ -2697,29 +2699,6 @@ export default function ProjectsPage() {
           </div>
         </div>
       )}
-      {singleProjectMainView &&
-        singleProject?.sharedProjectId &&
-        sharedUpdateProjectIds.has(singleProject.id) && (
-        <div
-          className="shrink-0 border-b border-transparent bg-sky-50 px-4 py-2 text-sm text-sky-950 dark:bg-sky-400/10 dark:text-sky-100"
-          aria-live="polite"
-        >
-          <div className="mx-auto flex w-full max-w-6xl flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-            <p className="min-w-0 flex-1 font-medium">
-              Team updates are ready.
-            </p>
-            <button
-              type="button"
-              onClick={() => void handlePullSharedProject(singleProject)}
-              disabled={sharedTransferStatus !== null}
-              className="inline-flex h-9 w-fit items-center justify-center rounded-full bg-sky-700 px-3 text-xs font-semibold text-white transition hover:bg-sky-800 disabled:opacity-50 dark:bg-sky-200 dark:text-sky-950 dark:hover:bg-sky-100"
-            >
-              {sharedTransferStatus === 'pulling' ? 'Updating…' : 'Get Team Updates'}
-            </button>
-          </div>
-        </div>
-      )}
-
       {/* Content */}
       <main
         className="flex-1 min-h-0 overflow-y-auto overscroll-y-contain px-4 pt-5 pb-[calc(env(safe-area-inset-bottom)+6.5rem)] sm:px-5"

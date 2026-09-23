@@ -2,6 +2,7 @@ import type { CollaborationAreaClaim, CollaborationAreaClaimSummary } from './ty
 import type { Json } from './database';
 import { getCollaborationAvatarUrl } from './profileAvatars';
 import { getCollaborationSupabaseClient } from './supabaseClient';
+import { isRetryableCollaborationError, retryCollaborationOperation } from './request';
 
 export function isAreaClaimActive(
   claim: Pick<CollaborationAreaClaim, 'status' | 'expiresAt'>
@@ -63,17 +64,40 @@ function isUniqueAreaClaimError(error: unknown) {
   );
 }
 
+export function isSharedAreaClaimBlockedError(error: unknown) {
+  if (!error || typeof error !== 'object') return false;
+  const entry = error as { code?: unknown; message?: unknown };
+  const message = typeof entry.message === 'string' ? entry.message.toLowerCase() : '';
+  return entry.code === '55P03'
+    || message.includes('locked by another user')
+    || message.includes('claimed by another user')
+    || message.includes('currently claimed');
+}
+
+export function shouldBlockSharedAreaEdits(
+  hasClaim: boolean,
+  problemKind: 'blocked' | 'lost' | null
+) {
+  return problemKind === 'blocked' || (!hasClaim && problemKind !== 'lost');
+}
+
 export async function claimSharedProjectArea(sharedProjectId: string, areaId: string) {
   const supabase = getCollaborationSupabaseClient();
   if (!supabase) {
     throw new Error('Collaboration is not configured.');
   }
 
-  const { data, error } = await supabase.rpc('claim_shared_project_area', {
-    p_project_id: sharedProjectId,
-    p_area_id: areaId,
-    p_expires_at: null,
-  });
+  const { data, error } = await retryCollaborationOperation(async () => {
+    const result = await supabase.rpc('claim_shared_project_area', {
+      p_project_id: sharedProjectId,
+      p_area_id: areaId,
+      p_expires_at: null,
+    });
+    if (result.error && isRetryableCollaborationError(result.error)) {
+      throw result.error;
+    }
+    return result;
+  }, { attempts: 2 });
 
   if (error) {
     if (isUniqueAreaClaimError(error)) {

@@ -70,6 +70,7 @@ type HomeMenuState = {
   selectionMode?: boolean;
   isSharedProject?: boolean;
   sharedProjectId?: string;
+  hasTeamUpdates?: boolean;
   isCreatingJoinCode?: boolean;
   isLoadingSharedMembers?: boolean;
   isDisconnectingSharedProject?: boolean;
@@ -479,6 +480,7 @@ export default function PersistentTopBar() {
   const activeTransferMenuRowBaseClass = `${menuRowClass} cursor-wait font-semibold`;
   const activePushMenuRowClass = `${activeTransferMenuRowBaseClass} bg-violet-100 text-violet-700 dark:bg-violet-400/20 dark:text-violet-100`;
   const activePullMenuRowClass = `${activeTransferMenuRowBaseClass} bg-sky-100 text-sky-700 dark:bg-sky-400/20 dark:text-sky-100`;
+  const availablePullMenuRowClass = `${disabledMenuRowClass} bg-sky-100 text-sky-700 hover:bg-sky-200 dark:bg-sky-400/20 dark:text-sky-100 dark:hover:bg-sky-400/30`;
   return (
     <div className="persistent-top-bar fixed top-0 left-0 right-0 z-30 pt-[env(safe-area-inset-top)] md:border-b">
       <div className="top-bar-surface mx-auto flex h-14 w-full max-w-6xl items-center justify-between px-4 sm:px-5">
@@ -660,7 +662,11 @@ export default function PersistentTopBar() {
                           <button
                             onClick={() => dispatchHomeAction('pull-shared-project')}
                             disabled={sharedTransferStatus !== null}
-                            className={sharedTransferStatus === 'pulling' ? activePullMenuRowClass : disabledMenuRowClass}
+                            className={sharedTransferStatus === 'pulling'
+                              ? activePullMenuRowClass
+                              : homeMenuState.hasTeamUpdates
+                                ? availablePullMenuRowClass
+                                : disabledMenuRowClass}
                             aria-busy={sharedTransferStatus === 'pulling'}
                           >
                             <CloudDownload className={`h-4 w-4 shrink-0 ${sharedTransferStatus === 'pulling' ? 'animate-pulse' : ''}`} />

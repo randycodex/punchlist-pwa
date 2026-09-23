@@ -18,6 +18,8 @@ import {
   canUserEditClaimedArea,
   claimSharedProjectArea,
   isAreaClaimActive,
+  isSharedAreaClaimBlockedError,
+  shouldBlockSharedAreaEdits,
   releaseAllMySharedProjectAreaClaims,
 } from '@/lib/collaboration/areaClaims';
 
@@ -44,6 +46,31 @@ describe('persistent shared area claims', () => {
 
     expect(canUserEditClaimedArea(claim, 'claimant')).toBe(true);
     expect(canUserEditClaimedArea(claim, 'someone-else')).toBe(false);
+  });
+
+  it('recognizes the server lock conflict so the area shows who can act', () => {
+    expect(isSharedAreaClaimBlockedError({ code: '55P03', message: 'This area is locked by another user until they release it.' })).toBe(true);
+    expect(isSharedAreaClaimBlockedError(new Error('This area is locked by another user until they release it.'))).toBe(true);
+    expect(isSharedAreaClaimBlockedError(new Error('Failed to fetch'))).toBe(false);
+  });
+
+  it('allows local work when locking is unavailable but blocks a known teammate lock', () => {
+    expect(shouldBlockSharedAreaEdits(false, null)).toBe(true);
+    expect(shouldBlockSharedAreaEdits(false, 'lost')).toBe(false);
+    expect(shouldBlockSharedAreaEdits(false, 'blocked')).toBe(true);
+    expect(shouldBlockSharedAreaEdits(true, null)).toBe(false);
+  });
+
+  it('retries a temporary claim connection error before giving up', async () => {
+    rpcMock
+      .mockResolvedValueOnce({ data: null, error: { message: 'Failed to fetch' } })
+      .mockResolvedValueOnce({ data: { id: 'claim-id', claimed_by_user_id: 'claimant' }, error: null });
+
+    await expect(claimSharedProjectArea('shared-project-id', 'area-id')).resolves.toMatchObject({
+      id: 'claim-id',
+      status: 'active',
+    });
+    expect(rpcMock).toHaveBeenCalledTimes(2);
   });
 
   it('creates a claim without an expiry', async () => {

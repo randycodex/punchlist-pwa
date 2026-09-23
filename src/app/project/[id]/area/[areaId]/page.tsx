@@ -76,6 +76,8 @@ import { useSyncStatus } from '@/contexts/SyncStatusContext';
 import { useAppSettings } from '@/contexts/AppSettingsContext';
 import {
   claimSharedProjectArea,
+  isSharedAreaClaimBlockedError,
+  shouldBlockSharedAreaEdits,
   getCollaborationErrorMessage,
   TEAM_PROJECTS_SIGNIN_HINT,
   getSharedProjectSnapshotMetadata,
@@ -142,12 +144,7 @@ type SharedAreaLockProblem =
 const SHARED_AREA_LOCK_BLOCKED_MESSAGE =
   'Someone else is working in this area. Wait until they release it, or go back and pick another area.';
 const SHARED_AREA_LOCK_LOST_MESSAGE =
-  'Could not lock this area for you. Tap Try again before editing so your work does not conflict.';
-
-function isSharedAreaClaimBlockedMessage(message: string) {
-  const normalized = message.toLowerCase();
-  return normalized.includes('claimed by another user') || normalized.includes('currently claimed');
-}
+  'Team locking is unavailable. You can keep working on this device. Tap Try again when the connection returns; team changes may need review before they reach others.';
 
 export default function AreaDetailPage() {
   const params = useParams<{ id: string; areaId: string }>();
@@ -295,7 +292,10 @@ export default function AreaDetailPage() {
   }, [markSharedUpdateAvailable]);
 
   function sharedAreaEditsAreBlocked() {
-    return Boolean(projectRef.current?.sharedProjectId && (!hasAreaClaim || claimingArea || areaClaimProblemRef.current));
+    return Boolean(projectRef.current?.sharedProjectId && shouldBlockSharedAreaEdits(
+      hasAreaClaim,
+      areaClaimProblemRef.current?.kind ?? null
+    ));
   }
 
   function canEditSharedArea() {
@@ -335,7 +335,7 @@ export default function AreaDetailPage() {
   const persistGeneralNotes = useCallback(async (value: string) => {
     const currentProject = projectRef.current;
     const currentArea = areaRef.current;
-    if (currentProject?.sharedProjectId && areaClaimProblemRef.current) return;
+    if (currentProject?.sharedProjectId && areaClaimProblemRef.current?.kind === 'blocked') return;
     if (!currentProject || !currentArea) return;
     const targetArea = currentProject.areas.find((entry) => entry.id === currentArea.id);
     if (!targetArea) return;
@@ -510,13 +510,12 @@ export default function AreaDetailPage() {
       .catch((error) => {
         if (cancelled) return;
         const message = getCollaborationErrorMessage(error, 'Could not claim this shared area.');
+        const blocked = isSharedAreaClaimBlockedError(error);
         setAreaClaimError(message);
         setHasAreaClaim(false);
         setAreaClaimProblem({
-          kind: isSharedAreaClaimBlockedMessage(message) ? 'blocked' : 'lost',
-          message: isSharedAreaClaimBlockedMessage(message)
-            ? SHARED_AREA_LOCK_BLOCKED_MESSAGE
-            : SHARED_AREA_LOCK_LOST_MESSAGE,
+          kind: blocked ? 'blocked' : 'lost',
+          message: blocked ? SHARED_AREA_LOCK_BLOCKED_MESSAGE : `${SHARED_AREA_LOCK_LOST_MESSAGE} ${message}`,
         });
       })
       .finally(() => {
@@ -2018,7 +2017,10 @@ export default function AreaDetailPage() {
     : null;
 
   const visibleAreaClaimProblem = project.sharedProjectId ? areaClaimProblem : null;
-  const areaEditingLocked = Boolean(visibleAreaClaimProblem || (project.sharedProjectId && (!hasAreaClaim || claimingArea)));
+  const areaEditingLocked = Boolean(project.sharedProjectId && shouldBlockSharedAreaEdits(
+    hasAreaClaim,
+    visibleAreaClaimProblem?.kind ?? null
+  ));
   const supportsInlineLocationCustomItems = true;
   const supportsCustomSubareas = isApartmentArea(area) && !deleteMode && !areaEditingLocked;
   const supportsGlobalCustomItems = !supportsInlineLocationCustomItems && !deleteMode && !areaEditingLocked;
@@ -2034,7 +2036,7 @@ export default function AreaDetailPage() {
   const sharedAreaClaimLabel = visibleAreaClaimProblem
     ? visibleAreaClaimProblem.kind === 'blocked'
       ? 'In use by someone else'
-      : 'Could not lock this area for you'
+      : 'Working on this device; team lock unavailable'
     : areaClaimError
     ? 'Could not lock this area for you'
     : releasingAreaClaim
