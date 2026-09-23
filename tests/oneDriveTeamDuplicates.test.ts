@@ -63,7 +63,7 @@ describe('OneDrive and team project identity', () => {
     expect(uploadProjectFileMock).not.toHaveBeenCalled();
   });
 
-  it('restores only one copy when older OneDrive backups share a team ID', async () => {
+  it('does not restore old team backups after their local copies are removed', async () => {
     const first = createProject('Team site');
     first.sharedProjectId = crypto.randomUUID();
     const second = createProject('Team site');
@@ -78,9 +78,9 @@ describe('OneDrive and team project identity', () => {
 
     const result = await restoreMissingProjectsFromOneDrive('test-token');
 
-    expect(result.restoredProjectIds).toHaveLength(1);
-    expect(result.skippedProjectIds).toHaveLength(1);
-    expect(await getProject(result.restoredProjectIds[0])).toBeDefined();
-    expect(await getProject(result.skippedProjectIds[0])).toBeUndefined();
+    expect(result.restoredProjectIds).toEqual([]);
+    expect(result.skippedProjectIds).toEqual(expect.arrayContaining([first.id, second.id]));
+    expect(await getProject(first.id)).toBeUndefined();
+    expect(await getProject(second.id)).toBeUndefined();
   });
 });
