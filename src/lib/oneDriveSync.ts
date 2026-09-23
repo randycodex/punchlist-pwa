@@ -1515,7 +1515,7 @@ export async function backupProjectsToOneDrive(
             .map((project) => getProject(project.id))
         );
     const localProjects = localProjectEntries.filter(
-      (project): project is Project => Boolean(project && !project.deletedAt)
+      (project): project is Project => Boolean(project && !project.deletedAt && !project.sharedProjectId)
     );
     const remoteFilesById = buildRemoteProjectFileIndex(
       (await listProjectFiles(token)).filter((entry) => !isRemoteProjectFileInTrash(entry))
@@ -1659,6 +1659,9 @@ export async function restoreMissingProjectsFromOneDrive(
       listProjectFiles(token),
     ]);
     const localProjectIds = new Set(localProjects.map((project) => project.id));
+    const localSharedProjectIds = new Set(
+      localProjects.flatMap((project) => project.sharedProjectId ? [project.sharedProjectId] : [])
+    );
     const remoteFilesById = buildRemoteProjectFileIndex(
       remoteFiles.filter((entry) => !isRemoteProjectFileInTrash(entry))
     );
@@ -1676,6 +1679,15 @@ export async function restoreMissingProjectsFromOneDrive(
       if (!remote?.id || !remote.name.endsWith('.json')) return;
       const remoteProject = await downloadRemoteProject(token, remote.id);
       if (!remoteProject) return;
+      // The team sync may have already added this project with a different
+      // device-local ID. Restoring its OneDrive copy would create another card.
+      if (remoteProject.sharedProjectId && localSharedProjectIds.has(remoteProject.sharedProjectId)) {
+        skippedProjectIds.push(projectId);
+        return;
+      }
+      if (remoteProject.sharedProjectId) {
+        localSharedProjectIds.add(remoteProject.sharedProjectId);
+      }
       const folderName = getProjectFolderNameFromRemoteFile(remote);
       const projectWithFolder = withProjectFolderName(remoteProject, folderName);
       const hydratedProject = await hydrateProjectPhotosFromOneDrive(
