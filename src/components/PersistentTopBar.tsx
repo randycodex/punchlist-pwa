@@ -123,6 +123,7 @@ export default function PersistentTopBar() {
   const [recoverBusy, setRecoverBusy] = useState(false);
   const [sharedProjectAccessSnapshot, setSharedProjectAccessSnapshot] = useState<{
     projectId: string;
+    userId: string;
     isActiveMember: boolean;
     isOwner: boolean;
     hasError: boolean;
@@ -141,10 +142,11 @@ export default function PersistentTopBar() {
   const menuRef = useRef<HTMLDivElement | null>(null);
   const sharedProjectAccess = useMemo(() => {
     const sharedProjectId = homeMenuState.sharedProjectId;
-    if (!collaborationAuth.isSignedIn || !sharedProjectId) {
+    const userId = collaborationAuth.user?.id;
+    if (!collaborationAuth.isSignedIn || !sharedProjectId || !userId) {
       return { isReady: false, isActiveMember: false, isOwner: false, hasError: false };
     }
-    if (sharedProjectAccessSnapshot?.projectId === sharedProjectId) {
+    if (sharedProjectAccessSnapshot?.projectId === sharedProjectId && sharedProjectAccessSnapshot.userId === userId) {
       return {
         isReady: true,
         isActiveMember: sharedProjectAccessSnapshot.isActiveMember,
@@ -152,13 +154,14 @@ export default function PersistentTopBar() {
         hasError: sharedProjectAccessSnapshot.hasError,
       };
     }
-    const cached = sharedProjectAccessCache.get(sharedProjectId);
+    const cached = sharedProjectAccessCache.get(`${userId}:${sharedProjectId}`);
     if (cached) {
       return { isReady: true, ...cached };
     }
     return { isReady: false, isActiveMember: false, isOwner: false, hasError: false };
   }, [
     collaborationAuth.isSignedIn,
+    collaborationAuth.user?.id,
     homeMenuState.sharedProjectId,
     sharedProjectAccessSnapshot,
   ]);
@@ -273,23 +276,25 @@ export default function PersistentTopBar() {
   useEffect(() => {
     let cancelled = false;
     const sharedProjectId = homeMenuState.sharedProjectId;
+    const userId = collaborationAuth.user?.id;
 
-    if (!showHomeMenu || !collaborationAuth.isSignedIn || !sharedProjectId) {
+    if (!showHomeMenu || !collaborationAuth.isSignedIn || !sharedProjectId || !userId) {
       return () => {
         cancelled = true;
       };
     }
 
-    void getSharedProjectAccess(sharedProjectId, collaborationAuth.user?.id)
+    void getSharedProjectAccess(sharedProjectId, userId)
       .then((access) => {
         if (cancelled) return;
         const next = {
           projectId: sharedProjectId,
+          userId,
           isActiveMember: access.isActiveMember,
           isOwner: access.isOwner,
           hasError: false,
         };
-        sharedProjectAccessCache.set(sharedProjectId, {
+        sharedProjectAccessCache.set(`${userId}:${sharedProjectId}`, {
           isActiveMember: next.isActiveMember,
           isOwner: next.isOwner,
           hasError: next.hasError,
@@ -301,11 +306,12 @@ export default function PersistentTopBar() {
         if (cancelled) return;
         const next = {
           projectId: sharedProjectId,
+          userId,
           isActiveMember: false,
           isOwner: false,
           hasError: true,
         };
-        sharedProjectAccessCache.set(sharedProjectId, {
+        sharedProjectAccessCache.set(`${userId}:${sharedProjectId}`, {
           isActiveMember: next.isActiveMember,
           isOwner: next.isOwner,
           hasError: next.hasError,
