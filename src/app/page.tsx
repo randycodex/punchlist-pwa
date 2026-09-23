@@ -540,6 +540,7 @@ export default function ProjectsPage() {
     const completed: string[] = [];
     const problems: string[] = [];
     let needsTeamReview = false;
+    let duplicateTeamCopyWarning: string | null = null;
     let personalReady = true;
     let mergedPersonalProjectIds: string[] = [];
     try {
@@ -566,7 +567,8 @@ export default function ProjectsPage() {
             );
             if (copies.length > 1) {
               needsTeamReview = true;
-              problems.push(`${entry.projectName} has ${copies.length} copies on this device. Compare and merge them before team sync.`);
+              duplicateTeamCopyWarning = `${entry.projectName} has ${copies.length} copies on this device. Open that project's • menu, choose Compare Copies, then Merge copies before syncing.`;
+              problems.push(duplicateTeamCopyWarning);
               continue;
             }
             const project = copies[0];
@@ -644,6 +646,7 @@ export default function ProjectsPage() {
       if (needsTeamReview) {
         setSyncStatus('pending');
         await loadProjects();
+        if (duplicateTeamCopyWarning) showMessage(duplicateTeamCopyWarning);
         return;
       }
 
