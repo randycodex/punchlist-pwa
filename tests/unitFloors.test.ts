@@ -59,6 +59,24 @@ describe('unit floors', () => {
     project.facadeLevelEnd = -1;
     expect(getProjectFloorLevels(project)).toEqual(['-1', '1', '2', 'Roof']);
   });
+  it('keeps a large floor group in input order with the empty Roof above it', () => {
+    const project = createProject('Large tower');
+    project.facadeLevelStart = 1;
+    project.facadeLevelEnd = 2;
+    const areas = Array.from({ length: 1_500 }, (_, index) => {
+      const area = createArea(project.id, `Unit - 2-${index} - 1BR`, index, { areaTypeKey: 'apartment_unit' });
+      area.unitFloor = '2';
+      return area;
+    });
+
+    const groups = groupAreasByFloor(areas, project.unitFloorNumbering, project);
+
+    expect(groups.map(({ floor, areas: group }) => [floor, group.length])).toEqual([
+      ['1', 0], ['2', 1_500], ['Roof', 0],
+    ]);
+    expect(groups[1].areas.map((area) => area.id)).toEqual(areas.map((area) => area.id));
+    expect(areas).toHaveLength(1_500);
+  });
   it('preserves settings and overrides in shared metadata and backups', () => {
     const project = createProject('Floors'); project.unitFloorNumbering = 'last-two-digits';
     project.areas.push({...createArea(project.id,'Unit - PH-A - 2BR',0), unitFloor:'PH'});

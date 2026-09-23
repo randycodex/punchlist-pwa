@@ -78,7 +78,9 @@ export function groupAreasByFloor(
   for (const floor of getProjectFloorLevels(project)) floors.set(floor, []);
   for (const area of areas) {
     const floor = getAreaFloor(area, convention);
-    floors.set(floor, [...floors.get(floor) ?? [], area]);
+    const group = floors.get(floor);
+    if (group) group.push(area);
+    else floors.set(floor, [area]);
   }
   return [...floors.entries()].sort(([a], [b]) => {
     if (a === null) return 1;
