@@ -19,7 +19,7 @@ import {
   saveProjectPreserveTimestamps,
 } from '@/lib/db';
 
-async function getRawCheckpointMedia(checkpointId: string) {
+async function getRawCheckpointMedia(projectId: string, checkpointId: string) {
   const database = await new Promise<IDBDatabase>((resolve, reject) => {
     const request = indexedDB.open('punchlist-db');
     request.onsuccess = () => resolve(request.result);
@@ -29,7 +29,7 @@ async function getRawCheckpointMedia(checkpointId: string) {
     return await new Promise<{ photos: Array<{ imageData: unknown; thumbnail?: unknown }> } | undefined>(
       (resolve, reject) => {
         const transaction = database.transaction('checkpointMedia', 'readonly');
-        const request = transaction.objectStore('checkpointMedia').get(checkpointId);
+        const request = transaction.objectStore('checkpointMedia').get([projectId, checkpointId]);
         request.onsuccess = () => resolve(request.result as { photos: Array<{ imageData: unknown; thumbnail?: unknown }> } | undefined);
         request.onerror = () => reject(request.error);
       }
@@ -96,7 +96,7 @@ describe('durable IndexedDB sync metadata', () => {
 
     await saveProject(project);
 
-    const storedMedia = await getRawCheckpointMedia(checkpoint.id);
+    const storedMedia = await getRawCheckpointMedia(project.id, checkpoint.id);
     const hydrated = await getProject(project.id);
     const metadata = await getProjectMetadata(project.id);
     expect(storedMedia?.photos[0].imageData).toBeInstanceOf(Blob);
@@ -176,5 +176,32 @@ describe('durable IndexedDB sync metadata', () => {
     expect(restored?.areas[1].locations[0].items[0].checkpoints[0].photos[0].imageData).toBe(
       'original-photo-1'
     );
+  });
+
+  it('keeps photo files separate when team copies share checkpoint IDs', async () => {
+    const first = createProject('First team copy');
+    const area = createArea(first.id, 'Apartment 3A', 0);
+    const location = createLocation(area.id, 'Bedroom', 0);
+    const item = createItem(location.id, 'Walls', 0);
+    const checkpoint = createCheckpoint(item.id, 'Paint', 0);
+    checkpoint.photos.push(createPhotoAttachment(checkpoint.id, 'first-photo'));
+    item.checkpoints.push(checkpoint);
+    location.items.push(item);
+    area.locations.push(location);
+    first.areas.push(area);
+    await saveProjectPreserveTimestamps(first);
+
+    const second = structuredClone(first);
+    second.id = 'second-team-copy';
+    second.areas[0].projectId = second.id;
+    second.areas[0].locations[0].items[0].checkpoints[0].photos = [
+      createPhotoAttachment(checkpoint.id, 'second-photo'),
+    ];
+    await saveProjectPreserveTimestamps(second);
+
+    expect((await getProject(first.id))?.areas[0].locations[0].items[0].checkpoints[0].photos[0].imageData).toBe('first-photo');
+    expect((await getProject(second.id))?.areas[0].locations[0].items[0].checkpoints[0].photos[0].imageData).toBe('second-photo');
+    await deleteProject(second.id);
+    expect((await getProject(first.id))?.areas[0].locations[0].items[0].checkpoints[0].photos[0].imageData).toBe('first-photo');
   });
 });

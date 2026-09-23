@@ -4,6 +4,9 @@ type ProjectContents = {
   areaIds: Set<string>;
   checkpoints: Map<string, Checkpoint>;
   photoIds: Set<string>;
+  photoDataIds: Set<string>;
+  fileIds: Set<string>;
+  fileDataIds: Set<string>;
   photosWithoutData: number;
 };
 
@@ -11,6 +14,9 @@ function contents(project: Project): ProjectContents {
   const areaIds = new Set<string>();
   const checkpoints = new Map<string, Checkpoint>();
   const photoIds = new Set<string>();
+  const photoDataIds = new Set<string>();
+  const fileIds = new Set<string>();
+  const fileDataIds = new Set<string>();
   let photosWithoutData = 0;
   for (const area of project.areas) {
     if (area.deletedAt || area.purgedAt) continue;
@@ -21,13 +27,18 @@ function contents(project: Project): ProjectContents {
           checkpoints.set(checkpoint.id, checkpoint);
           for (const photo of checkpoint.photos) {
             photoIds.add(photo.id);
+            if (photo.imageData) photoDataIds.add(photo.id);
             if (!photo.imageData) photosWithoutData += 1;
+          }
+          for (const file of checkpoint.files ?? []) {
+            fileIds.add(file.id);
+            if (file.data) fileDataIds.add(file.id);
           }
         }
       }
     }
   }
-  return { areaIds, checkpoints, photoIds, photosWithoutData };
+  return { areaIds, checkpoints, photoIds, photoDataIds, fileIds, fileDataIds, photosWithoutData };
 }
 
 function onlyIn(left: Set<string>, right: Set<string>) {
@@ -57,6 +68,12 @@ export function compareProjectCopies(first: Project, second: Project) {
     secondOnlyCheckpointIds: onlyIn(secondCheckpointIds, firstCheckpointIds),
     firstOnlyPhotoIds: onlyIn(left.photoIds, right.photoIds),
     secondOnlyPhotoIds: onlyIn(right.photoIds, left.photoIds),
+    firstOnlyPhotoDataIds: onlyIn(left.photoDataIds, right.photoDataIds),
+    secondOnlyPhotoDataIds: onlyIn(right.photoDataIds, left.photoDataIds),
+    firstOnlyFileIds: onlyIn(left.fileIds, right.fileIds),
+    secondOnlyFileIds: onlyIn(right.fileIds, left.fileIds),
+    firstOnlyFileDataIds: onlyIn(left.fileDataIds, right.fileDataIds),
+    secondOnlyFileDataIds: onlyIn(right.fileDataIds, left.fileDataIds),
     differingCheckpointIds,
     firstPhotosWithoutData: left.photosWithoutData,
     secondPhotosWithoutData: right.photosWithoutData,

@@ -142,5 +142,8 @@ it('migrates legacy checkpoint media into the area index', async () => {
     thumbnail: undefined,
   });
   expect(upgradedDatabase.objectStoreNames.contains('sharedAreaSyncQueue')).toBe(true);
+  expect(upgradedDatabase.transaction('checkpointMedia').objectStore('checkpointMedia').keyPath).toEqual([
+    'projectId', 'checkpointId',
+  ]);
   upgradedDatabase.close();
 });

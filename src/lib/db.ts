@@ -114,7 +114,7 @@ interface PunchListDB extends DBSchema {
     indexes: { 'by-name': string; 'by-date': Date };
   };
   checkpointMedia: {
-    key: string;
+    key: [string, string];
     value: CheckpointMediaRecord;
     indexes: { 'by-project': string; 'by-project-area': [string, string] };
   };
@@ -476,7 +476,11 @@ function preserveExistingMediaPayloads(
 
 function getDB() {
   if (!dbPromise) {
-    dbPromise = openDB<PunchListDB>('punchlist-db', 7, {
+    dbPromise = openDB<PunchListDB>('punchlist-db', 8, {
+      blocking() {
+        void dbPromise?.then((database) => database.close());
+        dbPromise = null;
+      },
       async upgrade(db, oldVersion, _newVersion, transaction) {
         if (!db.objectStoreNames.contains('projects')) {
           const projectStore = db.createObjectStore('projects', { keyPath: 'id' });
@@ -485,7 +489,7 @@ function getDB() {
         }
 
         if (!db.objectStoreNames.contains('checkpointMedia')) {
-          const mediaStore = db.createObjectStore('checkpointMedia', { keyPath: 'checkpointId' });
+          const mediaStore = db.createObjectStore('checkpointMedia', { keyPath: ['projectId', 'checkpointId'] });
           mediaStore.createIndex('by-project', 'projectId');
           mediaStore.createIndex('by-project-area', ['projectId', 'areaId']);
         }
@@ -564,6 +568,17 @@ function getDB() {
               await mediaCursor.update({ ...mediaCursor.value, areaId });
             }
             mediaCursor = await mediaCursor.continue();
+          }
+        }
+
+        if (oldVersion < 8 && oldVersion > 0) {
+          const oldMedia = await transaction.objectStore('checkpointMedia').getAll();
+          db.deleteObjectStore('checkpointMedia');
+          const mediaStore = db.createObjectStore('checkpointMedia', { keyPath: ['projectId', 'checkpointId'] });
+          mediaStore.createIndex('by-project', 'projectId');
+          mediaStore.createIndex('by-project-area', ['projectId', 'areaId']);
+          for (const record of oldMedia) {
+            await mediaStore.put(record);
           }
         }
       },
@@ -833,7 +848,7 @@ export async function saveProjectArea(
       await Promise.all(
         existingMediaRecords
           .filter((record) => !nextCheckpointIds.has(record.checkpointId))
-          .map((record) => mediaStore.delete(record.checkpointId))
+          .map((record) => mediaStore.delete([project.id, record.checkpointId]))
       );
       await Promise.all(
         scopedSerialization.mediaRecords.map(async (record) => {
@@ -933,7 +948,7 @@ export async function saveCheckpointInspectionChange(
       }
       if (photos.length || options.removePhotoIds?.length) {
         const store = tx.objectStore('checkpointMedia');
-        const media = await store.get(checkpointId) ?? { checkpointId, projectId, areaId, photos: [], files: [] };
+        const media = await store.get([projectId, checkpointId]) ?? { checkpointId, projectId, areaId, photos: [], files: [] };
         const existingIds = new Set(media.photos.map((photo) => photo.id));
         media.photos.push(...compactPhotos.filter((photo) => !existingIds.has(photo.id)));
         const metadataIds = new Set(checkpoint.photos.map((photo) => photo.id));
@@ -986,7 +1001,7 @@ async function saveProjectInternal(project: Project, options: { touch: boolean }
   await Promise.all(
     existingMediaRecords
       .filter((record) => !nextCheckpointIds.has(record.checkpointId))
-      .map((record) => mediaStore.delete(record.checkpointId))
+      .map((record) => mediaStore.delete([project.id, record.checkpointId]))
   );
 
   await Promise.all(
@@ -1043,7 +1058,7 @@ export async function deleteProject(id: string): Promise<void> {
     await tx.objectStore('projects').delete(id);
     const mediaStore = tx.objectStore('checkpointMedia');
     const mediaRecords = await mediaStore.index('by-project').getAll(id);
-    await Promise.all(mediaRecords.map((record) => mediaStore.delete(record.checkpointId)));
+    await Promise.all(mediaRecords.map((record) => mediaStore.delete([id, record.checkpointId])));
     const drawingStore = tx.objectStore('elevationDrawings');
     const drawingRecords = await drawingStore.index('by-project').getAll(id);
     await Promise.all(drawingRecords.map((record) => drawingStore.delete(record.id)));

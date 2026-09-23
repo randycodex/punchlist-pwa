@@ -42,6 +42,7 @@ describe('compareProjectCopies', () => {
     expect(comparison.firstOnlyCheckpointIds).toEqual([]);
     expect(comparison.secondOnlyCheckpointIds).toEqual(['new-checkpoint']);
     expect(comparison.secondOnlyPhotoIds).toEqual(['new-photo']);
+    expect(comparison.secondOnlyPhotoDataIds).toEqual(['old-photo', 'new-photo']);
     expect(comparison.differingCheckpointIds).toEqual(['shared']);
     expect(comparison.firstPhotosWithoutData).toBe(1);
     expect(comparison.secondPhotosWithoutData).toBe(0);

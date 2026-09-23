@@ -1018,7 +1018,7 @@ function mergeAreas(localArea: Area, remoteArea: Area): Area {
   };
 }
 
-function mergeProjects(localProject: Project, remoteProject: Project): Project {
+export function mergeProjects(localProject: Project, remoteProject: Project): Project {
   const base = isRightNewer(localProject, remoteProject) ? remoteProject : localProject;
   return {
     ...base,
