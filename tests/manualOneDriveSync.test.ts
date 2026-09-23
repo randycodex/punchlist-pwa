@@ -174,6 +174,7 @@ describe('manual OneDrive backup coordinator', () => {
     expect(result).toEqual({
       status: 'retry',
       message: 'Could not reach OneDrive. Your projects are still saved on this device. Check your connection, then tap Sync Projects again.',
+      retryAfterMs: 15_000,
     });
   });
 
@@ -188,5 +189,19 @@ describe('manual OneDrive backup coordinator', () => {
 
     expect(restoreProjects).toHaveBeenCalledTimes(2);
     expect(result).toEqual({ status: 'success', restoredProjectCount: 1 });
+  });
+
+  it('preserves the OneDrive throttle delay for the Sync Projects countdown', async () => {
+    const throttled = Object.assign(new Error('The request has been throttled'), { retryAfterMs: 32_000 });
+    const result = await runManualOneDriveRestore({
+      ensureAccessToken: async () => 'token',
+      restoreProjects: async () => { throw throttled; },
+    });
+
+    expect(result).toEqual({
+      status: 'retry',
+      message: 'Microsoft is limiting OneDrive requests. Your projects are still saved on this device. Sync Projects will be available again in about 32 seconds.',
+      retryAfterMs: 32_000,
+    });
   });
 });

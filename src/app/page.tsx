@@ -564,6 +564,10 @@ export default function ProjectsPage() {
       } else {
         personalReady = false;
         problems.push(`Personal restore: ${restore.message}`);
+        if (restore.status === 'retry') {
+          queuePendingSync(undefined, { fullSync: true });
+          setRetryAt(new Date(Date.now() + restore.retryAfterMs));
+        }
       }
 
       if (collaborationAuth.isSignedIn) {
@@ -657,7 +661,7 @@ export default function ProjectsPage() {
       }
 
       if (!personalReady) {
-        setSyncStatus('error');
+        setSyncStatus(restore.status === 'retry' ? 'pending' : 'error');
         await loadProjects();
         showMessage([...completed, ...problems].join('\n'));
         return;

@@ -30,7 +30,7 @@ export type ManualOneDriveSyncResult =
 export type ManualOneDriveRestoreResult =
   | { status: 'success'; restoredProjectCount: number }
   | { status: 'needs-auth' }
-  | { status: 'retry'; message: string }
+  | { status: 'retry'; message: string; retryAfterMs: number }
   | { status: 'error'; message: string };
 
 function formatBackupConflictReviewMessage(conflicts: SyncConflict[]) {
@@ -145,6 +145,7 @@ export async function runManualOneDriveRestore(options: {
       return {
         status: 'retry',
         message: formatMicrosoftRestoreRetryMessage(error, Math.ceil(retryDelayMs / 1000)),
+        retryAfterMs: retryDelayMs,
       };
     }
     return {

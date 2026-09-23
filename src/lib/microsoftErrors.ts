@@ -124,6 +124,11 @@ export function formatMicrosoftRestoreRetryMessage(error: unknown, retryInSecond
     return 'Could not reach OneDrive. Your projects are still saved on this device. Check your connection, then tap Sync Projects again.';
   }
 
+  const message = extractErrorMessage(error).toLowerCase();
+  if (message.includes('throttled') || message.includes('too many requests')) {
+    return `Microsoft is limiting OneDrive requests. Your projects are still saved on this device. Sync Projects will be available again in about ${retryInSeconds} seconds.`;
+  }
+
   return `OneDrive is temporarily unavailable. Your projects are still saved on this device. Tap Sync Projects again in about ${retryInSeconds} seconds.`;
 }
 
