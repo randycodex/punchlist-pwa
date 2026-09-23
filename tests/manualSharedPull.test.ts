@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { mergeSharedProjectAreas } from '@/features/collaboration/manualSharedPull';
+import { formatPendingSharedPullMessage, mergeSharedProjectAreas } from '@/features/collaboration/manualSharedPull';
 import type { Area, Project } from '@/types';
 
 const base = new Date('2026-01-01T12:00:00.000Z');
@@ -36,6 +36,18 @@ function project(areas: Area[], updatedAt: string): Project {
 }
 
 describe('manual shared project area merge', () => {
+  it('names the project and retained local area in the review action', () => {
+    const local = project([area('a', 'Unit 3Z', '2026-01-01T12:10:00.000Z')], '2026-01-01T12:10:00.000Z');
+    const remote = project([area('a', 'Older unit', '2026-01-01T11:00:00.000Z')], '2026-01-01T12:12:00.000Z');
+    const merge = mergeSharedProjectAreas(local, remote);
+    const message = formatPendingSharedPullMessage({
+      localProject: local, sharedProject: remote, ...merge,
+      publishedAt: '2026-01-01T12:12:00.000Z', hasNewerLocalChanges: true, reason: 'manual-pull',
+    });
+    expect(message).toContain('Project: team updates');
+    expect(message).toContain('Your local areas: Unit 3Z');
+  });
+
   it('preserves local and remote work made in different areas', () => {
     const local = project([
       area('a', 'Local area', '2026-01-01T12:10:00.000Z'),

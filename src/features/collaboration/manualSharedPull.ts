@@ -202,6 +202,13 @@ export async function getPendingSharedPullState(
 
 export function formatPendingSharedPullMessage(pendingPull: PendingSharedPullState) {
   const sourceTime = new Date(pendingPull.publishedAt).toLocaleString();
+  const projectName = pendingPull.localProject.projectName || 'This project';
+  const preservedAreaNames = pendingPull.localProject.areas
+    .filter((area) => pendingPull.preservedLocalAreaIds.includes(area.id))
+    .map((area) => area.name);
+  const preservedAreaSummary = preservedAreaNames.length > 0
+    ? `\n\nYour local areas: ${preservedAreaNames.slice(0, 5).join(', ')}${preservedAreaNames.length > 5 ? `, and ${preservedAreaNames.length - 5} more` : ''}.`
+    : '';
   const mergeSummary = `Next step: save a safety backup of this device, keep your ${pendingPull.preservedLocalAreaCount} local area change${pendingPull.preservedLocalAreaCount === 1 ? '' : 's'}, and bring in ${pendingPull.appliedRemoteAreaCount} team area update${pendingPull.appliedRemoteAreaCount === 1 ? '' : 's'}.`;
   const metadataSummary = pendingPull.preservedLocalProjectMetadata
     ? '\n\nYour edited project name/details on this device will stay and be re-sent to the team afterward.'
@@ -211,9 +218,9 @@ export function formatPendingSharedPullMessage(pendingPull: PendingSharedPullSta
     : '';
 
   if (pendingPull.reason === 'publish-conflict') {
-    return `The team already has newer work from ${sourceTime}. Get those updates before sending yours.\n\n${mergeSummary}${metadataSummary}${conflictSummary}`;
+    return `${projectName}: the team has newer work from ${sourceTime}. Get those updates before sending yours.\n\n${mergeSummary}${preservedAreaSummary}${metadataSummary}${conflictSummary}`;
   }
-  return `Team updates from ${sourceTime} are ready.\n\n${mergeSummary}${metadataSummary}${conflictSummary}`;
+  return `${projectName}: team updates from ${sourceTime} are ready.\n\n${mergeSummary}${preservedAreaSummary}${metadataSummary}${conflictSummary}`;
 }
 
 export function formatPendingSharedPullSuccessMessage(pendingPull: PendingSharedPullState) {

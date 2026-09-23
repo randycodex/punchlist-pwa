@@ -297,6 +297,7 @@ export default function ProjectsPage() {
   const [recentAreaTypeKeys, setRecentAreaTypeKeys] = useState<AreaTypeKey[]>([]);
   const [sharedAreaClaims, setSharedAreaClaims] = useState<Map<string, AreaClaimDisplay>>(new Map());
   const [messageDialog, setMessageDialog] = useState<MessageDialogState | null>(null);
+  const [pendingPullSyncSummary, setPendingPullSyncSummary] = useState<string | null>(null);
   const backgroundAreaClaimKeysRef = useRef(new Set<string>());
   const projectsRef = useRef<Project[]>(cachedProjects);
   const homeMenuActionHandlerRef = useRef<((event: Event) => void) | null>(null);
@@ -544,7 +545,13 @@ export default function ProjectsPage() {
     setSyncStatus('syncing');
     const completed: string[] = [];
     const problems: string[] = [];
-    let pendingPullAssigned = false;
+    let pendingPullCandidate: PendingSharedPullState | null = null;
+    const showSyncResult = (message: string, title = 'Sync Projects') => {
+      if (pendingPullCandidate) {
+        setPendingPullSyncSummary(message);
+        setPendingPull(pendingPullCandidate);
+      } else showMessage(message, title);
+    };
     let personalReady = true;
     let mergedPersonalProjectIds: string[] = [];
     try {
@@ -584,10 +591,7 @@ export default function ProjectsPage() {
                 const pull = await getPendingSharedPullState(fullProject, 'manual-pull');
                 const pendingAreas = await getPendingSharedAreaSyncsForProject(fullProject.id);
                 if (pendingAreas.length > 0 || pull.hasNewerLocalChanges || pull.preservedLocalAreaCount > 0 || pull.preservedLocalProjectMetadata) {
-                  if (!pendingPullAssigned) {
-                    setPendingPull(pull);
-                    pendingPullAssigned = true;
-                  }
+                  if (!pendingPullCandidate) pendingPullCandidate = pull;
                   problems.push(`${entry.projectName} needs review before sending or releasing areas`);
                   continue;
                 }
@@ -609,10 +613,7 @@ export default function ProjectsPage() {
                 const pushed = await pushQueuedSharedChanges(project.id);
                 if (pushed.remainingAreaCount > 0 || pushed.metadataRemaining) {
                   if (pushed.conflictedAreaCount > 0 || pushed.metadataConflicted) {
-                    if (!pendingPullAssigned) {
-                      setPendingPull(await getPendingSharedPullState(currentProject, 'publish-conflict'));
-                      pendingPullAssigned = true;
-                    }
+                    if (!pendingPullCandidate) pendingPullCandidate = await getPendingSharedPullState(currentProject, 'publish-conflict');
                     problems.push(`${entry.projectName} needs review before sending or releasing areas`);
                     continue;
                   }
@@ -659,7 +660,7 @@ export default function ProjectsPage() {
         const remainingSeconds = Math.ceil((retryAt.getTime() - Date.now()) / 1000);
         setSyncStatus('pending');
         await loadProjects();
-        showMessage([...completed, ...problems, `Personal backup: OneDrive can be retried in about ${remainingSeconds} seconds.`].join('\n'), 'Sync Projects');
+        showSyncResult([...completed, ...problems, `Personal backup: OneDrive can be retried in about ${remainingSeconds} seconds.`].join('\n'), 'Sync Projects');
         return;
       }
       setRetryAt(null);
@@ -678,7 +679,7 @@ export default function ProjectsPage() {
           problems.push(`Microsoft sign-in: ${error instanceof Error ? error.message : 'Could not sign in.'}`);
         }
         if (restore.status === 'needs-auth') {
-          showMessage([...completed, ...problems, 'Personal backup was not completed. Tap Sync Projects again after Microsoft sign-in.'].join('\n'), 'Sync Projects');
+          showSyncResult([...completed, ...problems, 'Personal backup was not completed. Tap Sync Projects again after Microsoft sign-in.'].join('\n'), 'Sync Projects');
           return;
         }
       }
@@ -721,7 +722,7 @@ export default function ProjectsPage() {
       if (!personalReady) {
         setSyncStatus(restore.status === 'retry' ? 'pending' : 'error');
         await loadProjects();
-        showMessage([...completed, ...problems].join('\n'), 'Sync Projects');
+        showSyncResult([...completed, ...problems].join('\n'), 'Sync Projects');
         return;
       }
       const currentProjects = await getAllProjects();
@@ -744,7 +745,7 @@ export default function ProjectsPage() {
           problems.push(`Microsoft sign-in: ${error instanceof Error ? error.message : 'Could not sign in.'}`);
         }
         if (result.status === 'needs-auth') {
-          showMessage([...completed, ...problems, 'Personal backup was not completed. Tap Sync Projects again after Microsoft sign-in.'].join('\n'), 'Sync Projects');
+          showSyncResult([...completed, ...problems, 'Personal backup was not completed. Tap Sync Projects again after Microsoft sign-in.'].join('\n'), 'Sync Projects');
           return;
         }
       }
@@ -752,19 +753,19 @@ export default function ProjectsPage() {
         setSyncConflicts(result.conflicts);
         setSyncError(result.message);
         setSyncStatus('error');
-        showMessage([...completed, ...problems, result.message].join('\n'), 'Sync Projects');
+        showSyncResult([...completed, ...problems, result.message].join('\n'), 'Sync Projects');
         return;
       }
       if (result.status === 'retry') {
         setSyncError(result.message);
         setSyncStatus('pending');
-        showMessage([...completed, ...problems, result.message].join('\n'), 'Sync Projects');
+        showSyncResult([...completed, ...problems, result.message].join('\n'), 'Sync Projects');
         return;
       }
       if (result.status === 'error') {
         setSyncError(result.message);
         setSyncStatus('error');
-        showMessage([...completed, ...problems, result.message].join('\n'), 'Sync Projects');
+        showSyncResult([...completed, ...problems, result.message].join('\n'), 'Sync Projects');
         return;
       }
       setSyncConflicts([]);
@@ -777,11 +778,12 @@ export default function ProjectsPage() {
       for (const projectId of result.backedUpProjectIds) {
         completed.push(`${namesById.get(projectId) ?? 'Personal project'}: personal backup saved`);
       }
-      showMessage([...completed, ...problems].join('\n') || 'Everything is up to date.', 'Sync Projects');
+      showSyncResult([...completed, ...problems].join('\n') || 'Everything is up to date.', 'Sync Projects');
     } catch (error) {
       console.error('Sync failed:', error);
       setSyncStatus('error');
-      showMessage(error instanceof Error ? error.message : 'Sync failed. Please try again.');
+      problems.push(error instanceof Error ? error.message : 'Sync failed. Please try again.');
+      showSyncResult([...completed, ...problems].join('\n'));
     } finally {
       setSyncing(false);
     }
@@ -2351,11 +2353,13 @@ export default function ProjectsPage() {
             : entry
         )
       );
-      showMessage(formatPendingSharedPullSuccessMessage(pullState));
+      showMessage([formatPendingSharedPullSuccessMessage(pullState), pendingPullSyncSummary].filter(Boolean).join('\n\n'));
+      setPendingPullSyncSummary(null);
     } catch (error) {
       console.error('Failed to pull shared project:', error);
       showMessage(getCollaborationErrorMessage(error, 'Failed to pull shared data. Please try again.'));
     } finally {
+      setPendingPullSyncSummary(null);
       setSharedTransferStatus(null);
     }
   }
@@ -3539,10 +3543,10 @@ export default function ProjectsPage() {
       {pendingPull && (
         <AppConfirmDialog
           title={pendingPull.reason === 'manual-pull' ? 'Pull Shared Data' : 'Review Shared Changes'}
-          message={formatPendingSharedPullMessage(pendingPull)}
+          message={[formatPendingSharedPullMessage(pendingPull), pendingPullSyncSummary && `Sync results so far:\n${pendingPullSyncSummary}`].filter(Boolean).join('\n\n')}
           confirmLabel="Back Up + Merge"
           danger={pendingPull.hasNewerLocalChanges || pendingPull.reason !== 'manual-pull'}
-          onCancel={() => setPendingPull(null)}
+          onCancel={() => { setPendingPull(null); setPendingPullSyncSummary(null); }}
           onConfirm={() => void confirmPullSharedProject()}
         />
       )}
