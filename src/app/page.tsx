@@ -1486,17 +1486,27 @@ export default function ProjectsPage() {
       } else {
         merged = { ...mergeDuplicatePersonalProjects(primary, copies), updatedAt: new Date() };
       }
-      const verifyCopyPreserved = (candidate: Project) => {
+      const verifyCopyPreserved = (candidate: Project, stage: 'before save' | 'after save') => {
         for (const original of copies) {
           const comparison = compareProjectCopies(original, candidate);
           if (comparison.firstOnlyAreaIds.length || comparison.firstOnlyCheckpointIds.length
             || comparison.firstOnlyPhotoIds.length || comparison.firstOnlyPhotoDataIds.length
             || comparison.firstOnlyFileIds.length || comparison.firstOnlyFileDataIds.length) {
+            console.error('Copy merge preservation check failed', {
+              stage,
+              originalId: original.id,
+              areas: comparison.firstOnlyAreaIds.length,
+              checkpoints: comparison.firstOnlyCheckpointIds.length,
+              photos: comparison.firstOnlyPhotoIds.length,
+              photoFiles: comparison.firstOnlyPhotoDataIds.length,
+              files: comparison.firstOnlyFileIds.length,
+              fileData: comparison.firstOnlyFileDataIds.length,
+            });
             throw new Error('The merge could not preserve every item or file. Original copies are still available.');
           }
         }
       };
-      verifyCopyPreserved(merged);
+      verifyCopyPreserved(merged, 'before save');
       const changedAreaIds = teamSnapshot ? areasChangedSinceTeamCopy(teamSnapshot.project, merged) : [];
       const latestLocalCopies = new Map((await getAllProjects()).map((entry) => [entry.id, entry]));
       if (copies.some((copy) => {
@@ -1509,7 +1519,7 @@ export default function ProjectsPage() {
       await saveProjectPreserveTimestamps(merged);
       const savedMerge = await getProject(primary.id);
       if (!savedMerge) throw new Error('The merged project could not be loaded. Original copies are still available.');
-      verifyCopyPreserved(savedMerge);
+      verifyCopyPreserved(savedMerge, 'after save');
       if (teamSnapshot) {
         const teamComparison = compareProjectCopies(teamSnapshot.project, savedMerge);
         if (teamComparison.firstOnlyAreaIds.length || teamComparison.firstOnlyCheckpointIds.length
