@@ -4,6 +4,7 @@ import type { Project } from '@/types';
 import { ProjectPayloadValidationError } from '@/lib/projectPayload';
 import type { Json } from './database';
 import { getCollaborationSupabaseClient } from './supabaseClient';
+import { createCollaborationRealtimeChannel } from './realtimeChannel';
 
 export const SHARED_PROJECT_METADATA_PAYLOAD_VERSION = 1;
 
@@ -275,8 +276,10 @@ export function subscribeToSharedProjectMetadataSnapshotChanges(
   const supabase = getCollaborationSupabaseClient();
   if (!supabase) return () => {};
 
-  const channel = supabase
-    .channel(`shared-project-metadata-snapshot:${sharedProjectId}`)
+  const channel = createCollaborationRealtimeChannel(
+    supabase,
+    `shared-project-metadata-snapshot:${sharedProjectId}`
+  )
     .on(
       'postgres_changes',
       {

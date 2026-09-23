@@ -1,6 +1,7 @@
 import type { Area, FacadeElevationDrawing, Project } from '@/types';
 import type { Json } from './database';
 import { getCollaborationSupabaseClient } from './supabaseClient';
+import { createCollaborationRealtimeChannel } from './realtimeChannel';
 import {
   hydrateSharedSnapshotAssets,
   prepareCompactSharedSnapshotPayload,
@@ -183,8 +184,10 @@ export function subscribeToSharedProjectAreaSnapshotChanges(
   const supabase = getCollaborationSupabaseClient();
   if (!supabase) return () => {};
 
-  const channel = supabase
-    .channel(`shared-project-area-snapshot:${sharedProjectId}:${areaId ?? 'all'}`)
+  const channel = createCollaborationRealtimeChannel(
+    supabase,
+    `shared-project-area-snapshot:${sharedProjectId}:${areaId ?? 'all'}`
+  )
     .on(
       'postgres_changes',
       {

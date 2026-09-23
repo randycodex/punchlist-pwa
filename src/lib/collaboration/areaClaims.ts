@@ -2,6 +2,7 @@ import type { CollaborationAreaClaim, CollaborationAreaClaimSummary } from './ty
 import type { Json } from './database';
 import { getCollaborationAvatarUrl } from './profileAvatars';
 import { getCollaborationSupabaseClient } from './supabaseClient';
+import { createCollaborationRealtimeChannel } from './realtimeChannel';
 import { isRetryableCollaborationError, retryCollaborationOperation } from './request';
 
 export function isAreaClaimActive(
@@ -319,8 +320,7 @@ export function subscribeToSharedProjectAreaClaimChanges(
     return () => {};
   }
 
-  const channel = supabase
-    .channel(`shared-project-area-claims:${sharedProjectId}`)
+  const channel = createCollaborationRealtimeChannel(supabase, `shared-project-area-claims:${sharedProjectId}`)
     .on(
       'postgres_changes',
       {

@@ -7,6 +7,7 @@ import {
   type PendingSharedAreaSyncRecord,
 } from '@/lib/db';
 import { getCollaborationSupabaseClient } from './supabaseClient';
+import { createCollaborationRealtimeChannel } from './realtimeChannel';
 import {
   getSharedSnapshotProjectName,
   parseSharedSnapshotPayload,
@@ -536,8 +537,7 @@ export function subscribeToSharedProjectSnapshotChanges(
     return () => {};
   }
 
-  const channel = supabase
-    .channel(`shared-project-snapshot:${sharedProjectId}`)
+  const channel = createCollaborationRealtimeChannel(supabase, `shared-project-snapshot:${sharedProjectId}`)
     .on(
       'postgres_changes',
       {
