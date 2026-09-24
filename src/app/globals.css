@@ -111,18 +111,14 @@ html:not(.dark) {
 }
 
 .persistent-top-bar {
-  background-color: transparent !important;
+  background-color: var(--top-bar-surface) !important;
   border-bottom: 0 !important;
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
   transition: right 220ms ease;
 }
 
-/*
- * iOS standalone safe-area pixels can come from our page. Paint that strip
- * with the same token as the top bar;
- * keeping the wrapper itself transparent preserves the rounded bar below it.
- */
+/* Keep the iOS standalone safe area on the same solid page color. */
 .persistent-top-bar::before {
   content: "";
   position: absolute;

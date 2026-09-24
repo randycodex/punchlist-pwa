@@ -4,8 +4,8 @@
   "description": "Construction inspection app for architects",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#ffffff",
-  "theme_color": "#ffffff",
+  "background_color": "#E5E4E2",
+  "theme_color": "#E5E4E2",
   "orientation": "portrait",
   "icons": [
     {
