@@ -40,14 +40,16 @@ describe('mobile top-bar safe area', () => {
   it('lets theme-color control iOS chrome without the broken black-translucent viewport mode', () => {
     expect(rootLayout).not.toContain('statusBarStyle: "black-translucent"');
     expect(rootLayout).toContain('statusBarStyle: "default"');
-    expect(rootLayout).toContain('{ media: "(prefers-color-scheme: dark)", color: "#242124" }');
+    expect(rootLayout).toContain('{ media: "(prefers-color-scheme: dark)", color: "#000000" }');
     expect(rootLayout).toContain('viewportFit: "cover"');
   });
 
-  it('keeps the wrapper transparent so the rounded top bar remains visible', () => {
+  it('keeps the top bar on a solid canvas inside the app shell', () => {
     expect(globalStyles).toMatch(
-      /\.persistent-top-bar\s*\{[\s\S]*?background-color:\s*transparent\s*!important;/
+      /\.persistent-top-bar\s*\{[\s\S]*?background-color:\s*var\(--top-bar-surface\)\s*!important;/
     );
+    expect(globalStyles).toMatch(/\.app-shell\s*\{[\s\S]*?position:\s*relative;/);
+    expect(persistentTopBar).toContain('persistent-top-bar absolute top-0 left-0 right-0');
   });
 
   it('fills the app shell instead of leaving a second mobile viewport gap', () => {

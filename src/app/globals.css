@@ -83,6 +83,7 @@ button,
 }
 
 .app-shell {
+  position: relative;
   padding-top: calc(env(safe-area-inset-top) + 3.5rem);
   height: 100dvh;
   overflow: hidden;

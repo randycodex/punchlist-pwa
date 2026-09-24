@@ -204,6 +204,7 @@ export default function AreaDetailPage() {
   const [releasingAreaClaim, setReleasingAreaClaim] = useState(false);
   const [hasAreaClaim, setHasAreaClaim] = useState(false);
   const [areaClaimProblem, setAreaClaimProblem] = useState<SharedAreaLockProblem>(null);
+  const [showAreaClaimNotice, setShowAreaClaimNotice] = useState(false);
   const [areaClaimRetryNonce, setAreaClaimRetryNonce] = useState(0);
   const [confirmDialog, setConfirmDialog] = useState<ConfirmDialogState | null>(null);
   const [promptDialog, setPromptDialog] = useState<PromptDialogState | null>(null);
@@ -307,6 +308,7 @@ export default function AreaDetailPage() {
   }
 
   function trackCheckpointCommentDraft(value: string) {
+    if (!canEditSharedArea()) return;
     commentDraftRef.current = value;
     if (expandedCheckpoint) {
       void persistCheckpointComment(expandedCheckpoint.locationId, expandedCheckpoint.itemId, expandedCheckpoint.checkpointId, value, false).catch(() => {});
@@ -320,11 +322,6 @@ export default function AreaDetailPage() {
     setAreaClaimRetryNonce((value) => value + 1);
   }
 
-  function returnToProjectFromSharedLock() {
-    const currentProjectId = projectRef.current?.id ?? id;
-    router.push(getAreaReturnPath(currentProjectId, returnToHome));
-  }
-
   useEffect(() => {
     if (project) {
       cacheProjectPreview(project);
@@ -334,7 +331,6 @@ export default function AreaDetailPage() {
   const persistGeneralNotes = useCallback(async (value: string) => {
     const currentProject = projectRef.current;
     const currentArea = areaRef.current;
-    if (currentProject?.sharedProjectId && areaClaimProblemRef.current?.kind === 'blocked') return;
     if (!currentProject || !currentArea) return;
     const targetArea = currentProject.areas.find((entry) => entry.id === currentArea.id);
     if (!targetArea) return;
@@ -554,11 +550,21 @@ export default function AreaDetailPage() {
 
   useEffect(() => {
     if (!areaClaimProblem) return;
+    setShowAreaClaimNotice(true);
+    setSyncError(null);
     const activeElement = document.activeElement;
     if (activeElement instanceof HTMLElement) {
       activeElement.blur();
     }
+    const noticeTimer = setTimeout(() => setShowAreaClaimNotice(false), 8000);
+    return () => clearTimeout(noticeTimer);
   }, [areaClaimProblem]);
+
+  useEffect(() => {
+    if (!syncError) return;
+    const noticeTimer = setTimeout(() => setSyncError(null), 8000);
+    return () => clearTimeout(noticeTimer);
+  }, [syncError]);
 
   const visibleLocations = useMemo(
     () =>
@@ -806,7 +812,6 @@ export default function AreaDetailPage() {
     value: string,
     rememberRecent = true
   ) {
-    if (!canEditSharedArea()) return;
     if (!project || !area) return;
 
     const checkpoint = findCheckpoint(locationId, itemId, checkpointId);
@@ -1594,6 +1599,27 @@ export default function AreaDetailPage() {
     }
   };
 
+  async function handleBackToProject() {
+    if (!project) return;
+    setSyncError(null);
+    try {
+      await closeExpandedCheckpoint();
+      if (pendingNotesRef.current.size > 0) {
+        throw new Error('A note is still saving. Wait for it to finish or retry the note save before leaving.');
+      }
+      if (notesTimerRef.current) {
+        clearTimeout(notesTimerRef.current);
+        notesTimerRef.current = null;
+      }
+      if (notesDraftRef.current !== (area?.notes ?? '')) {
+        await persistGeneralNotes(notesDraftRef.current);
+      }
+      router.push(getAreaReturnPath(project.id, returnToHome));
+    } catch (error) {
+      setSyncError(error instanceof Error ? error.message : 'Save this area before leaving.');
+    }
+  }
+
   async function handleReleaseAreaClaim() {
     if (!project?.sharedProjectId || !area || releasingAreaClaim) return;
 
@@ -1712,7 +1738,6 @@ export default function AreaDetailPage() {
   }
 
   async function closeExpandedCheckpoint() {
-    if (!canEditSharedArea()) return;
     if (!expandedCheckpoint) return;
     await persistCheckpointComment(
       expandedCheckpoint.locationId,
@@ -2045,12 +2070,8 @@ export default function AreaDetailPage() {
           <div className="flex w-full items-center gap-3">
             <button
               type="button"
-              onClick={() => {
-                if (canReleaseAreaClaim) void handleReleaseAreaClaim();
-                else router.push(getAreaReturnPath(project.id, returnToHome));
-              }}
-              disabled={releasingAreaClaim || claimingArea}
-              aria-label={canReleaseAreaClaim ? 'Finish area and release lock' : 'Back to project'}
+              onClick={() => void handleBackToProject()}
+              aria-label="Back to project"
               className="flex h-10 w-10 items-center justify-center soft-control rounded-[1rem] text-gray-600 transition hover:bg-white dark:text-gray-300 dark:hover:bg-white/[0.08]"
             >
               <ArrowLeft className="w-5 h-5" />
@@ -2060,8 +2081,13 @@ export default function AreaDetailPage() {
                 {areaTitle}
               </h1>
               {project.sharedProjectId && sharedAreaClaimLabel && (
-                <div className="mt-1 text-xs font-medium text-gray-500 dark:text-gray-400">
-                  {sharedAreaClaimLabel}
+                <div className="mt-1 flex items-center gap-2 text-xs font-medium text-gray-500 dark:text-gray-400">
+                  <span className="truncate">{sharedAreaClaimLabel}</span>
+                  {visibleAreaClaimProblem && (
+                    <button type="button" onClick={retrySharedAreaClaim} className="shrink-0 underline underline-offset-2">
+                      Try again
+                    </button>
+                  )}
                 </div>
               )}
             </div>
@@ -2193,7 +2219,7 @@ export default function AreaDetailPage() {
         </div>
       )}
 
-      {visibleAreaClaimProblem && (
+      {visibleAreaClaimProblem && showAreaClaimNotice && (
         <div
           className="shrink-0 border-b border-transparent bg-amber-50 px-4 py-2 text-sm text-amber-950 dark:bg-amber-400/10 dark:text-amber-100"
           aria-live="assertive"
@@ -2207,13 +2233,6 @@ export default function AreaDetailPage() {
                 className="inline-flex h-9 items-center justify-center rounded-full bg-amber-700 px-3 text-xs font-semibold text-white transition hover:bg-amber-800 dark:bg-amber-200 dark:text-amber-950 dark:hover:bg-amber-100"
               >
                 Try again
-              </button>
-              <button
-                type="button"
-                onClick={returnToProjectFromSharedLock}
-                className="soft-control inline-flex h-9 items-center justify-center rounded-full px-3 text-xs font-semibold text-amber-950 transition dark:text-amber-100"
-              >
-                Back to project
               </button>
             </div>
           </div>
