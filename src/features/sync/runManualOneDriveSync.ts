@@ -30,8 +30,8 @@ export type ManualOneDriveSyncResult =
   | { status: 'error'; message: string };
 
 export type ManualOneDriveRestoreResult =
-  | { status: 'success'; restoredProjectCount: number; restoredProjectIds: string[] }
-  | { status: 'partial'; restoredProjectCount: number; restoredProjectIds: string[]; failedProjects: Array<{ id: string; name: string; message: string }> }
+  | { status: 'success'; restoredProjectCount: number; restoredProjectIds: string[]; recoveredLocalCopies?: Array<{ id: string; name: string }> }
+  | { status: 'partial'; restoredProjectCount: number; restoredProjectIds: string[]; recoveredLocalCopies?: Array<{ id: string; name: string }>; failedProjects: Array<{ id: string; name: string; message: string }> }
   | { status: 'needs-auth' }
   | { status: 'retry'; message: string; retryAfterMs: number }
   | { status: 'error'; message: string };
@@ -165,24 +165,29 @@ export async function runManualOneDriveSync(options: {
 export async function runManualOneDriveRestore(options: {
   ensureAccessToken: () => Promise<string | null>;
   restoreProjects?: typeof restoreMissingProjectsFromOneDrive;
+  recoverInactiveSharedProjectIds?: string[];
 }): Promise<ManualOneDriveRestoreResult> {
   try {
     const token = await options.ensureAccessToken();
     if (!token) return { status: 'needs-auth' };
 
     const restoreProjects = options.restoreProjects ?? restoreMissingProjectsFromOneDrive;
+    const restoreOptions = options.recoverInactiveSharedProjectIds?.length
+      ? { recoverInactiveSharedProjectIds: options.recoverInactiveSharedProjectIds }
+      : undefined;
     let result;
     try {
-      result = await restoreProjects(token);
+      result = restoreOptions ? await restoreProjects(token, restoreOptions) : await restoreProjects(token);
     } catch (error) {
       if (!isMicrosoftMissingObjectError(error) && !isMicrosoftConnectionError(error)) throw error;
-      result = await restoreProjects(token);
+      result = restoreOptions ? await restoreProjects(token, restoreOptions) : await restoreProjects(token);
     }
     if (result.failedProjects?.length) {
       return {
         status: 'partial',
         restoredProjectCount: result.restoredProjectIds.length,
         restoredProjectIds: result.restoredProjectIds,
+        ...(result.recoveredLocalCopies?.length ? { recoveredLocalCopies: result.recoveredLocalCopies } : {}),
         failedProjects: result.failedProjects,
       };
     }
@@ -190,6 +195,7 @@ export async function runManualOneDriveRestore(options: {
       status: 'success',
       restoredProjectCount: result.restoredProjectIds.length,
       restoredProjectIds: result.restoredProjectIds,
+      ...(result.recoveredLocalCopies?.length ? { recoveredLocalCopies: result.recoveredLocalCopies } : {}),
     };
   } catch (error) {
     console.error('OneDrive restore failed:', error);

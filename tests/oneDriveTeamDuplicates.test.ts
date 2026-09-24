@@ -72,6 +72,77 @@ describe('OneDrive and team project identity', () => {
     expect(await getProject(localTeam.id)).toBeDefined();
   });
 
+  it('recovers an inactive team copy before restoring a personal backup with the same ID', async () => {
+    const officeCopy = createProject('Ilse Hoffman House');
+    officeCopy.sharedProjectId = crypto.randomUUID();
+    const area = createArea(officeCopy.id, 'Unit 5A', 0);
+    const location = createLocation(area.id, 'Kitchen', 0);
+    const item = createItem(location.id, 'Window', 0);
+    const checkpoint = createCheckpoint(item.id, 'Finish', 0);
+    const drawingId = crypto.randomUUID();
+    officeCopy.facadeElevationDrawings = [{
+      id: drawingId,
+      orientation: 'West',
+      name: 'West elevation',
+      fileName: 'west.png',
+      mimeType: 'image/png',
+      size: 5,
+      dataUrl: 'data:image/png;base64,cG5n',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    }];
+    area.elevationDrawingId = drawingId;
+    checkpoint.elevationMarker = { drawingId, xPercent: 25, yPercent: 40 };
+    checkpoint.photos.push(createPhotoAttachment(checkpoint.id, 'data:image/jpeg;base64,cGhvdG8='));
+    item.checkpoints.push(checkpoint);
+    location.items.push(item);
+    area.locations.push(location);
+    officeCopy.areas.push(area);
+    await saveProjectPreserveTimestamps(officeCopy);
+    const activeTeam = createProject('Ilse Hoffman House');
+    activeTeam.sharedProjectId = crypto.randomUUID();
+    await saveProjectPreserveTimestamps(activeTeam);
+
+    const personalBackup = {
+      ...officeCopy,
+      sharedProjectId: undefined,
+      projectName: 'Ilse Hoffman House - K&J (Kwassi)',
+      areas: [...officeCopy.areas, createArea(officeCopy.id, 'Unit 6A', 1)],
+    };
+    listProjectFilesMock.mockResolvedValue([{
+      id: 'personal-file',
+      name: `Ilse-Hoffman-House-K-J-Kwassi_${officeCopy.id}.json`,
+    }]);
+    downloadProjectFileMock.mockResolvedValue(serializeProjectPayload(personalBackup));
+
+    const blocked = await restoreMissingProjectsFromOneDrive('test-token');
+    expect(blocked.failedProjects?.[0]?.message).toContain('team copy');
+    expect((await getProject(officeCopy.id))?.sharedProjectId).toBe(officeCopy.sharedProjectId);
+
+    const result = await restoreMissingProjectsFromOneDrive('test-token', {
+      recoverInactiveSharedProjectIds: [officeCopy.id],
+    });
+    expect(result.failedProjects).toEqual([]);
+    expect(result.restoredProjectIds).toEqual([officeCopy.id]);
+    expect(result.recoveredLocalCopies).toHaveLength(1);
+    const restored = await getProject(officeCopy.id);
+    const recovery = await getProject(result.recoveredLocalCopies![0].id);
+    expect(restored?.projectName).toBe('Ilse Hoffman House - K&J (Kwassi)');
+    expect(restored?.sharedProjectId).toBeUndefined();
+    expect(restored?.areas).toHaveLength(2);
+    expect(recovery?.projectName).toBe('Recovered local copy - Ilse Hoffman House');
+    expect(recovery?.sharedProjectId).toBeUndefined();
+    expect(recovery?.areas[0].projectId).toBe(recovery?.id);
+    expect(recovery?.areas[0].locations[0].items[0].checkpoints[0].photos[0].imageData)
+      .toBe('data:image/jpeg;base64,cGhvdG8=');
+    expect(recovery?.facadeElevationDrawings?.[0].dataUrl).toBe('data:image/png;base64,cG5n');
+    expect(recovery?.facadeElevationDrawings?.[0].id).not.toBe(drawingId);
+    expect(recovery?.areas[0].elevationDrawingId).toBe(recovery?.facadeElevationDrawings?.[0].id);
+    expect(recovery?.areas[0].locations[0].items[0].checkpoints[0].elevationMarker?.drawingId)
+      .toBe(recovery?.facadeElevationDrawings?.[0].id);
+    expect((await getProject(activeTeam.id))?.sharedProjectId).toBe(activeTeam.sharedProjectId);
+  });
+
   it('backs up personal projects without creating another OneDrive copy of a team project', async () => {
     const team = createProject('Team site');
     team.sharedProjectId = crypto.randomUUID();

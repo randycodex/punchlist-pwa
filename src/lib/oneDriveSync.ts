@@ -5,9 +5,12 @@ import { readLocalStorage, writeLocalStorage } from '@/lib/browserStorage';
 import {
   getAllProjects,
   getProject,
+  clearPendingSharedSyncsForProject,
   saveProjectOneDriveFolderName,
   saveProjectPreserveTimestamps,
 } from '@/lib/db';
+import { recoverInactiveTeamCopy } from '@/features/projects/recoverInactiveTeamCopy';
+import { compareProjectCopies } from '@/features/projects/compareProjectCopies';
 import {
   ensurePunchListFolders,
   listProjectFiles,
@@ -56,6 +59,7 @@ export type OneDriveBackupResult = {
 export type OneDriveRestoreResult = {
   restoredProjectIds: string[];
   skippedProjectIds: string[];
+  recoveredLocalCopies?: Array<{ id: string; name: string }>;
   failedProjects?: Array<{ id: string; name: string; message: string }>;
 };
 
@@ -1721,11 +1725,13 @@ export async function mergePersonalProjectsFromOneDrive(token: string, projectId
 }
 
 /**
- * Restores only projects that do not exist on this device. Existing local
- * projects are never merged or overwritten by this recovery action.
+ * Restores personal backups missing from this device. A confirmed inactive
+ * team copy with the same ID is first preserved as a separate local project;
+ * ordinary existing projects are never merged or overwritten here.
  */
 export async function restoreMissingProjectsFromOneDrive(
-  token: string
+  token: string,
+  options: { recoverInactiveSharedProjectIds?: string[] } = {}
 ): Promise<OneDriveRestoreResult> {
   const releaseSyncLease = await acquireSyncLease(token);
 
@@ -1735,18 +1741,22 @@ export async function restoreMissingProjectsFromOneDrive(
       getAllProjects(),
       listProjectFiles(token),
     ]);
-    const localProjectIds = new Set(localProjects.map((project) => project.id));
+    const localById = new Map(localProjects.map((project) => [project.id, project]));
+    const localProjectIds = new Set(localById.keys());
+    const recoverableIds = new Set(options.recoverInactiveSharedProjectIds ?? []);
     const remoteFilesById = buildRemoteProjectFileIndex(
       remoteFiles.filter((entry) => !isRemoteProjectFileInTrash(entry))
     );
     const remoteIndex: OneDriveSyncRemoteIndex = {};
     const restoredProjectIds: string[] = [];
     const skippedProjectIds: string[] = [];
+    const recoveredLocalCopies: NonNullable<OneDriveRestoreResult['recoveredLocalCopies']> = [];
     const failedProjects: NonNullable<OneDriveRestoreResult['failedProjects']> = [];
 
     await runWithConcurrency([...remoteFilesById.entries()], 2, async ([projectId, remoteEntries]) => {
       try {
-        if (localProjectIds.has(projectId)) {
+        const existing = localById.get(projectId);
+        if (existing && !existing.sharedProjectId) {
           skippedProjectIds.push(projectId);
           return;
         }
@@ -1762,6 +1772,12 @@ export async function restoreMissingProjectsFromOneDrive(
           skippedProjectIds.push(projectId);
           return;
         }
+        if (remoteProject.id !== projectId) {
+          throw new Error('The OneDrive backup ID does not match its filename. Your local project was not changed.');
+        }
+        if (existing?.sharedProjectId && !recoverableIds.has(projectId)) {
+          throw new Error('A team copy on this device uses this personal backup ID. Connect Team Projects and sync again so its status can be checked. Your local copy was not changed.');
+        }
         const folderName = getProjectFolderNameFromRemoteFile(remote);
         const projectWithFolder = withProjectFolderName(remoteProject, folderName);
         const hydratedProject = await hydrateProjectPhotosFromOneDrive(
@@ -1770,6 +1786,48 @@ export async function restoreMissingProjectsFromOneDrive(
           folderName ?? undefined,
           remoteIndex
         );
+        if (existing?.sharedProjectId) {
+          const fullLocal = await getProject(projectId);
+          if (!fullLocal?.sharedProjectId || fullLocal.sharedProjectId !== existing.sharedProjectId) {
+            throw new Error('The local team copy changed during restore. Sync again before restoring this personal backup.');
+          }
+          // Keep the complete office copy, including locally stored photos and
+          // drawings, under a new ID. This also makes it independently backable
+          // to OneDrive on the same Sync Projects run.
+          const priorRecovery = localProjects.find((candidate) =>
+            !candidate.deletedAt && candidate.recoveredFromProjectId === projectId
+          );
+          const savedPriorRecovery = priorRecovery
+            ? await getProject(priorRecovery.id)
+            : undefined;
+          const priorComparison = savedPriorRecovery
+            ? compareProjectCopies(fullLocal, savedPriorRecovery)
+            : null;
+          const priorIsComplete = priorComparison && !(
+            priorComparison.firstOnlyAreaIds.length || priorComparison.firstOnlyCheckpointIds.length
+            || priorComparison.firstOnlyPhotoIds.length || priorComparison.firstOnlyPhotoDataIds.length
+            || priorComparison.firstOnlyFileIds.length || priorComparison.firstOnlyFileDataIds.length
+            || priorComparison.differingCheckpointIds.length
+          );
+          const recoveryCopy = priorIsComplete
+            ? savedPriorRecovery
+            : recoverInactiveTeamCopy(fullLocal);
+          if (!recoveryCopy) throw new Error('Could not load the recovery copy. Your local project was not changed.');
+          if (!priorIsComplete) await saveProjectPreserveTimestamps(recoveryCopy);
+          const savedRecovery = await getProject(recoveryCopy.id);
+          if (!savedRecovery) throw new Error('Could not verify the office recovery copy. Your local project was not changed.');
+          const comparison = compareProjectCopies(fullLocal, savedRecovery);
+          if (
+            comparison.firstOnlyAreaIds.length || comparison.firstOnlyCheckpointIds.length
+            || comparison.firstOnlyPhotoIds.length || comparison.firstOnlyPhotoDataIds.length
+            || comparison.firstOnlyFileIds.length || comparison.firstOnlyFileDataIds.length
+            || comparison.differingCheckpointIds.length
+          ) {
+            throw new Error('The office recovery copy needs review. Your local team copy was not replaced.');
+          }
+          await clearPendingSharedSyncsForProject(projectId);
+          recoveredLocalCopies.push({ id: savedRecovery.id, name: savedRecovery.projectName });
+        }
         await saveProjectPreserveTimestamps(hydratedProject);
         localProjectIds.add(projectId);
         restoredProjectIds.push(projectId);
@@ -1782,7 +1840,7 @@ export async function restoreMissingProjectsFromOneDrive(
       }
     });
 
-    return { restoredProjectIds, skippedProjectIds, failedProjects };
+    return { restoredProjectIds, skippedProjectIds, recoveredLocalCopies, failedProjects };
   } finally {
     await releaseSyncLease();
   }

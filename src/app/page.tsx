@@ -561,12 +561,15 @@ export default function ProjectsPage() {
     let personalReady = true;
     let personalRestoreIncomplete = false;
     let mergedPersonalProjectIds: string[] = [];
+    const inactiveSharedProjectMessages = new Map<string, string>();
     try {
       if (collaborationAuth.isSignedIn) {
         try {
           const directory = await listMySharedProjects();
           for (const project of getInactiveLocalSharedProjects(await getAllProjects(), directory)) {
-            problems.push(`${project.projectName}: this team copy is not active for your account. Its changes stayed on this device. Open Team Projects to reconnect or keep it local only`);
+            const message = `${project.projectName}: this team copy is not active for your account. Its changes stayed on this device. Open Team Projects to reconnect or keep it local only`;
+            if (directory.length > 0) inactiveSharedProjectMessages.set(project.id, message);
+            problems.push(message);
           }
           for (const entry of directory) {
             try {
@@ -640,6 +643,7 @@ export default function ProjectsPage() {
 
       let restore = await runManualOneDriveRestore({
         ensureAccessToken: () => ensureAccessToken({ interactive: true }),
+        recoverInactiveSharedProjectIds: [...inactiveSharedProjectMessages.keys()],
       });
       if (restore.status === 'needs-auth') {
         setSyncStatus('needs-auth');
@@ -647,6 +651,7 @@ export default function ProjectsPage() {
           await signIn({ selectAccount: true });
           restore = await runManualOneDriveRestore({
             ensureAccessToken: () => ensureAccessToken({ interactive: true }),
+            recoverInactiveSharedProjectIds: [...inactiveSharedProjectMessages.keys()],
           });
         } catch (error) {
           problems.push(`Microsoft sign-in: ${error instanceof Error ? error.message : 'Could not sign in.'}`);
@@ -657,6 +662,13 @@ export default function ProjectsPage() {
         }
       }
       if (restore.status === 'success' || restore.status === 'partial') {
+        for (const projectId of restore.restoredProjectIds) {
+          const staleMessage = inactiveSharedProjectMessages.get(projectId);
+          if (staleMessage) problems.splice(problems.indexOf(staleMessage), 1);
+        }
+        for (const copy of restore.recoveredLocalCopies ?? []) {
+          completed.push(`${copy.name}: local work preserved as a separate personal project. Review it before deleting; unsent team edits are still in that copy`);
+        }
         if (restore.status === 'partial') {
           personalRestoreIncomplete = true;
           for (const failed of restore.failedProjects) {

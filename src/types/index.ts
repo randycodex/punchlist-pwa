@@ -148,6 +148,7 @@ export interface FacadeElevationDrawing {
 }
 
 export interface Project {
+  recoveredFromProjectId?: string;
   unitFloorNumbering?: 'prefix' | 'last-two-digits' | 'manual';
   checkpointRules?: Array<{ room: string; item: string; name: string }>;
   id: string;

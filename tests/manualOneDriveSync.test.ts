@@ -241,6 +241,27 @@ describe('manual OneDrive backup coordinator', () => {
     expect(result).toEqual({ status: 'success', restoredProjectCount: 1, restoredProjectIds: ['project-2'] });
   });
 
+  it('passes confirmed inactive team copy IDs to personal restore and reports the recovery copy', async () => {
+    const restoreProjects = vi.fn(async () => ({
+      restoredProjectIds: ['personal-id'],
+      skippedProjectIds: [],
+      recoveredLocalCopies: [{ id: 'recovery-id', name: 'Recovered local copy' }],
+    }));
+    const result = await runManualOneDriveRestore({
+      ensureAccessToken: async () => 'token',
+      restoreProjects,
+      recoverInactiveSharedProjectIds: ['personal-id'],
+    });
+
+    expect(restoreProjects).toHaveBeenCalledWith('token', {
+      recoverInactiveSharedProjectIds: ['personal-id'],
+    });
+    expect(result).toMatchObject({
+      status: 'success',
+      recoveredLocalCopies: [{ id: 'recovery-id', name: 'Recovered local copy' }],
+    });
+  });
+
   it('reports an unavailable personal restore while retaining completed restores', async () => {
     const result = await runManualOneDriveRestore({
       ensureAccessToken: async () => 'token',
