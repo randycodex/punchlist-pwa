@@ -521,6 +521,22 @@ html:not(.dark) {
   transition: right 220ms ease;
 }
 
+/* Installed iOS apps add a system scroll-edge treatment above the web view.
+ * Keep the controls below it. iOS can also report the absent Safari toolbar as
+ * a bottom inset; do not let that lift the inspection buttons by an entire bar.
+ */
+@supports (-webkit-touch-callout: none) {
+  @media (display-mode: standalone) {
+    .persistent-top-bar {
+      padding-top: 1rem;
+    }
+
+    .area-bottom-nav {
+      padding-bottom: calc(min(env(safe-area-inset-bottom), 2rem) + 0.25rem);
+    }
+  }
+}
+
 @media (min-width: 768px) {
   html[data-app-menu-open="true"] .floating-action-rail,
   html[data-app-menu-open="true"] .area-bottom-nav {
