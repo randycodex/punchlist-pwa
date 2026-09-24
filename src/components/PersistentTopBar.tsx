@@ -8,17 +8,38 @@ import { createPortal } from 'react-dom';
 import { useMicrosoftAuth } from '@/contexts/MicrosoftAuthContext';
 import { useCollaborationAuth } from '@/contexts/CollaborationAuthContext';
 import { useSyncStatus } from '@/contexts/SyncStatusContext';
-import { getAllProjects, getProjectMetadata } from '@/lib/db';
+import {
+  getAllProjects,
+  getPendingSharedAreaSyncsForProject,
+  getPendingSharedProjectMetadataSyncForProject,
+  getProject,
+  getProjectMetadata,
+  saveProjectPreserveTimestamps,
+  SHARED_SYNC_QUEUE_CHANGED_EVENT,
+  summarizePendingSharedSyncs,
+  type SharedSyncQueueSummary,
+} from '@/lib/db';
 import { hasPendingSyncState } from '@/lib/pendingSync';
+import { mergePersonalProjectsFromOneDrive } from '@/lib/oneDriveSync';
+import { runManualOneDriveSync } from '@/features/sync/runManualOneDriveSync';
+import { syncSharedProject } from '@/features/sync/syncSharedProject';
+import {
+  formatPendingSharedPullMessage,
+  formatPendingSharedPullSuccessMessage,
+  type PendingSharedPullState,
+} from '@/features/collaboration/manualSharedPull';
 import { getCachedProjectName } from '@/lib/projectNavigationCache';
 import {
   getCollaborationProfileDisplayName,
   getCollaborationProfileInitials,
   getActiveSharedProjectAreaClaimSummaries,
   getSharedProjectAccess,
+  captureSharedProjectBackup,
+  rebaseSharedProjectAreaSyncsAfterPull,
   releaseAbandonedSharedProjectArea,
   resumePendingSharedAreaSyncs,
   resumePendingSharedProjectMetadataSyncs,
+  saveAndQueueSharedProjectMetadataSync,
 } from '@/lib/collaboration';
 import type { CollaborationAreaClaimSummary } from '@/lib/collaboration';
 import CollaborationAvatar from '@/components/CollaborationAvatar';
@@ -68,6 +89,7 @@ type HomeMenuState = {
   hasAreaGroups?: boolean;
   showOnlyAreaIssues?: boolean;
   isSingleProject: boolean;
+  singleProjectId?: string;
   singleProjectName: string;
   selectionMode?: boolean;
   isSharedProject?: boolean;
@@ -91,6 +113,7 @@ function setAppMenuOpenAttribute(open: boolean) {
 export default function PersistentTopBar() {
   const pathname = usePathname();
   const {
+    ensureAccessToken,
     isReady,
     isSignedIn,
     signIn: signInToMicrosoft,
@@ -98,11 +121,14 @@ export default function PersistentTopBar() {
   } = useMicrosoftAuth();
   const collaborationAuth = useCollaborationAuth();
   const {
+    clearSharedUpdateAvailable,
     localSaveError,
     localSaveStatus,
     retryInSeconds,
     sharedSyncSummary,
     sharedTransferStatus,
+    setStatus: setSyncStatus,
+    setSyncConflicts,
     status,
   } = useSyncStatus();
   const hasQueuedSync = status === 'pending' && hasPendingSyncState();
@@ -114,6 +140,15 @@ export default function PersistentTopBar() {
   const [areAreaGroupsCollapsed, setAreAreaGroupsCollapsed] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
   const [infoDialog, setInfoDialog] = useState<{ title: string; message: string } | null>(null);
+  const [pendingProjectPull, setPendingProjectPull] = useState<PendingSharedPullState | null>(null);
+  const [projectSyncing, setProjectSyncing] = useState(false);
+  const projectSyncingRef = useRef(false);
+  const projectSyncHandlerRef = useRef<() => Promise<void>>(async () => {});
+  const [projectSyncSummary, setProjectSyncSummary] = useState<SharedSyncQueueSummary>({
+    pendingCount: 0,
+    conflictCount: 0,
+    lastConflictError: null,
+  });
   const [showRecoverLocks, setShowRecoverLocks] = useState(false);
   const [recoverClaims, setRecoverClaims] = useState<CollaborationAreaClaimSummary[]>([]);
   const [recoverAreaNames, setRecoverAreaNames] = useState<Map<string, string>>(new Map());
@@ -172,6 +207,11 @@ export default function PersistentTopBar() {
     const segments = pathname.split('/').filter(Boolean);
     return segments[1] ?? '';
   }, [pathname]);
+  const syncProjectId = projectId || (
+    showAuth && homeMenuState.isSingleProject && !homeMenuState.showTrash
+      ? homeMenuState.singleProjectId ?? ''
+      : ''
+  );
   const isAreaRoute = useMemo(() => {
     const segments = pathname.split('/').filter(Boolean);
     return segments[0] === 'project' && segments[2] === 'area';
@@ -194,6 +234,152 @@ export default function PersistentTopBar() {
     }
   }, [collaborationAuth.isSignedIn]);
 
+  useEffect(() => {
+    if (!syncProjectId) return;
+    let active = true;
+    setProjectSyncSummary({ pendingCount: 0, conflictCount: 0, lastConflictError: null });
+
+    async function refreshProjectSyncSummary() {
+      try {
+        const [areas, metadata] = await Promise.all([
+          getPendingSharedAreaSyncsForProject(syncProjectId),
+          getPendingSharedProjectMetadataSyncForProject(syncProjectId),
+        ]);
+        if (active) setProjectSyncSummary(summarizePendingSharedSyncs([...areas, ...(metadata ? [metadata] : [])]));
+      } catch (error) {
+        console.info('Project sync status is temporarily unavailable:', error);
+      }
+    }
+
+    void refreshProjectSyncSummary();
+    window.addEventListener(SHARED_SYNC_QUEUE_CHANGED_EVENT, refreshProjectSyncSummary);
+    return () => {
+      active = false;
+      window.removeEventListener(SHARED_SYNC_QUEUE_CHANGED_EVENT, refreshProjectSyncSummary);
+    };
+  }, [syncProjectId]);
+
+  async function handleProjectSync() {
+    if (!syncProjectId || projectSyncingRef.current) return;
+    projectSyncingRef.current = true;
+    setProjectSyncing(true);
+    setHomeMenuOpen(false);
+    setInfoDialog(null);
+    setSyncStatus('syncing');
+    try {
+      const project = await getProject(syncProjectId);
+      if (!project || project.deletedAt) throw new Error('This project is no longer available on this device.');
+
+      if (project.sharedProjectId) {
+        if (!collaborationAuth.isSignedIn || !collaborationAuth.user) {
+          throw new Error('Enable Team Projects before syncing this shared project.');
+        }
+        const result = await syncSharedProject(syncProjectId, collaborationAuth.user.id);
+        if (result.status === 'review') {
+          setPendingProjectPull(result.pull);
+          setSyncStatus('error');
+          return;
+        }
+        if (result.status === 'pending') {
+          setSyncStatus('pending');
+          window.dispatchEvent(new CustomEvent('punchlist-project-synced', { detail: { projectId: syncProjectId } }));
+          setInfoDialog({ title: 'Sync This Project', message: `${project.projectName}: ${result.message}` });
+          return;
+        }
+        clearSharedUpdateAvailable(syncProjectId);
+        setSyncStatus(hasPendingSyncState() ? 'pending' : 'idle');
+        window.dispatchEvent(new CustomEvent('punchlist-project-synced', { detail: { projectId: syncProjectId } }));
+        setInfoDialog({
+          title: 'Sync This Project',
+          message: `${project.projectName}: team changes synced${result.releasedAreaCount ? `; ${result.releasedAreaCount} area${result.releasedAreaCount === 1 ? '' : 's'} released` : ''}.`,
+        });
+        return;
+      }
+
+      const token = await ensureAccessToken({ interactive: true });
+      if (!token) {
+        setSyncStatus('needs-auth');
+        setInfoDialog({ title: 'Sync This Project', message: 'Sign in to Microsoft to sync this personal project.' });
+        return;
+      }
+      const merged = await mergePersonalProjectsFromOneDrive(token, [syncProjectId]);
+      const result = await runManualOneDriveSync({
+        ensureAccessToken: async () => token,
+        projectIds: [syncProjectId],
+        forceProjectIds: merged.forceBackupProjectIds,
+        scope: 'selected',
+      });
+      window.dispatchEvent(new CustomEvent('punchlist-project-synced', { detail: { projectId: syncProjectId } }));
+      if (result.status === 'success') {
+        setSyncConflicts([]);
+        setSyncStatus(hasPendingSyncState() ? 'pending' : 'idle');
+        setInfoDialog({
+          title: 'Sync This Project',
+          message: merged.archivedLocalProjectIds.includes(syncProjectId)
+            ? `${project.projectName}: the newer OneDrive copy shows this project was archived. This device moved it to Trash.`
+            : `${project.projectName}: personal backup saved${merged.updatedLocalProjectIds.includes(syncProjectId) ? '; newer changes from OneDrive added' : ''}.`,
+        });
+      } else {
+        if (result.status === 'conflict') setSyncConflicts(result.conflicts);
+        setSyncStatus(result.status === 'needs-auth' ? 'needs-auth' : result.status === 'error' || result.status === 'conflict' ? 'error' : 'pending');
+        setInfoDialog({
+          title: 'Sync This Project',
+          message: 'message' in result ? result.message : 'Sign in to Microsoft to sync this personal project.',
+        });
+      }
+    } catch (error) {
+      setSyncStatus('error');
+      setInfoDialog({
+        title: 'Sync This Project',
+        message: error instanceof Error ? error.message : 'Could not sync this project. Please try again.',
+      });
+    } finally {
+      projectSyncingRef.current = false;
+      setProjectSyncing(false);
+    }
+  }
+
+  projectSyncHandlerRef.current = handleProjectSync;
+  useEffect(() => {
+    if (!syncProjectId) return;
+    function handleProjectSyncRequest(event: Event) {
+      const requestedProjectId = (event as CustomEvent<{ projectId?: string }>).detail?.projectId;
+      if (requestedProjectId === syncProjectId) void projectSyncHandlerRef.current();
+    }
+    window.addEventListener('punchlist-sync-current-project', handleProjectSyncRequest);
+    return () => window.removeEventListener('punchlist-sync-current-project', handleProjectSyncRequest);
+  }, [syncProjectId]);
+
+  async function confirmProjectPull() {
+    if (!pendingProjectPull || projectSyncingRef.current) return;
+    const pull = pendingProjectPull;
+    setPendingProjectPull(null);
+    projectSyncingRef.current = true;
+    setProjectSyncing(true);
+    setSyncStatus('syncing');
+    try {
+      await captureSharedProjectBackup(pull.localProject, 'before_pull', 'Local data before pulling shared data.');
+      await saveProjectPreserveTimestamps(pull.resolutionProject);
+      await rebaseSharedProjectAreaSyncsAfterPull(pull.resolutionProject, pull.preservedLocalAreaIds);
+      if (pull.preservedLocalProjectMetadata) {
+        await saveAndQueueSharedProjectMetadataSync(pull.resolutionProject);
+      }
+      clearSharedUpdateAvailable(pull.localProject.id);
+      window.dispatchEvent(new CustomEvent('punchlist-project-synced', { detail: { projectId: pull.localProject.id } }));
+      setSyncStatus('pending');
+      setInfoDialog({ title: 'Sync This Project', message: formatPendingSharedPullSuccessMessage(pull) });
+    } catch (error) {
+      setSyncStatus('error');
+      setInfoDialog({
+        title: 'Sync This Project',
+        message: error instanceof Error ? error.message : 'Could not merge team data. Your project remains on this device.',
+      });
+    } finally {
+      projectSyncingRef.current = false;
+      setProjectSyncing(false);
+    }
+  }
+
   const syncButtonClasses = {
     idle: 'text-gray-700 hover:bg-black/[0.04] dark:text-gray-300 dark:hover:bg-white/[0.05]',
     syncing: 'animate-pulse bg-sky-100 text-sky-700 hover:bg-sky-100 dark:bg-sky-400/15 dark:text-sky-200',
@@ -208,13 +394,6 @@ export default function PersistentTopBar() {
     pending: 'Sync personal and team projects, then release your team areas',
     'needs-auth': 'Sign in to sync projects',
     error: 'Project sync needs attention',
-  } as const;
-  const syncButtonShortLabel = {
-    idle: 'Sync Projects',
-    syncing: 'Syncing…',
-    pending: 'Sync Projects',
-    'needs-auth': 'Sync Projects',
-    error: 'Sync Projects',
   } as const;
   const syncButtonIcons = {
     idle: RefreshCw,
@@ -441,17 +620,21 @@ export default function PersistentTopBar() {
   function renderSyncButton() {
     const label = localSaveStatus === 'error'
       ? 'Local save needs attention'
-      : displayRetryInSeconds > 0
+      : displayRetryInSeconds > 0 && !syncProjectId
       ? `Sync team projects now. OneDrive available in ${displayRetryInSeconds} seconds`
-      : syncButtonLabel[displayStatus];
+      : syncProjectId && displayStatus !== 'syncing'
+        ? 'Sync only this project and release its team areas when sent'
+        : syncButtonLabel[displayStatus];
     const shortLabel = localSaveStatus === 'error'
       ? 'Save error'
-      : displayRetryInSeconds > 0
-      ? 'Sync Projects'
-      : syncButtonShortLabel[displayStatus];
+      : projectSyncing || displayStatus === 'syncing'
+        ? 'Syncing…'
+        : syncProjectId
+          ? 'Sync This Project'
+          : 'Sync All Projects';
     const SyncIcon = localSaveStatus === 'error'
       ? Activity
-      : displayRetryInSeconds > 0
+      : displayRetryInSeconds > 0 && !syncProjectId
         ? CloudUpload
         : syncButtonIcons[displayStatus];
     const buttonClasses = homeMenuState.hasTeamUpdates && displayStatus !== 'syncing'
@@ -471,9 +654,10 @@ export default function PersistentTopBar() {
             });
             return;
           }
-          dispatchHomeAction('sync-now');
+          if (syncProjectId && !isAreaRoute) void handleProjectSync();
+          else dispatchHomeAction('sync-now');
         }}
-        disabled={displayStatus === 'syncing' || sharedTransferStatus !== null}
+        disabled={projectSyncing || displayStatus === 'syncing' || sharedTransferStatus !== null}
         className={`${syncMenuRowBaseClass} ${buttonClasses}`}
         aria-label={label}
         title={label}
@@ -485,14 +669,15 @@ export default function PersistentTopBar() {
   }
 
   function renderSharedSyncIndicator() {
-    if (sharedSyncSummary.pendingCount === 0) return null;
+    const summary = syncProjectId ? projectSyncSummary : sharedSyncSummary;
+    if (summary.pendingCount === 0) return null;
 
-    const needsReview = sharedSyncSummary.conflictCount > 0;
+    const needsReview = summary.conflictCount > 0;
     const count = needsReview
-      ? sharedSyncSummary.conflictCount
-      : sharedSyncSummary.pendingCount;
+      ? summary.conflictCount
+      : summary.pendingCount;
     const label = needsReview
-      ? `${count} team update${count === 1 ? '' : 's'} need review.${sharedSyncSummary.lastConflictError ? ` ${sharedSyncSummary.lastConflictError}` : ''}`
+      ? `${count} team update${count === 1 ? '' : 's'} need review.${summary.lastConflictError ? ` ${summary.lastConflictError}` : ''}`
       : `${count} team change${count === 1 ? '' : 's'} waiting to send`;
     const shortLabel = needsReview ? 'Review changes' : `${count} waiting`;
     const SharedSyncIcon = needsReview ? Activity : CloudUpload;
@@ -505,7 +690,8 @@ export default function PersistentTopBar() {
         type="button"
         onClick={() => {
           setHomeMenuOpen(false);
-          dispatchHomeAction('sync-now');
+          if (syncProjectId && !isAreaRoute) void handleProjectSync();
+          else dispatchHomeAction('sync-now');
         }}
         className={`flex h-10 min-w-10 shrink-0 items-center justify-center gap-2 rounded-[1rem] px-2.5 transition ${classes}`}
         aria-live="polite"
@@ -902,6 +1088,16 @@ export default function PersistentTopBar() {
           danger
           onCancel={() => { if (!recoverBusy) setRecoverConfirm(null); }}
           onConfirm={() => void confirmRecoverLock()}
+        />
+      )}
+      {pendingProjectPull && (
+        <AppConfirmDialog
+          title={pendingProjectPull.reason === 'manual-pull' ? 'Pull Shared Data' : 'Review Shared Changes'}
+          message={formatPendingSharedPullMessage(pendingProjectPull)}
+          confirmLabel="Back Up + Merge"
+          danger={pendingProjectPull.hasNewerLocalChanges || pendingProjectPull.reason !== 'manual-pull'}
+          onCancel={() => setPendingProjectPull(null)}
+          onConfirm={() => void confirmProjectPull()}
         />
       )}
       <UserProfileModal open={showProfile} onClose={() => setShowProfile(false)} onSignOut={() => {

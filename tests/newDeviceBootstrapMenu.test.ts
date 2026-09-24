@@ -14,7 +14,8 @@ describe('new device project restoration menu', () => {
 
   it('offers one sync action for personal and team projects', () => {
     expect(persistentTopBar).toContain("dispatchHomeAction('sync-now')");
-    expect(persistentTopBar).toContain('Sync Projects');
+    expect(persistentTopBar).toContain('Sync All Projects');
+    expect(persistentTopBar).toContain('Sync This Project');
     expect(persistentTopBar).not.toContain("dispatchHomeAction('restore-onedrive-backup')");
     expect(persistentTopBar).not.toContain("dispatchHomeAction('publish-shared-project')");
     expect(persistentTopBar).not.toContain("dispatchHomeAction('pull-shared-project')");
@@ -36,7 +37,7 @@ describe('new device project restoration menu', () => {
   });
 
   it('does not add a redundant All Projects section on project routes', () => {
-    expect(persistentTopBar).not.toContain('All Projects');
+    expect(persistentTopBar).not.toContain('>All Projects<');
     expect(persistentTopBar).not.toContain('(showAuth || projectId)');
   });
 });

@@ -1642,7 +1642,7 @@ export async function backupProjectsToOneDrive(
  * next backup. Shared projects stay under the team server's versioned sync.
  * Neither side's project is deleted by this operation.
  */
-export async function mergePersonalProjectsFromOneDrive(token: string): Promise<{
+export async function mergePersonalProjectsFromOneDrive(token: string, projectIds?: string[]): Promise<{
   updatedLocalProjectIds: string[];
   archivedLocalProjectIds: string[];
   forceBackupProjectIds: string[];
@@ -1654,7 +1654,10 @@ export async function mergePersonalProjectsFromOneDrive(token: string): Promise<
       getAllProjects(),
       listProjectFiles(token),
     ]);
-    const localById = new Map(localProjects.map((project) => [project.id, project]));
+    const requestedIds = projectIds ? new Set(projectIds) : null;
+    const localById = new Map(localProjects
+      .filter((project) => !requestedIds || requestedIds.has(project.id))
+      .map((project) => [project.id, project]));
     const remoteFilesById = buildRemoteProjectFileIndex(
       remoteFiles.filter((entry) => !isRemoteProjectFileInTrash(entry))
     );

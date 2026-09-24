@@ -227,6 +227,32 @@ describe('OneDrive and team project identity', () => {
     expect((await getProject(localCopy.id))?.deletedAt).toEqual(remoteCopy.deletedAt);
   });
 
+  it('does not merge another personal project during a selected-project sync', async () => {
+    const selected = createProject('Selected site');
+    const other = createProject('Other site');
+    selected.updatedAt = new Date('2025-01-01');
+    other.updatedAt = new Date('2025-01-01');
+    await saveProjectPreserveTimestamps(selected);
+    await saveProjectPreserveTimestamps(other);
+    const deletedAt = new Date('2026-09-23');
+    listProjectFilesMock.mockResolvedValue([selected, other].map((project) => ({
+      id: `trash-${project.id}`,
+      name: `${project.projectName.replace(/ /g, '-')}_${project.id}.json`,
+      punchlistPath: `PunchList/Trash Bin/${project.projectName}/${project.id}.json`,
+    })));
+    downloadProjectFileMock.mockImplementation(async (_token: string, remoteId: string) => {
+      const project = remoteId === `trash-${selected.id}` ? selected : other;
+      return serializeProjectPayload({ ...project, updatedAt: deletedAt, deletedAt });
+    });
+
+    const result = await mergePersonalProjectsFromOneDrive('test-token', [selected.id]);
+
+    expect(result.archivedLocalProjectIds).toEqual([selected.id]);
+    expect((await getProject(selected.id))?.deletedAt).toEqual(deletedAt);
+    expect((await getProject(other.id))?.deletedAt).toBeUndefined();
+    expect(downloadProjectFileMock).toHaveBeenCalledTimes(1);
+  });
+
   it('keeps personal edits made after a remote copy was archived', async () => {
     const localCopy = createProject('Personal site');
     localCopy.updatedAt = new Date('2026-09-24');

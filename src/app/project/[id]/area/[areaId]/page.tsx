@@ -368,6 +368,16 @@ export default function AreaDetailPage() {
   }, [id, areaId, router]);
 
   useEffect(() => {
+    function handleProjectSynced(event: Event) {
+      if ((event as CustomEvent<{ projectId?: string }>).detail?.projectId === id) {
+        void loadDataRef.current();
+      }
+    }
+    window.addEventListener('punchlist-project-synced', handleProjectSynced);
+    return () => window.removeEventListener('punchlist-project-synced', handleProjectSynced);
+  }, [id]);
+
+  useEffect(() => {
     return () => {
       if (notesTimerRef.current) {
         clearTimeout(notesTimerRef.current);
@@ -1577,9 +1587,20 @@ export default function AreaDetailPage() {
     if (!detail) return;
 
     if (detail.action === 'sync-now') {
-      void closeExpandedCheckpoint()
-        .then(() => router.push('/?sync=1'))
-        .catch((error) => setSyncError(error instanceof Error ? error.message : 'Save this area before syncing projects.'));
+      void (async () => {
+        await closeExpandedCheckpoint();
+        if (pendingNotesRef.current.size > 0) {
+          throw new Error('A note is still saving. Wait for it to finish before syncing.');
+        }
+        if (notesTimerRef.current) {
+          clearTimeout(notesTimerRef.current);
+          notesTimerRef.current = null;
+        }
+        if (notesDraftRef.current !== (area?.notes ?? '')) {
+          await persistGeneralNotes(notesDraftRef.current);
+        }
+        window.dispatchEvent(new CustomEvent('punchlist-sync-current-project', { detail: { projectId: id } }));
+      })().catch((error) => setSyncError(error instanceof Error ? error.message : 'Save this area before syncing.'));
     }
   };
 

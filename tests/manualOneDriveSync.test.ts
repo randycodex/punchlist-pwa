@@ -78,6 +78,63 @@ describe('manual OneDrive backup coordinator', () => {
     expect(backupProjects).toHaveBeenCalledWith('token', ['project-1'], ['project-1']);
   });
 
+  it('syncs only the selected project while another project and a full sync remain queued', async () => {
+    queuePendingSync('project-1');
+    queuePendingSync('project-2', { fullSync: true });
+    const backupProjects = vi.fn(async () => ({
+      conflicts: [],
+      backedUpProjectIds: ['project-1'],
+      syncedAt: '2026-01-01T12:00:00.000Z',
+    }));
+
+    const result = await runManualOneDriveSync({
+      ensureAccessToken: async () => 'token',
+      projectIds: ['project-1'],
+      scope: 'selected',
+      backupProjects,
+    });
+
+    expect(result.status).toBe('success');
+    expect(backupProjects).toHaveBeenCalledWith('token', ['project-1']);
+    expect(loadPendingSyncState()).toMatchObject({ projectIds: ['project-2'], fullSyncNeeded: true });
+  });
+
+  it('keeps a selected project queued for review without taking another project into the backup', async () => {
+    queuePendingSync('project-2');
+    const backupProjects = vi.fn(async () => ({
+      conflicts: [{ id: 'project-1', name: 'Project 1' }],
+      backedUpProjectIds: [],
+      syncedAt: '2026-01-01T12:00:00.000Z',
+    }));
+
+    const result = await runManualOneDriveSync({
+      ensureAccessToken: async () => 'token',
+      projectIds: ['project-1'],
+      scope: 'selected',
+      backupProjects,
+    });
+
+    expect(backupProjects).toHaveBeenCalledWith('token', ['project-1']);
+    expect(result).toMatchObject({ status: 'conflict', message: expect.stringContaining('Tap Sync This Project again') });
+    expect(loadPendingSyncState().projectIds).toEqual(['project-2', 'project-1']);
+  });
+
+  it('keeps a selected project queued if it changes again during its backup', async () => {
+    queuePendingSync('project-1');
+    const result = await runManualOneDriveSync({
+      ensureAccessToken: async () => 'token',
+      projectIds: ['project-1'],
+      scope: 'selected',
+      backupProjects: async () => {
+        queuePendingSync('project-1');
+        return { conflicts: [], backedUpProjectIds: ['project-1'], syncedAt: '2026-01-01T12:00:00.000Z' };
+      },
+    });
+
+    expect(result.status).toBe('success');
+    expect(loadPendingSyncState().projectIds).toEqual(['project-1']);
+  });
+
   it('keeps local work pending when OneDrive has a newer backup', async () => {
     queuePendingSync('project-1');
     const result = await runManualOneDriveSync({

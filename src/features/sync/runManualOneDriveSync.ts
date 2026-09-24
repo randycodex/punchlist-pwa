@@ -1,4 +1,5 @@
 import {
+  clearPendingProjectSync,
   clearPendingSyncState,
   hasPendingSyncState,
   loadPendingSyncState,
@@ -35,11 +36,11 @@ export type ManualOneDriveRestoreResult =
   | { status: 'retry'; message: string; retryAfterMs: number }
   | { status: 'error'; message: string };
 
-function formatBackupConflictReviewMessage(conflicts: SyncConflict[]) {
+function formatBackupConflictReviewMessage(conflicts: SyncConflict[], actionLabel = 'Sync Projects') {
   if (conflicts.length === 1) {
-    return `OneDrive changed while syncing ${conflicts[0].name}. Your work is safe on this device. Tap Sync Projects again to get the latest backup.`;
+    return `OneDrive changed while syncing ${conflicts[0].name}. Your work is safe on this device. Tap ${actionLabel} again to get the latest backup.`;
   }
-  return `OneDrive changed while syncing ${conflicts.length} projects. Your work is safe on this device. Tap Sync Projects again to get the latest backups.`;
+  return `OneDrive changed while syncing ${conflicts.length} projects. Your work is safe on this device. Tap ${actionLabel} again to get the latest backups.`;
 }
 
 export async function runManualOneDriveSync(options: {
@@ -47,8 +48,20 @@ export async function runManualOneDriveSync(options: {
   projectIds?: string[];
   forceProjectIds?: string[];
   backupProjects?: typeof backupProjectsToOneDrive;
+  scope?: 'all' | 'selected';
 }): Promise<ManualOneDriveSyncResult> {
-  resumePendingSyncAutoRetry();
+  const selectedProjectIds = options.scope === 'selected' ? [...new Set(options.projectIds ?? [])] : null;
+  if (selectedProjectIds && selectedProjectIds.length === 0) {
+    return { status: 'error', message: 'Choose a project to sync.' };
+  }
+  if (!selectedProjectIds) resumePendingSyncAutoRetry();
+
+  const queueSelectedProjects = () => {
+    selectedProjectIds?.forEach((projectId) => queuePendingSync(projectId));
+  };
+  const actionLabel = selectedProjectIds ? 'Sync This Project' : 'Sync Projects';
+  const manualRetryMessage = (seconds?: number) =>
+    formatMicrosoftManualRetryMessage(seconds).replace('Sync Projects', actionLabel);
 
   try {
     const token = await options.ensureAccessToken();
@@ -57,9 +70,9 @@ export async function runManualOneDriveSync(options: {
     }
 
     const pendingSyncState = loadPendingSyncState();
-    const requestedProjectIds = pendingSyncState.fullSyncNeeded
+    const requestedProjectIds = selectedProjectIds ?? (pendingSyncState.fullSyncNeeded
       ? undefined
-      : [...new Set([...pendingSyncState.projectIds, ...(options.projectIds ?? [])])];
+      : [...new Set([...pendingSyncState.projectIds, ...(options.projectIds ?? [])])]);
     const backupProjects = options.backupProjects ?? backupProjectsToOneDrive;
     let result;
     try {
@@ -74,33 +87,40 @@ export async function runManualOneDriveSync(options: {
     }
 
     if (result.conflicts.length > 0) {
-      if (!hasPendingSyncState()) queuePendingSync(undefined, { fullSync: true });
-      pausePendingSyncAutoRetry();
+      if (selectedProjectIds) queueSelectedProjects();
+      else {
+        if (!hasPendingSyncState()) queuePendingSync(undefined, { fullSync: true });
+        pausePendingSyncAutoRetry();
+      }
       return {
         status: 'conflict',
         conflicts: result.conflicts,
         backedUpProjectIds: result.backedUpProjectIds,
         message: [
-          formatBackupConflictReviewMessage(result.conflicts),
+          formatBackupConflictReviewMessage(result.conflicts, actionLabel),
           ...(result.failedProjects ?? []).map((project) => `${project.name}: ${project.message}`),
         ].join('\n'),
       };
     }
 
     if (result.failedProjects?.length) {
-      if (!hasPendingSyncState()) queuePendingSync(undefined, { fullSync: true });
-      pausePendingSyncAutoRetry();
+      if (selectedProjectIds) queueSelectedProjects();
+      else {
+        if (!hasPendingSyncState()) queuePendingSync(undefined, { fullSync: true });
+        pausePendingSyncAutoRetry();
+      }
       return {
         status: 'partial',
         backedUpProjectIds: result.backedUpProjectIds,
         message: [
           ...(result.failedProjects ?? []).map((project) => `${project.name}: ${project.message}`),
-          'These personal backups stayed queued. Tap Sync Projects again to retry them.',
+          `These personal backups stayed queued. Tap ${actionLabel} again to retry them.`,
         ].join('\n'),
       };
     }
 
-    clearPendingSyncState(pendingSyncState.revision);
+    if (selectedProjectIds) clearPendingProjectSync(selectedProjectIds, pendingSyncState.revision);
+    else clearPendingSyncState(pendingSyncState.revision);
     return {
       status: 'success',
       syncedAt: result.syncedAt,
@@ -113,28 +133,31 @@ export async function runManualOneDriveSync(options: {
     const retryDelayMs = getMicrosoftRetryDelayMs(error);
 
     if (retryDelayMs) {
-      if (!hasQueuedSync) {
+      if (selectedProjectIds) queueSelectedProjects();
+      else if (!hasQueuedSync) {
         queuePendingSync(undefined, { fullSync: true });
       }
-      pausePendingSyncAutoRetry();
+      if (!selectedProjectIds) pausePendingSyncAutoRetry();
       return {
         status: 'retry',
-        message: formatMicrosoftManualRetryMessage(Math.ceil(retryDelayMs / 1000)),
+        message: manualRetryMessage(Math.ceil(retryDelayMs / 1000)),
       };
     }
 
     const message = getMicrosoftErrorMessage(error, 'OneDrive backup failed.');
     if (message.startsWith('Saved locally.')) {
-      if (!hasQueuedSync) {
+      if (selectedProjectIds) queueSelectedProjects();
+      else if (!hasQueuedSync) {
         queuePendingSync(undefined, { fullSync: true });
       }
-      pausePendingSyncAutoRetry();
+      if (!selectedProjectIds) pausePendingSyncAutoRetry();
       return {
         status: 'retry',
-        message: formatMicrosoftManualRetryMessage(),
+        message: manualRetryMessage(),
       };
     }
 
+    if (selectedProjectIds) queueSelectedProjects();
     return { status: 'error', message };
   }
 }

@@ -287,6 +287,16 @@ export default function ProjectDetailPage() {
   }, [id, router]);
 
   useEffect(() => {
+    function handleProjectSynced(event: Event) {
+      if ((event as CustomEvent<{ projectId?: string }>).detail?.projectId === id) {
+        void loadProjectRef.current();
+      }
+    }
+    window.addEventListener('punchlist-project-synced', handleProjectSynced);
+    return () => window.removeEventListener('punchlist-project-synced', handleProjectSynced);
+  }, [id]);
+
+  useEffect(() => {
     if (!collaborationAuth.isSignedIn) return;
     if (loading) return;
     void loadProjectRef.current();
@@ -1375,7 +1385,7 @@ export default function ProjectDetailPage() {
     }
 
     if (detail.action === 'sync-now') {
-      router.push('/?sync=1');
+      window.dispatchEvent(new CustomEvent('punchlist-sync-current-project', { detail: { projectId: project.id } }));
       return;
     }
 

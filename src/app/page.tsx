@@ -60,6 +60,7 @@ import {
 } from '@/features/collaboration/detachedSharedProject';
 import { findPreferredLocalSharedProject, getInactiveLocalSharedProjects, getSharedProjectDirectoryLocalStatus } from '@/features/collaboration/sharedProjectDirectoryLocal';
 import { ProjectCard, type ProjectCardMetrics as ProjectMetrics } from '@/features/projects/ProjectCard';
+import { syncSharedProject } from '@/features/sync/syncSharedProject';
 import { compareProjectCopies, isLikelyPersonalProjectCopy } from '@/features/projects/compareProjectCopies';
 import { areasChangedSinceTeamCopy, areasWithMissingMedia, mergeDuplicatePersonalProjects, mergeDuplicateTeamProjects, projectCheckpointCount } from '@/features/projects/mergeDuplicateTeamProjects';
 import { HomeAreaCard,
@@ -87,7 +88,6 @@ import {
   createSharedProjectFromLocalProject,
   captureSharedProjectBackup,
   claimSharedProjectArea,
-  releaseAllMySharedProjectAreaClaims,
   disconnectSharedProject,
   generateSharedProjectJoinCode,
   getActiveSharedProjectAreaClaimSummaries,
@@ -536,6 +536,14 @@ export default function ProjectsPage() {
     }
   }
 
+  useEffect(() => {
+    function handleProjectSynced() {
+      void loadProjectsRef.current();
+    }
+    window.addEventListener('punchlist-project-synced', handleProjectSynced);
+    return () => window.removeEventListener('punchlist-project-synced', handleProjectSynced);
+  }, []);
+
   async function handleSync() {
     if (syncing) return;
     setSyncing(true);
@@ -586,56 +594,19 @@ export default function ProjectsPage() {
               }
               const project = copies[0];
               if (!project) continue;
-              const fullProject = await getProject(project.id);
-              if (!fullProject) continue;
-              const metadata = await getSharedProjectSnapshotMetadata(entry.projectId);
-              if (metadata && isSharedSnapshotNewer(fullProject, metadata.publishedAt)) {
-                const pull = await getPendingSharedPullState(fullProject, 'manual-pull');
-                const pendingAreas = await getPendingSharedAreaSyncsForProject(fullProject.id);
-                if (pendingAreas.length > 0 || pull.hasNewerLocalChanges || pull.preservedLocalAreaCount > 0 || pull.preservedLocalProjectMetadata) {
-                  if (!pendingPullCandidate) pendingPullCandidate = pull;
-                  problems.push(`${entry.projectName} needs review before sending or releasing areas`);
-                  continue;
-                }
-                await saveProjectPreserveTimestamps(pull.resolutionProject);
-                clearSharedUpdateAvailable(fullProject.id);
-                cacheProjectPreview(pull.resolutionProject);
-                setProjects((prev) => prev.map((candidate) =>
-                  candidate.id === fullProject.id ? pull.resolutionProject : candidate
-                ));
-              }
-
-              const currentProject = await getProject(project.id);
-              if (!currentProject) continue;
-              if (!currentProject.sharedSnapshotPublishedAt) {
-                if (!collaborationAuth.user) throw new Error(TEAM_PROJECTS_SIGNIN_HINT);
-                await publishSharedProjectSnapshot(currentProject, collaborationAuth.user.id);
-                await saveProjectMetadataOnly(currentProject, { touch: false });
-              } else {
-                const pushed = await pushQueuedSharedChanges(project.id);
-                if (pushed.remainingAreaCount > 0 || pushed.metadataRemaining) {
-                  if (pushed.conflictedAreaCount > 0 || pushed.metadataConflicted) {
-                    if (!pendingPullCandidate) pendingPullCandidate = await getPendingSharedPullState(currentProject, 'publish-conflict');
-                    problems.push(`${entry.projectName} needs review before sending or releasing areas`);
-                    continue;
-                  }
-                  problems.push(`${entry.projectName} still has team changes waiting to send`);
-                  continue;
-                }
-              }
-              const verifiedProject = await getProject(project.id);
-              const latestMetadata = await getSharedProjectSnapshotMetadata(entry.projectId);
-              if (verifiedProject && latestMetadata && isSharedSnapshotNewer(verifiedProject, latestMetadata.publishedAt)) {
-                markSharedUpdateAvailable(project.id);
-                problems.push(`${entry.projectName} received a newer team update; areas stayed locked. Sync again to review it`);
+              if (!collaborationAuth.user) throw new Error(TEAM_PROJECTS_SIGNIN_HINT);
+              const result = await syncSharedProject(project.id, collaborationAuth.user.id, { localCopiesAlreadyChecked: true });
+              if (result.status === 'review') {
+                if (!pendingPullCandidate) pendingPullCandidate = result.pull;
+                problems.push(`${entry.projectName} needs review before sending or releasing areas`);
                 continue;
               }
-              if (verifiedProject && latestMetadata && hasNewerLocalChangesThanSharedSnapshot(verifiedProject, latestMetadata.publishedAt)) {
-                problems.push(`${entry.projectName} still has local changes to send; areas stayed locked`);
+              if (result.status === 'pending') {
+                problems.push(`${entry.projectName}: ${result.message}`);
                 continue;
               }
-              const released = await releaseAllMySharedProjectAreaClaims(entry.projectId);
-              if (released.releasedCount > 0 && singleProject?.id === project.id) {
+              clearSharedUpdateAvailable(project.id);
+              if (result.releasedAreaCount > 0 && singleProject?.id === project.id) {
                 setSharedAreaClaims((current) => {
                   const next = new Map(current);
                   for (const [areaId, claim] of next) {
@@ -644,7 +615,7 @@ export default function ProjectsPage() {
                   return next;
                 });
               }
-              completed.push(`${entry.projectName}: team changes synced${released.releasedCount ? `; ${released.releasedCount} area${released.releasedCount === 1 ? '' : 's'} released` : ''}`);
+              completed.push(`${entry.projectName}: team changes synced${result.releasedAreaCount ? `; ${result.releasedAreaCount} area${result.releasedAreaCount === 1 ? '' : 's'} released` : ''}`);
             } catch (error) {
               console.error(`Team sync failed for ${entry.projectName}:`, error);
               problems.push(`${entry.projectName}: ${getCollaborationErrorMessage(error, 'Team sync failed. Please try again.')}`);
@@ -2798,6 +2769,7 @@ export default function ProjectsPage() {
           hasAreaGroups: !!singleProject && (hasRepeatedAreaGroups(visibleAreas) || hasFloorGroupedAreas(visibleAreas) || hasProjectFloorLevels(singleProject)),
           showOnlyAreaIssues,
           isSingleProject: !!singleProject,
+          singleProjectId: singleProject?.id,
           singleProjectName: singleProject?.projectName ?? '',
           selectionMode: deleteMode,
           isSharedProject: !!singleProject?.sharedProjectId,

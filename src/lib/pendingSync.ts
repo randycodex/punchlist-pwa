@@ -174,9 +174,10 @@ export function clearPendingSyncState(expectedRevision?: number) {
   return true;
 }
 
-export function clearPendingProjectSync(projectIds: string[]) {
-  if (projectIds.length === 0) return;
+export function clearPendingProjectSync(projectIds: string[], expectedRevision?: number) {
+  if (projectIds.length === 0) return false;
   const state = loadPendingSyncState();
+  if (expectedRevision !== undefined && state.revision !== expectedRevision) return false;
   const completedIds = new Set(projectIds);
   persistPendingSyncState({
     projectIds: state.projectIds.filter((projectId) => !completedIds.has(projectId)),
@@ -186,6 +187,7 @@ export function clearPendingProjectSync(projectIds: string[]) {
     retryNotBefore: state.retryNotBefore,
     autoRetryPaused: state.autoRetryPaused,
   });
+  return true;
 }
 
 export function isPendingSyncAutoRetryPaused() {
