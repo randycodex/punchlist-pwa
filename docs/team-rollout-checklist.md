@@ -18,3 +18,9 @@ Before step 4, apply `20260923200000_owner_area_lock_recovery.sql` to the **test
 10. Restart the app after a saved note/photo, after a sync, and while offline. Verify the work and project list still load; if a recovery screen appears, copy its reference and error details.
 
 Do not treat passing local unit tests or a single browser as a four-person pass. Record the outcome of each step before using this branch with the larger team.
+
+## Local browser check — 2026-09-23
+
+On the test branch's production build in an isolated Chromium session at 390 × 844 pixels, a local-only project with Floors 1–3 showed an empty Roof above Floor 3. A unit numbered 3Z and a non-unit corridor assigned to “3rd Floor” both appeared when searching that floor. The page and menu had no horizontal overflow. After a reload, both areas and the floor grouping remained.
+
+With that production build's service worker controlling the page, the browser was put offline. The project and unit opened, and a general note saved offline remained after reloading the area while still offline. This checks local browser storage and offline navigation only. It does not verify a physical phone, photo capture, team delivery, lock recovery, or conflict merging.
