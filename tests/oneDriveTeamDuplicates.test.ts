@@ -11,8 +11,10 @@ import {
 } from '@/lib/db';
 import { serializeProjectPayload } from '@/lib/projectPayload';
 
-const { listProjectFilesMock, downloadProjectFileMock, uploadProjectFileMock, uploadProjectPhotoFileMock, deleteDriveItemMock } = vi.hoisted(() => ({
+const { listProjectFilesMock, listPhotoProjectFoldersMock, listProjectPhotoFilesMock, downloadProjectFileMock, uploadProjectFileMock, uploadProjectPhotoFileMock, deleteDriveItemMock } = vi.hoisted(() => ({
   listProjectFilesMock: vi.fn(),
+  listPhotoProjectFoldersMock: vi.fn(),
+  listProjectPhotoFilesMock: vi.fn(),
   downloadProjectFileMock: vi.fn(),
   uploadProjectFileMock: vi.fn(),
   uploadProjectPhotoFileMock: vi.fn(),
@@ -25,7 +27,8 @@ vi.mock('@/lib/oneDrive', async (importOriginal) => ({
   ensurePunchListFolders: async () => {},
   listProjectFiles: listProjectFilesMock,
   downloadProjectFile: downloadProjectFileMock,
-  listPhotoProjectFolders: async () => [],
+  listPhotoProjectFolders: listPhotoProjectFoldersMock,
+  listProjectPhotoFiles: listProjectPhotoFilesMock,
   uploadProjectFile: uploadProjectFileMock,
   uploadProjectPhotoFile: uploadProjectPhotoFileMock,
   deleteDriveItem: deleteDriveItemMock,
@@ -36,6 +39,8 @@ import { backupProjectsToOneDrive, mergePersonalProjectsFromOneDrive, restoreMis
 describe('OneDrive and team project identity', () => {
   beforeEach(() => {
     listProjectFilesMock.mockReset().mockResolvedValue([]);
+    listPhotoProjectFoldersMock.mockReset().mockResolvedValue([]);
+    listProjectPhotoFilesMock.mockReset().mockResolvedValue([]);
     downloadProjectFileMock.mockReset();
     uploadProjectFileMock.mockReset();
     uploadProjectPhotoFileMock.mockReset().mockResolvedValue(undefined);
@@ -92,6 +97,11 @@ describe('OneDrive and team project identity', () => {
     project.areas.push(area);
     await saveProjectPreserveTimestamps(project);
     uploadProjectFileMock.mockResolvedValue({ id: 'project-upload' });
+    listPhotoProjectFoldersMock.mockResolvedValue([{ id: 'photo-folder', name: 'Photo-project' }]);
+    listProjectPhotoFilesMock.mockResolvedValue([{
+      id: 'remote-photo',
+      name: `older_photo_name_001_${checkpoint.photos[0].id}.jpg`,
+    }]);
 
     const mediaPut = vi.spyOn(IDBObjectStore.prototype, 'put');
     const result = await backupProjectsToOneDrive('test-token', [project.id]);
@@ -106,6 +116,7 @@ describe('OneDrive and team project identity', () => {
     expect(stored?.areas[0].locations[0].items[0].checkpoints[0].photos[0].imageData).toBe(imageData);
     expect(stored?.oneDriveFolderName).toBeTruthy();
     expect(mediaWrites).toHaveLength(0);
+    expect(uploadProjectPhotoFileMock).not.toHaveBeenCalled();
   });
 
   it('finishes another personal backup when one project upload fails', async () => {
