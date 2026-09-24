@@ -107,7 +107,6 @@ import {
   ChevronsUp,
   MoreVertical,
   Trash2,
-  UnlockKeyhole,
 } from 'lucide-react';
 
 const RECENT_COMMENTS_STORAGE_KEY = 'punchlist-recent-comments';
@@ -2114,20 +2113,6 @@ export default function AreaDetailPage() {
               {showHeaderMenu && (
                 <div className="menu-surface absolute right-0 top-[calc(100%+0.6rem)] z-40 w-[14rem] rounded-[1.5rem] p-2">
                   <div className="space-y-1">
-                    {canReleaseAreaClaim && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setShowHeaderMenu(false);
-                          void handleReleaseAreaClaim();
-                        }}
-                        disabled={releasingAreaClaim}
-                        className="flex w-full items-center gap-3 rounded-[1rem] px-3 py-2.5 text-left text-[0.98rem] text-gray-700 transition hover:bg-black/[0.04] disabled:opacity-50 dark:text-gray-200 dark:hover:bg-white/[0.06]"
-                      >
-                        <UnlockKeyhole className={`h-4 w-4 ${releasingAreaClaim ? 'animate-pulse' : ''}`} />
-                        {releasingAreaClaim ? 'Releasing lock…' : 'Release lock'}
-                      </button>
-                    )}
                     <button
                       onClick={() => {
                         setShowHeaderMenu(false);
