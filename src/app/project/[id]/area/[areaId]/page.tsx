@@ -100,7 +100,7 @@ import FacadeElevationViewer, {
 import InspectionLocationCard from '@/components/inspection/InspectionLocationCard';
 import CaptureRecovery from '@/features/inspection/CaptureRecoveryPanel';
 import { saveRecoverableNote, saveRecoverablePhotos } from '@/features/inspection/captureRecovery';
-import { readInspectionPosition, rememberInspectionPosition, nextInspectionPosition, type InspectionPosition } from '@/features/inspection/inspectionPosition';
+import { nextInspectionPosition, type InspectionPosition } from '@/features/inspection/inspectionPosition';
 import {
   ArrowLeft,
   ChevronsDown,
@@ -162,7 +162,6 @@ export default function AreaDetailPage() {
   const [bulkExpansionMode, setBulkExpansionMode] = useState<'collapsed' | 'expanded'>('collapsed');
   const [generalNotesExpanded, setGeneralNotesExpanded] = useState(false);
   const [showToInspect, setShowToInspect] = useState(false);
-  const resumeAppliedRef = useRef(false);
   const [expandedCheckpoint, setExpandedCheckpoint] = useState<{
     locationId: string;
     itemId: string;
@@ -640,20 +639,6 @@ export default function AreaDetailPage() {
             scheduleSync(nextProject.id);
           }
           setArea(areaData);
-          if (!resumeAppliedRef.current) {
-            const position = readInspectionPosition(id);
-            const location = areaData.locations.find((entry) => entry.id === position?.locationId);
-            if (position?.areaId === areaData.id && location) {
-              setExpandedLocations(new Set([location.id]));
-              if (location.items.some((entry) => entry.id === position.itemId)) {
-                setExpandedItems(new Set([position.itemId!]));
-                scrollTargetToListAnchor(() => itemRefs.current.get(position.itemId!));
-              } else {
-                scrollTargetToListAnchor(() => locationRefs.current.get(location.id));
-              }
-            }
-            resumeAppliedRef.current = true;
-          }
         } else {
           router.push(`/project/${id}`);
         }
@@ -1981,11 +1966,6 @@ export default function AreaDetailPage() {
     ?? area?.locations.find((location) => location.id === [...expandedLocations].at(-1));
   const activeItem = activeLocation?.items.find((item) => item.id === expandedCheckpoint?.itemId)
     ?? activeLocation?.items.find((item) => item.id === [...expandedItems].at(-1));
-
-  useEffect(() => {
-    if (!area || !activeLocation || !resumeAppliedRef.current) return;
-    rememberInspectionPosition(id, { areaId: area.id, locationId: activeLocation.id, itemId: activeItem?.id, checkpointId: expandedCheckpoint?.checkpointId });
-  }, [id, area, activeLocation, activeItem, expandedCheckpoint]);
 
   async function advanceInspection(step: 'item' | 'room') {
     if (!area) return;
