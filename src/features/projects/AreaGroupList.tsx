@@ -11,7 +11,7 @@ type AreaGroupListProps = {
   unitFloorNumbering?: UnitFloorNumbering;
   projectLevelRange?: Pick<Project, 'facadeLevelStart' | 'facadeLevelEnd'> | null;
   areas: Area[];
-  renderArea: (area: Area) => ReactNode;
+  renderArea: (area: Area, nested?: boolean) => ReactNode;
   selectedAreaIds?: ReadonlySet<string>;
   onSelectAreas?: (areaIds: string[], selected: boolean) => void;
 };
@@ -143,22 +143,22 @@ export default function AreaGroupList({ areas, renderArea, unitFloorNumbering, p
             {!isCollapsed && (
               <div id={contentId} className="list-stack mt-2">
                 {group.key === 'units' ? groupAreasByFloor(groupedAreas, unitFloorNumbering, projectLevelRange).map(({ floor, areas: floorAreas }) => (
-                  <details key={floor ?? '__unknown'} className="group/floor space-y-2">
-                    <summary className="soft-control flex w-full cursor-pointer list-none items-center justify-between rounded-[1.2rem] px-4 py-3 text-left text-sm font-semibold text-gray-600 transition hover:bg-white dark:text-gray-300 dark:hover:bg-white/[0.08] [&::-webkit-details-marker]:hidden">
-                      <span>{floor === null ? 'Floor not set' : floor === 'Roof' ? 'Roof' : `Floor ${floor}`}</span>
-                      <span className="flex items-center gap-2 text-xs font-normal text-gray-400">
+                  <details key={floor ?? '__unknown'} className="group/floor inspection-location-surface overflow-hidden rounded-[1.7rem]">
+                    <summary className="flex min-h-16 w-full cursor-pointer list-none items-center justify-between gap-4 px-4 py-4 text-left transition hover:bg-black/[0.02] dark:hover:bg-white/[0.04] [&::-webkit-details-marker]:hidden">
+                      <span className="text-[1.02rem] font-semibold tracking-[-0.02em] text-gray-900 dark:text-white">{floor === null ? 'Floor not set' : floor === 'Roof' ? 'Roof' : `Floor ${floor}`}</span>
+                      <span className="flex shrink-0 items-center gap-2 text-xs font-medium text-gray-500 dark:text-gray-400">
                         {floorAreas.length} {floorAreas.length === 1 ? 'area' : 'areas'}
                         <ChevronRight aria-hidden="true" className="h-4 w-4 group-open/floor:hidden" />
                         <ChevronDown aria-hidden="true" className="hidden h-4 w-4 group-open/floor:block" />
                       </span>
                     </summary>
-                    <div className="list-stack">
-                      {floorAreas.length > 0 ? floorAreas.map(renderArea) : (
-                        <p className="px-4 py-2 text-sm text-gray-500 dark:text-gray-400">No areas yet</p>
+                    <div className="list-stack px-3 pb-3">
+                      {floorAreas.length > 0 ? floorAreas.map((area) => renderArea(area, true)) : (
+                        <p className="px-2 py-2 text-sm text-gray-500 dark:text-gray-400">No areas yet</p>
                       )}
                     </div>
                   </details>
-                )) : groupedAreas.map(renderArea)}
+                )) : groupedAreas.map((area) => renderArea(area))}
               </div>
             )}
           </section>
@@ -169,7 +169,7 @@ export default function AreaGroupList({ areas, renderArea, unitFloorNumbering, p
           <div className="h-px w-full bg-black/10 dark:bg-white/10" />
         </div>
       )}
-      {ungroupedAreas.map(renderArea)}
+      {ungroupedAreas.map((area) => renderArea(area))}
     </div>
   );
 }

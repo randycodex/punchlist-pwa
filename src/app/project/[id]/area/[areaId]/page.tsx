@@ -2267,7 +2267,7 @@ export default function AreaDetailPage() {
       {/* Inspection Items */}
       <main
         ref={listRef}
-        className="flex-1 min-h-0 overflow-y-scroll overscroll-y-contain touch-pan-y px-4 pt-4 pb-[calc(env(safe-area-inset-bottom)+3.5rem)] sm:px-5"
+        className="flex-1 min-h-0 overflow-y-scroll overscroll-y-contain touch-pan-y px-4 pt-4 pb-[calc(env(safe-area-inset-bottom)+6rem)] sm:px-5"
       >
         <CaptureRecovery projectId={project.id} area={area} canEdit={!areaEditingLocked} beforeRestore={closeExpandedCheckpoint} onRestored={async () => {
           const restored = await getProjectForArea(project.id, area.id);
@@ -2663,7 +2663,7 @@ export default function AreaDetailPage() {
           <div className="mt-auto pt-1" />
         </div>
       </main>
-      <nav aria-label="Continue inspection" className="shrink-0 border-t border-black/5 bg-[var(--background)] px-4 pb-[calc(env(safe-area-inset-bottom)+0.5rem)] pt-2 dark:border-white/10">
+      <nav aria-label="Continue inspection" className="area-bottom-nav fixed inset-x-0 bottom-0 z-20 border-t border-black/5 bg-[var(--background)] px-4 pb-[calc(env(safe-area-inset-bottom)+0.25rem)] pt-2 dark:border-white/10">
         <div className="mx-auto flex max-w-6xl gap-2">
           <button type="button" className="min-h-12 flex-1 rounded-xl soft-control px-3 text-sm font-semibold" onClick={() => void advanceInspection('item')}>Next item →</button>
           <button type="button" className="min-h-12 flex-1 rounded-xl accent-bg px-3 text-sm font-semibold text-white" onClick={() => void advanceInspection('room')}>Next room →</button>

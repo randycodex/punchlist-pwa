@@ -16,12 +16,14 @@ describe('project floor groups', () => {
     const markup = renderToStaticMarkup(createElement(AreaGroupList, {
       areas: [corridor],
       projectLevelRange: project,
-      renderArea: (area) => createElement('span', { key: area.id }, area.name),
+      renderArea: (area, nested) => createElement('span', { key: area.id, 'data-nested': nested ? 'true' : 'false' }, area.name),
     }));
 
     expect(markup.indexOf('Floor 3')).toBeGreaterThan(markup.indexOf('Floor 2'));
     expect(markup.indexOf('Roof')).toBeGreaterThan(markup.indexOf('Floor 3'));
     expect(markup).toContain('Corridor 3rd Floor');
+    expect(markup).toContain('data-nested="true"');
+    expect(markup).toContain('inspection-location-surface');
     expect(markup).toContain('0 areas');
     expect(markup.match(/Corridor 3rd Floor/g)).toHaveLength(1);
 

@@ -84,11 +84,24 @@ button,
 
 .app-shell {
   position: relative;
-  padding-top: calc(env(safe-area-inset-top) + 3.5rem);
+  display: flex;
+  flex-direction: column;
+  padding-top: env(safe-area-inset-top);
   height: 100dvh;
   overflow: hidden;
   background-color: var(--background);
   transition: padding-right 220ms ease;
+}
+
+.app-shell > .app-page {
+  flex: 1 1 auto;
+  min-height: 0;
+  height: auto;
+  order: 2;
+}
+
+.app-shell > [role="status"] {
+  order: 1;
 }
 
 html {
@@ -116,17 +129,8 @@ html:not(.dark) {
   border-bottom: 0 !important;
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
-  transition: right 220ms ease;
-}
-
-/* Keep the iOS standalone safe area on the same solid page color. */
-.persistent-top-bar::before {
-  content: "";
-  position: absolute;
-  inset: 0 0 auto;
-  height: env(safe-area-inset-top);
-  background-color: var(--top-bar-surface);
-  pointer-events: none;
+  flex: 0 0 auto;
+  order: 0;
 }
 
 .app-menu-top-actions {
@@ -154,10 +158,6 @@ html:not(.dark) {
 
   html[data-app-menu-open="true"] .app-shell {
     padding-right: calc(var(--app-menu-drawer-width) + var(--app-menu-drawer-gap));
-  }
-
-  html[data-app-menu-open="true"] .persistent-top-bar {
-    right: calc(var(--app-menu-drawer-width) + var(--app-menu-drawer-gap));
   }
 
 }
@@ -238,6 +238,15 @@ html:not(.dark) {
 
 .dark .area-card-surface {
   --main-card-bg: #242124;
+}
+
+.floor-area-card {
+  --main-card-bg: #FFEFD5;
+  background: var(--main-card-bg);
+}
+
+.dark .floor-area-card {
+  --main-card-bg: #343434;
 }
 
 .inspection-location-surface {
@@ -508,8 +517,13 @@ html:not(.dark) {
   transition: right 220ms ease;
 }
 
+.area-bottom-nav {
+  transition: right 220ms ease;
+}
+
 @media (min-width: 768px) {
-  html[data-app-menu-open="true"] .floating-action-rail {
+  html[data-app-menu-open="true"] .floating-action-rail,
+  html[data-app-menu-open="true"] .area-bottom-nav {
     right: calc(var(--app-menu-drawer-width) + var(--app-menu-drawer-gap));
   }
 }

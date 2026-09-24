@@ -32,9 +32,7 @@ describe('mobile top-bar safe area', () => {
     expect(globalStyles).toMatch(
       /body\s*\{[\s\S]*?background-color:\s*var\(--background\);/
     );
-    expect(globalStyles).toMatch(
-      /\.persistent-top-bar::before\s*\{[\s\S]*?height:\s*env\(safe-area-inset-top\);[\s\S]*?background-color:\s*var\(--top-bar-surface\);/
-    );
+    expect(globalStyles).toMatch(/\.app-shell\s*\{[\s\S]*?padding-top:\s*env\(safe-area-inset-top\);/);
   });
 
   it('lets theme-color control iOS chrome without the broken black-translucent viewport mode', () => {
@@ -44,12 +42,13 @@ describe('mobile top-bar safe area', () => {
     expect(rootLayout).toContain('viewportFit: "cover"');
   });
 
-  it('keeps the top bar on a solid canvas inside the app shell', () => {
+  it('keeps the top bar in normal flow on a solid canvas', () => {
     expect(globalStyles).toMatch(
       /\.persistent-top-bar\s*\{[\s\S]*?background-color:\s*var\(--top-bar-surface\)\s*!important;/
     );
     expect(globalStyles).toMatch(/\.app-shell\s*\{[\s\S]*?position:\s*relative;/);
-    expect(persistentTopBar).toContain('persistent-top-bar absolute top-0 left-0 right-0');
+    expect(persistentTopBar).toContain('persistent-top-bar relative z-30');
+    expect(globalStyles).toMatch(/\.app-shell > \.app-page\s*\{[\s\S]*?flex:\s*1 1 auto;/);
   });
 
   it('fills the app shell instead of leaving a second mobile viewport gap', () => {

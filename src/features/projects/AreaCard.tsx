@@ -40,6 +40,7 @@ type AreaCardProps = {
   onBlockedByClaim: () => void;
   onPrimeOpen: (areaId: string) => void;
   onOpenArea: (areaId: string) => void;
+  nested?: boolean;
 };
 
 export const AreaCard = memo(function AreaCard({
@@ -56,6 +57,7 @@ export const AreaCard = memo(function AreaCard({
   onBlockedByClaim,
   onPrimeOpen,
   onOpenArea,
+  nested = false,
 }: AreaCardProps) {
   const { setInspectionShowOnlyIssues } = useAppSettings();
   const areaStats = metric?.stats ?? { total: 0, ok: 0, issues: 0 };
@@ -83,7 +85,7 @@ export const AreaCard = memo(function AreaCard({
       onClick={() => {
         if (deleteMode) onToggleSelection(area.id);
       }}
-      className={`main-card-surface area-card-surface card-surface block rounded-[1.65rem] p-4 transition-all sm:p-5 ${
+      className={`main-card-surface area-card-surface card-surface block transition-all ${nested ? 'floor-area-card rounded-[1.25rem] p-3 sm:p-4' : 'rounded-[1.65rem] p-4 sm:p-5'} ${
         isSelected
           ? 'bg-gray-100 dark:bg-white/[0.1]'
           : blockedByClaim

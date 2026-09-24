@@ -38,6 +38,7 @@ type HomeAreaCardProps = {
   onBlockedByClaim: (message: string) => void;
   onPrimeOpen: (project: Project, areaId: string) => void;
   onOpenArea: (project: Project, areaId: string) => void;
+  nested?: boolean;
 };
 
 export const HomeAreaCard = memo(function HomeAreaCard({
@@ -54,6 +55,7 @@ export const HomeAreaCard = memo(function HomeAreaCard({
   onBlockedByClaim,
   onPrimeOpen,
   onOpenArea,
+  nested = false,
 }: HomeAreaCardProps) {
   const { setInspectionShowOnlyIssues } = useAppSettings();
   const areaStats = metric?.stats ?? { total: 0, ok: 0, issues: 0 };
@@ -85,7 +87,7 @@ export const HomeAreaCard = memo(function HomeAreaCard({
       onClick={() => {
         if (deleteMode) onToggleSelection(area.id);
       }}
-      className={`main-card-surface area-card-surface card-surface-subtle select-none touch-manipulation [-webkit-touch-callout:none] rounded-[1.6rem] p-4 transition-all sm:p-5 ${
+      className={`main-card-surface area-card-surface card-surface-subtle select-none touch-manipulation [-webkit-touch-callout:none] transition-all ${nested ? 'floor-area-card rounded-[1.25rem] p-3 sm:p-4' : 'rounded-[1.6rem] p-4 sm:p-5'} ${
         isSelected
           ? '!bg-gray-100 dark:!bg-white/[0.1]'
           : blockedByClaim

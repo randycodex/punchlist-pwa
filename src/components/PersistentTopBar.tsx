@@ -529,7 +529,7 @@ export default function PersistentTopBar() {
   const disabledMenuRowClass = `${menuRowClass} disabled:cursor-default disabled:opacity-60`;
   const disabledMenuRowSecondaryClass = `${menuRowSecondaryClass} disabled:cursor-default disabled:opacity-60`;
   return (
-    <div className="persistent-top-bar absolute top-0 left-0 right-0 z-30 pt-[env(safe-area-inset-top)] md:border-b">
+    <div className="persistent-top-bar relative z-30 md:border-b">
       <div className="top-bar-surface mx-auto flex h-14 w-full max-w-6xl items-center justify-between px-4 sm:px-5">
         <div className="flex min-w-0 items-center gap-3">
           <Link

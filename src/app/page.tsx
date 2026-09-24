@@ -3251,7 +3251,7 @@ export default function ProjectsPage() {
               </div>
             ) : (
               areaViewMode === 'grouped' ? (
-                <AreaGroupList selectedAreaIds={selectedAreaIds} onSelectAreas={deleteMode ? selectAreaGroup : undefined} unitFloorNumbering={singleProject.unitFloorNumbering} projectLevelRange={areaSearch.trim() ? null : singleProject} areas={visibleAreas} renderArea={(area) => {
+                <AreaGroupList selectedAreaIds={selectedAreaIds} onSelectAreas={deleteMode ? selectAreaGroup : undefined} unitFloorNumbering={singleProject.unitFloorNumbering} projectLevelRange={areaSearch.trim() ? null : singleProject} areas={visibleAreas} renderArea={(area, nested) => {
                 const metric = areaMetrics.get(area.id);
                 const isSelected = selectedAreaIds.has(area.id);
                 return (
@@ -3266,6 +3266,7 @@ export default function ProjectsPage() {
                     claimStatus={sharedAreaClaims.get(area.id)}
                     deleteMode={deleteMode}
                     isSelected={isSelected}
+                    nested={nested}
                     onToggleSelection={toggleAreaSelection}
                     onBlockedByClaim={(message) => showMessage(message, 'Area in use')}
                     onPrimeOpen={primeAreaOpen}
