@@ -291,7 +291,7 @@ export default function PersistentTopBar() {
         window.dispatchEvent(new CustomEvent('punchlist-project-synced', { detail: { projectId: syncProjectId } }));
         setInfoDialog({
           title: 'Sync This Project',
-          message: `${project.projectName}: team changes synced${result.releasedAreaCount ? `; ${result.releasedAreaCount} area${result.releasedAreaCount === 1 ? '' : 's'} released` : ''}.`,
+          message: `${project.projectName}: team changes synced to Team Projects${result.releasedAreaCount ? `; ${result.releasedAreaCount} area${result.releasedAreaCount === 1 ? '' : 's'} released` : ''}. Team project data is not backed up to OneDrive.`,
         });
         return;
       }
@@ -317,7 +317,7 @@ export default function PersistentTopBar() {
           title: 'Sync This Project',
           message: merged.archivedLocalProjectIds.includes(syncProjectId)
             ? `${project.projectName}: the newer OneDrive copy shows this project was archived. This device moved it to Trash.`
-            : `${project.projectName}: personal backup saved${merged.updatedLocalProjectIds.includes(syncProjectId) ? '; newer changes from OneDrive added' : ''}.`,
+            : `${project.projectName}: personal backup saved in OneDrive/PunchList${merged.updatedLocalProjectIds.includes(syncProjectId) ? '; newer changes from OneDrive added' : ''}.`,
         });
       } else {
         if (result.status === 'conflict') setSyncConflicts(result.conflicts);

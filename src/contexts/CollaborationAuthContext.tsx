@@ -14,6 +14,7 @@ import {
   type CollaborationUserProfileInput,
 } from '@/lib/collaboration';
 import { clearPersistedCollaborationSession } from '@/lib/collaboration/supabaseClient';
+import { getCollaborationOAuthRedirectUrl } from '@/lib/collaboration/oauthRedirect';
 import { withCollaborationTimeout } from '@/lib/collaboration/request';
 
 type CollaborationAuthContextValue = {
@@ -193,17 +194,21 @@ export function CollaborationAuthProvider({ children }: { children: ReactNode })
     }
 
     setIsSigningIn(true);
-    const redirectTo = typeof window !== 'undefined' ? window.location.href : undefined;
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider: 'azure',
-      options: {
-        redirectTo,
-        scopes: 'openid email profile',
-      },
-    });
-
-    if (error) {
-      setErrorMessage(error.message);
+    try {
+      const redirectTo = typeof window !== 'undefined'
+        ? getCollaborationOAuthRedirectUrl(window.location.href)
+        : undefined;
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: 'azure',
+        options: {
+          redirectTo,
+          scopes: 'openid email profile',
+        },
+      });
+      if (error) setErrorMessage(error.message);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : 'Could not start team sign-in.');
+    } finally {
       setIsSigningIn(false);
     }
   }

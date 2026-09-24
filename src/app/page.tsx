@@ -615,7 +615,7 @@ export default function ProjectsPage() {
                   return next;
                 });
               }
-              completed.push(`${entry.projectName}: team changes synced${result.releasedAreaCount ? `; ${result.releasedAreaCount} area${result.releasedAreaCount === 1 ? '' : 's'} released` : ''}`);
+              completed.push(`${entry.projectName}: team changes synced to Team Projects${result.releasedAreaCount ? `; ${result.releasedAreaCount} area${result.releasedAreaCount === 1 ? '' : 's'} released` : ''} (team project data is not backed up to OneDrive)`);
             } catch (error) {
               console.error(`Team sync failed for ${entry.projectName}:`, error);
               problems.push(`${entry.projectName}: ${getCollaborationErrorMessage(error, 'Team sync failed. Please try again.')}`);
@@ -732,7 +732,7 @@ export default function ProjectsPage() {
       if (result.status === 'success' || result.status === 'conflict' || result.status === 'partial') {
         const namesById = new Map(currentProjects.map((project) => [project.id, project.projectName]));
         for (const projectId of result.backedUpProjectIds) {
-          completed.push(`${namesById.get(projectId) ?? 'Personal project'}: personal backup saved`);
+          completed.push(`${namesById.get(projectId) ?? 'Personal project'}: personal backup saved in OneDrive/PunchList`);
         }
       }
       if (result.status === 'conflict') {
@@ -3324,8 +3324,13 @@ export default function ProjectsPage() {
                         disabled={syncing}
                         className="inline-flex h-11 items-center justify-center rounded-full px-5 text-sm font-medium text-gray-600 transition hover:bg-black/[0.04] dark:text-gray-300 dark:hover:bg-white/[0.06]"
                       >
-                        {syncing ? 'Syncing…' : 'Sync Projects'}
+                        {syncing ? 'Syncing…' : 'Sync All Projects'}
                       </button>
+                    )}
+                    {collaborationAuth.errorMessage && (
+                      <p role="alert" className="text-sm text-red-600 dark:text-red-300">
+                        {collaborationAuth.errorMessage}
+                      </p>
                     )}
                   </div>
                 </div>
