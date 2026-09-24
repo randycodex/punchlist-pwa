@@ -5,6 +5,7 @@ import { readLocalStorage, writeLocalStorage } from '@/lib/browserStorage';
 import {
   getAllProjects,
   getProject,
+  saveProjectOneDriveFolderName,
   saveProjectPreserveTimestamps,
 } from '@/lib/db';
 import {
@@ -1513,14 +1514,9 @@ export async function backupProjectsToOneDrive(
 
   try {
     await ensurePunchListFolders(token);
-    const localProjectEntries = projectIds?.length
-      ? await Promise.all([...new Set(projectIds)].map((projectId) => getProject(projectId)))
-      : await Promise.all(
-          (await getAllProjects())
-            .map((project) => getProject(project.id))
-        );
-    const localProjects = localProjectEntries.filter(
-      (project): project is Project => Boolean(project && !project.sharedProjectId)
+    const requestedIds = projectIds?.length ? new Set(projectIds) : null;
+    const localProjects = (await getAllProjects()).filter((project) =>
+      !project.sharedProjectId && (!requestedIds || requestedIds.has(project.id))
     );
     const allRemoteFilesById = buildRemoteProjectFileIndex(await listProjectFiles(token));
     const remoteFilesById = new Map([...allRemoteFilesById].map(([id, entries]) =>
@@ -1532,8 +1528,12 @@ export async function backupProjectsToOneDrive(
     const failedProjects: NonNullable<OneDriveBackupResult['failedProjects']> = [];
     const forceIds = new Set(forceProjectIds ?? []);
 
-    await runWithConcurrency(localProjects, 2, async (localProject) => {
+    await runWithConcurrency(localProjects, 2, async (localProjectMetadata) => {
       try {
+        // Load media only for the personal project being backed up. Team photo
+        // payloads can be large and are handled by the separate team sync.
+        const localProject = await getProject(localProjectMetadata.id);
+        if (!localProject || localProject.sharedProjectId) return;
         if (localProject.deletedAt) {
           const remoteEntries = allRemoteFilesById.get(localProject.id) ?? [];
           const targetFolderName = resolveRemoteProjectFolderName(localProject, remoteEntries);
@@ -1585,7 +1585,9 @@ export async function backupProjectsToOneDrive(
         }
 
         const projectForBackup = withProjectFolderName(localProject, targetFolderName);
-        await saveProjectPreserveTimestamps(projectForBackup);
+        // The folder name is metadata. Rewriting every photo record here can
+        // leave an iOS IndexedDB transaction inactive during a long sync.
+        await saveProjectOneDriveFolderName(projectForBackup.id, targetFolderName);
 
         try {
           if (freshnessComparison > 0 || !canonicalRemote || forceIds.has(localProject.id)) {
@@ -1615,8 +1617,8 @@ export async function backupProjectsToOneDrive(
         }
       } catch (error) {
         failedProjects.push({
-          id: localProject.id,
-          name: localProject.projectName,
+          id: localProjectMetadata.id,
+          name: localProjectMetadata.projectName,
           message: error instanceof Error ? error.message : 'OneDrive backup failed.',
         });
       }

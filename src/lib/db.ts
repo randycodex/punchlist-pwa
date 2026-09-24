@@ -345,7 +345,7 @@ function dataUrlToStoredPayload(payload: string) {
   }
 }
 
-async function compactMediaRecord(record: CheckpointMediaRecord): Promise<CheckpointMediaRecord> {
+function compactMediaRecord(record: CheckpointMediaRecord): CheckpointMediaRecord {
   return {
     ...record,
     photos: record.photos.map((photo) => ({
@@ -797,6 +797,22 @@ export async function saveProjectAreaMetadataOnly(
   });
 }
 
+export async function saveProjectOneDriveFolderName(projectId: string, folderName: string): Promise<void> {
+  await runLocalPersistence(async () => {
+    const db = await getDB();
+    const tx = db.transaction('projects', 'readwrite');
+    const project = await tx.store.get(projectId);
+    if (!project) {
+      await tx.done;
+      throw new Error('Project was removed while preparing its personal backup.');
+    }
+    if (project.oneDriveFolderName !== folderName) {
+      await tx.store.put({ ...project, oneDriveFolderName: folderName });
+    }
+    await tx.done;
+  });
+}
+
 export async function saveProjectArea(
   project: Project,
   areaId: string,
@@ -814,6 +830,7 @@ export async function saveProjectArea(
       ...project,
       areas: [area],
     });
+    const compactMediaRecords = scopedSerialization.mediaRecords.map(compactMediaRecord);
     const storedArea = scopedSerialization.storedProject.areas[0];
     const tx = db.transaction(
       ['projects', 'checkpointMedia', 'elevationDrawings', 'syncMetadata', 'sharedAreaSyncQueue'],
@@ -856,17 +873,9 @@ export async function saveProjectArea(
           .filter((record) => !nextCheckpointIds.has(record.checkpointId))
           .map((record) => mediaStore.delete([project.id, record.checkpointId]))
       );
-      await Promise.all(
-        scopedSerialization.mediaRecords.map(async (record) => {
-          const compactRecord = await compactMediaRecord(record);
-          return mediaStore.put(
-            preserveExistingMediaPayloads(
-              compactRecord,
-              existingMediaByCheckpoint.get(record.checkpointId)
-            )
-          );
-        })
-      );
+      await Promise.all(compactMediaRecords.map((record) => mediaStore.put(
+        preserveExistingMediaPayloads(record, existingMediaByCheckpoint.get(record.checkpointId))
+      )));
 
       if (options.includeElevationDrawings) {
         const existingDrawingRecords = await drawingStore.index('by-project').getAll(project.id);
@@ -925,7 +934,7 @@ export async function saveCheckpointInspectionChange(
   options: { recoveredNote?: { baseValue: string; value: string }; recoveredVoice?: boolean; removePhotoIds?: string[] } = {},
 ): Promise<void> {
   const compactPhotos = photos.length
-    ? (await compactMediaRecord({ checkpointId, projectId, areaId, photos, files: [] })).photos
+    ? compactMediaRecord({ checkpointId, projectId, areaId, photos, files: [] }).photos
     : [];
   await runLocalPersistence(async () => {
     const db = await getDB();
@@ -988,6 +997,7 @@ async function saveProjectInternal(project: Project, options: { touch: boolean }
     project.updatedAt = new Date();
   }
   const { storedProject, mediaRecords, elevationDrawingRecords } = serializeProjectForStorage(project);
+  const compactMediaRecords = mediaRecords.map(compactMediaRecord);
   const tx = db.transaction(['projects', 'checkpointMedia', 'elevationDrawings', 'syncMetadata'], 'readwrite');
   const projectStore = tx.objectStore('projects');
   const mediaStore = tx.objectStore('checkpointMedia');
@@ -1010,14 +1020,9 @@ async function saveProjectInternal(project: Project, options: { touch: boolean }
       .map((record) => mediaStore.delete([project.id, record.checkpointId]))
   );
 
-  await Promise.all(
-    mediaRecords.map(async (record) => {
-      const compactRecord = await compactMediaRecord(record);
-      return mediaStore.put(
-        preserveExistingMediaPayloads(compactRecord, existingMediaByCheckpoint.get(record.checkpointId))
-      );
-    })
-  );
+  await Promise.all(compactMediaRecords.map((record) => mediaStore.put(
+    preserveExistingMediaPayloads(record, existingMediaByCheckpoint.get(record.checkpointId))
+  )));
 
   const existingDrawingRecords = await drawingStore.index('by-project').getAll(project.id);
   const existingDrawingById = new Map(existingDrawingRecords.map((record) => [record.id, record]));

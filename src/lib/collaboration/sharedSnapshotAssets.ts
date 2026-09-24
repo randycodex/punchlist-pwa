@@ -431,7 +431,10 @@ export async function hydrateSharedSnapshotAssetsWithResolver(
   const downloaded = new Map<string, string>();
   await runWithConcurrency([...references.entries()], 3, async ([key, entry]) => {
     try {
-      downloaded.set(key, await resolve(entry.reference));
+      downloaded.set(key, await retryCollaborationOperation(
+        () => resolve(entry.reference),
+        { attempts: 2 }
+      ));
     } catch (error) {
       if (!entry.required) return;
       throw error;

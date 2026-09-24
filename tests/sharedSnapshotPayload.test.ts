@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { Project } from '@/types';
 import {
   buildSharedSnapshotAssetPlan,
@@ -158,6 +158,29 @@ describe('compact shared snapshot payloads', () => {
     }));
 
     expect(buildSharedSnapshotAssetPlan(project, existingMetadata).uploads).toHaveLength(0);
+  });
+
+  it('retries a transient shared attachment download before applying the snapshot', async () => {
+    const project = projectWithAssets();
+    const plan = buildSharedSnapshotAssetPlan(project);
+    const parsed = parseSharedSnapshotPayload(
+      JSON.parse(JSON.stringify(createCompactSharedSnapshotPayload(project, plan.assets))),
+      COMPACT_SHARED_SNAPSHOT_PAYLOAD_VERSION
+    );
+    const payloadByPath = new Map(plan.uploads.map((upload) => [upload.reference.path, upload.dataUrl]));
+    let failedOnce = false;
+    const resolve = vi.fn(async (reference: { path: string }) => {
+      if (!failedOnce && reference.path === plan.assets.photos['photo-1'].image.path) {
+        failedOnce = true;
+        throw new TypeError('Failed to fetch');
+      }
+      return payloadByPath.get(reference.path) ?? '';
+    });
+
+    await hydrateSharedSnapshotAssetsWithResolver(parsed.project, parsed.assets, 'shared-project-1', resolve);
+
+    expect(resolve).toHaveBeenCalledTimes(plan.uploads.length + 1);
+    expect(parsed.project.areas[0].locations[0].items[0].checkpoints[0].photos[0].imageData).toBe(photoData);
   });
 
   it('rejects attachment references outside the linked shared project', async () => {

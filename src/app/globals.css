@@ -531,6 +531,10 @@ html:not(.dark) {
       padding-top: 1rem;
     }
 
+    .app-menu-drawer.menu-surface {
+      top: calc(env(safe-area-inset-top) + 4.5rem);
+    }
+
     .area-bottom-nav {
       padding-bottom: 0.25rem;
     }
