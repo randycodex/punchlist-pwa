@@ -515,7 +515,7 @@ export default function ProjectsPage() {
 
       if (expiredProjects.length > 0) {
         for (const project of expiredProjects) {
-          markProjectDeleted(project.id);
+          markProjectDeleted(project);
           await deleteProject(project.id);
           removeCachedProjectPreview(project.id);
         }
@@ -659,6 +659,9 @@ export default function ProjectsPage() {
         }
       }
       if (restore.status === 'success' || restore.status === 'partial') {
+        for (const name of restore.permanentlyDeletedProjectNames ?? []) {
+          completed.push(`${name}: removed from this device and OneDrive/PunchList after permanent deletion`);
+        }
         for (const copy of restore.recoveredLocalCopies ?? []) {
           completed.push(`${copy.name}: local work preserved as a separate personal project. Review it before deleting; unsent team edits are still in that copy`);
         }
@@ -1432,7 +1435,7 @@ export default function ProjectsPage() {
       }
 
       for (const project of projectsToDelete) {
-        markProjectDeleted(project.id);
+        markProjectDeleted(project);
         await deleteProject(project.id);
         removeCachedProjectPreview(project.id);
       }

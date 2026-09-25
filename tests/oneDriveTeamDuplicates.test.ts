@@ -7,11 +7,12 @@ import {
   createPhotoAttachment,
   createProject,
   getProject,
+  deleteProject,
   saveProjectPreserveTimestamps,
 } from '@/lib/db';
 import { serializeProjectPayload } from '@/lib/projectPayload';
 
-const { listProjectFilesMock, listPhotoProjectFoldersMock, listProjectPhotoFilesMock, downloadProjectFileMock, uploadProjectFileMock, uploadProjectPhotoFileMock, deleteDriveItemMock } = vi.hoisted(() => ({
+const { listProjectFilesMock, listPhotoProjectFoldersMock, listProjectPhotoFilesMock, downloadProjectFileMock, uploadProjectFileMock, uploadProjectPhotoFileMock, deleteDriveItemMock, downloadDeletionLogMock, uploadDeletionLogMock, deleteProjectFolderFromStateMock, deleteProjectPhotoFolderMock } = vi.hoisted(() => ({
   listProjectFilesMock: vi.fn(),
   listPhotoProjectFoldersMock: vi.fn(),
   listProjectPhotoFilesMock: vi.fn(),
@@ -19,6 +20,10 @@ const { listProjectFilesMock, listPhotoProjectFoldersMock, listProjectPhotoFiles
   uploadProjectFileMock: vi.fn(),
   uploadProjectPhotoFileMock: vi.fn(),
   deleteDriveItemMock: vi.fn(),
+  downloadDeletionLogMock: vi.fn(),
+  uploadDeletionLogMock: vi.fn(),
+  deleteProjectFolderFromStateMock: vi.fn(),
+  deleteProjectPhotoFolderMock: vi.fn(),
 }));
 
 vi.mock('@/lib/oneDrive', async (importOriginal) => ({
@@ -32,9 +37,13 @@ vi.mock('@/lib/oneDrive', async (importOriginal) => ({
   uploadProjectFile: uploadProjectFileMock,
   uploadProjectPhotoFile: uploadProjectPhotoFileMock,
   deleteDriveItem: deleteDriveItemMock,
+  downloadDeletionLog: downloadDeletionLogMock,
+  uploadDeletionLog: uploadDeletionLogMock,
+  deleteProjectFolderFromState: deleteProjectFolderFromStateMock,
+  deleteProjectPhotoFolder: deleteProjectPhotoFolderMock,
 }));
 
-import { backupProjectsToOneDrive, mergePersonalProjectsFromOneDrive, restoreMissingProjectsFromOneDrive } from '@/lib/oneDriveSync';
+import { backupProjectsToOneDrive, markProjectDeleted, mergePersonalProjectsFromOneDrive, restoreMissingProjectsFromOneDrive } from '@/lib/oneDriveSync';
 
 describe('OneDrive and team project identity', () => {
   beforeEach(() => {
@@ -45,6 +54,116 @@ describe('OneDrive and team project identity', () => {
     uploadProjectFileMock.mockReset();
     uploadProjectPhotoFileMock.mockReset().mockResolvedValue(undefined);
     deleteDriveItemMock.mockReset().mockResolvedValue(undefined);
+    downloadDeletionLogMock.mockReset().mockResolvedValue({});
+    uploadDeletionLogMock.mockReset().mockResolvedValue({ id: 'deletion-log' });
+    deleteProjectFolderFromStateMock.mockReset().mockResolvedValue(undefined);
+    deleteProjectPhotoFolderMock.mockReset().mockResolvedValue(undefined);
+    const values = new Map<string, string>();
+    vi.stubGlobal('localStorage', {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => { values.set(key, value); },
+      removeItem: (key: string) => { values.delete(key); },
+    });
+  });
+
+  it('does not restore a recovery copy after it was permanently deleted from Trash', async () => {
+    const recovery = createProject('Recovered local copy - Ilse Hoffman House');
+    recovery.recoveredFromProjectId = crypto.randomUUID();
+    await saveProjectPreserveTimestamps(recovery);
+    const deletedAt = new Date(Date.now() + 60_000);
+    markProjectDeleted(recovery, deletedAt);
+    await deleteProject(recovery.id);
+    listProjectFilesMock.mockResolvedValue([{
+      id: 'recovery-file', name: `Recovered_local_copy_${recovery.id}.json`,
+      lastModifiedDateTime: recovery.updatedAt.toISOString(),
+    }]);
+    downloadProjectFileMock.mockResolvedValue(serializeProjectPayload(recovery));
+
+    const result = await restoreMissingProjectsFromOneDrive('test-token');
+
+    expect(result.restoredProjectIds).toEqual([]);
+    expect(result.permanentlyDeletedProjectNames).toEqual([recovery.projectName]);
+    expect(await getProject(recovery.id)).toBeUndefined();
+    expect(uploadDeletionLogMock).toHaveBeenCalledWith('test-token', expect.objectContaining({
+      [recovery.id]: expect.objectContaining({ scope: 'personal' }),
+    }));
+    expect(deleteDriveItemMock).toHaveBeenCalledWith('test-token', 'recovery-file');
+  });
+
+  it('recognizes an older deletion marker after the old app restored the recovery copy', async () => {
+    const recovery = createProject('Recovered local copy - Ilse Hoffman House');
+    recovery.recoveredFromProjectId = crypto.randomUUID();
+    await saveProjectPreserveTimestamps(recovery);
+    const deletedAt = new Date(Date.now() + 60_000);
+    localStorage.setItem('punchlist-onedrive-deletions', JSON.stringify({
+      [recovery.id]: { updatedAt: deletedAt.toISOString() },
+    }));
+    listProjectFilesMock.mockResolvedValue([{
+      id: 'recovery-file', name: `Recovered_local_copy_${recovery.id}.json`,
+      lastModifiedDateTime: new Date(Date.now() + 120_000).toISOString(),
+    }]);
+    downloadProjectFileMock.mockResolvedValue(serializeProjectPayload(recovery));
+
+    const result = await restoreMissingProjectsFromOneDrive('test-token');
+
+    expect(result.restoredProjectIds).toEqual([]);
+    expect(result.permanentlyDeletedProjectNames).toEqual([recovery.projectName]);
+    expect(await getProject(recovery.id)).toBeUndefined();
+    expect(deleteDriveItemMock).toHaveBeenCalledWith('test-token', 'recovery-file');
+  });
+
+  it('applies a personal deletion from OneDrive before another device can back up the old copy', async () => {
+    const recovery = createProject('Recovered local copy - Ilse Hoffman House');
+    recovery.recoveredFromProjectId = crypto.randomUUID();
+    await saveProjectPreserveTimestamps(recovery);
+    const deletedAt = new Date(Date.now() + 60_000);
+    downloadDeletionLogMock.mockResolvedValue({
+      [recovery.id]: { updatedAt: deletedAt.toISOString(), scope: 'personal' },
+    });
+    listProjectFilesMock.mockResolvedValue([{
+      id: 'recovery-file', name: `Recovered_local_copy_${recovery.id}.json`,
+      lastModifiedDateTime: recovery.updatedAt.toISOString(),
+    }]);
+    downloadProjectFileMock.mockResolvedValue(serializeProjectPayload(recovery));
+
+    const result = await restoreMissingProjectsFromOneDrive('test-token');
+
+    expect(result.restoredProjectIds).toEqual([]);
+    expect(result.permanentlyDeletedProjectNames).toEqual([recovery.projectName]);
+    expect(await getProject(recovery.id)).toBeUndefined();
+  });
+
+  it('does not re-upload a permanently deleted copy during a project-only backup', async () => {
+    const staleCopy = createProject('Recovered local copy - Ilse Hoffman House');
+    staleCopy.recoveredFromProjectId = crypto.randomUUID();
+    await saveProjectPreserveTimestamps(staleCopy);
+    downloadDeletionLogMock.mockResolvedValue({
+      [staleCopy.id]: { updatedAt: new Date(Date.now() + 60_000).toISOString(), scope: 'personal' },
+    });
+
+    const result = await backupProjectsToOneDrive('test-token', [staleCopy.id]);
+
+    expect(result.backedUpProjectIds).toEqual([]);
+    expect(result.failedProjects?.[0]?.message).toContain('permanent deletion');
+    expect(uploadProjectFileMock).not.toHaveBeenCalled();
+  });
+
+  it('does not apply an old team deletion marker to a separate personal backup with the same ID', async () => {
+    const personal = createProject('Ilse Hoffman House - K&J (Kwassi)');
+    await saveProjectPreserveTimestamps(personal);
+    localStorage.setItem('punchlist-onedrive-deletions', JSON.stringify({
+      [personal.id]: { updatedAt: new Date(Date.now() + 60_000).toISOString() },
+    }));
+    listProjectFilesMock.mockResolvedValue([{
+      id: 'personal-file', name: `Ilse_Hoffman_House_KJ_${personal.id}.json`,
+    }]);
+    downloadProjectFileMock.mockResolvedValue(serializeProjectPayload(personal));
+
+    const result = await restoreMissingProjectsFromOneDrive('test-token');
+
+    expect(result.permanentlyDeletedProjectNames).toEqual([]);
+    expect(await getProject(personal.id)).toBeDefined();
+    expect(deleteDriveItemMock).not.toHaveBeenCalled();
   });
 
   it('does not restore another local copy of a team project with a different device ID', async () => {

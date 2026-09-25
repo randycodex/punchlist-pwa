@@ -709,32 +709,19 @@ export async function moveDriveItemToFolder(
 }
 
 export async function downloadDeletionLog(token: string): Promise<Record<string, unknown>> {
-  try {
-    const response = await fetchGraphWithThrottleRetry(`${GRAPH_API}/me/drive/root:/PunchList/deletions.json:/content`, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
-    });
-    if (!response.ok) {
-      if (response.status === 429) {
-        throw buildGraphError(response, await getGraphErrorMessage(response));
-      }
-      return {};
-    }
-    const text = await response.text();
-    if (!text) return {};
-    const parsed = JSON.parse(text) as Record<string, unknown>;
-    return parsed ?? {};
-  } catch (error) {
-    if (
-      typeof error === 'object' &&
-      error !== null &&
-      'retryAfterMs' in error
-    ) {
-      throw error;
-    }
-    return {};
+  const response = await fetchGraphWithThrottleRetry(`${GRAPH_API}/me/drive/root:/PunchList/deletions.json:/content`, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+  if (!response.ok) {
+    if (response.status === 404) return {};
+    throw buildGraphError(response, await getGraphErrorMessage(response));
   }
+  const text = await response.text();
+  if (!text) return {};
+  const parsed = JSON.parse(text) as Record<string, unknown>;
+  return parsed ?? {};
 }
 
 export async function uploadDeletionLog(

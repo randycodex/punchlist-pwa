@@ -30,8 +30,8 @@ export type ManualOneDriveSyncResult =
   | { status: 'error'; message: string };
 
 export type ManualOneDriveRestoreResult =
-  | { status: 'success'; restoredProjectCount: number; restoredProjectIds: string[]; recoveredLocalCopies?: Array<{ id: string; name: string }> }
-  | { status: 'partial'; restoredProjectCount: number; restoredProjectIds: string[]; recoveredLocalCopies?: Array<{ id: string; name: string }>; failedProjects: Array<{ id: string; name: string; message: string }> }
+  | { status: 'success'; restoredProjectCount: number; restoredProjectIds: string[]; permanentlyDeletedProjectNames?: string[]; recoveredLocalCopies?: Array<{ id: string; name: string }> }
+  | { status: 'partial'; restoredProjectCount: number; restoredProjectIds: string[]; permanentlyDeletedProjectNames?: string[]; recoveredLocalCopies?: Array<{ id: string; name: string }>; failedProjects: Array<{ id: string; name: string; message: string }> }
   | { status: 'needs-auth' }
   | { status: 'retry'; message: string; retryAfterMs: number }
   | { status: 'error'; message: string };
@@ -187,6 +187,7 @@ export async function runManualOneDriveRestore(options: {
         status: 'partial',
         restoredProjectCount: result.restoredProjectIds.length,
         restoredProjectIds: result.restoredProjectIds,
+        ...(result.permanentlyDeletedProjectNames?.length ? { permanentlyDeletedProjectNames: result.permanentlyDeletedProjectNames } : {}),
         ...(result.recoveredLocalCopies?.length ? { recoveredLocalCopies: result.recoveredLocalCopies } : {}),
         failedProjects: result.failedProjects,
       };
@@ -195,6 +196,7 @@ export async function runManualOneDriveRestore(options: {
       status: 'success',
       restoredProjectCount: result.restoredProjectIds.length,
       restoredProjectIds: result.restoredProjectIds,
+      ...(result.permanentlyDeletedProjectNames?.length ? { permanentlyDeletedProjectNames: result.permanentlyDeletedProjectNames } : {}),
       ...(result.recoveredLocalCopies?.length ? { recoveredLocalCopies: result.recoveredLocalCopies } : {}),
     };
   } catch (error) {

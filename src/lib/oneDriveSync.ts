@@ -5,6 +5,7 @@ import { readLocalStorage, writeLocalStorage } from '@/lib/browserStorage';
 import {
   getAllProjects,
   getProject,
+  deleteProject,
   clearPendingSharedSyncsForProject,
   saveProjectOneDriveFolderName,
   saveProjectPreserveTimestamps,
@@ -24,6 +25,7 @@ import {
   deleteDriveItem,
   deleteProjectPhotoFolder,
   deleteProjectFolder,
+  deleteProjectFolderFromState,
   deleteProjectFoldersFromState,
   moveDriveItemToFolder,
   downloadDeletionLog,
@@ -59,6 +61,7 @@ export type OneDriveBackupResult = {
 export type OneDriveRestoreResult = {
   restoredProjectIds: string[];
   skippedProjectIds: string[];
+  permanentlyDeletedProjectNames?: string[];
   recoveredLocalCopies?: Array<{ id: string; name: string }>;
   failedProjects?: Array<{ id: string; name: string; message: string }>;
 };
@@ -73,6 +76,7 @@ type RemoteProjectFile = {
 
 type ProjectSyncState = {
   updatedAt: string;
+  scope?: 'personal';
 };
 
 type ProjectSyncStateMap = Record<string, ProjectSyncState>;
@@ -861,7 +865,10 @@ function normalizeSyncStateMap(raw: unknown): ProjectSyncStateMap {
       continue;
     }
 
-    normalized[projectId] = { updatedAt };
+    normalized[projectId] = {
+      updatedAt,
+      ...((value as { scope?: unknown }).scope === 'personal' ? { scope: 'personal' as const } : {}),
+    };
   }
 
   return normalized;
@@ -1096,6 +1103,12 @@ function mergeSyncStates(
     }
   }
 
+  for (const [projectId, state] of Object.entries(merged)) {
+    if (localSyncStates[projectId]?.scope === 'personal' || remoteSyncStates[projectId]?.scope === 'personal') {
+      merged[projectId] = { ...state, scope: 'personal' };
+    }
+  }
+
   return merged;
 }
 
@@ -1106,15 +1119,18 @@ function syncStateMapsEqual(left: ProjectSyncStateMap, right: ProjectSyncStateMa
   for (const [projectId, state] of leftEntries) {
     const rightState = right[projectId];
     if (!rightState) return false;
-    if (rightState.updatedAt !== state.updatedAt) return false;
+    if (rightState.updatedAt !== state.updatedAt || rightState.scope !== state.scope) return false;
   }
   return true;
 }
 
-export function markProjectDeleted(projectId: string, deletedAt = new Date()) {
+export function markProjectDeleted(project: Pick<Project, 'id' | 'sharedProjectId'>, deletedAt = new Date()) {
+  // Team membership and team data do not live in personal OneDrive backups.
+  if (project.sharedProjectId) return;
   const syncStates = getLocalSyncStates();
-  syncStates[projectId] = {
+  syncStates[project.id] = {
     updatedAt: deletedAt.toISOString(),
+    scope: 'personal',
   };
   setLocalSyncStates(syncStates);
 }
@@ -1519,10 +1535,15 @@ export async function backupProjectsToOneDrive(
   try {
     await ensurePunchListFolders(token);
     const requestedIds = projectIds?.length ? new Set(projectIds) : null;
-    const localProjects = (await getAllProjects()).filter((project) =>
+    const [allLocalProjects, remoteFiles, remoteDeletionLog] = await Promise.all([
+      getAllProjects(),
+      listProjectFiles(token),
+      downloadDeletionLog(token),
+    ]);
+    const localProjects = allLocalProjects.filter((project) =>
       !project.sharedProjectId && (!requestedIds || requestedIds.has(project.id))
     );
-    const allRemoteFilesById = buildRemoteProjectFileIndex(await listProjectFiles(token));
+    const allRemoteFilesById = buildRemoteProjectFileIndex(remoteFiles);
     const remoteFilesById = new Map([...allRemoteFilesById].map(([id, entries]) =>
       [id, entries.filter((entry) => !isRemoteProjectFileInTrash(entry))] as const
     ));
@@ -1531,9 +1552,21 @@ export async function backupProjectsToOneDrive(
     const backedUpProjectIds: string[] = [];
     const failedProjects: NonNullable<OneDriveBackupResult['failedProjects']> = [];
     const forceIds = new Set(forceProjectIds ?? []);
+    const permanentDeletions = mergeSyncStates(
+      getLocalSyncStates(), normalizeSyncStateMap(remoteDeletionLog)
+    );
+    setLocalSyncStates(permanentDeletions);
 
     await runWithConcurrency(localProjects, 2, async (localProjectMetadata) => {
       try {
+        if (permanentDeletions[localProjectMetadata.id]?.scope === 'personal') {
+          failedProjects.push({
+            id: localProjectMetadata.id,
+            name: localProjectMetadata.projectName,
+            message: 'A permanent deletion for this personal copy is still being resolved. Its backup was not sent.',
+          });
+          return;
+        }
         // Load media only for the personal project being backed up. Team photo
         // payloads can be large and are handled by the separate team sync.
         const localProject = await getProject(localProjectMetadata.id);
@@ -1673,8 +1706,10 @@ export async function mergePersonalProjectsFromOneDrive(token: string, projectId
     const updatedLocalProjectIds: string[] = [];
     const archivedLocalProjectIds: string[] = [];
     const forceBackupProjectIds: string[] = [];
+    const permanentDeletions = getLocalSyncStates();
 
     await runWithConcurrency([...remoteFilesById.entries()], 2, async ([projectId, remoteEntries]) => {
+      if (permanentDeletions[projectId]?.scope === 'personal') return;
       const local = localById.get(projectId);
       if (!local || local.deletedAt || local.sharedProjectId) return;
       const remote = pickPrimaryRemoteProjectFile(remoteEntries);
@@ -1738,9 +1773,10 @@ export async function restoreMissingProjectsFromOneDrive(
 
   try {
     await ensurePunchListFolders(token);
-    const [localProjects, remoteFiles] = await Promise.all([
+    const [localProjects, remoteFiles, remoteDeletionLog] = await Promise.all([
       getAllProjects(),
       listProjectFiles(token),
+      downloadDeletionLog(token),
     ]);
     const localById = new Map(localProjects.map((project) => [project.id, project]));
     const localProjectIds = new Set(localById.keys());
@@ -1751,11 +1787,106 @@ export async function restoreMissingProjectsFromOneDrive(
     const remoteIndex: OneDriveSyncRemoteIndex = {};
     const restoredProjectIds: string[] = [];
     const skippedProjectIds: string[] = [];
+    const permanentlyDeletedProjectNames: string[] = [];
     const recoveredLocalCopies: NonNullable<OneDriveRestoreResult['recoveredLocalCopies']> = [];
     const failedProjects: NonNullable<OneDriveRestoreResult['failedProjects']> = [];
 
+    // Emptying Trash writes a local deletion marker. Apply it before any
+    // personal restore, then publish it so another device cannot re-upload
+    // the deleted backup. Older recovery-copy deletions had no scope field;
+    // recognize those only when the backup itself is a recovery copy.
+    const localDeletionStates = getLocalSyncStates();
+    const remoteDeletionStates = normalizeSyncStateMap(remoteDeletionLog);
+    const deletionStates = mergeSyncStates(localDeletionStates, remoteDeletionStates);
+    const protectedDeletedIds = new Set<string>();
+    const deletionsToApply: Array<{
+      id: string;
+      name: string;
+      files: RemoteProjectFile[];
+      localProject?: Project;
+    }> = [];
+    for (const [projectId, state] of Object.entries(deletionStates)) {
+      const localProject = localById.get(projectId);
+      const files = remoteFilesById.get(projectId) ?? [];
+      const remoteProjects = await Promise.all(files.map((file) => downloadRemoteProject(token, file.id)));
+      const isRecoveredCopy = (project: Project | null | undefined) => Boolean(
+        project?.recoveredFromProjectId && project.projectName.startsWith('Recovered local copy - ')
+      );
+      const legacyRecoveryDeletion = !state.scope
+        && (isRecoveredCopy(localProject) || remoteProjects.some(isRecoveredCopy));
+      if (state.scope !== 'personal' && !legacyRecoveryDeletion) continue;
+      protectedDeletedIds.add(projectId);
+      if (localProject?.sharedProjectId || remoteProjects.some((project) => project?.sharedProjectId)) {
+        failedProjects.push({
+          id: projectId,
+          name: localProject?.projectName ?? remoteProjects.find(Boolean)?.projectName ?? 'Personal project',
+          message: 'A team copy has this ID. Nothing was deleted; review this copy before syncing it.',
+        });
+        continue;
+      }
+      deletionStates[projectId] = { ...state, scope: 'personal' };
+      const name = localProject?.projectName ?? remoteProjects.find(Boolean)?.projectName ?? 'Personal project';
+      const deletedAt = timestampMs(state.updatedAt);
+      if (localProject && getProjectUpdatedAt(localProject) > deletedAt + CLOCK_SKEW_TOLERANCE_MS) {
+        failedProjects.push({
+          id: projectId, name,
+          message: 'This copy has changes newer than its permanent deletion. It was kept for review and will not be restored again automatically.',
+        });
+        continue;
+      }
+      if (remoteProjects.some((project) => project && getProjectUpdatedAt(project) > deletedAt + CLOCK_SKEW_TOLERANCE_MS)) {
+        failedProjects.push({
+          id: projectId, name,
+          message: 'The OneDrive copy changed after it was permanently deleted. It was kept for review and will not be restored automatically.',
+        });
+        continue;
+      }
+      deletionsToApply.push({ id: projectId, name, files, localProject });
+    }
+
+    for (const deletion of deletionsToApply) {
+      if (!deletion.localProject) continue;
+      await deleteProject(deletion.id);
+      localById.delete(deletion.id);
+    }
+    if (!syncStateMapsEqual(deletionStates, localDeletionStates)) {
+      setLocalSyncStates(deletionStates);
+    }
+    if (!syncStateMapsEqual(deletionStates, remoteDeletionStates)) {
+      await uploadDeletionLog(token, deletionStates);
+    }
+    for (const deletion of deletionsToApply) {
+      try {
+        await runWithConcurrency(deletion.files, 2, (file) =>
+          ignoreMissingRemoteItem(() => deleteDriveItem(token, file.id))
+        );
+        const folders = new Set(deletion.files.map((file) => getProjectFolderNameFromRemoteFile(file)).filter(
+          (folder): folder is string => Boolean(folder)
+        ));
+        for (const folder of folders) {
+          await deleteProjectFolderFromState(token, folder, false, deletion.id);
+          await deleteProjectFolderFromState(token, folder, true, deletion.id);
+        }
+        await deleteProjectPhotoFolder(token, deletion.id);
+        remoteFilesById.delete(deletion.id);
+        if (deletion.localProject || deletion.files.length > 0) {
+          permanentlyDeletedProjectNames.push(deletion.name);
+        }
+      } catch (error) {
+        failedProjects.push({
+          id: deletion.id,
+          name: deletion.name,
+          message: `Removed from this device, but OneDrive deletion is still pending: ${error instanceof Error ? error.message : 'try syncing again.'}`,
+        });
+      }
+    }
+
     await runWithConcurrency([...remoteFilesById.entries()], 2, async ([projectId, remoteEntries]) => {
       try {
+        if (protectedDeletedIds.has(projectId)) {
+          skippedProjectIds.push(projectId);
+          return;
+        }
         const existing = localById.get(projectId);
         if (existing && !existing.sharedProjectId) {
           skippedProjectIds.push(projectId);
@@ -1846,7 +1977,7 @@ export async function restoreMissingProjectsFromOneDrive(
       }
     });
 
-    return { restoredProjectIds, skippedProjectIds, recoveredLocalCopies, failedProjects };
+    return { restoredProjectIds, skippedProjectIds, permanentlyDeletedProjectNames, recoveredLocalCopies, failedProjects };
   } finally {
     await releaseSyncLease();
   }
