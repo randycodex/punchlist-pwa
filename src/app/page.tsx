@@ -2035,7 +2035,15 @@ export default function ProjectsPage() {
     if (reusableProject) {
       await clearPendingSharedSyncsForProject(reusableProject.id);
     }
-    await saveProject(projectToSave);
+    if (!reusableProject && pulledSnapshot) {
+      // A first download is not a local edit. Preserve the team's timestamps
+      // and do not overwrite a project that appeared while it was loading.
+      if (!await saveDownloadedProjectIfUnchanged(projectToSave, null)) {
+        throw new Error('A local project appeared while team data was downloading. Your local copy was kept. Sync again to review it.');
+      }
+    } else {
+      await saveProject(projectToSave);
+    }
     if (pendingMetadataSync) {
       await saveAndQueueSharedProjectMetadataSync(projectToSave);
     }

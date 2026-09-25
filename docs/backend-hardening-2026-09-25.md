@@ -97,6 +97,8 @@ Personal backup replacement and permanent-deletion processing now reject remote 
 
 ## Hosted verification
 
+The subsequent phone-test app browser check found that first-time team downloads used a timestamp-touching local save, causing immediate false “local changes to send” status. Fresh downloads now use the conditional, timestamp-preserving save. A fresh deployed browser session confirmed successful initial sync; note entry followed by Release was verified against the hosted snapshot and zero remaining claims. The currently available device-test environment and test-only sign-in overlay are documented in [device testing setup](device-test-environment-2026-09-25.md).
+
 After approval, a separate temporary Supabase project passed 24 real HTTP checks with the complete migration chain. It was then deleted and the project listing confirmed cleanup. See [hosted verification evidence](hosted-backend-verification-2026-09-25.md) for checks, harness corrections, cleanup, and remaining limits. No Production migrations or deployment were performed.
 
 ## Coordinated rollout required

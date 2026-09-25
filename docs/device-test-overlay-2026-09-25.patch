@@ -1,0 +1,445 @@
+--- a/src/contexts/MicrosoftAuthContext.tsx
++++ b/src/contexts/MicrosoftAuthContext.tsx
+@@ -2,0 +3,3 @@
++// Disposable deployment overlay. This file is not part of the production app.
++import { createContext, useContext, useEffect, useState, type ReactNode, type FormEvent } from 'react';
++import type { Session } from '@supabase/supabase-js';
+@@ -4,11 +7 @@
+-import { createContext, ReactNode, useContext, useEffect, useMemo, useState } from 'react';
+-import {
+-  InteractionRequiredAuthError,
+-  PublicClientApplication,
+-  type AccountInfo,
+-  type AuthenticationResult,
+-  type PopupRequest,
+-  type RedirectRequest,
+-} from '@azure/msal-browser';
+-import { getMicrosoftErrorMessage } from '@/lib/microsoftErrors';
+-import { getCollaborationEmailAccess, type CollaborationEmailAccess } from '@/lib/collaboration';
++import { getCollaborationSupabaseClient, getCollaborationEmailAccess, type CollaborationEmailAccess } from '@/lib/collaboration';
+@@ -16,8 +9,4 @@
+-type MicrosoftAuthContextValue = {
+-  accessToken: string | null;
+-  accountEmail: string | null;
+-  accountName: string | null;
+-  collaborationAccess: CollaborationEmailAccess;
+-  canUseCollaboration: boolean;
+-  isSignedIn: boolean;
+-  isReady: boolean;
++type Value = {
++  accessToken: string | null; accountEmail: string | null; accountName: string | null;
++  collaborationAccess: CollaborationEmailAccess; canUseCollaboration: boolean;
++  isSignedIn: boolean; isReady: boolean;
+@@ -28,113 +17 @@
+-
+-const MicrosoftAuthContext = createContext<MicrosoftAuthContextValue | undefined>(undefined);
+-
+-const SCOPES = ['User.Read', 'Files.ReadWrite'];
+-const DEFAULT_MS_CLIENT_ID = '376ef496-5fa7-447d-9559-2e128a6b74a4';
+-const DEFAULT_MS_TENANT_ID = 'organizations';
+-const LAST_ACCOUNT_STORAGE_KEY = 'punchlist:microsoft:last-account';
+-
+-function getLastAccountId() {
+-  if (typeof window === 'undefined') return null;
+-
+-  try {
+-    return window.localStorage.getItem(LAST_ACCOUNT_STORAGE_KEY);
+-  } catch {
+-    return null;
+-  }
+-}
+-
+-function rememberAccount(account: AccountInfo | null) {
+-  if (typeof window === 'undefined' || !account) return;
+-
+-  try {
+-    window.localStorage.setItem(LAST_ACCOUNT_STORAGE_KEY, account.homeAccountId || account.username);
+-  } catch {}
+-}
+-
+-function forgetAccount() {
+-  if (typeof window === 'undefined') return;
+-
+-  try {
+-    window.localStorage.removeItem(LAST_ACCOUNT_STORAGE_KEY);
+-  } catch {}
+-}
+-
+-function getResolvedAccount(pca: PublicClientApplication): AccountInfo | null {
+-  const activeAccount = pca.getActiveAccount();
+-  if (activeAccount) return activeAccount;
+-
+-  const accounts = pca.getAllAccounts();
+-  const lastAccountId = getLastAccountId();
+-  if (lastAccountId) {
+-    const rememberedAccount = accounts.find(
+-      (account) => account.homeAccountId === lastAccountId || account.username === lastAccountId
+-    );
+-    if (rememberedAccount) {
+-      pca.setActiveAccount(rememberedAccount);
+-      return rememberedAccount;
+-    }
+-  }
+-
+-  if (accounts.length === 1) {
+-    pca.setActiveAccount(accounts[0]);
+-    return accounts[0];
+-  }
+-
+-  return null;
+-}
+-
+-function decodeExternalGuestEmail(value: string) {
+-  const normalized = value.trim().toLowerCase();
+-  const extMarkerIndex = normalized.indexOf('#ext#@');
+-  if (extMarkerIndex === -1) return null;
+-
+-  const encodedEmail = normalized.slice(0, extMarkerIndex);
+-  const domainSeparatorIndex = encodedEmail.lastIndexOf('_');
+-  if (domainSeparatorIndex <= 0 || domainSeparatorIndex >= encodedEmail.length - 1) {
+-    return null;
+-  }
+-
+-  return `${encodedEmail.slice(0, domainSeparatorIndex)}@${encodedEmail.slice(domainSeparatorIndex + 1)}`;
+-}
+-
+-function normalizeAccountEmailCandidate(value: unknown) {
+-  if (typeof value !== 'string') return null;
+-
+-  const trimmed = value.trim();
+-  if (!trimmed) return null;
+-
+-  return decodeExternalGuestEmail(trimmed) ?? trimmed.toLowerCase();
+-}
+-
+-function getAccountEmail(account: AccountInfo | null) {
+-  if (!account) return null;
+-
+-  const claims = account.idTokenClaims as Record<string, unknown> | undefined;
+-  const emailCandidates = [
+-    claims?.email,
+-    claims?.preferred_username,
+-    claims?.upn,
+-    claims?.unique_name,
+-    account.username,
+-  ];
+-
+-  for (const candidate of emailCandidates) {
+-    const normalizedEmail = normalizeAccountEmailCandidate(candidate);
+-    if (normalizedEmail?.includes('@')) {
+-      return normalizedEmail;
+-    }
+-  }
+-
+-  const emailsClaim = claims?.emails;
+-  if (Array.isArray(emailsClaim)) {
+-    for (const candidate of emailsClaim) {
+-      const normalizedEmail = normalizeAccountEmailCandidate(candidate);
+-      if (normalizedEmail?.includes('@')) {
+-        return normalizedEmail;
+-      }
+-    }
+-  }
+-
+-  return null;
+-}
+-
++const Context = createContext<Value | undefined>(undefined);
+@@ -142,42 +19,6 @@
+-  const clientId = process.env.NEXT_PUBLIC_MS_CLIENT_ID ?? DEFAULT_MS_CLIENT_ID;
+-  const tenantId = process.env.NEXT_PUBLIC_MS_TENANT_ID?.trim() || DEFAULT_MS_TENANT_ID;
+-  const redirectUri =
+-    process.env.NEXT_PUBLIC_MS_REDIRECT_URI?.trim() ||
+-    (typeof window !== 'undefined' ? `${window.location.origin}/` : '');
+-
+-  const [accessToken, setAccessToken] = useState<string | null>(null);
+-  const [accountEmail, setAccountEmail] = useState<string | null>(null);
+-  const [accountName, setAccountName] = useState<string | null>(null);
+-  const [isSignedIn, setIsSignedIn] = useState(false);
+-  const [isReady, setIsReady] = useState(false);
+-
+-  const pca = useMemo(() => {
+-    if (!clientId || !tenantId || !redirectUri) return null;
+-    return new PublicClientApplication({
+-      auth: {
+-        clientId,
+-        authority: `https://login.microsoftonline.com/${tenantId}`,
+-        redirectUri,
+-      },
+-      cache: {
+-        cacheLocation: 'localStorage',
+-      },
+-    });
+-  }, [clientId, tenantId, redirectUri]);
+-
+-  const collaborationAccess = useMemo(
+-    () => getCollaborationEmailAccess(accountEmail),
+-    [accountEmail]
+-  );
+-
+-  function setCurrentAccount(account: AccountInfo | null) {
+-    if (!configureLocalAccount(account?.homeAccountId || account?.username || null, getAccountEmail(account), getLastAccountId())) {
+-      setIsReady(false);
+-      window.location.reload();
+-      throw new Error('Reopening the workspace for the selected account.');
+-    }
+-    setAccountEmail(getAccountEmail(account));
+-    setAccountName(account?.name?.trim() || null);
+-    rememberAccount(account);
+-  }
+-
++  const [session, setSession] = useState<Session | null>(null);
++  const [ready, setReady] = useState(false);
++  const [account, setAccount] = useState('device-owner@uai-ny.com');
++  const [password, setPassword] = useState('');
++  const [error, setError] = useState('');
++  const [busy, setBusy] = useState(false);
+@@ -185,56 +26,7 @@
+-    let active = true;
+-    if (!pca) {
+-      void Promise.resolve().then(() => {
+-        if (active) {
+-          setCurrentAccount(null);
+-          setIsReady(true);
+-        }
+-      });
+-      return () => {
+-        active = false;
+-      };
+-    }
+-
+-    pca
+-      .initialize()
+-      .then(() => pca.handleRedirectPromise())
+-      .then(async (result: AuthenticationResult | null) => {
+-        if (!active) return;
+-        if (result?.account) {
+-          pca.setActiveAccount(result.account);
+-        }
+-        const account = getResolvedAccount(pca);
+-        if (!account) {
+-          setCurrentAccount(null);
+-          setIsSignedIn(false);
+-          setIsReady(true);
+-          return;
+-        }
+-        setCurrentAccount(account);
+-        setIsSignedIn(true);
+-        try {
+-          const tokenResult = await pca.acquireTokenSilent({ scopes: SCOPES, account });
+-          if (!active) return;
+-          setAccessToken(tokenResult.accessToken);
+-        } catch {
+-          if (!active) return;
+-          setAccessToken(null);
+-        } finally {
+-          if (active) {
+-            setIsReady(true);
+-          }
+-        }
+-      })
+-      .catch(() => {
+-        if (!active) return;
+-        // Initialization may fail offline. Select the last local workspace
+-        // before mounting anything that opens IndexedDB or reads settings.
+-        if (!configureLocalAccount(null, null, getLastAccountId())) {
+-          window.location.reload();
+-          return;
+-        }
+-        setIsReady(true);
+-      });
+-
+-    return () => {
+-      active = false;
++    const client = getCollaborationSupabaseClient();
++    if (!client) { setError('Test database is not configured.'); setReady(true); return; }
++    const accept = (next: Session | null) => {
++      if (next && !configureLocalAccount(next.user.id, next.user.email ?? null, null)) {
++        window.location.reload(); return;
++      }
++      setSession(next); setReady(true);
+@@ -242,8 +34,3 @@
+-  }, [pca]);
+-
+-  useEffect(() => {
+-    if (typeof navigator === 'undefined') return;
+-    if (!navigator.storage?.persist) return;
+-
+-    void navigator.storage.persist().catch(() => {
+-      // Persistent storage is best-effort and unsupported on some browsers.
++    void client.auth.getSession().then(({ data, error }) => {
++      if (error) setError(error.message);
++      accept(data.session);
+@@ -250,0 +38,2 @@
++    const { data } = client.auth.onAuthStateChange((_event, next) => accept(next));
++    return () => data.subscription.unsubscribe();
+@@ -252,6 +41,2 @@
+-
+-  async function signIn(options?: { selectAccount?: boolean }) {
+-    if (!pca) {
+-      alert('Microsoft sign-in is not configured. Check NEXT_PUBLIC_MS_* environment variables.');
+-      return;
+-    }
++  async function login(event: FormEvent) {
++    event.preventDefault(); setBusy(true); setError('');
+@@ -259,12 +44,5 @@
+-      await pca.initialize();
+-      const request: RedirectRequest = { scopes: SCOPES };
+-      if (options?.selectAccount) {
+-        request.prompt = 'select_account';
+-      } else if (accountEmail) {
+-        request.loginHint = accountEmail;
+-      }
+-      await pca.loginRedirect(request);
+-    } catch (error) {
+-      console.error('Microsoft sign-in failed:', error);
+-      alert(getMicrosoftErrorMessage(error, 'Microsoft sign-in failed.'));
+-    }
++      const result = await getCollaborationSupabaseClient()!.auth.signInWithPassword({ email: account, password });
++      if (result.error) throw result.error;
++      setPassword('');
++    } catch (error) { setError(error instanceof Error ? error.message : 'Test sign-in failed.'); }
++    finally { setBusy(false); }
+@@ -272,86 +50,17 @@
+-
+-  async function signOut() {
+-    if (!pca) return;
+-    await pca.initialize();
+-    const account = getResolvedAccount(pca);
+-    forgetAccount();
+-    if (account) {
+-      await pca.logoutRedirect({ account, postLogoutRedirectUri: redirectUri || '/' });
+-    } else {
+-      await pca.logoutRedirect({ postLogoutRedirectUri: redirectUri || '/' });
+-    }
+-    setAccessToken(null);
+-    setCurrentAccount(null);
+-    setIsSignedIn(false);
+-  }
+-
+-  async function ensureAccessToken(options?: { interactive?: boolean }) {
+-    if (!pca) return null;
+-    await pca.initialize();
+-    const account = getResolvedAccount(pca);
+-    if (!account) {
+-      setCurrentAccount(null);
+-      setIsSignedIn(false);
+-      return null;
+-    }
+-    setCurrentAccount(account);
+-    try {
+-      const tokenResult = await pca.acquireTokenSilent({ scopes: SCOPES, account });
+-      setAccessToken(tokenResult.accessToken);
+-      setIsSignedIn(true);
+-      return tokenResult.accessToken;
+-    } catch (error) {
+-      if (error instanceof InteractionRequiredAuthError) {
+-        setAccessToken(null);
+-        setIsSignedIn(true);
+-        if (!options?.interactive) {
+-          return null;
+-        }
+-        try {
+-          const promptlessRequest: PopupRequest = { scopes: SCOPES, account, prompt: 'none' };
+-          const tokenResult = await pca.acquireTokenPopup(promptlessRequest);
+-          if (tokenResult.account) {
+-            pca.setActiveAccount(tokenResult.account);
+-            setCurrentAccount(tokenResult.account);
+-          }
+-          setAccessToken(tokenResult.accessToken);
+-          setIsSignedIn(true);
+-          return tokenResult.accessToken;
+-        } catch {}
+-
+-        try {
+-          const tokenResult = await pca.acquireTokenPopup({ scopes: SCOPES, account });
+-          if (tokenResult.account) {
+-            pca.setActiveAccount(tokenResult.account);
+-            setCurrentAccount(tokenResult.account);
+-          }
+-          setAccessToken(tokenResult.accessToken);
+-          setIsSignedIn(true);
+-          return tokenResult.accessToken;
+-        } catch (interactiveError) {
+-          console.warn('Microsoft interactive token refresh failed:', interactiveError);
+-          return null;
+-        }
+-      }
+-      return null;
+-    }
+-  }
+-
+-  return (
+-    <MicrosoftAuthContext.Provider
+-      value={{
+-        accessToken,
+-        accountEmail,
+-        accountName,
+-        collaborationAccess,
+-        canUseCollaboration: collaborationAccess.isAllowed,
+-        isSignedIn,
+-        isReady,
+-        signIn,
+-        signOut,
+-        ensureAccessToken,
+-      }}
+-    >
+-      {isReady ? children : null}
+-    </MicrosoftAuthContext.Provider>
+-  );
++  const signOut = async () => { await getCollaborationSupabaseClient()?.auth.signOut({ scope: 'local' }); window.location.reload(); };
++  const signIn = async () => { if (!session) window.location.reload(); };
++  const email = session?.user.email ?? null;
++  const access = getCollaborationEmailAccess(email);
++  return <Context.Provider value={{ accessToken: null, accountEmail: email, accountName: account.includes('member') ? 'Test teammate' : 'Test inspector', collaborationAccess: access, canUseCollaboration: access.isAllowed, isSignedIn: !!session, isReady: ready, signIn, signOut, ensureAccessToken: async () => null }}>
++    <div style={{ padding: '8px 12px', background: '#facc15', color: '#111827', textAlign: 'center', fontSize: 13, flexShrink: 0 }}>TEST APP · Disposable projects only · OneDrive disabled {session && <button onClick={signOut} style={{ textDecoration: 'underline', marginLeft: 8 }}>Switch test account</button>}</div>
++    {ready && session ? children : <main style={{ padding: 24, maxWidth: 460, margin: '40px auto', width: '100%' }}>
++      <h1 style={{ fontSize: 26, fontWeight: 700 }}>PunchList device test</h1>
++      <p style={{ margin: '16px 0' }}>Use Test inspector on both devices to check phone/computer locks. Use Test teammate for a second-person test.</p>
++      <form onSubmit={login} style={{ display: 'grid', gap: 16 }}>
++        <label>Test account<select aria-label="Test account" value={account} onChange={e => setAccount(e.target.value)} style={{ display: 'block', padding: 12, width: '100%' }}><option value="device-owner@uai-ny.com">Test inspector</option><option value="device-member@uai-ny.com">Test teammate</option></select></label>
++        <label>Test password<input aria-label="Test password" type="password" autoComplete="current-password" value={password} onChange={e => setPassword(e.target.value)} required style={{ display: 'block', padding: 12, width: '100%', border: '1px solid #999', borderRadius: 8 }} /></label>
++        <button disabled={busy || !ready} style={{ padding: 14, background: '#1d4ed8', color: 'white', borderRadius: 8 }}>{busy ? 'Signing in…' : 'Open test app'}</button>
++        {error && <p role="alert">{error}</p>}
++      </form>
++    </main>}
++  </Context.Provider>;
+@@ -359,8 +68 @@
+-
+-export function useMicrosoftAuth() {
+-  const context = useContext(MicrosoftAuthContext);
+-  if (!context) {
+-    throw new Error('useMicrosoftAuth must be used within a MicrosoftAuthProvider');
+-  }
+-  return context;
+-}
++export function useMicrosoftAuth() { const value = useContext(Context); if (!value) throw new Error('Missing test auth provider'); return value; }
+--- a/src/app/page.tsx
++++ b/src/app/page.tsx
+@@ -632,0 +633,8 @@
++      }
++
++      if (process.env.NEXT_PUBLIC_DEVICE_TEST === 'true') {
++      // Disposable test overlay: real OneDrive is intentionally disconnected.
++      setSyncStatus(problems.length ? 'pending' : 'idle');
++      await loadProjects();
++      showSyncResult([...completed, ...problems, 'Test environment: personal OneDrive backup is disabled.'].join('\n'), 'Test sync');
++      return;
+@@ -2039,2 +2046,0 @@
+-      // A first download is not a local edit. Preserve the team's timestamps
+-      // and do not overwrite a project that appeared while it was loading.
+--- a/src/app/layout.tsx
++++ b/src/app/layout.tsx
+@@ -8 +8 @@
+-  title: "UAI PUNCHLIST APP",
++  title: "PUNCHLIST TEST",
+@@ -14 +14 @@
+-    title: "UAI PUNCHLIST APP",
++    title: "PUNCHLIST TEST",
+--- a/public/manifest.json
++++ b/public/manifest.json
+@@ -2,2 +2,2 @@
+-  "name": "UAI PUNCHLIST APP",
+-  "short_name": "UAI PUNCHLIST APP",
++  "name": "PUNCHLIST TEST",
++  "short_name": "PunchList TEST",
