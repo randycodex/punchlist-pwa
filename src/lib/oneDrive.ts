@@ -807,10 +807,14 @@ async function readSyncLease(token: string) {
 
 async function releaseSyncLeaseFile(token: string, leaseId: string) {
   const { metadata, lease } = await readSyncLease(token);
-  if (!metadata?.id || lease?.leaseId !== leaseId) {
+  if (!metadata?.id || !metadata.eTag || lease?.leaseId !== leaseId) {
     return;
   }
-  await deleteDriveItemIfExists(token, metadata.id);
+  // Another device may acquire the expired lease between this read and delete.
+  // Never remove a different revision of the lock file.
+  await graphFetch(token, `/me/drive/items/${metadata.id}`, {
+    method: 'DELETE', headers: { 'If-Match': metadata.eTag },
+  });
 }
 
 export async function acquireSyncLease(token: string): Promise<() => Promise<void>> {

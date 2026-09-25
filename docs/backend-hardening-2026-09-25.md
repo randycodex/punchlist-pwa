@@ -23,6 +23,7 @@ Implementation and verification are local. No hosted database migrations, Produc
 
 - Initial verification: 69 test files, 318 tests passed, including the complete migration chain in PGlite with authenticated roles. This is PostgreSQL evidence, not a hosted Supabase/PostgREST integration test.
 - ESLint, TypeScript, production build, and diff whitespace checks pass.
+- After the OneDrive lease-release fix: 71 test files, 344 tests pass; lint, standalone TypeScript checking, and production build pass.
 - Installed dependency audit: zero reported vulnerabilities at verification time.
 - Isolated Chromium session against the local production build: created a project and unit, entered general notes, reloaded, and observed the same saved note. No browser runtime errors were reported. No external account or live team data was used.
 - Follow-up fixed the short-window General Notes overlap by reserving layout space for the bottom navigation. Verified normal clicks and note editing at 1280×640 and 390×667 in Chromium; measured that the content viewport ends at the navigation's top edge. This is responsive-browser evidence, not physical iOS acceptance.
@@ -75,6 +76,10 @@ Project deletion now explicitly aborts its main IndexedDB transaction on partial
 ### Late callbacks and device permission consistency
 
 Checkpoint persistence rejects projects already in Trash and purged areas; general-note persistence also rejects purged areas. This prevents delayed inspection/recovery callbacks from changing deleted work. The shared edit-permission helper now requires a matching device for device-bound claims, and returned claim objects retain their device ID. Tests cover late callbacks and missing/wrong/matching device IDs. These are client consistency checks in addition to the server RPC enforcement; the helper currently has no app call sites.
+
+### OneDrive lease release race
+
+OneDrive lease release now sends `If-Match` with the lock file's observed ETag. If the tag is unavailable, it leaves the file to expire. A replacement between the ownership read and deletion cannot be deleted by an older release; there is no unconditional retry. Mocked Graph tests cover precondition failure, absent ETag, and repeated release. This uses Microsoft's documented [conditional drive-item deletion](https://learn.microsoft.com/en-us/graph/api/driveitem-delete?view=graph-rest-1.0). Hosted lease expiry/renewal and interrupted-request behavior still require real-service acceptance.
 
 ## Coordinated rollout required
 
