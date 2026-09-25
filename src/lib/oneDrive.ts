@@ -862,9 +862,10 @@ export async function acquireSyncLease(token: string): Promise<() => Promise<voi
   }
 
   let released = false;
+  let renewal: Promise<void> | undefined;
   const renewTimer = window.setInterval(() => {
-    activeLease = createSyncLease(ownerId, leaseId);
-    void (async () => {
+    if (released || renewal) return;
+    renewal = (async () => {
       let renewalEtag = activeEtag;
       if (!renewalEtag) {
         const { metadata, lease } = await readSyncLease(token);
@@ -877,7 +878,7 @@ export async function acquireSyncLease(token: string): Promise<() => Promise<voi
       return uploadTextFileByPath(
         token,
         SYNC_LOCK_PATH,
-        JSON.stringify(activeLease),
+        JSON.stringify(createSyncLease(ownerId, leaseId)),
         { 'If-Match': renewalEtag }
       );
     })()
@@ -886,6 +887,9 @@ export async function acquireSyncLease(token: string): Promise<() => Promise<voi
       })
       .catch((error) => {
         console.info('OneDrive sync lease renewal skipped:', error);
+      })
+      .finally(() => {
+        renewal = undefined;
       });
   }, SYNC_LEASE_RENEW_MS);
 
@@ -894,6 +898,8 @@ export async function acquireSyncLease(token: string): Promise<() => Promise<voi
     released = true;
     window.clearInterval(renewTimer);
     try {
+      // Finish any in-flight renewal before reading the revision to delete.
+      await renewal;
       await releaseSyncLeaseFile(token, leaseId);
     } catch (error) {
       console.info('OneDrive sync lease release skipped:', error);

@@ -81,6 +81,8 @@ Checkpoint persistence rejects projects already in Trash and purged areas; gener
 
 OneDrive lease release now sends `If-Match` with the lock file's observed ETag. If the tag is unavailable, it leaves the file to expire. A replacement between the ownership read and deletion cannot be deleted by an older release; there is no unconditional retry. Mocked Graph tests cover precondition failure, absent ETag, and repeated release. This uses Microsoft's documented [conditional drive-item deletion](https://learn.microsoft.com/en-us/graph/api/driveitem-delete?view=graph-rest-1.0). Hosted lease expiry/renewal and interrupted-request behavior still require real-service acceptance.
 
+Renewals are serialized, and release waits for an in-flight renewal before reading the version to delete. Queued timer callbacks cannot renew after release begins. A deferred-response regression test covers overlapping timer ticks and release during renewal. This does not yet fence ongoing backup writes if the lease expires during a suspended browser or failed renewals; that remains a separate local hardening gap as well as a hosted acceptance scenario.
+
 ## Coordinated rollout required
 
 1. Back up the hosted database and record the current app release. Inspect existing grants, attachment paths, and active claims for drift from the migration chain.
