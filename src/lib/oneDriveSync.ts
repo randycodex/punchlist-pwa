@@ -34,6 +34,8 @@ import {
   acquireSyncLease,
   cleanupLegacyPunchListFolders,
   type DriveItem,
+  type OneDriveToken,
+  assertOneDriveLeaseActive,
 } from '@/lib/oneDrive';
 import { isMicrosoftMissingObjectError } from '@/lib/microsoftErrors';
 
@@ -247,7 +249,7 @@ function pickPrimaryRemoteProjectFile<
 }
 
 async function deleteStaleRemoteProjectFiles(
-  token: string,
+  token: OneDriveToken,
   project: Pick<Project, 'id' | 'projectName' | 'oneDriveFolderName'>,
   remoteFiles: RemoteProjectFile[],
   trashed: boolean,
@@ -403,7 +405,7 @@ function getProjectPhotosFolderPath(projectFolderName: string, trashed: boolean)
 }
 
 async function migrateLegacyProjectExports(
-  token: string,
+  token: OneDriveToken,
   remoteEntries: RemoteProjectFile[],
   targetFolderName: string,
   trashed: boolean
@@ -446,7 +448,7 @@ async function migrateLegacyProjectExports(
 }
 
 async function migrateCrossStateProjectExports(
-  token: string,
+  token: OneDriveToken,
   sourceFolderNames: string[],
   targetFolderName: string,
   trashed: boolean
@@ -486,7 +488,7 @@ async function migrateCrossStateProjectExports(
 }
 
 async function migratePhotosToFolder(
-  token: string,
+  token: OneDriveToken,
   photoFiles: Awaited<ReturnType<typeof listProjectPhotoFiles>>,
   destinationFolderPath: string
 ) {
@@ -516,7 +518,7 @@ async function migratePhotosToFolder(
 }
 
 async function migrateLegacyProjectPhotos(
-  token: string,
+  token: OneDriveToken,
   project: Pick<Project, 'id' | 'projectName' | 'oneDriveFolderName' | 'deletedAt'>,
   targetFolderName: string,
   sourceFolderNames = uniqueFolderNames([
@@ -601,7 +603,7 @@ function normalizeProjectPhotos(project: Project): Project {
 }
 
 async function getPhotoProjectFoldersForSync(
-  token: string,
+  token: OneDriveToken,
   remoteIndex?: OneDriveSyncRemoteIndex
 ) {
   if (remoteIndex?.photoProjectFolders) {
@@ -615,7 +617,7 @@ async function getPhotoProjectFoldersForSync(
 }
 
 async function hydrateProjectPhotosFromOneDrive(
-  token: string,
+  token: OneDriveToken,
   project: Project,
   preferredFolderName?: string,
   remoteIndex?: OneDriveSyncRemoteIndex
@@ -708,7 +710,7 @@ async function dataUrlToBlob(dataUrl: string): Promise<Blob> {
 }
 
 async function syncProjectPhotosToOneDrive(
-  token: string,
+  token: OneDriveToken,
   project: Project,
   targetFolderName = projectFolderName(project),
   remoteIndex?: OneDriveSyncRemoteIndex
@@ -788,7 +790,7 @@ async function syncProjectPhotosToOneDrive(
 }
 
 async function backupProjectPhotosToOneDrive(
-  token: string,
+  token: OneDriveToken,
   project: Project,
   targetFolderName = projectFolderName(project),
   remoteIndex?: OneDriveSyncRemoteIndex
@@ -819,7 +821,7 @@ async function backupProjectPhotosToOneDrive(
 }
 
 async function separatePersonalProjectPhotos(
-  token: string,
+  token: OneDriveToken,
   project: Project,
   sourceFolderName: string,
   targetFolderName: string,
@@ -844,7 +846,7 @@ async function separatePersonalProjectPhotos(
 }
 
 async function removeSeparatedPersonalProjectPhotosFromOldFolder(
-  token: string,
+  token: OneDriveToken,
   project: Project,
   sourceFolderName: string,
   targetFolderName: string,
@@ -881,7 +883,7 @@ async function removeSeparatedPersonalProjectPhotosFromOldFolder(
 }
 
 async function syncProjectStorageToOneDriveState(
-  token: string,
+  token: OneDriveToken,
   project: Project,
   remoteEntries: RemoteProjectFile[],
   targetFolderName: string,
@@ -911,7 +913,7 @@ function isConflictError(error: unknown) {
 }
 
 async function uploadProjectFileRecoveringMissingRemote(
-  token: string,
+  token: OneDriveToken,
   projectFolderName: string,
   filename: string,
   content: string,
@@ -1270,7 +1272,7 @@ export function resolveProjectSyncStates(
   return { syncStates: next, revivedRemoteProjectIds };
 }
 
-async function downloadRemoteProject(token: string, remoteId: string): Promise<Project | null> {
+async function downloadRemoteProject(token: OneDriveToken, remoteId: string): Promise<Project | null> {
   let raw: string;
   try {
     raw = await downloadProjectFile(token, remoteId);
@@ -1288,7 +1290,7 @@ async function downloadRemoteProject(token: string, remoteId: string): Promise<P
 }
 
 async function getRemoteProjectPayloadUpdatedAt(
-  token: string,
+  token: OneDriveToken,
   remote?: Pick<RemoteProjectFile, 'id' | 'lastModifiedDateTime'>,
   cache?: Map<string, number>
 ) {
@@ -1315,8 +1317,9 @@ async function ignoreMissingRemoteItem(action: () => Promise<void>) {
   }
 }
 
-export async function syncProjectsWithOneDrive(token: string, options: SyncOptions = {}): Promise<SyncResult> {
+export async function syncProjectsWithOneDrive(token: OneDriveToken, options: SyncOptions = {}): Promise<SyncResult> {
   const releaseSyncLease = await acquireSyncLease(token);
+  token = releaseSyncLease.token;
 
   try {
     await ensurePunchListFolders(token);
@@ -1423,6 +1426,7 @@ export async function syncProjectsWithOneDrive(token: string, options: SyncOptio
 
     if (!localProject) {
       const hydratedRemoteProject = await hydrateRemoteProject();
+      assertOneDriveLeaseActive(token);
       if (!await saveDownloadedProjectIfUnchanged(hydratedRemoteProject, sourceToken)) {
         throw new Error('Local work changed while OneDrive was downloading. Your current project was kept. Retry sync to review the latest changes.');
       }
@@ -1437,6 +1441,7 @@ export async function syncProjectsWithOneDrive(token: string, options: SyncOptio
       localUpdatedAt <= staleDeleteUpdatedAt + CLOCK_SKEW_TOLERANCE_MS
     ) {
       const hydratedRemoteProject = await hydrateRemoteProject();
+      assertOneDriveLeaseActive(token);
       if (!await saveDownloadedProjectIfUnchanged(hydratedRemoteProject, sourceToken)) {
         throw new Error('Local work changed while OneDrive was downloading. Your current project was kept. Retry sync to review the latest changes.');
       }
@@ -1454,6 +1459,7 @@ export async function syncProjectsWithOneDrive(token: string, options: SyncOptio
         remoteFolderName ?? undefined,
         remoteIndex
       );
+      assertOneDriveLeaseActive(token);
       if (!await saveDownloadedProjectIfUnchanged(hydratedMergedProject, sourceToken)) {
         throw new Error('Local work changed while OneDrive was downloading. Your current project was kept. Retry sync to review the latest changes.');
       }
@@ -1491,6 +1497,7 @@ export async function syncProjectsWithOneDrive(token: string, options: SyncOptio
       return;
     }
     const fullProject = withProjectFolderName(projectForUpload, targetFolderName);
+    assertOneDriveLeaseActive(token);
     await saveProjectOneDriveFolderName(fullProject.id, targetFolderName);
 
     const localUpdatedAt = getProjectUpdatedAt(project);
@@ -1535,6 +1542,7 @@ export async function syncProjectsWithOneDrive(token: string, options: SyncOptio
     }
   });
 
+  assertOneDriveLeaseActive(token);
   const syncedAt = new Date();
   setLastSyncTime(syncedAt);
   await cleanupLegacyPunchListFolders(token);
@@ -1545,10 +1553,11 @@ export async function syncProjectsWithOneDrive(token: string, options: SyncOptio
   }
 }
 
-export async function pushProjectsToOneDrive(token: string, projectIds: string[]): Promise<PushSyncResult> {
+export async function pushProjectsToOneDrive(token: OneDriveToken, projectIds: string[]): Promise<PushSyncResult> {
   if (projectIds.length === 0) return { conflicts: [] };
 
   const releaseSyncLease = await acquireSyncLease(token);
+  token = releaseSyncLease.token;
 
   try {
     await ensurePunchListFolders(token);
@@ -1582,6 +1591,7 @@ export async function pushProjectsToOneDrive(token: string, projectIds: string[]
     }
 
     const localProjectWithFolder = withProjectFolderName(localProject, targetFolderName);
+    assertOneDriveLeaseActive(token);
     await saveProjectOneDriveFolderName(localProjectWithFolder.id, targetFolderName);
 
     if (freshnessComparison === 0) {
@@ -1617,6 +1627,7 @@ export async function pushProjectsToOneDrive(token: string, projectIds: string[]
     }
   });
 
+    assertOneDriveLeaseActive(token);
     return { conflicts: [...conflictsById.values()] };
   } finally {
     await releaseSyncLease();
@@ -1625,11 +1636,12 @@ export async function pushProjectsToOneDrive(token: string, projectIds: string[]
 
 /** Creates personal OneDrive backups; Team Projects use Supabase instead. */
 export async function backupProjectsToOneDrive(
-  token: string,
+  token: OneDriveToken,
   projectIds?: string[],
   forceProjectIds?: string[]
 ): Promise<OneDriveBackupResult> {
   const releaseSyncLease = await acquireSyncLease(token);
+  token = releaseSyncLease.token;
 
   try {
     await ensurePunchListFolders(token);
@@ -1767,6 +1779,7 @@ export async function backupProjectsToOneDrive(
           }
           // Only point the local project at the new folder after its JSON and
           // referenced photos are verified. Avoid rewriting photo records here.
+          assertOneDriveLeaseActive(token);
           await saveProjectOneDriveFolderName(projectForBackup.id, targetFolderName);
           backedUpProjectIds.push(projectForBackup.id);
         } catch (error) {
@@ -1788,6 +1801,7 @@ export async function backupProjectsToOneDrive(
       }
     });
 
+    assertOneDriveLeaseActive(token);
     const syncedAt = new Date();
     if (failedProjects.length === 0 && conflictsById.size === 0) setLastSyncTime(syncedAt);
     return {
@@ -1806,12 +1820,13 @@ export async function backupProjectsToOneDrive(
  * next backup. Shared projects stay under the team server's versioned sync.
  * Neither side's project is deleted by this operation.
  */
-export async function mergePersonalProjectsFromOneDrive(token: string, projectIds?: string[]): Promise<{
+export async function mergePersonalProjectsFromOneDrive(token: OneDriveToken, projectIds?: string[]): Promise<{
   updatedLocalProjectIds: string[];
   archivedLocalProjectIds: string[];
   forceBackupProjectIds: string[];
 }> {
   const releaseSyncLease = await acquireSyncLease(token);
+  token = releaseSyncLease.token;
   try {
     await ensurePunchListFolders(token);
     const [localProjects, remoteFiles] = await Promise.all([
@@ -1859,6 +1874,7 @@ export async function mergePersonalProjectsFromOneDrive(token: string, projectId
         folderName ?? undefined,
         remoteIndex
       );
+      assertOneDriveLeaseActive(token);
       if (!await saveDownloadedProjectIfUnchanged(hydrated, sourceToken)) {
         throw new Error('Local work changed while OneDrive photos were downloading. Your current project was kept. Sync again to merge the latest changes.');
       }
@@ -1885,12 +1901,14 @@ export async function mergePersonalProjectsFromOneDrive(token: string, projectId
         deletedAt: remoteProject.deletedAt,
         updatedAt: maxDate(fullLocal.updatedAt, remoteProject.deletedAt) ?? fullLocal.updatedAt,
       };
+      assertOneDriveLeaseActive(token);
       if (!await saveDownloadedProjectIfUnchanged(archived, sourceToken)) {
         throw new Error('Local work changed while OneDrive archive status was loading. Your current project was kept.');
       }
       archivedLocalProjectIds.push(projectId);
     });
 
+    assertOneDriveLeaseActive(token);
     return { updatedLocalProjectIds, archivedLocalProjectIds, forceBackupProjectIds };
   } finally {
     await releaseSyncLease();
@@ -1903,10 +1921,11 @@ export async function mergePersonalProjectsFromOneDrive(token: string, projectId
  * recovery request; routine sync never converts or duplicates a team copy.
  */
 export async function restoreMissingProjectsFromOneDrive(
-  token: string,
+  token: OneDriveToken,
   options: { recoverInactiveSharedProjectIds?: string[] } = {}
 ): Promise<OneDriveRestoreResult> {
   const releaseSyncLease = await acquireSyncLease(token);
+  token = releaseSyncLease.token;
 
   try {
     await ensurePunchListFolders(token);
@@ -1983,6 +2002,7 @@ export async function restoreMissingProjectsFromOneDrive(
 
     for (const deletion of deletionsToApply) {
       if (!deletion.localProject) continue;
+      assertOneDriveLeaseActive(token);
       await deleteProject(deletion.id);
       localById.delete(deletion.id);
     }
@@ -2089,6 +2109,7 @@ export async function restoreMissingProjectsFromOneDrive(
             ? savedPriorRecovery
             : recoverInactiveTeamCopy(fullLocal);
           if (!recoveryCopy) throw new Error('Could not load the recovery copy. Your local project was not changed.');
+          assertOneDriveLeaseActive(token);
           if (!priorIsComplete) await saveProjectPreserveTimestamps(recoveryCopy);
           const savedRecovery = await getProject(recoveryCopy.id);
           if (!savedRecovery) throw new Error('Could not verify the office recovery copy. Your local project was not changed.');
@@ -2105,6 +2126,7 @@ export async function restoreMissingProjectsFromOneDrive(
           }
           recoveredLocalCopies.push({ id: savedRecovery.id, name: savedRecovery.projectName });
         }
+        assertOneDriveLeaseActive(token);
         if (!await saveDownloadedProjectIfUnchanged(hydratedProject, sourceToken, { resetSharedQueues: Boolean(existing?.sharedProjectId) })) {
           throw new Error('A local project was created or changed while this backup was loading. Your current project and pending changes were kept.');
         }
@@ -2119,6 +2141,7 @@ export async function restoreMissingProjectsFromOneDrive(
       }
     });
 
+    assertOneDriveLeaseActive(token);
     return { restoredProjectIds, skippedProjectIds, permanentlyDeletedProjectNames, recoveredLocalCopies, failedProjects };
   } finally {
     await releaseSyncLease();
@@ -2126,7 +2149,7 @@ export async function restoreMissingProjectsFromOneDrive(
 }
 
 export async function hydrateProjectMediaFromOneDrive(
-  token: string,
+  token: OneDriveToken,
   projectId: string
 ): Promise<Project | null> {
   const sourceToken = await captureLocalProjectSaveToken(projectId);
@@ -2141,6 +2164,7 @@ export async function hydrateProjectMediaFromOneDrive(
     localProject.oneDriveFolderName
   );
 
+  assertOneDriveLeaseActive(token);
   if (!await saveDownloadedProjectIfUnchanged(hydratedProject, sourceToken)) {
     throw new Error('Local work changed while photos were downloading. Your current project was kept. Retry loading photos.');
   }

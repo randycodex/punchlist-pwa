@@ -15,6 +15,19 @@ const SYNC_LEASE_RENEW_MS = 15_000;
 const SYNC_LEASE_MAX_WAIT_MS = 2 * 60_000;
 const ensuredFolderCache = new Map<string, number>();
 
+// Scoped credentials carry the lease through every nested Graph request and
+// throttle retry, without affecting unrelated exports or another operation.
+export type OneDriveToken = string | { accessToken: string; assertActive: () => void };
+type SyncLeaseHandle = (() => Promise<void>) & { token: OneDriveToken };
+
+function accessToken(token: OneDriveToken) {
+  return typeof token === 'string' ? token : token.accessToken;
+}
+
+export function assertOneDriveLeaseActive(token: OneDriveToken) {
+  if (typeof token !== 'string') token.assertActive();
+}
+
 export type DriveItem = {
   id: string;
   name: string;
@@ -36,7 +49,8 @@ type SyncLeaseFile = {
   expiresAt: string;
 };
 
-function getTokenCacheKey(token: string) {
+function getTokenCacheKey(credential: OneDriveToken) {
+  const token = accessToken(credential);
   try {
     const payload = token.split('.')[1];
     if (!payload) throw new Error('Missing token payload.');
@@ -108,21 +122,26 @@ function buildGraphError(response: Response, message: string) {
   return error;
 }
 
-async function fetchGraphWithThrottleRetry(url: string, options: RequestInit): Promise<Response> {
+async function fetchGraphWithThrottleRetry(token: OneDriveToken, url: string, options: RequestInit): Promise<Response> {
+  assertOneDriveLeaseActive(token);
   const response = await fetch(url, options);
+  assertOneDriveLeaseActive(token);
   if (response.status !== 429) {
     return response;
   }
 
   await wait(getRetryAfterMs(response) ?? 60_000);
-  return fetch(url, options);
+  assertOneDriveLeaseActive(token);
+  const retried = await fetch(url, options);
+  assertOneDriveLeaseActive(token);
+  return retried;
 }
 
-async function graphFetch<T>(token: string, path: string, options?: RequestInit): Promise<T> {
-  const response = await fetchGraphWithThrottleRetry(`${GRAPH_API}${path}`, {
+async function graphFetch<T>(token: OneDriveToken, path: string, options?: RequestInit): Promise<T> {
+  const response = await fetchGraphWithThrottleRetry(token, `${GRAPH_API}${path}`, {
     ...options,
     headers: {
-      Authorization: `Bearer ${token}`,
+      Authorization: `Bearer ${accessToken(token)}`,
       ...(options?.headers ?? {}),
     },
   });
@@ -142,11 +161,11 @@ async function graphFetch<T>(token: string, path: string, options?: RequestInit)
   return response.json() as Promise<T>;
 }
 
-async function graphFetchAbsolute<T>(token: string, url: string, options?: RequestInit): Promise<T> {
-  const response = await fetchGraphWithThrottleRetry(url, {
+async function graphFetchAbsolute<T>(token: OneDriveToken, url: string, options?: RequestInit): Promise<T> {
+  const response = await fetchGraphWithThrottleRetry(token, url, {
     ...options,
     headers: {
-      Authorization: `Bearer ${token}`,
+      Authorization: `Bearer ${accessToken(token)}`,
       ...(options?.headers ?? {}),
     },
   });
@@ -190,7 +209,7 @@ function wait(ms: number) {
   return new Promise((resolve) => globalThis.setTimeout(resolve, ms));
 }
 
-async function getItemByPath(token: string, path: string): Promise<DriveItem | null> {
+async function getItemByPath(token: OneDriveToken, path: string): Promise<DriveItem | null> {
   try {
     const item = await graphFetch<DriveItem>(
       token,
@@ -205,11 +224,11 @@ async function getItemByPath(token: string, path: string): Promise<DriveItem | n
   }
 }
 
-async function downloadTextFileByPath(token: string, path: string): Promise<string | null> {
+async function downloadTextFileByPath(token: OneDriveToken, path: string): Promise<string | null> {
   try {
-    const response = await fetchGraphWithThrottleRetry(`${GRAPH_API}/me/drive/root:/${encodeURI(path)}:/content`, {
+    const response = await fetchGraphWithThrottleRetry(token, `${GRAPH_API}/me/drive/root:/${encodeURI(path)}:/content`, {
       headers: {
-        Authorization: `Bearer ${token}`,
+        Authorization: `Bearer ${accessToken(token)}`,
       },
     });
     if (!response.ok) {
@@ -228,7 +247,7 @@ async function downloadTextFileByPath(token: string, path: string): Promise<stri
 }
 
 async function uploadTextFileByPath(
-  token: string,
+  token: OneDriveToken,
   path: string,
   content: string,
   headers?: Record<string, string>
@@ -244,7 +263,7 @@ async function uploadTextFileByPath(
 }
 
 async function createFolder(
-  token: string,
+  token: OneDriveToken,
   name: string,
   parentId?: string
 ): Promise<DriveItem> {
@@ -263,7 +282,7 @@ async function createFolder(
   });
 }
 
-async function ensureFolder(token: string, path: string): Promise<DriveItem> {
+async function ensureFolder(token: OneDriveToken, path: string): Promise<DriveItem> {
   const existing = await getItemByPath(token, path);
   if (existing?.folder) return existing;
   if (existing) {
@@ -314,7 +333,7 @@ function isDriveItemInTrash(item: Pick<DriveItem, 'punchlistPath'>) {
   return item.punchlistPath?.startsWith(`${TRASH_BIN_ROOT}/`) ?? false;
 }
 
-async function listProjectRootFolders(token: string, trashed = false): Promise<DriveItem[]> {
+async function listProjectRootFolders(token: OneDriveToken, trashed = false): Promise<DriveItem[]> {
   const children = await listFolderChildrenByPath(token, getProjectContainerRoot(trashed));
   return children.filter(
     (item) => item.folder && !RESERVED_PUNCHLIST_FOLDER_NAMES.has(item.name)
@@ -341,7 +360,7 @@ function dedupeDriveItems(items: DriveItem[]) {
   return deduped;
 }
 
-export async function ensurePunchListFolders(token: string) {
+export async function ensurePunchListFolders(token: OneDriveToken) {
   const cacheKey = getTokenCacheKey(token);
   const cachedUntil = ensuredFolderCache.get(cacheKey) ?? 0;
   if (cachedUntil > Date.now()) {
@@ -353,7 +372,7 @@ export async function ensurePunchListFolders(token: string) {
   ensuredFolderCache.set(cacheKey, Date.now() + ENSURED_FOLDER_CACHE_MS);
 }
 
-async function listFolderChildrenByPath(token: string, path: string): Promise<DriveItem[]> {
+async function listFolderChildrenByPath(token: OneDriveToken, path: string): Promise<DriveItem[]> {
   try {
     const items: DriveItem[] = [];
     let nextUrl: string | null =
@@ -377,7 +396,7 @@ async function listFolderChildrenByPath(token: string, path: string): Promise<Dr
   }
 }
 
-export async function listProjectFiles(token: string) {
+export async function listProjectFiles(token: OneDriveToken) {
   await ensurePunchListFolders(token);
   const [legacyFiles, activeProjectFolders, trashedProjectFolders] = await Promise.all([
     listFolderChildrenByPath(token, LEGACY_PROJECTS_PATH),
@@ -400,7 +419,7 @@ export async function listProjectFiles(token: string) {
   return [...legacyFiles, ...nestedFiles.flat()].filter((item) => item.name.endsWith('.json'));
 }
 
-export async function getProjectFileMetadata(token: string, filename: string): Promise<DriveItem | null> {
+export async function getProjectFileMetadata(token: OneDriveToken, filename: string): Promise<DriveItem | null> {
   await ensurePunchListFolders(token);
   const projectFolders = [
     ...(await listProjectRootFolders(token, false)),
@@ -416,10 +435,10 @@ export async function getProjectFileMetadata(token: string, filename: string): P
   return getItemByPath(token, `${LEGACY_PROJECTS_PATH}/${filename}`);
 }
 
-export async function downloadProjectFile(token: string, id: string): Promise<string> {
-  const response = await fetchGraphWithThrottleRetry(`${GRAPH_API}/me/drive/items/${id}/content`, {
+export async function downloadProjectFile(token: OneDriveToken, id: string): Promise<string> {
+  const response = await fetchGraphWithThrottleRetry(token, `${GRAPH_API}/me/drive/items/${id}/content`, {
     headers: {
-      Authorization: `Bearer ${token}`,
+      Authorization: `Bearer ${accessToken(token)}`,
     },
   });
   if (!response.ok) {
@@ -428,10 +447,10 @@ export async function downloadProjectFile(token: string, id: string): Promise<st
   return response.text();
 }
 
-export async function downloadDriveItemAsDataUrl(token: string, id: string): Promise<string> {
-  const response = await fetchGraphWithThrottleRetry(`${GRAPH_API}/me/drive/items/${id}/content`, {
+export async function downloadDriveItemAsDataUrl(token: OneDriveToken, id: string): Promise<string> {
+  const response = await fetchGraphWithThrottleRetry(token, `${GRAPH_API}/me/drive/items/${id}/content`, {
     headers: {
-      Authorization: `Bearer ${token}`,
+      Authorization: `Bearer ${accessToken(token)}`,
     },
   });
   if (!response.ok) {
@@ -454,7 +473,7 @@ export async function downloadDriveItemAsDataUrl(token: string, id: string): Pro
 }
 
 export async function uploadProjectFile(
-  token: string,
+  token: OneDriveToken,
   projectFolderName: string,
   filename: string,
   content: string,
@@ -477,7 +496,7 @@ export async function uploadProjectFile(
 }
 
 export async function listProjectPhotoFiles(
-  token: string,
+  token: OneDriveToken,
   projectFolderName: string,
   trashed = false,
   includeFallback = false
@@ -492,7 +511,7 @@ export async function listProjectPhotoFiles(
 }
 
 export async function listProjectExportFiles(
-  token: string,
+  token: OneDriveToken,
   projectFolderName: string,
   trashed = false
 ): Promise<DriveItem[]> {
@@ -500,7 +519,7 @@ export async function listProjectExportFiles(
   return listFolderChildrenByPath(token, getProjectExportsPath(projectFolderName, trashed));
 }
 
-export async function listPhotoProjectFolders(token: string): Promise<DriveItem[]> {
+export async function listPhotoProjectFolders(token: OneDriveToken): Promise<DriveItem[]> {
   await ensurePunchListFolders(token);
   const [activeProjectFolders, trashedProjectFolders, legacyPhotoFolders] = await Promise.all([
     listProjectRootFolders(token, false),
@@ -521,7 +540,7 @@ export async function listPhotoProjectFolders(token: string): Promise<DriveItem[
 }
 
 export async function uploadProjectPhotoFile(
-  token: string,
+  token: OneDriveToken,
   projectFolderName: string,
   filename: string,
   blob: Blob,
@@ -547,7 +566,7 @@ function isItemNotFoundError(error: unknown) {
   return isGraphItemNotFoundError(error);
 }
 
-async function deleteDriveItemIfExists(token: string, id: string): Promise<void> {
+async function deleteDriveItemIfExists(token: OneDriveToken, id: string): Promise<void> {
   try {
     await deleteDriveItem(token, id);
   } catch (error) {
@@ -557,7 +576,7 @@ async function deleteDriveItemIfExists(token: string, id: string): Promise<void>
   }
 }
 
-export async function deleteProjectPhotoFolder(token: string, projectFolderName: string): Promise<void> {
+export async function deleteProjectPhotoFolder(token: OneDriveToken, projectFolderName: string): Promise<void> {
   await ensurePunchListFolders(token);
   const [activeProjectFolderPhotos, trashedProjectFolderPhotos, legacyFolder] = await Promise.all([
     getItemByPath(token, getProjectPhotosPath(projectFolderName, false)),
@@ -574,7 +593,7 @@ export async function deleteProjectPhotoFolder(token: string, projectFolderName:
   }
 }
 
-export async function deleteProjectFolder(token: string, projectFolderName: string): Promise<void> {
+export async function deleteProjectFolder(token: OneDriveToken, projectFolderName: string): Promise<void> {
   await ensurePunchListFolders(token);
   const folders = dedupeDriveItems(
     (
@@ -590,7 +609,7 @@ export async function deleteProjectFolder(token: string, projectFolderName: stri
 }
 
 export async function deleteProjectFolderFromState(
-  token: string,
+  token: OneDriveToken,
   projectFolderName: string,
   trashed: boolean,
   projectId?: string
@@ -610,7 +629,7 @@ export async function deleteProjectFolderFromState(
 }
 
 export async function deleteProjectFoldersFromState(
-  token: string,
+  token: OneDriveToken,
   projectFolderNames: string[],
   trashed: boolean,
   projectId?: string
@@ -622,7 +641,7 @@ export async function deleteProjectFoldersFromState(
 }
 
 export async function uploadPdfToOneDrive(
-  token: string,
+  token: OneDriveToken,
   filename: string,
   blob: Blob,
   projectFolderName?: string
@@ -647,7 +666,7 @@ export async function uploadPdfToOneDrive(
 }
 
 export async function getNextOneDriveExportFilename(
-  token: string,
+  token: OneDriveToken,
   projectNames: string[],
   now = new Date(),
   projectFolderName?: string
@@ -680,14 +699,14 @@ export async function getNextOneDriveExportFilename(
   return `${base}_${date}_${nextVersion}.pdf`;
 }
 
-export async function deleteDriveItem(token: string, id: string): Promise<void> {
+export async function deleteDriveItem(token: OneDriveToken, id: string): Promise<void> {
   await graphFetch(token, `/me/drive/items/${id}`, {
     method: 'DELETE',
   });
 }
 
 export async function moveDriveItemToFolder(
-  token: string,
+  token: OneDriveToken,
   id: string,
   destinationFolderPath: string,
   name?: string
@@ -708,10 +727,10 @@ export async function moveDriveItemToFolder(
   });
 }
 
-export async function downloadDeletionLog(token: string): Promise<Record<string, unknown>> {
-  const response = await fetchGraphWithThrottleRetry(`${GRAPH_API}/me/drive/root:/PunchList/deletions.json:/content`, {
+export async function downloadDeletionLog(token: OneDriveToken): Promise<Record<string, unknown>> {
+  const response = await fetchGraphWithThrottleRetry(token, `${GRAPH_API}/me/drive/root:/PunchList/deletions.json:/content`, {
     headers: {
-      Authorization: `Bearer ${token}`,
+      Authorization: `Bearer ${accessToken(token)}`,
     },
   });
   if (!response.ok) {
@@ -725,7 +744,7 @@ export async function downloadDeletionLog(token: string): Promise<Record<string,
 }
 
 export async function uploadDeletionLog(
-  token: string,
+  token: OneDriveToken,
   data: Record<string, unknown>
 ): Promise<DriveItem> {
   return graphFetch<DriveItem>(token, '/me/drive/root:/PunchList/deletions.json:/content', {
@@ -794,7 +813,7 @@ function syncLeaseExpiresAtMs(lease: SyncLeaseFile | null) {
   return Number.isFinite(ms) ? ms : 0;
 }
 
-async function readSyncLease(token: string) {
+async function readSyncLease(token: OneDriveToken) {
   const metadata = await getItemByPath(token, SYNC_LOCK_PATH);
   if (!metadata) {
     return { metadata: null, lease: null };
@@ -805,7 +824,7 @@ async function readSyncLease(token: string) {
   };
 }
 
-async function releaseSyncLeaseFile(token: string, leaseId: string) {
+async function releaseSyncLeaseFile(token: OneDriveToken, leaseId: string) {
   const { metadata, lease } = await readSyncLease(token);
   if (!metadata?.id || !metadata.eTag || lease?.leaseId !== leaseId) {
     return;
@@ -817,7 +836,7 @@ async function releaseSyncLeaseFile(token: string, leaseId: string) {
   });
 }
 
-export async function acquireSyncLease(token: string): Promise<() => Promise<void>> {
+export async function acquireSyncLease(token: OneDriveToken): Promise<SyncLeaseHandle> {
   await ensurePunchListFolders(token);
   const ownerId = getSyncLeaseOwnerId();
   const leaseId =
@@ -848,7 +867,9 @@ export async function acquireSyncLease(token: string): Promise<() => Promise<voi
         JSON.stringify(activeLease),
         metadata?.eTag ? { 'If-Match': metadata.eTag } : { 'If-None-Match': '*' }
       );
-      activeEtag = uploaded.eTag ?? (await getItemByPath(token, SYNC_LOCK_PATH))?.eTag;
+      // A separate metadata read could belong to a replacement lease. If the
+      // upload omits its tag, renewal must verify ownership before using one.
+      activeEtag = uploaded.eTag;
       break;
     } catch (error) {
       if (!isGraphConflictError(error)) {
@@ -862,30 +883,49 @@ export async function acquireSyncLease(token: string): Promise<() => Promise<voi
   }
 
   let released = false;
+  let lost = false;
+  let validUntil = syncLeaseExpiresAtMs(activeLease);
+  const assertActive = () => {
+    if (released || lost || Date.now() >= validUntil) {
+      lost = true;
+      throw new Error('The OneDrive sync lock expired or was lost. Your local work is preserved. Sync again to continue.');
+    }
+  };
   let renewal: Promise<void> | undefined;
   const renewTimer = window.setInterval(() => {
-    if (released || renewal) return;
+    if (released || lost || renewal) return;
+    let renewedUntil = validUntil;
     renewal = (async () => {
+      assertActive();
       let renewalEtag = activeEtag;
       if (!renewalEtag) {
         const { metadata, lease } = await readSyncLease(token);
         if (lease?.leaseId !== leaseId || !metadata?.eTag) {
+          lost = true;
           return;
         }
         renewalEtag = metadata.eTag;
       }
 
+      assertActive();
+      const renewedLease = createSyncLease(ownerId, leaseId);
+      renewedUntil = syncLeaseExpiresAtMs(renewedLease);
       return uploadTextFileByPath(
-        token,
+        { accessToken: accessToken(token), assertActive },
         SYNC_LOCK_PATH,
-        JSON.stringify(createSyncLease(ownerId, leaseId)),
+        JSON.stringify(renewedLease),
         { 'If-Match': renewalEtag }
       );
     })()
       .then((uploaded) => {
+        // A response received after the previous deadline cannot prove that
+        // this operation retained continuous ownership.
+        if (Date.now() >= validUntil || !uploaded) lost = true;
+        if (!lost) validUntil = renewedUntil;
         activeEtag = uploaded?.eTag;
       })
       .catch((error) => {
+        if (isGraphConflictError(error) || Date.now() >= validUntil) lost = true;
         console.info('OneDrive sync lease renewal skipped:', error);
       })
       .finally(() => {
@@ -893,7 +933,7 @@ export async function acquireSyncLease(token: string): Promise<() => Promise<voi
       });
   }, SYNC_LEASE_RENEW_MS);
 
-  return async () => {
+  const release = async () => {
     if (released) return;
     released = true;
     window.clearInterval(renewTimer);
@@ -905,9 +945,10 @@ export async function acquireSyncLease(token: string): Promise<() => Promise<voi
       console.info('OneDrive sync lease release skipped:', error);
     }
   };
+  return Object.assign(release, { token: { accessToken: accessToken(token), assertActive } });
 }
 
-export async function cleanupLegacyPunchListFolders(token: string): Promise<void> {
+export async function cleanupLegacyPunchListFolders(token: OneDriveToken): Promise<void> {
   await ensurePunchListFolders(token);
 
   for (const path of [LEGACY_PROJECTS_PATH, LEGACY_PHOTOS_PATH]) {

@@ -30,7 +30,7 @@ const { listProjectFilesMock, listPhotoProjectFoldersMock, listProjectPhotoFiles
 
 vi.mock('@/lib/oneDrive', async (importOriginal) => ({
   ...await importOriginal<typeof import('@/lib/oneDrive')>(),
-  acquireSyncLease: async () => async () => {},
+  acquireSyncLease: async (token: string) => Object.assign(async () => {}, { token }),
   ensurePunchListFolders: async () => {},
   listProjectFiles: listProjectFilesMock,
   downloadProjectFile: downloadProjectFileMock,

@@ -1,7 +1,7 @@
 import { afterEach, expect, it, vi } from 'vitest';
-import { acquireSyncLease } from '@/lib/oneDrive';
+import { acquireSyncLease, uploadDeletionLog } from '@/lib/oneDrive';
 
-afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
+afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); vi.useRealTimers(); });
 
 it('serializes slow renewals and waits for renewal before releasing', async () => {
   let tick!: () => void;
@@ -82,4 +82,93 @@ it.each([true, false])('releases only the read lock version (etag available: %s)
   await release();
   expect(deletes).toHaveLength(hasEtag ? 1 : 0);
   if (hasEtag) expect(new Headers(deletes[0].headers).get('If-Match')).toBe('"read-version"');
+});
+
+async function expiryFixture(renewalStatus = 200, writeStatus = 200, beforeWriteResponse?: () => void) {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date('2026-09-25T12:00:00Z'));
+  vi.spyOn(console, 'info').mockImplementation(() => {});
+  let tick!: () => void;
+  vi.stubGlobal('window', {
+    setInterval: vi.fn((callback: () => void) => { tick = callback; return 1; }),
+    clearInterval: vi.fn(),
+  });
+  let lease: string | null = null;
+  let lockWrites = 0;
+  let dataWrites = 0;
+  vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+    const url = String(input);
+    if (init?.method === 'DELETE') return new Response(null, { status: 204 });
+    if (url.includes('sync-lock.json')) {
+      if (init?.method === 'PUT') {
+        lockWrites += 1;
+        if (lockWrites > 1 && renewalStatus !== 200) {
+          return Response.json({ error: { code: 'preconditionFailed' } }, { status: renewalStatus });
+        }
+        lease = String(init.body);
+        return Response.json({ id: 'lock-file', eTag: `"revision-${lockWrites}"` });
+      }
+      if (!lease) return Response.json({ error: { code: 'itemNotFound' } }, { status: 404 });
+      if (url.includes('/content')) return new Response(lease);
+      return Response.json({ id: 'lock-file', eTag: `"revision-${lockWrites}"` });
+    }
+    if (url.includes('deletions.json')) {
+      dataWrites += 1;
+      beforeWriteResponse?.();
+      expect(new Headers(init?.headers).get('Authorization')).toBe('Bearer expiry-test');
+      return Response.json({}, { status: writeStatus, headers: { 'Retry-After': '60' } });
+    }
+    return Response.json({ id: 'folder', name: 'PunchList', folder: {} });
+  }));
+  const leaseHandle = await acquireSyncLease('expiry-test');
+  return { leaseHandle, tick: () => tick(), counts: () => ({ lockWrites, dataWrites }) };
+}
+
+it('rejects writes and cannot renew an expired lease after browser suspension', async () => {
+  const fixture = await expiryFixture();
+  vi.setSystemTime(new Date('2026-09-25T12:00:46Z'));
+  fixture.tick();
+  await expect(uploadDeletionLog(fixture.leaseHandle.token, {})).rejects.toThrow('lock expired or was lost');
+  expect(fixture.counts()).toEqual({ lockWrites: 1, dataWrites: 0 });
+  await fixture.leaseHandle();
+});
+
+it('stops writes immediately when the service rejects renewal ownership', async () => {
+  const fixture = await expiryFixture(412);
+  fixture.tick();
+  await vi.advanceTimersByTimeAsync(0);
+  await expect(uploadDeletionLog(fixture.leaseHandle.token, {})).rejects.toThrow('lock expired or was lost');
+  expect(fixture.counts()).toEqual({ lockWrites: 2, dataWrites: 0 });
+  await fixture.leaseHandle();
+});
+
+it('does not retry a throttled write after the lease expires', async () => {
+  const fixture = await expiryFixture(200, 429);
+  const result = uploadDeletionLog(fixture.leaseHandle.token, {}).catch((error: Error) => error);
+  await vi.advanceTimersByTimeAsync(60_000);
+  expect(await result).toMatchObject({ message: expect.stringContaining('lock expired or was lost') });
+  expect(fixture.counts().dataWrites).toBe(1);
+  await fixture.leaseHandle();
+});
+
+it('allows writes after a timely renewal, but rejects writes after release', async () => {
+  const fixture = await expiryFixture();
+  await vi.advanceTimersByTimeAsync(20_000);
+  fixture.tick();
+  await vi.advanceTimersByTimeAsync(0);
+  await vi.advanceTimersByTimeAsync(30_000);
+  await uploadDeletionLog(fixture.leaseHandle.token, {});
+  expect(fixture.counts().dataWrites).toBe(1);
+  await fixture.leaseHandle();
+  await expect(uploadDeletionLog(fixture.leaseHandle.token, {})).rejects.toThrow('lock expired or was lost');
+  expect(fixture.counts().dataWrites).toBe(1);
+});
+
+it('rejects an upload response arriving after expiry instead of acknowledging success', async () => {
+  const fixture = await expiryFixture(200, 200, () => {
+    vi.setSystemTime(new Date('2026-09-25T12:00:46Z'));
+  });
+  await expect(uploadDeletionLog(fixture.leaseHandle.token, {})).rejects.toThrow('lock expired or was lost');
+  expect(fixture.counts().dataWrites).toBe(1);
+  await fixture.leaseHandle();
 });
