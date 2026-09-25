@@ -49,6 +49,30 @@ vi.mock('@/lib/oneDrive', async (importOriginal) => ({
 import { backupProjectsToOneDrive, markProjectDeleted, mergePersonalProjectsFromOneDrive, restoreMissingProjectsFromOneDrive, hydrateProjectMediaFromOneDrive } from '@/lib/oneDriveSync';
 
 describe('OneDrive and team project identity', () => {
+  it('rejects a personal backup whose payload ID disagrees with its filename', async () => {
+    const local = createProject('Expected project');
+    await saveProjectPreserveTimestamps(local);
+    const unrelated = createProject('Different project in wrong file');
+    listProjectFilesMock.mockResolvedValue([{ id: 'wrong-payload', name: `Expected-project_${local.id}.json` }]);
+    downloadProjectFileMock.mockResolvedValue(serializeProjectPayload(unrelated));
+    await expect(mergePersonalProjectsFromOneDrive('test-token', [local.id])).rejects.toThrow('does not match its filename');
+    expect((await getProject(local.id))!.projectName).toBe('Expected project');
+    expect(await getProject(unrelated.id)).toBeUndefined();
+  });
+
+  it('does not overwrite a project created locally while its missing backup downloads', async () => {
+    const backup = createProject('Missing backup race');
+    listProjectFilesMock.mockResolvedValue([{ id: 'missing-backup-race', name: `Missing-backup-race_${backup.id}.json` }]);
+    downloadProjectFileMock.mockImplementationOnce(async () => {
+      await saveProjectPreserveTimestamps({ ...backup, projectName: 'Created locally during restore' });
+      return serializeProjectPayload(backup);
+    });
+    const result = await restoreMissingProjectsFromOneDrive('test-token');
+    expect(result.restoredProjectIds).not.toContain(backup.id);
+    expect(result.failedProjects).toEqual([expect.objectContaining({ id: backup.id, message: expect.stringContaining('created or changed') })]);
+    expect((await getProject(backup.id))!.projectName).toBe('Created locally during restore');
+  });
+
   it('does not replace a concurrent local note with a personal cloud merge', async () => {
     const project = createProject('Personal merge race');
     const area = createArea(project.id, 'Room', 0);

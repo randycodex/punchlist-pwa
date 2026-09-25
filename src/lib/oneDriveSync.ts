@@ -8,7 +8,6 @@ import {
   saveDownloadedProjectIfUnchanged,
   getProject,
   deleteProject,
-  clearPendingSharedSyncsForProject,
   saveProjectOneDriveFolderName,
   saveProjectPreserveTimestamps,
 } from '@/lib/db';
@@ -1837,6 +1836,7 @@ export async function mergePersonalProjectsFromOneDrive(token: string, projectId
       if (!remote?.id || !remote.name.endsWith('.json')) return;
       const remoteProject = await downloadRemoteProject(token, remote.id);
       if (!remoteProject || remoteProject.sharedProjectId) return;
+      if (remoteProject.id !== projectId) throw new Error('The OneDrive backup ID does not match its filename. Your local project was not changed.');
       const sourceToken = await captureLocalProjectSaveToken(projectId);
       const fullLocal = await getProject(projectId);
       if (!fullLocal) return;
@@ -1865,6 +1865,7 @@ export async function mergePersonalProjectsFromOneDrive(token: string, projectId
       if (!remote?.id) return;
       const remoteProject = await downloadRemoteProject(token, remote.id);
       if (!remoteProject?.deletedAt || remoteProject.sharedProjectId) return;
+      if (remoteProject.id !== projectId) throw new Error('The OneDrive backup ID does not match its filename. Your local project was not changed.');
       const sourceToken = await captureLocalProjectSaveToken(projectId);
       const fullLocal = await getProject(projectId);
       if (!fullLocal || fullLocal.deletedAt) return;
@@ -2021,6 +2022,10 @@ export async function restoreMissingProjectsFromOneDrive(
           return;
         }
 
+        // A missing backup may be restored only while the ID stays absent.
+        // For an explicit team recovery, protect the source copied below.
+        const sourceToken = existing ? await captureLocalProjectSaveToken(projectId) : null;
+
         const remote = pickPrimaryRemoteProjectFile(remoteEntries);
         if (!remote?.id || !remote.name.endsWith('.json')) return;
         const remoteProject = await downloadRemoteProject(token, remote.id);
@@ -2090,10 +2095,11 @@ export async function restoreMissingProjectsFromOneDrive(
           ) {
             throw new Error('The office recovery copy needs review. Your local team copy was not replaced.');
           }
-          await clearPendingSharedSyncsForProject(projectId);
           recoveredLocalCopies.push({ id: savedRecovery.id, name: savedRecovery.projectName });
         }
-        await saveProjectPreserveTimestamps(hydratedProject);
+        if (!await saveDownloadedProjectIfUnchanged(hydratedProject, sourceToken, { resetSharedQueues: Boolean(existing?.sharedProjectId) })) {
+          throw new Error('A local project was created or changed while this backup was loading. Your current project and pending changes were kept.');
+        }
         localProjectIds.add(projectId);
         restoredProjectIds.push(projectId);
       } catch (error) {

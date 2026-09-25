@@ -58,6 +58,12 @@ Both confirmation surfaces now compare the current durable project metadata with
 
 The current personal-project merge, remote archive application, and explicit OneDrive media-loading paths now use transactional stale-source checks. Notes saved during photo downloads survive; the operation reports that another sync/load is needed instead of silently replacing current work. Regression tests reproduce both a note during direct photo loading and a note during a personal-cloud merge. Verification: 334 tests in 70 files, lint, and production build including TypeScript passed. Missing-project recovery, file imports, and older full-sync entry points remain separate review items; no real OneDrive account was modified by these tests.
 
+### Missing-project recovery and backup identity
+
+Missing-project recovery now inserts only if the local ID remains absent. Explicit inactive-team recovery atomically replaces its unchanged source and clears its old queues after preserving the recovery copy; concurrent local changes prevent replacement. Personal merge/archive also reject a cloud payload whose project ID differs from its filename. Tests reproduce a project appearing during restore and a mismatched backup ID. Verification: 336 tests in 70 files, lint, and production build including TypeScript passed.
+
+Import-surface clarification: source inspection found CSV/TSV unit import in `AreaEditorModal`, but no general JSON project-file import UI. Full-project payload imports occur through OneDrive and team snapshots and use the validated payload parser. The older exported full-sync entry points remain a separate review item; ordinary current personal backup uses the newer merge/backup/recovery functions.
+
 ## Coordinated rollout required
 
 1. Back up the hosted database and record the current app release. Inspect existing grants, attachment paths, and active claims for drift from the migration chain.
