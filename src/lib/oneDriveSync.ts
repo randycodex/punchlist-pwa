@@ -4,6 +4,8 @@ import { parseProjectPayload, serializeProjectPayload } from '@/lib/projectPaylo
 import { readLocalStorage, writeLocalStorage } from '@/lib/browserStorage';
 import {
   getAllProjects,
+  captureLocalProjectSaveToken,
+  saveDownloadedProjectIfUnchanged,
   getProject,
   deleteProject,
   clearPendingSharedSyncsForProject,
@@ -1835,6 +1837,7 @@ export async function mergePersonalProjectsFromOneDrive(token: string, projectId
       if (!remote?.id || !remote.name.endsWith('.json')) return;
       const remoteProject = await downloadRemoteProject(token, remote.id);
       if (!remoteProject || remoteProject.sharedProjectId) return;
+      const sourceToken = await captureLocalProjectSaveToken(projectId);
       const fullLocal = await getProject(projectId);
       if (!fullLocal) return;
       const folderName = getProjectFolderNameFromRemoteFile(remote);
@@ -1848,7 +1851,9 @@ export async function mergePersonalProjectsFromOneDrive(token: string, projectId
         folderName ?? undefined,
         remoteIndex
       );
-      await saveProjectPreserveTimestamps(hydrated);
+      if (!await saveDownloadedProjectIfUnchanged(hydrated, sourceToken)) {
+        throw new Error('Local work changed while OneDrive photos were downloading. Your current project was kept. Sync again to merge the latest changes.');
+      }
       updatedLocalProjectIds.push(projectId);
     });
 
@@ -1860,16 +1865,20 @@ export async function mergePersonalProjectsFromOneDrive(token: string, projectId
       if (!remote?.id) return;
       const remoteProject = await downloadRemoteProject(token, remote.id);
       if (!remoteProject?.deletedAt || remoteProject.sharedProjectId) return;
+      const sourceToken = await captureLocalProjectSaveToken(projectId);
       const fullLocal = await getProject(projectId);
       if (!fullLocal || fullLocal.deletedAt) return;
       // Keep edits made after another device archived the copy. They need a
       // deliberate review before this device can move them to Trash.
       if (timestampMs(remoteProject.deletedAt) <= getProjectUpdatedAt(fullLocal) + CLOCK_SKEW_TOLERANCE_MS) return;
-      await saveProjectPreserveTimestamps({
+      const archived = {
         ...fullLocal,
         deletedAt: remoteProject.deletedAt,
         updatedAt: maxDate(fullLocal.updatedAt, remoteProject.deletedAt) ?? fullLocal.updatedAt,
-      });
+      };
+      if (!await saveDownloadedProjectIfUnchanged(archived, sourceToken)) {
+        throw new Error('Local work changed while OneDrive archive status was loading. Your current project was kept.');
+      }
       archivedLocalProjectIds.push(projectId);
     });
 
@@ -2106,6 +2115,7 @@ export async function hydrateProjectMediaFromOneDrive(
   token: string,
   projectId: string
 ): Promise<Project | null> {
+  const sourceToken = await captureLocalProjectSaveToken(projectId);
   const localProject = await getProject(projectId);
   if (!localProject) {
     return null;
@@ -2117,6 +2127,8 @@ export async function hydrateProjectMediaFromOneDrive(
     localProject.oneDriveFolderName
   );
 
-  await saveProjectPreserveTimestamps(hydratedProject);
+  if (!await saveDownloadedProjectIfUnchanged(hydratedProject, sourceToken)) {
+    throw new Error('Local work changed while photos were downloading. Your current project was kept. Retry loading photos.');
+  }
   return hydratedProject;
 }

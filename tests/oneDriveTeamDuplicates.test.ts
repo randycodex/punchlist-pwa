@@ -9,6 +9,7 @@ import {
   getProject,
   deleteProject,
   saveProjectPreserveTimestamps,
+  saveAreaNotes,
 } from '@/lib/db';
 import { serializeProjectPayload } from '@/lib/projectPayload';
 
@@ -45,9 +46,41 @@ vi.mock('@/lib/oneDrive', async (importOriginal) => ({
   deleteProjectPhotoFolder: deleteProjectPhotoFolderMock,
 }));
 
-import { backupProjectsToOneDrive, markProjectDeleted, mergePersonalProjectsFromOneDrive, restoreMissingProjectsFromOneDrive } from '@/lib/oneDriveSync';
+import { backupProjectsToOneDrive, markProjectDeleted, mergePersonalProjectsFromOneDrive, restoreMissingProjectsFromOneDrive, hydrateProjectMediaFromOneDrive } from '@/lib/oneDriveSync';
 
 describe('OneDrive and team project identity', () => {
+  it('does not replace a concurrent local note with a personal cloud merge', async () => {
+    const project = createProject('Personal merge race');
+    const area = createArea(project.id, 'Room', 0);
+    project.areas.push(area);
+    await saveProjectPreserveTimestamps(project);
+    const remote = structuredClone(project);
+    remote.areas[0].notes = 'Cloud note';
+    remote.areas[0].updatedAt = new Date(project.updatedAt.getTime() + 10000);
+    remote.updatedAt = remote.areas[0].updatedAt;
+    listProjectFilesMock.mockResolvedValue([{ id: 'personal-merge', name: `Personal-merge-race_${project.id}.json` }]);
+    downloadProjectFileMock.mockResolvedValue(serializeProjectPayload(remote));
+    listPhotoProjectFoldersMock.mockImplementationOnce(async () => {
+      await saveAreaNotes(project.id, area.id, 'Local note during cloud merge');
+      return [];
+    });
+    await expect(mergePersonalProjectsFromOneDrive('test-token', [project.id])).rejects.toThrow('Local work changed');
+    expect((await getProject(project.id))!.areas[0].notes).toBe('Local note during cloud merge');
+  });
+
+  it('preserves notes saved while OneDrive media is loading', async () => {
+    const project = createProject('Photo recovery race');
+    const area = createArea(project.id, 'Room', 0);
+    project.areas.push(area);
+    await saveProjectPreserveTimestamps(project);
+    listPhotoProjectFoldersMock.mockImplementationOnce(async () => {
+      await saveAreaNotes(project.id, area.id, 'Saved while loading photos');
+      return [];
+    });
+    await expect(hydrateProjectMediaFromOneDrive('test-token', project.id)).rejects.toThrow('Local work changed');
+    expect((await getProject(project.id))!.areas[0].notes).toBe('Saved while loading photos');
+  });
+
   beforeEach(() => {
     listProjectFilesMock.mockReset().mockResolvedValue([]);
     listPhotoProjectFoldersMock.mockReset().mockResolvedValue([]);

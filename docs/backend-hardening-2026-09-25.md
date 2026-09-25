@@ -54,6 +54,10 @@ The ordinary Get Team Updates action on both project surfaces now uses the same 
 
 Both confirmation surfaces now compare the current durable project metadata with the local source used to prepare the review. Changed work rejects the confirmation and remains saved. Accepted merges atomically persist the project/media and rebase preserved area queues, including their explicit next-sync review hold, plus any retained metadata queue. This removes the separate post-merge metadata write that could replace newer work. Derived checkpoint rules are normalized for comparison; JSON property order does not create a false mismatch. Regression coverage verifies rejection after typing during review and successful queue rebasing on a fresh review. Verification: 332 tests in 70 files, lint, TypeScript, and production build pass. File imports and personal-cloud downloads remain under review.
 
+### Personal-cloud merge and media loading
+
+The current personal-project merge, remote archive application, and explicit OneDrive media-loading paths now use transactional stale-source checks. Notes saved during photo downloads survive; the operation reports that another sync/load is needed instead of silently replacing current work. Regression tests reproduce both a note during direct photo loading and a note during a personal-cloud merge. Verification: 334 tests in 70 files, lint, and production build including TypeScript passed. Missing-project recovery, file imports, and older full-sync entry points remain separate review items; no real OneDrive account was modified by these tests.
+
 ## Coordinated rollout required
 
 1. Back up the hosted database and record the current app release. Inspect existing grants, attachment paths, and active claims for drift from the migration chain.
