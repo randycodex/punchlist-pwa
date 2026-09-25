@@ -231,6 +231,43 @@ describe('OneDrive and team project identity', () => {
     expect(deleteProjectPhotoFolderMock).not.toHaveBeenCalled();
   });
 
+  it('does not delete a backup whose payload belongs to a different project', async () => {
+    const local = createProject('Expected deletion target');
+    const other = createProject('Different backup');
+    await saveProjectPreserveTimestamps(local);
+    downloadDeletionLogMock.mockResolvedValue({
+      [local.id]: { updatedAt: new Date(Date.now() + 60_000).toISOString(), scope: 'personal' },
+    });
+    listProjectFilesMock.mockResolvedValue([{ id: 'wrong-payload', name: `Expected_${local.id}.json` }]);
+    downloadProjectFileMock.mockResolvedValue(serializeProjectPayload(other));
+
+    const result = await restoreMissingProjectsFromOneDrive('test-token');
+
+    expect(await getProject(local.id)).toBeDefined();
+    expect(result.failedProjects?.[0]?.message).toContain('ID does not match');
+    expect(result.permanentlyDeletedProjectNames).toEqual([]);
+    expect(deleteDriveItemMock).not.toHaveBeenCalled();
+    expect(deleteProjectPhotoFolderMock).not.toHaveBeenCalled();
+  });
+
+  it.each([false, true])('does not overwrite another project payload during backup (trashed: %s)', async (trashed) => {
+    const local = createProject('Expected backup');
+    if (trashed) local.deletedAt = new Date();
+    await saveProjectPreserveTimestamps(local);
+    const other = createProject('Unrelated backup');
+    other.updatedAt = new Date(0);
+    listProjectFilesMock.mockResolvedValue([{ id: 'wrong-payload', name: `Expected_${local.id}.json` }]);
+    downloadProjectFileMock.mockResolvedValue(serializeProjectPayload(other));
+
+    const result = await backupProjectsToOneDrive('test-token', [local.id]);
+
+    expect(result.failedProjects?.[0]?.message).toContain('ID does not match');
+    expect(result.backedUpProjectIds).toEqual([]);
+    expect(uploadProjectFileMock).not.toHaveBeenCalled();
+    expect(uploadProjectPhotoFileMock).not.toHaveBeenCalled();
+    expect(deleteDriveItemMock).not.toHaveBeenCalled();
+  });
+
   it('does not re-upload a permanently deleted copy during a project-only backup', async () => {
     const staleCopy = createProject('Recovered local copy - Ilse Hoffman House');
     staleCopy.recoveredFromProjectId = crypto.randomUUID();

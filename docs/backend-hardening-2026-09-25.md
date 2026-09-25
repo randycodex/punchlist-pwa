@@ -87,6 +87,10 @@ Renewals are serialized, and release waits for an in-flight renewal before readi
 
 Permanent-deletion recovery now compares the reviewed local project with the current record inside the deletion transaction. A changed record, or a project created while remote deletion evidence was downloading, blocks both local deletion and subsequent OneDrive cleanup for that project. Comparison includes record contents rather than relying on timestamps. Regression tests create and edit local copies during the remote read while preserving their timestamps; both retain the copy and skip cloud deletion. Explicit user deletion retains its existing behavior.
 
+### Backup identity before destructive operations
+
+Personal backup replacement and permanent-deletion processing now reject remote payload IDs that differ from the filename-derived project ID. This extends the existing restore/merge identity checks to overwrite and deletion decisions. Tests cover retaining both copies during deletion and refusing active/trashed backup overwrites; no photo upload or file deletion follows a mismatch.
+
 ## Coordinated rollout required
 
 1. Back up the hosted database and record the current app release. Inspect existing grants, attachment paths, and active claims for drift from the migration chain.

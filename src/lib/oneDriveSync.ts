@@ -1291,6 +1291,7 @@ async function downloadRemoteProject(token: OneDriveToken, remoteId: string): Pr
 
 async function getRemoteProjectPayloadUpdatedAt(
   token: OneDriveToken,
+  expectedProjectId: string,
   remote?: Pick<RemoteProjectFile, 'id' | 'lastModifiedDateTime'>,
   cache?: Map<string, number>
 ) {
@@ -1302,6 +1303,9 @@ async function getRemoteProjectPayloadUpdatedAt(
     return cached;
   }
   const remoteProject = await downloadRemoteProject(token, remote.id);
+  if (remoteProject && remoteProject.id !== expectedProjectId) {
+    throw new Error('The OneDrive backup ID does not match its filename. The backup was not overwritten.');
+  }
   const updatedAt = getProjectUpdatedAt(remoteProject);
   cache?.set(remote.id, updatedAt);
   return updatedAt;
@@ -1503,6 +1507,7 @@ export async function syncProjectsWithOneDrive(token: OneDriveToken, options: Sy
     const localUpdatedAt = getProjectUpdatedAt(project);
     const remoteUpdatedAt = await getRemoteProjectPayloadUpdatedAt(
       token,
+      project.id,
       remote,
       remoteProjectUpdatedAtByItemId
     );
@@ -1581,7 +1586,7 @@ export async function pushProjectsToOneDrive(token: OneDriveToken, projectIds: s
     const canonicalRemote = remoteEntries.find((entry) =>
       isCanonicalRemoteProjectFile(localProject, entry, targetFolderName)
     );
-    const remoteUpdatedAt = await getRemoteProjectPayloadUpdatedAt(token, remote);
+    const remoteUpdatedAt = await getRemoteProjectPayloadUpdatedAt(token, localProject.id, remote);
     const localUpdatedAt = getProjectUpdatedAt(localProject);
 
     const freshnessComparison = compareTimestampsWithTolerance(localUpdatedAt, remoteUpdatedAt);
@@ -1690,7 +1695,7 @@ export async function backupProjectsToOneDrive(
             isCanonicalRemoteProjectFile(localProject, entry, targetFolderName)
           );
           const remote = canonicalRemote ?? pickPrimaryRemoteProjectFile(remoteEntries);
-          const remoteUpdatedAt = await getRemoteProjectPayloadUpdatedAt(token, remote);
+          const remoteUpdatedAt = await getRemoteProjectPayloadUpdatedAt(token, localProject.id, remote);
           if (compareTimestampsWithTolerance(getProjectUpdatedAt(localProject), remoteUpdatedAt) < 0) {
             conflictsById.set(localProject.id, { id: localProject.id, name: localProject.projectName });
             return;
@@ -1734,7 +1739,7 @@ export async function backupProjectsToOneDrive(
           ? getProjectFolderNameFromRemoteFile(migrationSource)
           : null;
         const localUpdatedAt = getProjectUpdatedAt(localProject);
-        const remoteUpdatedAt = await getRemoteProjectPayloadUpdatedAt(token, remote);
+        const remoteUpdatedAt = await getRemoteProjectPayloadUpdatedAt(token, localProject.id, remote);
         const freshnessComparison = compareTimestampsWithTolerance(localUpdatedAt, remoteUpdatedAt);
 
         // A personal backup from another device may be newer. Preserve it and
@@ -1972,6 +1977,14 @@ export async function restoreMissingProjectsFromOneDrive(
         && (isRecoveredCopy(localProject) || remoteProjects.some(isRecoveredCopy));
       if (state.scope !== 'personal' && !legacyRecoveryDeletion) continue;
       protectedDeletedIds.add(projectId);
+      if (remoteProjects.some((project) => project && project.id !== projectId)) {
+        failedProjects.push({
+          id: projectId,
+          name: localProject?.projectName ?? 'Personal project',
+          message: 'A OneDrive backup ID does not match its filename. Local and remote copies were kept for review.',
+        });
+        continue;
+      }
       if (localProject?.sharedProjectId || remoteProjects.some((project) => project?.sharedProjectId)) {
         failedProjects.push({
           id: projectId,
