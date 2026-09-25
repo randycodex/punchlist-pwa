@@ -3,7 +3,7 @@ import type { Json } from './database';
 import { getCollaborationAvatarUrl } from './profileAvatars';
 import { getCollaborationSupabaseClient } from './supabaseClient';
 import { createCollaborationRealtimeChannel } from './realtimeChannel';
-import { isRetryableCollaborationError, retryCollaborationOperation } from './request';
+import { isCollaborationCapacityError, isRetryableCollaborationError, retryCollaborationOperation } from './request';
 
 export function isAreaClaimActive(
   claim: Pick<CollaborationAreaClaim, 'status' | 'expiresAt'>
@@ -310,21 +310,31 @@ export async function releaseAllMySharedProjectAreaClaims(sharedProjectId: strin
     return { releasedCount: 0 };
   }
 
-  const results = await Promise.allSettled(
-    mine.map((claim) => releaseSharedProjectArea(sharedProjectId, claim.areaId))
-  );
-  const failures = results.filter((result) => result.status === 'rejected');
-  const releasedCount = results.length - failures.length;
+  let releasedCount = 0;
+  let firstFailure: unknown = null;
+  for (const claim of mine) {
+    try {
+      // A sync can release several units. Avoid sending every release RPC at
+      // once when the team database is short on connections.
+      await releaseSharedProjectArea(sharedProjectId, claim.areaId);
+      releasedCount += 1;
+    } catch (error) {
+      firstFailure ??= error;
+      if (isCollaborationCapacityError(error)) break;
+    }
+  }
 
-  if (failures.length > 0) {
-    const firstError = failures[0];
-    const reason = firstError.status === 'rejected' ? firstError.reason : null;
-    const message = reason instanceof Error
-      ? reason.message
-      : 'Some area locks could not be released.';
+  if (firstFailure) {
+    const remainingCount = mine.length - releasedCount;
+    const message = firstFailure instanceof Error
+      ? firstFailure.message
+      : firstFailure && typeof firstFailure === 'object' && 'message' in firstFailure
+        && typeof firstFailure.message === 'string'
+        ? firstFailure.message
+        : 'Some area locks could not be released.';
     throw new Error(
       releasedCount > 0
-        ? `Released ${releasedCount} lock${releasedCount === 1 ? '' : 's'}, but ${failures.length} still need attention. ${message}`
+        ? `Released ${releasedCount} lock${releasedCount === 1 ? '' : 's'}, but ${remainingCount} still need attention. ${message}`
         : message
     );
   }

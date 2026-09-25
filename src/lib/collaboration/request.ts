@@ -122,6 +122,14 @@ function getCollaborationErrorText(error: unknown) {
     .toLowerCase();
 }
 
+/** Supabase can refuse new requests while its database connection pool is full. */
+export function isCollaborationCapacityError(error: unknown) {
+  const text = getCollaborationErrorText(error);
+  return text.includes('too many connections issued to the database')
+    || text.includes('too many connections for database')
+    || /\b53300\b/.test(text);
+}
+
 export function isRetryableCollaborationError(error: unknown) {
   if (error instanceof CollaborationRequestTimeoutError) return true;
 

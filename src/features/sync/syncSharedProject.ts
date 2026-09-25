@@ -14,6 +14,7 @@ import {
 } from '@/lib/collaboration';
 import { getPendingSharedPullState, type PendingSharedPullState } from '@/features/collaboration/manualSharedPull';
 import { pushQueuedSharedChanges } from '@/features/collaboration/pushQueuedSharedChanges';
+import { isCollaborationCapacityError } from '@/lib/collaboration/request';
 
 export type SharedProjectSyncResult =
   | { status: 'synced'; releasedAreaCount: number }
@@ -25,6 +26,22 @@ export async function syncSharedProject(
   localProjectId: string,
   userId: string,
   options: { localCopiesAlreadyChecked?: boolean } = {}
+): Promise<SharedProjectSyncResult> {
+  try {
+    return await syncSharedProjectOnce(localProjectId, userId, options);
+  } catch (error) {
+    if (!isCollaborationCapacityError(error)) throw error;
+    return {
+      status: 'pending',
+      message: 'The team service is busy. Your changes remain saved on this device. Sync This Project again in a minute to finish sending and release any remaining area locks.',
+    };
+  }
+}
+
+async function syncSharedProjectOnce(
+  localProjectId: string,
+  userId: string,
+  options: { localCopiesAlreadyChecked?: boolean }
 ): Promise<SharedProjectSyncResult> {
   let project = await getProject(localProjectId);
   if (!project?.sharedProjectId) throw new Error('This project is not linked to team data.');

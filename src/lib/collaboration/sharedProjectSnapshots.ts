@@ -377,34 +377,35 @@ export async function getSharedProjectSnapshotMetadata(sharedProjectId: string):
     throw new Error('Collaboration is not configured.');
   }
 
-  const [snapshotResult, areaResult, metadataResult] = await Promise.all([
-    supabase
-      .from('shared_project_snapshots')
-      .select('published_at')
-      .eq('project_id', sharedProjectId)
-      .maybeSingle(),
-    supabase
-      .from('shared_project_area_snapshots')
-      .select('published_at')
-      .eq('project_id', sharedProjectId)
-      .order('published_at', { ascending: false })
-      .limit(1)
-      .maybeSingle(),
-    supabase
-      .from('shared_project_metadata_snapshots')
-      .select('published_at')
-      .eq('project_id', sharedProjectId)
-      .maybeSingle(),
-  ]);
-
+  const snapshotResult = await supabase
+    .from('shared_project_snapshots')
+    .select('published_at')
+    .eq('project_id', sharedProjectId)
+    .maybeSingle();
   if (snapshotResult.error) throw snapshotResult.error;
+  if (!snapshotResult.data) return null;
+
+  // Project sync reads this before and after flushing the queues. Avoid a
+  // three-request burst each time, especially when several people sync.
+  const areaResult = await supabase
+    .from('shared_project_area_snapshots')
+    .select('published_at')
+    .eq('project_id', sharedProjectId)
+    .order('published_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const metadataResult = await supabase
+    .from('shared_project_metadata_snapshots')
+    .select('published_at')
+    .eq('project_id', sharedProjectId)
+    .maybeSingle();
+
   if (areaResult.error && !isMissingAreaSnapshotsTableError(areaResult.error)) {
     throw areaResult.error;
   }
   if (metadataResult.error && !isMissingSharedProjectMetadataTableError(metadataResult.error)) {
     throw metadataResult.error;
   }
-  if (!snapshotResult.data) return null;
   const areaPublishedAt = areaResult.data?.published_at;
   const metadataPublishedAt = metadataResult.data?.published_at;
   const latestPublishedAt = [areaPublishedAt, metadataPublishedAt]

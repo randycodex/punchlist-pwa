@@ -189,4 +189,33 @@ describe('persistent shared area claims', () => {
     });
     expect(rpcMock).not.toHaveBeenCalled();
   });
+
+  it('sends release requests one at a time and stops when the database is full', async () => {
+    getUserMock.mockResolvedValue({ data: { user: { id: 'me' } }, error: null });
+    fromMock.mockReturnValue({
+      select: vi.fn().mockReturnValue({
+        eq: vi.fn().mockReturnValue({
+          eq: vi.fn().mockResolvedValue({
+            data: ['area-1', 'area-2'].map((areaId) => ({
+              id: areaId, project_id: 'shared-project-id', area_id: areaId,
+              claimed_by_user_id: 'me', status: 'active', claimed_at: '2026-07-19T12:00:00.000Z',
+              expires_at: null, released_at: null, transferred_to_user_id: null,
+            })),
+            error: null,
+          }),
+        }),
+      }),
+    });
+    let finishFirst: (() => void) | undefined;
+    rpcMock.mockImplementationOnce(() => new Promise((resolve) => {
+      finishFirst = () => resolve({ data: null, error: null });
+    }));
+    rpcMock.mockResolvedValueOnce({ data: null, error: { message: 'Too many connections issued to the database' } });
+
+    const pending = releaseAllMySharedProjectAreaClaims('shared-project-id');
+    await vi.waitFor(() => expect(rpcMock).toHaveBeenCalledOnce());
+    finishFirst?.();
+    await expect(pending).rejects.toThrow('Released 1 lock, but 1 still need attention');
+    expect(rpcMock).toHaveBeenCalledTimes(2);
+  });
 });

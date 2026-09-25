@@ -5,6 +5,7 @@ import {
   COLLABORATION_TRANSFER_TIMEOUT_MS,
   CollaborationRequestTimeoutError,
   getCollaborationRequestPolicy,
+  isCollaborationCapacityError,
   isRetryableCollaborationError,
   retryCollaborationOperation,
   withCollaborationTimeout,
@@ -32,6 +33,14 @@ describe('collaboration request timeout', () => {
     expect(result).toBe('recovered');
     expect(attempts).toBe(3);
     expect(isRetryableCollaborationError({ code: '42501', message: 'Not allowed' })).toBe(false);
+  });
+
+  it('recognizes database connection exhaustion without retrying it immediately', () => {
+    const error = { code: '53300', message: 'Too many connections issued to the database' };
+    expect(isCollaborationCapacityError(error)).toBe(true);
+    expect(isCollaborationCapacityError(new Error('Too many connections for database "postgres"'))).toBe(true);
+    expect(isRetryableCollaborationError(error)).toBe(false);
+    expect(isCollaborationCapacityError({ code: '42501', message: 'Not allowed' })).toBe(false);
   });
 
   it('allows full shared snapshot transfers more time than lightweight requests', () => {

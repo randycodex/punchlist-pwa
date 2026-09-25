@@ -51,10 +51,10 @@ export async function pushQueuedSharedChanges(
     dependencies.getPendingMetadataSync(localProjectId),
   ]);
 
-  await Promise.all([
-    dependencies.flushAreaSyncs(),
-    dependencies.flushMetadataSyncs(),
-  ]);
+  // These flushes both write to the team database. Keep one project sync from
+  // issuing the two sets of writes at the same time.
+  await dependencies.flushAreaSyncs();
+  await dependencies.flushMetadataSyncs();
 
   const [areaSyncsAfter, metadataSyncAfter] = await Promise.all([
     dependencies.getPendingAreaSyncs(localProjectId),

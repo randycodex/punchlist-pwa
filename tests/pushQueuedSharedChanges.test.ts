@@ -81,6 +81,23 @@ describe('queued shared changes push', () => {
     );
   });
 
+  it('waits for area writes before flushing project details', async () => {
+    let finishAreas: (() => void) | undefined;
+    const flushAreaSyncs = vi.fn(() => new Promise<void>((resolve) => { finishAreas = resolve; }));
+    const flushMetadataSyncs = vi.fn().mockResolvedValue(undefined);
+    const pending = pushQueuedSharedChanges('local-project', {
+      getPendingAreaSyncs: vi.fn().mockResolvedValue([]),
+      getPendingMetadataSync: vi.fn().mockResolvedValue(undefined),
+      flushAreaSyncs,
+      flushMetadataSyncs,
+    });
+    await vi.waitFor(() => expect(flushAreaSyncs).toHaveBeenCalledOnce());
+    expect(flushMetadataSyncs).not.toHaveBeenCalled();
+    finishAreas?.();
+    await pending;
+    expect(flushMetadataSyncs).toHaveBeenCalledOnce();
+  });
+
   it('reports version conflicts that remain paused for review', async () => {
     const conflict = areaRecord('area-1', true);
     const result = await pushQueuedSharedChanges('local-project', {

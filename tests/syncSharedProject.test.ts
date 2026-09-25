@@ -87,4 +87,23 @@ describe('selected shared project sync', () => {
     expect(result.status).toBe('pending');
     expect(mocks.releaseClaims).not.toHaveBeenCalled();
   });
+
+  it('keeps sync pending when the team database is out of connections', async () => {
+    mocks.getMetadata.mockRejectedValue({ code: '53300', message: 'Too many connections issued to the database' });
+
+    const result = await syncSharedProject(project.id, 'user-1');
+
+    expect(result).toMatchObject({ status: 'pending', message: expect.stringContaining('release any remaining area locks') });
+    expect(mocks.pushChanges).not.toHaveBeenCalled();
+    expect(mocks.releaseClaims).not.toHaveBeenCalled();
+  });
+
+  it('reports pending when release needs another attempt after the team copy is verified', async () => {
+    mocks.releaseClaims.mockRejectedValue(new Error('Too many connections issued to the database'));
+
+    const result = await syncSharedProject(project.id, 'user-1');
+
+    expect(result.status).toBe('pending');
+    expect(mocks.releaseClaims).toHaveBeenCalledOnce();
+  });
 });
