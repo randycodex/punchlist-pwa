@@ -25,6 +25,26 @@ function fixture() {
 }
 
 describe('backup acknowledgements and attachment identity', () => {
+  it('retains the project and recovery journal when deletion fails partway through', async () => {
+    const { project, area, checkpoint } = fixture();
+    checkpoint.photos.push(createPhotoAttachment(checkpoint.id, 'data:image/jpeg;base64,YQ=='));
+    await saveProject(project);
+    const draft: CaptureDraft = { key: `area-note:${project.id}:${area.id}`, revision: crypto.randomUUID(), projectId: project.id, areaId: area.id, checkpointId: area.id, kind: 'area-note', baseValue: '', value: 'Recover this note', savedAt: new Date() };
+    await stageCaptureDraft(draft);
+    const remove = IDBObjectStore.prototype.delete;
+    const failure = vi.spyOn(IDBObjectStore.prototype, 'delete').mockImplementation(function (this: IDBObjectStore, key) {
+      if (this.name === 'checkpointMedia') throw new Error('Simulated deletion failure');
+      return remove.call(this, key);
+    });
+    try { await expect(deleteProject(project.id)).rejects.toThrow('Simulated deletion failure'); }
+    finally { failure.mockRestore(); }
+    expect(await getProject(project.id)).toBeDefined();
+    expect(await listCaptureDrafts(project.id, area.id)).toHaveLength(1);
+    await deleteProject(project.id);
+    expect(await getProject(project.id)).toBeUndefined();
+    expect(await listCaptureDrafts(project.id, area.id)).toHaveLength(0);
+  });
+
   it('records a cloud folder without replacing newer inspection work', async () => {
     const { project, area } = fixture();
     await saveProject(project);

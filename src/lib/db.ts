@@ -1236,7 +1236,6 @@ async function saveProjectInternal(project: Project, options: { touch: boolean; 
 
 export async function deleteProject(id: string): Promise<void> {
   await runLocalPersistence(async () => {
-    await deleteProjectCaptureDrafts(id);
     const db = await getDB();
     const tx = db.transaction([
       'projects',
@@ -1246,21 +1245,30 @@ export async function deleteProject(id: string): Promise<void> {
       'sharedAreaSyncQueue',
       'sharedProjectMetadataSyncQueue',
     ], 'readwrite');
-    await tx.objectStore('projects').delete(id);
-    const mediaStore = tx.objectStore('checkpointMedia');
-    const mediaRecords = await mediaStore.index('by-project').getAll(id);
-    await Promise.all(mediaRecords.map((record) => mediaStore.delete([id, record.checkpointId])));
-    const drawingStore = tx.objectStore('elevationDrawings');
-    const drawingRecords = await drawingStore.index('by-project').getAll(id);
-    await Promise.all(drawingRecords.map((record) => drawingStore.delete([record.projectId, record.id])));
-    const areaSyncStore = tx.objectStore('sharedAreaSyncQueue');
-    const areaSyncKeys = await areaSyncStore.index('by-local-project').getAllKeys(id);
-    await Promise.all(areaSyncKeys.map((key) => areaSyncStore.delete(key)));
-    const metadataSyncStore = tx.objectStore('sharedProjectMetadataSyncQueue');
-    const metadataSyncKeys = await metadataSyncStore.index('by-local-project').getAllKeys(id);
-    await Promise.all(metadataSyncKeys.map((key) => metadataSyncStore.delete(key)));
-    await markFullSyncNeededInStore(tx.objectStore('syncMetadata'));
-    await tx.done;
+    try {
+      await tx.objectStore('projects').delete(id);
+      const mediaStore = tx.objectStore('checkpointMedia');
+      const mediaRecords = await mediaStore.index('by-project').getAll(id);
+      await Promise.all(mediaRecords.map((record) => mediaStore.delete([id, record.checkpointId])));
+      const drawingStore = tx.objectStore('elevationDrawings');
+      const drawingRecords = await drawingStore.index('by-project').getAll(id);
+      await Promise.all(drawingRecords.map((record) => drawingStore.delete([record.projectId, record.id])));
+      const areaSyncStore = tx.objectStore('sharedAreaSyncQueue');
+      const areaSyncKeys = await areaSyncStore.index('by-local-project').getAllKeys(id);
+      await Promise.all(areaSyncKeys.map((key) => areaSyncStore.delete(key)));
+      const metadataSyncStore = tx.objectStore('sharedProjectMetadataSyncQueue');
+      const metadataSyncKeys = await metadataSyncStore.index('by-local-project').getAllKeys(id);
+      await Promise.all(metadataSyncKeys.map((key) => metadataSyncStore.delete(key)));
+      await markFullSyncNeededInStore(tx.objectStore('syncMetadata'));
+      await tx.done;
+    } catch (error) {
+      try { tx.abort(); } catch {}
+      await tx.done.catch(() => {});
+      throw error;
+    }
+    // The journal is a separate database: clean it only after project deletion
+    // commits, so a failed deletion cannot discard recoverable field work.
+    await deleteProjectCaptureDrafts(id);
     for (const key of failedLocalWrites.keys()) {
       if (key.startsWith(`checkpoint:${id}:`) || key.startsWith(`area-note:${id}:`)) failedLocalWrites.delete(key);
     }
