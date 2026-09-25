@@ -19,6 +19,10 @@ function openLegacyDatabase(project: Project) {
       database.createObjectStore('syncMetadata', { keyPath: 'key' });
 
       transaction.objectStore('projects').put(project);
+      transaction.objectStore('elevationDrawings').put({
+        ...project.facadeElevationDrawings![0], projectId: project.id,
+        dataUrl: 'data:image/png;base64,YQ==',
+      });
       transaction.objectStore('checkpointMedia').put({
         checkpointId: 'checkpoint-1',
         projectId: project.id,
@@ -39,7 +43,7 @@ function openLegacyDatabase(project: Project) {
   });
 }
 
-it('migrates legacy checkpoint media into the area index', async () => {
+it('preserves legacy photo and drawing bytes while upgrading compound media keys', async () => {
   const project: Project = {
     id: 'legacy-project',
     projectName: 'Legacy project',
@@ -48,6 +52,11 @@ it('migrates legacy checkpoint media into the area index', async () => {
     inspector: '',
     gcName: '',
     gcSignoff: '',
+    facadeElevationDrawings: [{
+      id: 'legacy-drawing', orientation: 'North', name: 'Elevation',
+      fileName: 'elevation.png', mimeType: 'image/png', size: 1,
+      dataUrl: '', createdAt: now, updatedAt: now,
+    }],
     areas: [{
       id: 'area-1',
       projectId: 'legacy-project',
@@ -142,6 +151,10 @@ it('migrates legacy checkpoint media into the area index', async () => {
     thumbnail: undefined,
   });
   expect(upgradedDatabase.objectStoreNames.contains('sharedAreaSyncQueue')).toBe(true);
+  expect(migrated?.facadeElevationDrawings?.[0].dataUrl).toBe('data:image/png;base64,YQ==');
+  expect(upgradedDatabase.transaction('elevationDrawings').objectStore('elevationDrawings').keyPath).toEqual([
+    'projectId', 'id',
+  ]);
   expect(upgradedDatabase.transaction('checkpointMedia').objectStore('checkpointMedia').keyPath).toEqual([
     'projectId', 'checkpointId',
   ]);

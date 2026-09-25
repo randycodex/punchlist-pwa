@@ -98,3 +98,18 @@ it('lets the owner explicitly recover a lost device while rejecting full replace
   await expect(db.query('select public.publish_shared_project_snapshot_v2($1,$2,1,null,1)', [project, { id: localProject, areas: [] }])).rejects.toMatchObject({ code: '55P03' });
   expect((await db.query<{ ok: boolean }>('select public.release_abandoned_shared_project_area($1,$2,$3) as ok', [project, id, ownClaim])).rows[0].ok).toBe(true);
 });
+
+it('denies an unrelated signed-in user access to projects, photos, and guarded writes', async () => {
+  const outsider = crypto.randomUUID();
+  await db.exec('reset role');
+  await db.query('insert into auth.users(id,email) values ($1,$2)', [outsider, 'outsider@uai-ny.com']);
+  await signIn(outsider, 'outsider@uai-ny.com');
+  for (const table of ['shared_projects', 'project_members', 'area_claims', 'shared_project_snapshots', 'shared_attachments']) {
+    expect((await db.query(`select * from public.${table}`)).rows).toHaveLength(0);
+  }
+  expect((await db.query("select * from storage.objects where bucket_id = 'punchlist-attachments'")).rows).toHaveLength(0);
+  await expect(db.query('select public.claim_shared_project_area_v2($1,$2,$3)', [project, area, phone])).rejects.toMatchObject({ code: '42501' });
+  await expect(db.query('select public.release_abandoned_shared_project_area($1,$2,$3)', [project, area, claim])).rejects.toMatchObject({ code: '42501' });
+  await db.exec('reset role; set role anon');
+  await expect(db.query('select public.claim_shared_project_area_v2($1,$2,$3)', [project, area, phone])).rejects.toMatchObject({ code: '42501' });
+});

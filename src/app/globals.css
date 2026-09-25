@@ -518,7 +518,7 @@ html:not(.dark) {
 }
 
 .area-bottom-nav {
-  transition: right 220ms ease;
+  transition: margin-right 220ms ease;
 }
 
 /* Installed iOS apps add a system scroll-edge treatment above the web view.
@@ -542,9 +542,12 @@ html:not(.dark) {
 }
 
 @media (min-width: 768px) {
-  html[data-app-menu-open="true"] .floating-action-rail,
-  html[data-app-menu-open="true"] .area-bottom-nav {
+  html[data-app-menu-open="true"] .floating-action-rail {
     right: calc(var(--app-menu-drawer-width) + var(--app-menu-drawer-gap));
+  }
+
+  html[data-app-menu-open="true"] .area-bottom-nav {
+    margin-right: calc(var(--app-menu-drawer-width) + var(--app-menu-drawer-gap));
   }
 }
 

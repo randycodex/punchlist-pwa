@@ -32,4 +32,19 @@ describe('account-local workspaces', () => {
     second.configureLocalAccount('new-account', 'new@example.com', 'new-account');
     expect(second.localAccountKey('punchlist-db')).toBe('punchlist-db');
   });
+
+  it('reopens the last account workspace offline without allowing team requests', async () => {
+    storage();
+    const first = await import('@/lib/localAccount');
+    first.configureLocalAccount('account-a', 'a@example.com', null);
+    vi.resetModules();
+    const second = await import('@/lib/localAccount');
+    second.configureLocalAccount('account-b', 'b@example.com', 'account-a');
+    vi.resetModules();
+    const offline = await import('@/lib/localAccount');
+    expect(offline.configureLocalAccount(null, null, 'account-b')).toBe(true);
+    expect(offline.localAccountKey('punchlist-db')).toBe('punchlist-db:account-b');
+    expect(offline.localAccountKey('punchlist:app-settings')).toBe('punchlist:app-settings:account-b');
+    expect(() => offline.assertLocalAccountEmail('b@example.com')).toThrow('account changed');
+  });
 });

@@ -1,4 +1,5 @@
 import { localAccountKey } from '@/lib/localAccount';
+import { withBrowserLock } from '@/lib/browserLocks';
 import type { Project } from '@/types';
 import { getCollaborationSupabaseClient } from './supabaseClient';
 import {
@@ -517,9 +518,13 @@ async function downloadVerifiedAsset(reference: SharedSnapshotAssetReference, do
   await verifyAssetContent(reference, blob);
   if (cache && blob.size <= 1024 * 1024) {
     try {
-      // At most 64 entries of at most 1 MiB; no cleanup touches project records.
-      for (const request of (await cache.keys()).slice(0, -63)) await cache.delete(request);
-      await cache.put(key, new Response(blob));
+      const target = cache;
+      await withBrowserLock(localAccountKey('shared-asset-cache'), async () => {
+        // Serialize eviction and insertion across concurrent downloads/tabs.
+        // At most 64 entries of at most 1 MiB; project records are untouched.
+        for (const request of (await target.keys()).slice(0, -63)) await target.delete(request);
+        await target.put(key, new Response(blob));
+      });
     } catch { /* Quota-limited devices can still persist the canonical project. */ }
   }
   return blob;

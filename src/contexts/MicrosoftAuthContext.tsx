@@ -186,6 +186,7 @@ export function MicrosoftAuthProvider({ children }: { children: ReactNode }) {
     if (!pca) {
       void Promise.resolve().then(() => {
         if (active) {
+          setCurrentAccount(null);
           setIsReady(true);
         }
       });
@@ -226,6 +227,12 @@ export function MicrosoftAuthProvider({ children }: { children: ReactNode }) {
       })
       .catch(() => {
         if (!active) return;
+        // Initialization may fail offline. Select the last local workspace
+        // before mounting anything that opens IndexedDB or reads settings.
+        if (!configureLocalAccount(null, null, getLastAccountId())) {
+          window.location.reload();
+          return;
+        }
         setIsReady(true);
       });
 

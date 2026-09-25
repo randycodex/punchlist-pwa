@@ -313,7 +313,8 @@ export function validateProjectIdentity(project: Project) {
     if (seen.has(key)) throw new ProjectPayloadValidationError(`Duplicate ${kind} ID: ${id}.`);
     seen.add(key);
   };
-  for (const drawing of project.facadeElevationDrawings ?? []) check('drawing', drawing.id, project.id, project.id);
+  // Drawings, photos, and files share the same remote attachment-ID directory.
+  for (const drawing of project.facadeElevationDrawings ?? []) check('attachment', drawing.id, project.id, project.id);
   for (const area of project.areas) {
     check('area', area.id, area.projectId, project.id);
     for (const location of area.locations) {

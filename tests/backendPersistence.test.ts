@@ -70,6 +70,14 @@ describe('backup acknowledgements and attachment identity', () => {
     expect((await getProject(project.id))!.facadeElevationDrawings![0].dataUrl).toBe('data:image/png;base64,YQ==');
   });
 
+  it('rejects drawing IDs that collide with a photo storage directory', () => {
+    const { project, checkpoint } = fixture();
+    const photo = createPhotoAttachment(checkpoint.id, 'data:image/jpeg;base64,YQ==');
+    checkpoint.photos.push(photo);
+    project.facadeElevationDrawings = [{ id: photo.id, orientation: 'North', name: 'Elevation', size: 1, fileName: 'Elevation.png', mimeType: 'image/png', dataUrl: 'data:image/png;base64,YQ==', createdAt: new Date(), updatedAt: new Date() }];
+    expect(() => parseProjectPayload(project)).toThrow('Duplicate attachment ID');
+  });
+
   it('recovers a general note after interruption without erasing a later note', async () => {
     const { project, area } = fixture();
     area.notes = 'Original'; await saveProject(project);

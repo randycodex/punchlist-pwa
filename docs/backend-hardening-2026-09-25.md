@@ -21,16 +21,25 @@ Implementation and verification are local. No hosted database migrations, Produc
 
 ## Local evidence
 
-- 69 test files, 318 tests passed, including the complete migration chain in PGlite with authenticated roles. This is PostgreSQL evidence, not a hosted Supabase/PostgREST integration test.
+- Initial verification: 69 test files, 318 tests passed, including the complete migration chain in PGlite with authenticated roles. This is PostgreSQL evidence, not a hosted Supabase/PostgREST integration test.
 - ESLint, TypeScript, production build, and diff whitespace checks pass.
 - Installed dependency audit: zero reported vulnerabilities at verification time.
 - Isolated Chromium session against the local production build: created a project and unit, entered general notes, reloaded, and observed the same saved note. No browser runtime errors were reported. No external account or live team data was used.
-- At the browser's initial short viewport, bottom navigation covered General Notes. Increasing the viewport made it accessible. This existing layout issue remains a separate UI follow-up.
+- Follow-up fixed the short-window General Notes overlap by reserving layout space for the bottom navigation. Verified normal clicks and note editing at 1280×640 and 390×667 in Chromium; measured that the content viewport ends at the navigation's top edge. This is responsive-browser evidence, not physical iOS acceptance.
+
+### Follow-up findings
+
+- Follow-up verification: 70 test files and 323 tests passed; lint and the production build (including TypeScript) passed.
+- Auth initialization failure now selects the last local account workspace before mounting storage consumers; offline namespace regression coverage added.
+- Browsers without Web Locks now serialize same-name operations within the tab, including after a failure. Cache eviction and insertion use the same locking helper so concurrent downloads cannot overfill the cache.
+- Drawing IDs now share the duplicate-attachment validation namespace with photos and files, matching their remote storage directories.
+- Added legacy drawing-byte upgrade coverage and database tests denying unrelated authenticated users project/media access and guarded operations.
+- Read-only hosted inspection found one Supabase project (`punchlist`) and no staging branches. Production's migration history stops at `20260923160000`; the earlier `20260923200000_owner_area_lock_recovery.sql` is also pending. There are **four pending migrations**, including that prerequisite and the three new hardening migrations. No hosted migrations were applied.
 
 ## Coordinated rollout required
 
 1. Back up the hosted database and record the current app release. Inspect existing grants, attachment paths, and active claims for drift from the migration chain.
-2. Validate the three new migrations and this app build together in staging. Old clients lose access to the old claim/release RPCs and cannot publish an area without a device ID. New clients require the new schema. Do not roll out either half independently to active inspectors.
+2. Validate all four pending migrations and this app build together in staging. Old clients lose access to the old claim/release RPCs and cannot publish an area without a device ID. New clients require the new schema. Do not roll out either half independently to active inspectors.
 3. Have active inspectors finish local saves and sync, then release locks before the maintenance/update window. Preserve pending local data and recovery drafts; do not clear browser storage to force an update.
 4. Apply migrations in timestamp order, deploy the matching app, refresh installed PWAs, and verify the new diagnostic probes. Check client version adoption before reopening shared editing.
 5. Run the acceptance scenarios below on the hosted staging stack before Production. Rollback must be assessed as an app/schema pair; simply reverting the app would strand old lock calls. IndexedDB version 9 also cannot be opened by an older version-8 client.
