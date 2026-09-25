@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   acknowledgePendingBackupRevisions, capturePendingBackupRevisions, createProject, createArea,
   createLocation, createItem, createCheckpoint, createPhotoAttachment, getDurablePendingSyncState,
@@ -23,6 +23,49 @@ function fixture() {
 }
 
 describe('backup acknowledgements and attachment identity', () => {
+  it('rolls back project and queue replacement if a media write fails', async () => {
+    const { project, area, checkpoint } = fixture();
+    project.sharedProjectId = crypto.randomUUID();
+    project.sharedSnapshotPublishedAt = new Date();
+    checkpoint.photos.push(createPhotoAttachment(checkpoint.id, 'data:image/jpeg;base64,YQ=='));
+    await saveProject(project);
+    await saveAreaNotes(project.id, area.id, 'Keep this local note');
+    const token = await captureLocalProjectSaveToken(project.id);
+    const put = IDBObjectStore.prototype.put;
+    const failure = vi.spyOn(IDBObjectStore.prototype, 'put').mockImplementation(function (this: IDBObjectStore, value, key) {
+      if (this.name === 'checkpointMedia') throw new Error('Simulated media write failure');
+      return put.call(this, value, key);
+    });
+    try {
+      await expect(saveDownloadedProjectIfUnchanged(project, token, { resetSharedQueues: true })).rejects.toThrow('Simulated media');
+    } finally { failure.mockRestore(); }
+    expect((await getProject(project.id))!.areas[0].notes).toBe('Keep this local note');
+    expect(await getPendingSharedAreaSyncsForProject(project.id)).toHaveLength(1);
+  });
+
+  it('keeps pending changes on a stale restore and clears them only with an accepted replacement', async () => {
+    const { project, area } = fixture();
+    project.sharedProjectId = crypto.randomUUID();
+    project.sharedSnapshotPublishedAt = new Date();
+    await saveProject(project);
+    const originalToken = await captureLocalProjectSaveToken(project.id);
+    const backup = structuredClone(project);
+    await saveAreaNotes(project.id, area.id, 'New field note');
+    const edited = (await getProject(project.id))!;
+    edited.projectName = 'New project name';
+    await saveProjectMetadataWithSharedSync(edited);
+    expect(await saveDownloadedProjectIfUnchanged(backup, originalToken, { resetSharedQueues: true })).toBe(false);
+    expect(await getPendingSharedAreaSyncsForProject(project.id)).toHaveLength(1);
+    expect(await getPendingSharedProjectMetadataSyncForProject(project.id)).toBeDefined();
+    expect((await getProject(project.id))!.areas[0].notes).toBe('New field note');
+    const reviewedToken = await captureLocalProjectSaveToken(project.id);
+    expect(await saveDownloadedProjectIfUnchanged(backup, reviewedToken, { resetSharedQueues: true })).toBe(true);
+    expect(await getPendingSharedAreaSyncsForProject(project.id)).toHaveLength(0);
+    expect(await getPendingSharedProjectMetadataSyncForProject(project.id)).toBeUndefined();
+    expect((await getProject(project.id))!.projectName).toBe(backup.projectName);
+    expect((await getDurablePendingSyncState()).projectIds).toContain(project.id);
+  });
+
   it('rejects a downloaded replacement after a local note save, including media deletion', async () => {
     const { project, area, checkpoint } = fixture();
     const photo = createPhotoAttachment(checkpoint.id, 'data:image/jpeg;base64,YQ==');

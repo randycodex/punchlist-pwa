@@ -1,6 +1,6 @@
 'use client';
 
-import { acknowledgePublishedSharedProject } from '@/lib/db';
+import { acknowledgePublishedSharedProject, captureLocalProjectSaveToken, saveDownloadedProjectIfUnchanged } from '@/lib/db';
 
 import AreaListReturnPosition from '@/features/projects/AreaListReturnPosition';
 
@@ -2290,6 +2290,7 @@ export default function ProjectsPage() {
 
     setSharedTransferStatus('pulling');
     try {
+      const sourceToken = await captureLocalProjectSaveToken(project.id);
       const fullProject = await getProject(project.id);
       if (!fullProject) {
         throw new Error('Could not load this project.');
@@ -2329,7 +2330,9 @@ export default function ProjectsPage() {
         return;
       }
 
-      await saveProjectPreserveTimestamps(result.project);
+      if (!await saveDownloadedProjectIfUnchanged(result.project, sourceToken)) {
+        throw new Error('Local work changed while team updates were loading. Your current project was kept. Get updates again to review the latest changes.');
+      }
       clearSharedUpdateAvailable(fullProject.id);
       cacheProjectPreview(result.project);
       setProjects((prev) =>
@@ -2428,6 +2431,7 @@ export default function ProjectsPage() {
     setBackupRestoreConfirm(null);
     setRestoringBackupId(backup.id);
     try {
+      const sourceToken = await captureLocalProjectSaveToken(backupProject.id);
       const fullProject = await getProject(backupProject.id);
       if (!fullProject) {
         throw new Error('Could not load this project.');
@@ -2442,8 +2446,9 @@ export default function ProjectsPage() {
       );
 
       const result = await getSharedProjectBackupSnapshot(fullProject, backup.id);
-      await clearPendingSharedSyncsForProject(fullProject.id);
-      await saveProjectPreserveTimestamps(result.project);
+      if (!await saveDownloadedProjectIfUnchanged(result.project, sourceToken, { resetSharedQueues: true })) {
+        throw new Error('Local work changed while the backup was loading. Your current project and pending changes were kept. Review them before restoring again.');
+      }
       let publishedAt: string | null = null;
       if (publishAfterRestore && collaborationAuth.user) {
         await syncSharedProjectMetadataNow(result.project);

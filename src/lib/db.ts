@@ -1020,8 +1020,10 @@ export async function captureLocalProjectSaveToken(projectId: string): Promise<s
 }
 
 /** Apply downloaded data only if no local project write changed its source. */
-export async function saveDownloadedProjectIfUnchanged(project: Project, expectedToken: string | null): Promise<boolean> {
-  return runLocalPersistence(() => saveProjectInternal(project, { touch: false, expectedToken }));
+export async function saveDownloadedProjectIfUnchanged(project: Project, expectedToken: string | null, options: { resetSharedQueues?: boolean } = {}): Promise<boolean> {
+  const saved = await runLocalPersistence(() => saveProjectInternal(project, { touch: false, expectedToken, resetSharedQueues: options.resetSharedQueues }));
+  if (saved && options.resetSharedQueues) reportSharedSyncQueueChanged();
+  return saved;
 }
 
 // Read the latest stored record inside the write transaction. A note or photo
@@ -1095,76 +1097,88 @@ export async function saveCheckpointInspectionChange(
   }, `checkpoint:${projectId}:${checkpointId}`);
 }
 
-async function saveProjectInternal(project: Project, options: { touch: boolean; expectedToken?: string | null }): Promise<boolean> {
+async function saveProjectInternal(project: Project, options: { touch: boolean; expectedToken?: string | null; resetSharedQueues?: boolean }): Promise<boolean> {
   const db = await getDB();
   if (options.touch) {
     project.updatedAt = new Date();
   }
   const { storedProject, mediaRecords, elevationDrawingRecords } = serializeProjectForStorage(project);
   const compactMediaRecords = mediaRecords.map(compactMediaRecord);
-  const tx = db.transaction(['projects', 'checkpointMedia', 'elevationDrawings', 'syncMetadata'], 'readwrite');
+  const tx = db.transaction(['projects', 'checkpointMedia', 'elevationDrawings', 'syncMetadata', 'sharedAreaSyncQueue', 'sharedProjectMetadataSyncQueue'], 'readwrite');
   const projectStore = tx.objectStore('projects');
   const mediaStore = tx.objectStore('checkpointMedia');
   const drawingStore = tx.objectStore('elevationDrawings');
 
-  if (options.expectedToken !== undefined) {
-    const current = await projectStore.get(project.id);
-    if ((current ? JSON.stringify(current) : null) !== options.expectedToken) {
-      await tx.done;
-      return false;
+  try {
+    if (options.expectedToken !== undefined) {
+      const current = await projectStore.get(project.id);
+      if ((current ? JSON.stringify(current) : null) !== options.expectedToken) {
+        await tx.done;
+        return false;
+      }
     }
+
+    await projectStore.put(storedProject);
+    if (options.touch || options.resetSharedQueues) {
+      await markPendingProjectInStore(tx.objectStore('syncMetadata'), project.id);
+    }
+    if (options.resetSharedQueues) {
+      const areas = tx.objectStore('sharedAreaSyncQueue');
+      const metadata = tx.objectStore('sharedProjectMetadataSyncQueue');
+      for (const key of await areas.index('by-local-project').getAllKeys(project.id)) await areas.delete(key);
+      for (const key of await metadata.index('by-local-project').getAllKeys(project.id)) await metadata.delete(key);
+    }
+
+    const existingMediaRecords = await mediaStore.index('by-project').getAll(project.id);
+    const existingMediaByCheckpoint = new Map(
+      existingMediaRecords.map((record) => [record.checkpointId, record])
+    );
+    const nextCheckpointIds = new Set(mediaRecords.map((record) => record.checkpointId));
+
+    await Promise.all(
+      existingMediaRecords
+        .filter((record) => !nextCheckpointIds.has(record.checkpointId))
+        .map((record) => mediaStore.delete([project.id, record.checkpointId]))
+    );
+
+    await Promise.all(compactMediaRecords.map((record) => mediaStore.put(
+      preserveExistingMediaPayloads(record, existingMediaByCheckpoint.get(record.checkpointId))
+    )));
+
+    const existingDrawingRecords = await drawingStore.index('by-project').getAll(project.id);
+    const existingDrawingById = new Map(existingDrawingRecords.map((record) => [record.id, record]));
+    const incomingDrawingPayloadById = new Map(
+      elevationDrawingRecords.map((record) => [record.id, record.dataUrl])
+    );
+    const nextDrawingMetadata = storedProject.facadeElevationDrawings ?? [];
+    const nextDrawingIds = new Set(nextDrawingMetadata.map((drawing) => drawing.id));
+
+    await Promise.all(
+      existingDrawingRecords
+        .filter((record) => !nextDrawingIds.has(record.id))
+        .map((record) => drawingStore.delete([record.projectId, record.id]))
+    );
+
+    await Promise.all(
+      nextDrawingMetadata
+        .map((drawing) => {
+          const dataUrl = incomingDrawingPayloadById.get(drawing.id) || existingDrawingById.get(drawing.id)?.dataUrl || '';
+          if (!dataUrl) return null;
+          return drawingStore.put({
+            ...drawing,
+            dataUrl,
+            projectId: project.id,
+          });
+        })
+        .filter((operation): operation is Promise<[string, string]> => operation !== null)
+    );
+    await tx.done;
+    return true;
+  } catch (error) {
+    try { tx.abort(); } catch {}
+    await tx.done.catch(() => {});
+    throw error;
   }
-
-  await projectStore.put(storedProject);
-  if (options.touch) {
-    await markPendingProjectInStore(tx.objectStore('syncMetadata'), project.id);
-  }
-
-  const existingMediaRecords = await mediaStore.index('by-project').getAll(project.id);
-  const existingMediaByCheckpoint = new Map(
-    existingMediaRecords.map((record) => [record.checkpointId, record])
-  );
-  const nextCheckpointIds = new Set(mediaRecords.map((record) => record.checkpointId));
-
-  await Promise.all(
-    existingMediaRecords
-      .filter((record) => !nextCheckpointIds.has(record.checkpointId))
-      .map((record) => mediaStore.delete([project.id, record.checkpointId]))
-  );
-
-  await Promise.all(compactMediaRecords.map((record) => mediaStore.put(
-    preserveExistingMediaPayloads(record, existingMediaByCheckpoint.get(record.checkpointId))
-  )));
-
-  const existingDrawingRecords = await drawingStore.index('by-project').getAll(project.id);
-  const existingDrawingById = new Map(existingDrawingRecords.map((record) => [record.id, record]));
-  const incomingDrawingPayloadById = new Map(
-    elevationDrawingRecords.map((record) => [record.id, record.dataUrl])
-  );
-  const nextDrawingMetadata = storedProject.facadeElevationDrawings ?? [];
-  const nextDrawingIds = new Set(nextDrawingMetadata.map((drawing) => drawing.id));
-
-  await Promise.all(
-    existingDrawingRecords
-      .filter((record) => !nextDrawingIds.has(record.id))
-      .map((record) => drawingStore.delete([record.projectId, record.id]))
-  );
-
-  await Promise.all(
-    nextDrawingMetadata
-      .map((drawing) => {
-        const dataUrl = incomingDrawingPayloadById.get(drawing.id) || existingDrawingById.get(drawing.id)?.dataUrl || '';
-        if (!dataUrl) return null;
-        return drawingStore.put({
-          ...drawing,
-          dataUrl,
-          projectId: project.id,
-        });
-      })
-      .filter((operation): operation is Promise<[string, string]> => operation !== null)
-  );
-  await tx.done;
-  return true;
 }
 
 export async function deleteProject(id: string): Promise<void> {
