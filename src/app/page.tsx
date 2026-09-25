@@ -55,10 +55,9 @@ import {
 import {
   clearDetachedSharedProjectMetadata,
   detachLocalSharedProject,
-  findDetachedSharedProject,
   relinkDetachedSharedProject,
 } from '@/features/collaboration/detachedSharedProject';
-import { findPreferredLocalSharedProject, getInactiveLocalSharedProjects, getSharedProjectDirectoryLocalStatus } from '@/features/collaboration/sharedProjectDirectoryLocal';
+import { findPreferredLocalSharedProject, getInactiveLocalSharedProjects, getSharedProjectDirectoryLocalStatus, planSharedProjectJoin } from '@/features/collaboration/sharedProjectDirectoryLocal';
 import { ProjectCard, type ProjectCardMetrics as ProjectMetrics } from '@/features/projects/ProjectCard';
 import { syncSharedProject } from '@/features/sync/syncSharedProject';
 import { compareProjectCopies, isLikelyPersonalProjectCopy, isRecoveredCopyPair } from '@/features/projects/compareProjectCopies';
@@ -563,14 +562,12 @@ export default function ProjectsPage() {
     let personalRestoreIncomplete = false;
     let mergedPersonalProjectIds: string[] = [];
     const autoArchivedRecoveryIds: string[] = [];
-    const inactiveSharedProjectMessages = new Map<string, string>();
     try {
       if (collaborationAuth.isSignedIn) {
         try {
           const directory = await listMySharedProjects();
           for (const project of getInactiveLocalSharedProjects(await getAllProjects(), directory)) {
             const message = `${project.projectName}: this team copy is not active for your account. Its changes stayed on this device. Open Team Projects to reconnect or keep it local only`;
-            if (directory.length > 0) inactiveSharedProjectMessages.set(project.id, message);
             problems.push(message);
           }
           for (const entry of directory) {
@@ -645,7 +642,6 @@ export default function ProjectsPage() {
 
       let restore = await runManualOneDriveRestore({
         ensureAccessToken: () => ensureAccessToken({ interactive: true }),
-        recoverInactiveSharedProjectIds: [...inactiveSharedProjectMessages.keys()],
       });
       if (restore.status === 'needs-auth') {
         setSyncStatus('needs-auth');
@@ -653,7 +649,6 @@ export default function ProjectsPage() {
           await signIn({ selectAccount: true });
           restore = await runManualOneDriveRestore({
             ensureAccessToken: () => ensureAccessToken({ interactive: true }),
-            recoverInactiveSharedProjectIds: [...inactiveSharedProjectMessages.keys()],
           });
         } catch (error) {
           problems.push(`Microsoft sign-in: ${error instanceof Error ? error.message : 'Could not sign in.'}`);
@@ -664,10 +659,6 @@ export default function ProjectsPage() {
         }
       }
       if (restore.status === 'success' || restore.status === 'partial') {
-        for (const projectId of restore.restoredProjectIds) {
-          const staleMessage = inactiveSharedProjectMessages.get(projectId);
-          if (staleMessage) problems.splice(problems.indexOf(staleMessage), 1);
-        }
         for (const copy of restore.recoveredLocalCopies ?? []) {
           completed.push(`${copy.name}: local work preserved as a separate personal project. Review it before deleting; unsent team edits are still in that copy`);
         }
@@ -1968,26 +1959,14 @@ export default function ProjectsPage() {
       };
     }
 
-    const detachedProject = findDetachedSharedProject(deviceProjects, sharedProjectId);
-    const matchingLocalProject = localProjectId
-      ? deviceProjects.find((project) => !project.deletedAt && project.id === localProjectId)
-      : undefined;
-    const reservedLocalProject = localProjectId
-      ? deviceProjects.find((project) => project.id === localProjectId)
-      : undefined;
-    if (reservedLocalProject?.deletedAt && reservedLocalProject.sharedProjectId !== sharedProjectId) {
-      throw new Error('A different local project with this ID is in Trash. Review or restore that copy before adding the team project.');
-    }
-    if (matchingLocalProject?.sharedProjectId
-      && matchingLocalProject.sharedProjectId !== sharedProjectId
-      && !allowReconnect) {
+    const { detachedProject, reusableProject, isReconnecting, needsExplicitReconnect, requestedIdAvailable } =
+      planSharedProjectJoin(deviceProjects, sharedProjectId, localProjectId, allowReconnect);
+    if (needsExplicitReconnect) {
       throw new Error('This device has a different team link for the same project. Open Team Projects and choose Reconnect on this device after reviewing the local copy.');
     }
-    const reusableProject = detachedProject ?? matchingLocalProject;
-    const isReconnecting = Boolean(
-      matchingLocalProject?.sharedProjectId
-      && matchingLocalProject.sharedProjectId !== sharedProjectId
-    );
+    // A matching device ID is not proof that a personal project belongs to
+    // this team. Only an explicit same-team detach or a requested reconnect
+    // may reuse an existing project and its local edits.
     const [pendingAreaSyncs, pendingMetadataSync] = reusableProject
       ? await Promise.all([
           getPendingSharedAreaSyncsForProject(reusableProject.id),
@@ -2005,7 +1984,7 @@ export default function ProjectsPage() {
             sharedProjectId,
             sharedProjectLinkedAt: new Date(),
           }
-      : { ...newProject!, id: localProjectId ?? newProject!.id };
+      : { ...newProject!, id: localProjectId && requestedIdAvailable ? localProjectId : newProject!.id };
     if (!reusableProject) {
       project.sharedProjectId = sharedProjectId;
       project.sharedProjectLinkedAt = new Date();

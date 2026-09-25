@@ -1727,8 +1727,8 @@ export async function mergePersonalProjectsFromOneDrive(token: string, projectId
 
 /**
  * Restores personal backups missing from this device. A confirmed inactive
- * team copy with the same ID is first preserved as a separate local project;
- * ordinary existing projects are never merged or overwritten here.
+ * team copy can be preserved as a separate local project only by an explicit
+ * recovery request; routine sync never converts or duplicates a team copy.
  */
 export async function restoreMissingProjectsFromOneDrive(
   token: string,
@@ -1777,7 +1777,8 @@ export async function restoreMissingProjectsFromOneDrive(
           throw new Error('The OneDrive backup ID does not match its filename. Your local project was not changed.');
         }
         if (existing?.sharedProjectId && !recoverableIds.has(projectId)) {
-          throw new Error('A team copy on this device uses this personal backup ID. Connect Team Projects and sync again so its status can be checked. Your local copy was not changed.');
+          skippedProjectIds.push(projectId);
+          return;
         }
         const folderName = getProjectFolderNameFromRemoteFile(remote);
         const projectWithFolder = withProjectFolderName(remoteProject, folderName);

@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { Project } from '@/types';
-import { findPreferredLocalSharedProject, getInactiveLocalSharedProjects, getSharedProjectDirectoryLocalStatus } from '@/features/collaboration/sharedProjectDirectoryLocal';
+import { findPreferredLocalSharedProject, getInactiveLocalSharedProjects, getSharedProjectDirectoryLocalStatus, planSharedProjectJoin } from '@/features/collaboration/sharedProjectDirectoryLocal';
 
 const homePage = readFileSync(resolve(process.cwd(), 'src/app/page.tsx'), 'utf8');
 const persistentTopBar = readFileSync(
@@ -34,13 +34,47 @@ describe('shared project directory local status', () => {
     expect(homePage).toContain("isInTrash ? 'In Trash — restore from Trash'");
   });
 
-  it('does not call an unlinked local copy available to the team', () => {
+  it('does not treat a personal project with the same ID as the team copy', () => {
     const local = project('owner-copy');
     delete local.sharedProjectId;
-    expect(getSharedProjectDirectoryLocalStatus(local, {
+    const entry = {
       projectId: 'shared-1', localProjectId: local.id,
-    })).toEqual({ isLinkedOnDevice: false, isInTrash: false, needsReconnect: true });
-    expect(homePage).toContain("'Connect existing copy'");
+    };
+    expect(findPreferredLocalSharedProject([local], entry)).toBeUndefined();
+    expect(getSharedProjectDirectoryLocalStatus(findPreferredLocalSharedProject([local], entry), entry))
+      .toEqual({ isLinkedOnDevice: false, isInTrash: false, needsReconnect: false });
+    const plan = planSharedProjectJoin([local], entry.projectId, entry.localProjectId, true);
+    expect(plan.reusableProject).toBeUndefined();
+    expect(plan.requestedIdAvailable).toBe(false);
+    expect(plan.needsExplicitReconnect).toBe(false);
+  });
+
+  it('reuses only a detached copy of the same team or an explicit team reconnect', () => {
+    const detached = project('old-device-copy');
+    delete detached.sharedProjectId;
+    detached.detachedSharedProjectId = 'shared-1';
+    const otherTeam = project('directory-id');
+    otherTeam.sharedProjectId = 'shared-2';
+    expect(findPreferredLocalSharedProject([otherTeam, detached], {
+      projectId: 'shared-1', localProjectId: otherTeam.id,
+    })).toBe(detached);
+    const detachedPlan = planSharedProjectJoin([otherTeam, detached], 'shared-1', otherTeam.id);
+    expect(detachedPlan.reusableProject).toBe(detached);
+    expect(detachedPlan.needsExplicitReconnect).toBe(false);
+    const automatic = planSharedProjectJoin([otherTeam], 'shared-1', otherTeam.id);
+    expect(automatic.needsExplicitReconnect).toBe(true);
+    expect(automatic.reusableProject).toBeUndefined();
+    const manual = planSharedProjectJoin([otherTeam], 'shared-1', otherTeam.id, true);
+    expect(manual.isReconnecting).toBe(true);
+    expect(manual.reusableProject).toBe(otherTeam);
+  });
+
+  it('does not reuse an unrelated project ID in Trash', () => {
+    const trashedPersonal = project('directory-id', new Date());
+    delete trashedPersonal.sharedProjectId;
+    const plan = planSharedProjectJoin([trashedPersonal], 'shared-1', trashedPersonal.id);
+    expect(plan.reusableProject).toBeUndefined();
+    expect(plan.requestedIdAvailable).toBe(false);
   });
 
   it('reports an active local team copy missing from the account directory once', () => {

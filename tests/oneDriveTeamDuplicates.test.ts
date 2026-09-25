@@ -116,7 +116,9 @@ describe('OneDrive and team project identity', () => {
     downloadProjectFileMock.mockResolvedValue(serializeProjectPayload(personalBackup));
 
     const blocked = await restoreMissingProjectsFromOneDrive('test-token');
-    expect(blocked.failedProjects?.[0]?.message).toContain('team copy');
+    expect(blocked.failedProjects).toEqual([]);
+    expect(blocked.skippedProjectIds).toEqual([officeCopy.id]);
+    expect(blocked.recoveredLocalCopies).toEqual([]);
     expect((await getProject(officeCopy.id))?.sharedProjectId).toBe(officeCopy.sharedProjectId);
 
     const result = await restoreMissingProjectsFromOneDrive('test-token', {

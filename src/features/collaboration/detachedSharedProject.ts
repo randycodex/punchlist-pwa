@@ -1,7 +1,7 @@
 import type { Project } from '@/types';
 
 export function findDetachedSharedProject(
-  projects: Project[],
+  projects: readonly Project[],
   sharedProjectId: string
 ): Project | undefined {
   return projects.find((project) =>

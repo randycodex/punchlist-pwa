@@ -1,4 +1,5 @@
 import type { Project } from '@/types';
+import { findDetachedSharedProject } from './detachedSharedProject';
 
 type SharedProjectIdentity = {
   projectId: string;
@@ -10,9 +11,36 @@ export function findPreferredLocalSharedProject(
   entry: SharedProjectIdentity
 ): Project | undefined {
   return projects.find((project) => !project.deletedAt && project.sharedProjectId === entry.projectId)
-    ?? projects.find((project) => !project.deletedAt && project.id === entry.localProjectId)
-    ?? projects.find((project) => project.sharedProjectId === entry.projectId)
-    ?? projects.find((project) => project.id === entry.localProjectId);
+    ?? projects.find((project) => !project.deletedAt && project.detachedSharedProjectId === entry.projectId)
+    ?? projects.find((project) => !project.deletedAt && project.id === entry.localProjectId && Boolean(project.sharedProjectId))
+    ?? projects.find((project) => project.sharedProjectId === entry.projectId);
+}
+
+export function planSharedProjectJoin(
+  projects: readonly Project[],
+  sharedProjectId: string,
+  localProjectId?: string,
+  allowReconnect = false
+) {
+  const detachedProject = findDetachedSharedProject(projects, sharedProjectId);
+  const requestedProject = localProjectId
+    ? projects.find((project) => project.id === localProjectId)
+    : undefined;
+  const matchingLocalProject = requestedProject && !requestedProject.deletedAt
+    ? requestedProject
+    : undefined;
+  const linkedElsewhere = Boolean(
+    matchingLocalProject?.sharedProjectId
+    && matchingLocalProject.sharedProjectId !== sharedProjectId
+  );
+  const reconnectProject = allowReconnect && linkedElsewhere ? matchingLocalProject : undefined;
+  return {
+    detachedProject,
+    reusableProject: detachedProject ?? reconnectProject,
+    isReconnecting: Boolean(reconnectProject && !detachedProject),
+    needsExplicitReconnect: linkedElsewhere && !allowReconnect && !detachedProject,
+    requestedIdAvailable: !requestedProject,
+  };
 }
 
 export function getSharedProjectDirectoryLocalStatus(
