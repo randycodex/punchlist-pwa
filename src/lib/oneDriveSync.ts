@@ -1552,17 +1552,18 @@ export async function backupProjectsToOneDrive(
           }
           const projectForBackup = withProjectFolderName(localProject, targetFolderName);
           let keepRemoteId = canonicalRemote?.id;
-          if (!canonicalRemote || compareTimestampsWithTolerance(getProjectUpdatedAt(localProject), remoteUpdatedAt) > 0) {
-            const uploaded = await uploadProjectFileRecoveringMissingRemote(
-              token,
-              targetFolderName,
-              projectJsonFilename(projectForBackup),
-              serializeProjectPayload(stripProjectMediaPayload(projectForBackup)),
-              true,
-              canonicalRemote?.eTag
-            );
-            keepRemoteId = uploaded.id;
-          }
+          // Write the deletion marker even when timestamps are within the
+          // clock-skew tolerance. Moving an older active JSON to Trash without
+          // that marker would let another device keep its active local copy.
+          const uploaded = await uploadProjectFileRecoveringMissingRemote(
+            token,
+            targetFolderName,
+            projectJsonFilename(projectForBackup),
+            serializeProjectPayload(stripProjectMediaPayload(projectForBackup)),
+            true,
+            canonicalRemote?.eTag
+          );
+          keepRemoteId = uploaded.id;
           await deleteStaleRemoteProjectFiles(
             token, projectForBackup, remoteEntries, true, targetFolderName, keepRemoteId
           );

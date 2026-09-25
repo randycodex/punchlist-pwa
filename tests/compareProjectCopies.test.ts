@@ -46,6 +46,7 @@ describe('compareProjectCopies', () => {
     expect(isLikelyPersonalProjectCopy(original, recovery)).toBe(false);
     expect(isRecoveredCopyPair(original, recovery)).toBe(true);
     expect(isRecoveredCopyPair(recovery, original)).toBe(true);
+    expect(isRecoveredCopyPair(original, { ...recovery, recoveredFromProjectId: undefined })).toBe(true);
     expect(isRecoveredCopyPair(original, { ...recovery, sharedProjectId: 'team' })).toBe(false);
   });
 

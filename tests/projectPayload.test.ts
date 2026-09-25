@@ -35,11 +35,13 @@ describe('project payload validation', () => {
     const detachedAt = new Date('2026-01-02T00:00:00.000Z');
     const parsed = parseProjectPayload(JSON.parse(serializeProjectPayload({
       ...validProject(),
+      recoveredFromProjectId: 'original-project-1',
       detachedSharedProjectId: 'shared-project-1',
       detachedSharedProjectAt: detachedAt,
       detachedSharedSnapshotPublishedAt: timestamp,
     })));
     expect(parsed.projectName).toBe('Validated project');
+    expect(parsed.recoveredFromProjectId).toBe('original-project-1');
     expect(parsed.detachedSharedProjectId).toBe('shared-project-1');
     expect(parsed.detachedSharedProjectAt).toEqual(detachedAt);
     expect(parsed.detachedSharedSnapshotPublishedAt).toEqual(timestamp);

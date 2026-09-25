@@ -61,6 +61,10 @@ export function isLikelyPersonalProjectCopy(first: Project, second: Project) {
   if (normalized(first.projectName) !== normalized(second.projectName)
     || normalized(first.address) !== normalized(second.address)) return false;
 
+  return sharesSavedCheckpoints(first, second);
+}
+
+function sharesSavedCheckpoints(first: Project, second: Project) {
   const firstAreas = new Map(first.areas.filter((area) => !area.deletedAt && !area.purgedAt)
     .map((area) => [area.id, area]));
   return second.areas.some((area) => {
@@ -74,10 +78,23 @@ export function isLikelyPersonalProjectCopy(first: Project, second: Project) {
 }
 
 export function isRecoveredCopyPair(first: Project, second: Project) {
-  return !first.sharedProjectId && !second.sharedProjectId && (
+  if (first.sharedProjectId || second.sharedProjectId) return false;
+  if (
     first.recoveredFromProjectId === second.id
     || second.recoveredFromProjectId === first.id
-  );
+  ) return true;
+
+  // Older OneDrive restores discarded the provenance field. Match only the
+  // app-created recovery name plus the same address and saved checkpoint IDs.
+  const prefix = 'Recovered local copy - ';
+  const recovery = first.projectName.startsWith(prefix) ? first
+    : second.projectName.startsWith(prefix) ? second : null;
+  if (!recovery) return false;
+  const original = recovery === first ? second : first;
+  const sourceName = normalized(recovery.projectName.slice(prefix.length));
+  if (!sourceName || !normalized(original.projectName).startsWith(sourceName)) return false;
+  if (!normalized(recovery.address) || normalized(recovery.address) !== normalized(original.address)) return false;
+  return sharesSavedCheckpoints(recovery, original);
 }
 
 export function compareProjectCopies(first: Project, second: Project) {

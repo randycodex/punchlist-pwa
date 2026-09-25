@@ -231,6 +231,28 @@ describe('OneDrive and team project identity', () => {
     expect(deleteDriveItemMock).toHaveBeenCalledWith('test-token', 'active-file');
   });
 
+  it('writes a deletion marker when the active backup has the same timestamp', async () => {
+    const active = createProject('Personal site');
+    active.updatedAt = new Date('2026-09-23T12:00:00Z');
+    const trashed = { ...active, deletedAt: active.updatedAt };
+    await saveProjectPreserveTimestamps(trashed);
+    listProjectFilesMock.mockResolvedValue([{
+      id: 'active-file', eTag: 'active-etag',
+      name: `Personal-site_${active.id}.json`,
+      punchlistPath: `PunchList/Personal-site/Personal-site_${active.id}.json`,
+    }]);
+    downloadProjectFileMock.mockResolvedValue(serializeProjectPayload(active));
+    uploadProjectFileMock.mockResolvedValue({ id: 'trash-file' });
+
+    const result = await backupProjectsToOneDrive('test-token', [active.id]);
+
+    expect(result.conflicts).toEqual([]);
+    expect(uploadProjectFileMock).toHaveBeenCalledTimes(1);
+    const uploadedPayload = uploadProjectFileMock.mock.calls[0][3] as string;
+    expect(JSON.parse(uploadedPayload).project.deletedAt).toBe(active.updatedAt.toISOString());
+    expect(uploadProjectFileMock.mock.calls[0][4]).toBe(true);
+  });
+
   it('does not restore a personal backup marked as deleted even if its file is still active', async () => {
     const trashedCopy = createProject('Personal site');
     trashedCopy.deletedAt = new Date();

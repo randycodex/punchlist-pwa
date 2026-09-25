@@ -257,6 +257,7 @@ export function parseProjectPayload(value: unknown, payloadVersion = CURRENT_PRO
   const input = record(rawProject, 'project');
   return {
     id: requiredString(input.id, 'project.id'),
+    recoveredFromProjectId: optionalString(input.recoveredFromProjectId, 'project.recoveredFromProjectId'),
     sharedProjectId: optionalString(input.sharedProjectId, 'project.sharedProjectId'),
     sharedProjectLinkedAt: optionalDate(input.sharedProjectLinkedAt, 'project.sharedProjectLinkedAt'),
     sharedSnapshotPublishedAt: optionalDate(input.sharedSnapshotPublishedAt, 'project.sharedSnapshotPublishedAt'),
