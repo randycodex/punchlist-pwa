@@ -1805,9 +1805,11 @@ export async function restoreMissingProjectsFromOneDrive(
             : null;
           const priorIsComplete = priorComparison && !(
             priorComparison.firstOnlyAreaIds.length || priorComparison.firstOnlyCheckpointIds.length
+            || priorComparison.firstOnlyLocationIds.length || priorComparison.firstOnlyItemIds.length
             || priorComparison.firstOnlyPhotoIds.length || priorComparison.firstOnlyPhotoDataIds.length
             || priorComparison.firstOnlyFileIds.length || priorComparison.firstOnlyFileDataIds.length
-            || priorComparison.differingCheckpointIds.length
+            || priorComparison.differingAreaIds.length || priorComparison.differingLocationIds.length
+            || priorComparison.differingItemIds.length || priorComparison.differingCheckpointIds.length
           );
           const recoveryCopy = priorIsComplete
             ? savedPriorRecovery
@@ -1819,9 +1821,11 @@ export async function restoreMissingProjectsFromOneDrive(
           const comparison = compareProjectCopies(fullLocal, savedRecovery);
           if (
             comparison.firstOnlyAreaIds.length || comparison.firstOnlyCheckpointIds.length
+            || comparison.firstOnlyLocationIds.length || comparison.firstOnlyItemIds.length
             || comparison.firstOnlyPhotoIds.length || comparison.firstOnlyPhotoDataIds.length
             || comparison.firstOnlyFileIds.length || comparison.firstOnlyFileDataIds.length
-            || comparison.differingCheckpointIds.length
+            || comparison.differingAreaIds.length || comparison.differingLocationIds.length
+            || comparison.differingItemIds.length || comparison.differingCheckpointIds.length
           ) {
             throw new Error('The office recovery copy needs review. Your local team copy was not replaced.');
           }

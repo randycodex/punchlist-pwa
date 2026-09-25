@@ -61,7 +61,7 @@ import {
 import { findPreferredLocalSharedProject, getInactiveLocalSharedProjects, getSharedProjectDirectoryLocalStatus } from '@/features/collaboration/sharedProjectDirectoryLocal';
 import { ProjectCard, type ProjectCardMetrics as ProjectMetrics } from '@/features/projects/ProjectCard';
 import { syncSharedProject } from '@/features/sync/syncSharedProject';
-import { compareProjectCopies, isLikelyPersonalProjectCopy } from '@/features/projects/compareProjectCopies';
+import { compareProjectCopies, isLikelyPersonalProjectCopy, isRecoveredCopyPair } from '@/features/projects/compareProjectCopies';
 import { areasChangedSinceTeamCopy, areasWithMissingMedia, mergeDuplicatePersonalProjects, mergeDuplicateTeamProjects, projectCheckpointCount } from '@/features/projects/mergeDuplicateTeamProjects';
 import { HomeAreaCard,
   type HomeAreaCardMetrics as AreaMetrics,
@@ -279,10 +279,15 @@ export default function ProjectsPage() {
   const [exportScope, setExportScope] = useState<ExportScope>('selected-projects');
   const [showProjectMenuId, setShowProjectMenuId] = useState<string | null>(null);
   const [copyReview, setCopyReview] = useState<{
-    kind: 'team' | 'personal';
+    kind: 'team' | 'personal' | 'recovery';
     selectedId: string;
     primaryId: string;
-    comparisons: Array<{ otherId: string; result: ReturnType<typeof compareProjectCopies> }>;
+    comparisons: Array<{
+      otherId: string;
+      result: ReturnType<typeof compareProjectCopies>;
+      recoveryOnlyCount?: number;
+      differingDetailsCount?: number;
+    }>;
   } | null>(null);
   const [loadingCopyReview, setLoadingCopyReview] = useState(false);
   const [mergingCopies, setMergingCopies] = useState(false);
@@ -1457,7 +1462,7 @@ export default function ProjectsPage() {
         && entry.id !== project.id
         && (project.sharedProjectId
           ? entry.sharedProjectId === project.sharedProjectId
-          : isLikelyPersonalProjectCopy(project, entry))
+          : isRecoveredCopyPair(project, entry) || isLikelyPersonalProjectCopy(project, entry))
       );
       const selected = await getProject(project.id);
       if (!selected || candidates.length === 0) {
@@ -1466,14 +1471,31 @@ export default function ProjectsPage() {
       }
       const fullCopies = await Promise.all(candidates.map((candidate) => getProject(candidate.id)));
       const availableCopies = fullCopies.filter((entry): entry is Project => Boolean(entry));
-      const comparisons = availableCopies.map((other) => ({
-        otherId: other.id,
-        result: compareProjectCopies(selected, other),
-      }));
+      const comparisons = availableCopies.map((other) => {
+        const result = compareProjectCopies(selected, other);
+        const recoveryIsSelected = selected.recoveredFromProjectId === other.id;
+        const recoveryIsOther = other.recoveredFromProjectId === selected.id;
+        const unique = recoveryIsSelected
+          ? [result.firstOnlyAreaIds, result.firstOnlyLocationIds, result.firstOnlyItemIds,
+            result.firstOnlyCheckpointIds, result.firstOnlyPhotoIds, result.firstOnlyFileIds]
+          : [result.secondOnlyAreaIds, result.secondOnlyLocationIds, result.secondOnlyItemIds,
+            result.secondOnlyCheckpointIds, result.secondOnlyPhotoIds, result.secondOnlyFileIds];
+        return {
+          otherId: other.id,
+          result,
+          ...(recoveryIsSelected || recoveryIsOther ? {
+            recoveryOnlyCount: unique.reduce((sum, ids) => sum + ids.length, 0),
+            differingDetailsCount: result.differingAreaIds.length + result.differingLocationIds.length
+              + result.differingItemIds.length + result.differingCheckpointIds.length,
+          } : {}),
+        };
+      });
       const primary = [selected, ...availableCopies]
         .sort((left, right) => projectCheckpointCount(right) - projectCheckpointCount(left))[0];
       setCopyReview({
-        kind: project.sharedProjectId ? 'team' : 'personal',
+        kind: project.sharedProjectId ? 'team'
+          : availableCopies.some((other) => isRecoveredCopyPair(project, other)) ? 'recovery'
+          : 'personal',
         selectedId: project.id,
         primaryId: primary.id,
         comparisons,
@@ -1487,7 +1509,7 @@ export default function ProjectsPage() {
   }
 
   async function handleMergeProjectCopies() {
-    if (!copyReview || mergingCopies) return;
+    if (!copyReview || copyReview.kind === 'recovery' || mergingCopies) return;
     setMergingCopies(true);
     try {
       const copyIds = new Set([copyReview.selectedId, ...copyReview.comparisons.map((entry) => entry.otherId)]);
@@ -3374,7 +3396,7 @@ export default function ProjectsPage() {
                       onCompareCopies={activeProjects.some((other) =>
                         other.id !== project.id && (project.sharedProjectId
                           ? other.sharedProjectId === project.sharedProjectId
-                          : isLikelyPersonalProjectCopy(project, other))
+                          : isRecoveredCopyPair(project, other) || isLikelyPersonalProjectCopy(project, other))
                       ) ? handleCompareProjectCopies : undefined}
                       onLongPressSelect={handleProjectCardLongPress}
                       onPrimeOpen={primeProjectOpen}
@@ -3394,15 +3416,19 @@ export default function ProjectsPage() {
             <p className="mt-2 text-sm text-gray-500 dark:text-gray-300">
               {copyReview.kind === 'team'
                 ? 'These copies belong to the same team project. Counts below compare saved IDs on this device; they do not change either copy.'
+                : copyReview.kind === 'recovery'
+                  ? 'This compares the K&J project with the older office copy preserved during recovery. Nothing changes when you compare them.'
                 : 'These personal copies share saved area and checkpoint IDs. Counts below compare their saved work on this device; they do not change either copy.'}
             </p>
-            {copyReview.comparisons.map(({ otherId, result }) => (
+            {copyReview.comparisons.map(({ otherId, result, recoveryOnlyCount, differingDetailsCount }) => (
               <div key={otherId} className="mt-4 rounded-2xl soft-control p-4 text-sm text-gray-700 dark:text-gray-200">
-                <div className="font-semibold">Copy {copyReview.selectedId.slice(0,8)} vs {otherId.slice(0,8)}</div>
+                <div className="font-semibold">{projects.find((entry) => entry.id === copyReview.selectedId)?.projectName ?? `Copy ${copyReview.selectedId.slice(0, 8)}`} vs {projects.find((entry) => entry.id === otherId)?.projectName ?? `Copy ${otherId.slice(0, 8)}`}</div>
                 <div className="mt-3 grid grid-cols-2 gap-3">
                   <div>
                     <div className="font-medium">Only in selected copy</div>
                     <div>{result.firstOnlyAreaIds.length} areas</div>
+                    <div>{result.firstOnlyLocationIds.length} rooms</div>
+                    <div>{result.firstOnlyItemIds.length} items</div>
                     <div>{result.firstOnlyCheckpointIds.length} checkpoints</div>
                     <div>{result.firstOnlyPhotoIds.length} photos</div>
                     <div>{result.firstOnlyFileIds.length} files</div>
@@ -3411,26 +3437,43 @@ export default function ProjectsPage() {
                   <div>
                     <div className="font-medium">Only in other copy</div>
                     <div>{result.secondOnlyAreaIds.length} areas</div>
+                    <div>{result.secondOnlyLocationIds.length} rooms</div>
+                    <div>{result.secondOnlyItemIds.length} items</div>
                     <div>{result.secondOnlyCheckpointIds.length} checkpoints</div>
                     <div>{result.secondOnlyPhotoIds.length} photos</div>
                     <div>{result.secondOnlyFileIds.length} files</div>
                     <div>{result.secondPhotosWithoutData} photos without a local file</div>
                   </div>
                 </div>
-                <div className="mt-3">{result.differingCheckpointIds.length} shared checkpoints have different outcomes or comments.</div>
+                <div className="mt-3">{result.differingAreaIds.length} shared areas, {result.differingLocationIds.length} rooms, {result.differingItemIds.length} items, and {result.differingCheckpointIds.length} checkpoints have different details.</div>
+                {recoveryOnlyCount !== undefined && (
+                  <div className="mt-3 font-medium">
+                    {recoveryOnlyCount === 0 && differingDetailsCount === 0
+                      ? 'The recovered copy has no unique saved work in this comparison.'
+                      : `Keep the recovered copy: ${recoveryOnlyCount} saved entries exist only there and ${differingDetailsCount} shared entries differ.`}
+                  </div>
+                )}
               </div>
             ))}
-            <p className="mt-4 text-sm text-gray-500 dark:text-gray-300">
-              Merge into copy {copyReview.primaryId.slice(0, 8)}. Unique work from every copy will be combined. Extra copies will stay in Trash for 30 days.
-            </p>
-            <button
-              type="button"
-              onClick={handleMergeProjectCopies}
-              disabled={mergingCopies}
-              className="mt-4 w-full rounded-2xl bg-orange-600 px-4 py-3 font-medium text-white disabled:opacity-50"
-            >
-              {mergingCopies ? 'Merging copies…' : 'Merge copies'}
-            </button>
+            {copyReview.kind === 'recovery' ? (
+              <p className="mt-4 text-sm text-gray-500 dark:text-gray-300">
+                Keep the recovered copy if it has unique areas, checkpoints, photos, files, or different checkpoint outcomes or comments. A different issue count alone does not prove work is missing. This review does not merge or delete either project.
+              </p>
+            ) : (
+              <>
+                <p className="mt-4 text-sm text-gray-500 dark:text-gray-300">
+                  Merge into copy {copyReview.primaryId.slice(0, 8)}. Unique work from every copy will be combined. Extra copies will stay in Trash for 30 days.
+                </p>
+                <button
+                  type="button"
+                  onClick={handleMergeProjectCopies}
+                  disabled={mergingCopies}
+                  className="mt-4 w-full rounded-2xl bg-orange-600 px-4 py-3 font-medium text-white disabled:opacity-50"
+                >
+                  {mergingCopies ? 'Merging copies…' : 'Merge copies'}
+                </button>
+              </>
+            )}
             <button
               type="button"
               onClick={() => setCopyReview(null)}

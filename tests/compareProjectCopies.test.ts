@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { compareProjectCopies, isLikelyPersonalProjectCopy } from '../src/features/projects/compareProjectCopies';
+import { compareProjectCopies, isLikelyPersonalProjectCopy, isRecoveredCopyPair } from '../src/features/projects/compareProjectCopies';
 import { mergeDuplicatePersonalProjects } from '../src/features/projects/mergeDuplicateTeamProjects';
 import type { Checkpoint, Project } from '../src/types';
 
@@ -35,6 +35,33 @@ function checkpoint(id: string, photos: Array<{ id: string; imageData: string }>
 }
 
 describe('compareProjectCopies', () => {
+  it('recognizes a preserved local recovery copy even after it was renamed', () => {
+    const original = project('original', [checkpoint('shared', [])]);
+    const recovery = project('recovery', [checkpoint('shared', [])]);
+    delete original.sharedProjectId;
+    delete recovery.sharedProjectId;
+    recovery.projectName = 'Recovered local copy - Ilse Hoffman House';
+    recovery.recoveredFromProjectId = original.id;
+
+    expect(isLikelyPersonalProjectCopy(original, recovery)).toBe(false);
+    expect(isRecoveredCopyPair(original, recovery)).toBe(true);
+    expect(isRecoveredCopyPair(recovery, original)).toBe(true);
+    expect(isRecoveredCopyPair(original, { ...recovery, sharedProjectId: 'team' })).toBe(false);
+  });
+
+  it('includes changed area notes and room review state in recovery comparison', () => {
+    const original = project('original', [checkpoint('shared', [])]);
+    const recovery = project('recovery', [checkpoint('shared', [])]);
+    delete original.sharedProjectId;
+    delete recovery.sharedProjectId;
+    recovery.areas[0].notes = 'Office-only note';
+    recovery.areas[0].locations[0].reviewedAt = '2026-09-24T12:00:00Z';
+
+    const result = compareProjectCopies(recovery, original);
+    expect(result.differingAreaIds).toEqual(['area-one']);
+    expect(result.differingLocationIds).toEqual(['location-one']);
+  });
+
   it('recognizes personal copies by shared saved IDs, not their name alone', () => {
     const first = project('first', [checkpoint('same-checkpoint', [])]);
     const second = project('second', [checkpoint('same-checkpoint', [])]);

@@ -1,7 +1,9 @@
-import type { Checkpoint, Project } from '@/types';
+import type { Area, Checkpoint, Item, Location, Project } from '@/types';
 
 type ProjectContents = {
-  areaIds: Set<string>;
+  areas: Map<string, Area>;
+  locations: Map<string, Location>;
+  items: Map<string, Item>;
   checkpoints: Map<string, Checkpoint>;
   photoIds: Set<string>;
   photoDataIds: Set<string>;
@@ -11,7 +13,9 @@ type ProjectContents = {
 };
 
 function contents(project: Project): ProjectContents {
-  const areaIds = new Set<string>();
+  const areas = new Map<string, Area>();
+  const locations = new Map<string, Location>();
+  const items = new Map<string, Item>();
   const checkpoints = new Map<string, Checkpoint>();
   const photoIds = new Set<string>();
   const photoDataIds = new Set<string>();
@@ -20,9 +24,11 @@ function contents(project: Project): ProjectContents {
   let photosWithoutData = 0;
   for (const area of project.areas) {
     if (area.deletedAt || area.purgedAt) continue;
-    areaIds.add(area.id);
+    areas.set(area.id, area);
     for (const location of area.locations) {
+      locations.set(location.id, location);
       for (const item of location.items) {
+        items.set(item.id, item);
         for (const checkpoint of item.checkpoints) {
           checkpoints.set(checkpoint.id, checkpoint);
           for (const photo of checkpoint.photos) {
@@ -38,7 +44,7 @@ function contents(project: Project): ProjectContents {
       }
     }
   }
-  return { areaIds, checkpoints, photoIds, photoDataIds, fileIds, fileDataIds, photosWithoutData };
+  return { areas, locations, items, checkpoints, photoIds, photoDataIds, fileIds, fileDataIds, photosWithoutData };
 }
 
 function onlyIn(left: Set<string>, right: Set<string>) {
@@ -67,16 +73,52 @@ export function isLikelyPersonalProjectCopy(first: Project, second: Project) {
   });
 }
 
+export function isRecoveredCopyPair(first: Project, second: Project) {
+  return !first.sharedProjectId && !second.sharedProjectId && (
+    first.recoveredFromProjectId === second.id
+    || second.recoveredFromProjectId === first.id
+  );
+}
+
 export function compareProjectCopies(first: Project, second: Project) {
   const left = contents(first);
   const right = contents(second);
+  const firstAreaIds = new Set(left.areas.keys());
+  const secondAreaIds = new Set(right.areas.keys());
+  const firstLocationIds = new Set(left.locations.keys());
+  const secondLocationIds = new Set(right.locations.keys());
+  const firstItemIds = new Set(left.items.keys());
+  const secondItemIds = new Set(right.items.keys());
   const firstCheckpointIds = new Set(left.checkpoints.keys());
   const secondCheckpointIds = new Set(right.checkpoints.keys());
+  const differingAreaIds = [...firstAreaIds].filter((id) => {
+    const a = left.areas.get(id);
+    const b = right.areas.get(id);
+    return b && a && JSON.stringify([
+      a.name, a.areaTypeKey, a.unitType, a.customAreaName, a.areaNumber,
+      a.unitFloor, a.facadeLevel, a.isComplete, a.notes,
+    ]) !== JSON.stringify([
+      b.name, b.areaTypeKey, b.unitType, b.customAreaName, b.areaNumber,
+      b.unitFloor, b.facadeLevel, b.isComplete, b.notes,
+    ]);
+  });
+  const differingLocationIds = [...firstLocationIds].filter((id) => {
+    const a = left.locations.get(id);
+    const b = right.locations.get(id);
+    return b && a && JSON.stringify([a.name, a.sectionLabel, a.reviewedAt])
+      !== JSON.stringify([b.name, b.sectionLabel, b.reviewedAt]);
+  });
+  const differingItemIds = [...firstItemIds].filter((id) => {
+    const a = left.items.get(id);
+    const b = right.items.get(id);
+    return b && a && a.name !== b.name;
+  });
   const differingCheckpointIds = [...firstCheckpointIds].filter((id) => {
     const a = left.checkpoints.get(id);
     const b = right.checkpoints.get(id);
     return b && a && (
-      a.status !== b.status
+      a.name !== b.name
+      || a.status !== b.status
       || a.fixStatus !== b.fixStatus
       || a.issueState !== b.issueState
       || a.comments !== b.comments
@@ -84,8 +126,12 @@ export function compareProjectCopies(first: Project, second: Project) {
   });
   return {
     sameTeamProject: Boolean(first.sharedProjectId && first.sharedProjectId === second.sharedProjectId),
-    firstOnlyAreaIds: onlyIn(left.areaIds, right.areaIds),
-    secondOnlyAreaIds: onlyIn(right.areaIds, left.areaIds),
+    firstOnlyAreaIds: onlyIn(firstAreaIds, secondAreaIds),
+    secondOnlyAreaIds: onlyIn(secondAreaIds, firstAreaIds),
+    firstOnlyLocationIds: onlyIn(firstLocationIds, secondLocationIds),
+    secondOnlyLocationIds: onlyIn(secondLocationIds, firstLocationIds),
+    firstOnlyItemIds: onlyIn(firstItemIds, secondItemIds),
+    secondOnlyItemIds: onlyIn(secondItemIds, firstItemIds),
     firstOnlyCheckpointIds: onlyIn(firstCheckpointIds, secondCheckpointIds),
     secondOnlyCheckpointIds: onlyIn(secondCheckpointIds, firstCheckpointIds),
     firstOnlyPhotoIds: onlyIn(left.photoIds, right.photoIds),
@@ -97,6 +143,9 @@ export function compareProjectCopies(first: Project, second: Project) {
     firstOnlyFileDataIds: onlyIn(left.fileDataIds, right.fileDataIds),
     secondOnlyFileDataIds: onlyIn(right.fileDataIds, left.fileDataIds),
     differingCheckpointIds,
+    differingAreaIds,
+    differingLocationIds,
+    differingItemIds,
     firstPhotosWithoutData: left.photosWithoutData,
     secondPhotosWithoutData: right.photosWithoutData,
   };
