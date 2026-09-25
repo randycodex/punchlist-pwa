@@ -48,7 +48,7 @@ describe('automatic recovery reconciliation', () => {
     expect(result.safeToArchive).toBe(false);
     expect(result.differenceCount).toBe(2);
     expect(result.differences).toMatchObject({ changedCheckpoints: 1, changedPhotos: 1 });
-    expect(formatRecoveryDifferenceSummary(result)).toContain('1 checkpoint outcomes/details');
+    expect(formatRecoveryDifferenceSummary(result)).toContain('1 checkpoint');
   });
 
   it('keeps room reviews, area notes, and attached files that differ', () => {
@@ -61,6 +61,16 @@ describe('automatic recovery reconciliation', () => {
       size: 3, data: 'data:pdf', createdAt: recovery.date,
     }];
     expect(assessRecoveredCopy(recovery, retained).differenceCount).toBe(3);
+  });
+
+  it('lists recovery-only media separately from changed shared details', () => {
+    const recovery = copy('recovered');
+    const retained = copy('retained');
+    retained.areas[0].locations[0].items[0].checkpoints[0].photos = [];
+    retained.areas[0].notes = 'Different note';
+    const summary = formatRecoveryDifferenceSummary(assessRecoveredCopy(recovery, retained));
+    expect(summary).toContain('1 entry exists only in the recovered copy (1 photo)');
+    expect(summary).toContain('1 shared detail differs (1 area)');
   });
 
   it('does not mistake project counts, names, or different drawings for equivalence', () => {

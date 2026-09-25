@@ -28,20 +28,30 @@ const emptyDifferences = (): Result['differences'] => ({
 
 export function formatRecoveryDifferenceSummary(result: Result) {
   const d = result.differences;
+  const label = (count: number, singular: string, plural = `${singular}s`) => `${count} ${count === 1 ? singular : plural}`;
   const missing = d.missingAreas + d.missingRooms + d.missingItems
     + d.missingCheckpoints + d.missingPhotos + d.missingFiles;
   const changed = d.changedAreas + d.changedRooms + d.changedItems
     + d.changedCheckpoints + d.changedPhotos + d.changedFiles + d.projectDetails + d.drawings;
-  const detail = [
-    d.changedCheckpoints ? `${d.changedCheckpoints} checkpoint outcomes/details` : '',
-    d.changedRooms ? `${d.changedRooms} room details` : '',
-    d.changedAreas ? `${d.changedAreas} area details` : '',
-    d.changedPhotos || d.missingPhotos ? `${d.changedPhotos + d.missingPhotos} photos` : '',
-    d.changedFiles || d.missingFiles ? `${d.changedFiles + d.missingFiles} files` : '',
+  const missingDetail = [
+    d.missingAreas ? label(d.missingAreas, 'area') : '',
+    d.missingRooms ? label(d.missingRooms, 'room') : '',
+    d.missingItems ? label(d.missingItems, 'item') : '',
+    d.missingCheckpoints ? label(d.missingCheckpoints, 'checkpoint') : '',
+    d.missingPhotos ? label(d.missingPhotos, 'photo') : '',
+    d.missingFiles ? label(d.missingFiles, 'file') : '',
+  ].filter(Boolean).join(', ');
+  const changedDetail = [
+    d.changedAreas ? label(d.changedAreas, 'area', 'areas') : '',
+    d.changedRooms ? label(d.changedRooms, 'room') : '',
+    d.changedItems ? label(d.changedItems, 'item') : '',
+    d.changedCheckpoints ? label(d.changedCheckpoints, 'checkpoint') : '',
+    d.changedPhotos ? label(d.changedPhotos, 'photo file') : '',
+    d.changedFiles ? label(d.changedFiles, 'attached file') : '',
     d.projectDetails ? 'project details' : '',
     d.drawings ? `${d.drawings} drawings` : '',
   ].filter(Boolean).join(', ');
-  return `${missing} entries exist only in the recovered copy; ${changed} shared details differ${detail ? ` (${detail})` : ''}.`;
+  return `${missing} ${missing === 1 ? 'entry exists' : 'entries exist'} only in the recovered copy${missingDetail ? ` (${missingDetail})` : ''}; ${changed} shared ${changed === 1 ? 'detail differs' : 'details differ'}${changedDetail ? ` (${changedDetail})` : ''}.`;
 }
 
 function equal(a: unknown, b: unknown) {
