@@ -62,7 +62,7 @@ import { findPreferredLocalSharedProject, getInactiveLocalSharedProjects, getSha
 import { ProjectCard, type ProjectCardMetrics as ProjectMetrics } from '@/features/projects/ProjectCard';
 import { syncSharedProject } from '@/features/sync/syncSharedProject';
 import { compareProjectCopies, isLikelyPersonalProjectCopy, isRecoveredCopyPair } from '@/features/projects/compareProjectCopies';
-import { assessRecoveredCopy } from '@/features/projects/reconcileRecoveredCopy';
+import { assessRecoveredCopy, formatRecoveryDifferenceSummary } from '@/features/projects/reconcileRecoveredCopy';
 import { areasChangedSinceTeamCopy, areasWithMissingMedia, mergeDuplicatePersonalProjects, mergeDuplicateTeamProjects, projectCheckpointCount } from '@/features/projects/mergeDuplicateTeamProjects';
 import { HomeAreaCard,
   type HomeAreaCardMetrics as AreaMetrics,
@@ -737,7 +737,7 @@ export default function ProjectsPage() {
             if (!fullRecovery || !retained) continue;
             const assessment = assessRecoveredCopy(fullRecovery, retained);
             if (!assessment.safeToArchive) {
-              completed.push(`${recovery.projectName}: ${assessment.differenceCount} saved detail${assessment.differenceCount === 1 ? '' : 's'} differ from ${retained.projectName}. Both copies were kept; no work was discarded.`);
+              completed.push(`${recovery.projectName} and ${retained.projectName}: ${formatRecoveryDifferenceSummary(assessment)} Both copies were kept; no work was discarded.`);
               continue;
             }
             await saveProjectMetadataOnly({ ...fullRecovery, deletedAt: new Date() });

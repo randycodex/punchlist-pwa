@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { assessRecoveredCopy } from '../src/features/projects/reconcileRecoveredCopy';
+import { assessRecoveredCopy, formatRecoveryDifferenceSummary } from '../src/features/projects/reconcileRecoveredCopy';
 import type { Project } from '../src/types';
 
 function copy(id: string): Project {
@@ -36,7 +36,7 @@ describe('automatic recovery reconciliation', () => {
     const recovery = copy('recovered');
     const retained = copy('retained');
     retained.areas.push({ ...retained.areas[0], id: 'new-area', projectId: retained.id, locations: [] });
-    expect(assessRecoveredCopy(recovery, retained)).toEqual({ safeToArchive: true, differenceCount: 0 });
+    expect(assessRecoveredCopy(recovery, retained)).toMatchObject({ safeToArchive: true, differenceCount: 0 });
   });
 
   it('keeps a recovery copy with any saved detail or media missing from the retained copy', () => {
@@ -47,6 +47,8 @@ describe('automatic recovery reconciliation', () => {
     const result = assessRecoveredCopy(recovery, retained);
     expect(result.safeToArchive).toBe(false);
     expect(result.differenceCount).toBe(2);
+    expect(result.differences).toMatchObject({ changedCheckpoints: 1, changedPhotos: 1 });
+    expect(formatRecoveryDifferenceSummary(result)).toContain('1 checkpoint outcomes/details');
   });
 
   it('keeps room reviews, area notes, and attached files that differ', () => {
