@@ -11,7 +11,8 @@ import {
   getProject,
   getProjectForArea,
   getProjectMetadata,
-  persistDurablePendingSyncState,
+  acknowledgePendingBackupRevisions,
+  capturePendingBackupRevisions,
   saveProject,
   saveProjectArea,
   saveProjectAreaMetadataOnly,
@@ -40,7 +41,7 @@ async function getRawCheckpointMedia(projectId: string, checkpointId: string) {
 }
 
 beforeEach(async () => {
-  await persistDurablePendingSyncState([], false);
+  await acknowledgePendingBackupRevisions(await capturePendingBackupRevisions());
 });
 
 describe('durable IndexedDB sync metadata', () => {
@@ -125,7 +126,7 @@ describe('durable IndexedDB sync metadata', () => {
       project.areas.push(area);
     }
     await saveProject(project);
-    await persistDurablePendingSyncState([], false);
+    await acknowledgePendingBackupRevisions(await capturePendingBackupRevisions());
 
     const firstCheckpoint = project.areas[0].locations[0].items[0].checkpoints[0];
     firstCheckpoint.comments = 'Updated only in the first area';

@@ -1,6 +1,7 @@
 'use client';
 
 import { createContext, ReactNode, useContext, useEffect, useMemo, useState } from 'react';
+import { localAccountKey } from '@/lib/localAccount';
 
 export type QuickSortOption = 'issues' | 'alphabetical' | 'progress';
 export type CameraQuality = 'high' | 'medium' | 'low';
@@ -82,7 +83,7 @@ export function AppSettingsProvider({ children }: { children: ReactNode }) {
   const [settings, setSettings] = useState<AppSettings>(() => {
     if (typeof window === 'undefined') return defaultSettings;
     try {
-      const raw = window.localStorage.getItem(STORAGE_KEY);
+      const raw = window.localStorage.getItem(localAccountKey(STORAGE_KEY));
       if (!raw) return defaultSettings;
       const rawSettings = JSON.parse(raw) as Partial<AppSettings> & { showOnlyIssues?: boolean };
       const parsed = { ...defaultSettings, ...rawSettings } as AppSettings;
@@ -101,7 +102,7 @@ export function AppSettingsProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     try {
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
+      window.localStorage.setItem(localAccountKey(STORAGE_KEY), JSON.stringify(settings));
     } catch {}
   }, [settings]);
 

@@ -1,3 +1,7 @@
+import { withBrowserLock } from '@/lib/browserLocks';
+import { listCaptureDrafts } from '@/lib/captureJournal';
+import { getPendingSharedAreaSyncsForProject, getProjectMetadata } from '@/lib/db';
+import { getCollaborationDeviceId } from './deviceIdentity';
 import type { CollaborationAreaClaim, CollaborationAreaClaimSummary } from './types';
 import type { Json } from './database';
 import { getCollaborationAvatarUrl } from './profileAvatars';
@@ -26,6 +30,7 @@ function reviveAreaClaim(
     project_id: string;
     area_id: string;
     claimed_by_user_id: string;
+    device_id?: string | null;
     status: CollaborationAreaClaim['status'];
     claimed_at: string;
     expires_at: string | null;
@@ -38,6 +43,7 @@ function reviveAreaClaim(
     projectId: row.project_id,
     areaId: row.area_id,
     claimedByUserId: row.claimed_by_user_id,
+    deviceId: row.device_id ?? undefined,
     status: row.status,
     claimedAt: new Date(row.claimed_at),
     expiresAt: row.expires_at ? new Date(row.expires_at) : undefined,
@@ -89,10 +95,10 @@ export async function claimSharedProjectArea(sharedProjectId: string, areaId: st
   }
 
   const { data, error } = await retryCollaborationOperation(async () => {
-    const result = await supabase.rpc('claim_shared_project_area', {
+    const result = await supabase.rpc('claim_shared_project_area_v2', {
       p_project_id: sharedProjectId,
       p_area_id: areaId,
-      p_expires_at: null,
+      p_device_id: getCollaborationDeviceId(),
     });
     if (result.error && isRetryableCollaborationError(result.error)) {
       throw result.error;
@@ -106,7 +112,7 @@ export async function claimSharedProjectArea(sharedProjectId: string, areaId: st
       const currentUserId = userData.user?.id;
       const { data: existingClaim, error: existingClaimError } = await supabase
         .from('area_claims')
-        .select('id, project_id, area_id, claimed_by_user_id, status, claimed_at, expires_at, released_at, transferred_to_user_id')
+        .select('id, project_id, area_id, claimed_by_user_id, device_id, status, claimed_at, expires_at, released_at, transferred_to_user_id')
         .eq('project_id', sharedProjectId)
         .eq('area_id', areaId)
         .eq('status', 'active')
@@ -116,7 +122,7 @@ export async function claimSharedProjectArea(sharedProjectId: string, areaId: st
         throw existingClaimError;
       }
 
-      if (existingClaim?.claimed_by_user_id && existingClaim.claimed_by_user_id === currentUserId) {
+      if (existingClaim?.claimed_by_user_id && existingClaim.claimed_by_user_id === currentUserId && existingClaim.device_id === getCollaborationDeviceId()) {
         const revivedClaim = reviveAreaClaim(existingClaim);
         return {
           id: revivedClaim.id,
@@ -156,7 +162,7 @@ export async function getActiveSharedProjectAreaClaims(sharedProjectId: string) 
 
   const { data, error } = await supabase
     .from('area_claims')
-    .select('id, project_id, area_id, claimed_by_user_id, status, claimed_at, expires_at, released_at, transferred_to_user_id')
+    .select('id, project_id, area_id, claimed_by_user_id, device_id, status, claimed_at, expires_at, released_at, transferred_to_user_id')
     .eq('project_id', sharedProjectId)
     .eq('status', 'active');
 
@@ -178,7 +184,7 @@ export async function getActiveSharedProjectAreaClaimSummaries(sharedProjectId: 
   const [claimsResult, membersResult] = await Promise.all([
     supabase
       .from('area_claims')
-      .select('id, project_id, area_id, claimed_by_user_id, status, claimed_at, expires_at, released_at, transferred_to_user_id')
+      .select('id, project_id, area_id, claimed_by_user_id, device_id, status, claimed_at, expires_at, released_at, transferred_to_user_id')
       .eq('project_id', sharedProjectId)
       .eq('status', 'active'),
     supabase
@@ -246,20 +252,37 @@ export async function getActiveSharedProjectAreaClaimSummaries(sharedProjectId: 
   });
 }
 
-export async function releaseSharedProjectArea(sharedProjectId: string, areaId: string) {
+async function releaseVerifiedClaim(claim: CollaborationAreaClaim, localProjectId: string) {
+  return withBrowserLock('local-persistence', () => releaseVerifiedClaimUnderLock(claim, localProjectId));
+}
+
+async function releaseVerifiedClaimUnderLock(claim: CollaborationAreaClaim, localProjectId: string) {
   const supabase = getCollaborationSupabaseClient();
-  if (!supabase) {
-    return;
+  if (!supabase) throw new Error('Collaboration is not configured.');
+  if ((await listCaptureDrafts(localProjectId, claim.areaId)).length) {
+    throw new Error('This area has retained captures still waiting to save. Recover them before releasing its lock.');
   }
-
-  const { error } = await supabase.rpc('release_shared_project_area', {
-    p_project_id: sharedProjectId,
-    p_area_id: areaId,
+  const pending = await getPendingSharedAreaSyncsForProject(localProjectId);
+  if (pending.some((record) => record.areaId === claim.areaId)) {
+    throw new Error('This area has changes waiting to send. Its lock stayed with this device.');
+  }
+  const project = await getProjectMetadata(localProjectId);
+  const area = project?.areas.find((entry) => entry.id === claim.areaId);
+  if (!area || project?.sharedProjectId !== claim.projectId) throw new Error('Could not verify the local area before releasing its lock.');
+  const { data, error } = await supabase.rpc('release_shared_project_area_v2', {
+    p_project_id: claim.projectId, p_area_id: claim.areaId, p_claim_id: claim.id,
+    p_device_id: getCollaborationDeviceId(), p_expected_version: area.sharedVersion ?? 0,
   });
+  if (error) throw error;
+  if (data !== true) throw new Error('The area lock changed. Refresh before releasing it.');
+}
 
-  if (error) {
-    throw error;
-  }
+export async function releaseSharedProjectArea(sharedProjectId: string, areaId: string, localProjectId: string) {
+  const claims = await getActiveSharedProjectAreaClaims(sharedProjectId);
+  const claim = claims.find((entry) => entry.areaId === areaId);
+  if (!claim) return;
+  if (claim.deviceId !== getCollaborationDeviceId()) throw new Error('Release this lock on the device that claimed it.');
+  await releaseVerifiedClaim(claim, localProjectId);
 }
 
 export async function releaseAbandonedSharedProjectArea(
@@ -287,7 +310,7 @@ export async function releaseAbandonedSharedProjectArea(
  * Releases every active area lock held by the signed-in user on one shared project.
  * Other people's locks are left alone.
  */
-export async function releaseAllMySharedProjectAreaClaims(sharedProjectId: string) {
+export async function releaseAllMySharedProjectAreaClaims(sharedProjectId: string, localProjectId: string) {
   const supabase = getCollaborationSupabaseClient();
   if (!supabase) {
     throw new Error('Collaboration is not configured.');
@@ -304,7 +327,8 @@ export async function releaseAllMySharedProjectAreaClaims(sharedProjectId: strin
   }
 
   const claims = await getActiveSharedProjectAreaClaims(sharedProjectId);
-  const mine = claims.filter((claim) => claim.claimedByUserId === userId);
+  const deviceId = getCollaborationDeviceId();
+  const mine = claims.filter((claim) => claim.claimedByUserId === userId && claim.deviceId === deviceId);
 
   if (mine.length === 0) {
     return { releasedCount: 0 };
@@ -316,7 +340,7 @@ export async function releaseAllMySharedProjectAreaClaims(sharedProjectId: strin
     try {
       // A sync can release several units. Avoid sending every release RPC at
       // once when the team database is short on connections.
-      await releaseSharedProjectArea(sharedProjectId, claim.areaId);
+      await releaseVerifiedClaim(claim, localProjectId);
       releasedCount += 1;
     } catch (error) {
       firstFailure ??= error;

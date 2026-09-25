@@ -1,5 +1,6 @@
 'use client';
 
+import { configureLocalAccount } from '@/lib/localAccount';
 import { createContext, ReactNode, useContext, useEffect, useMemo, useState } from 'react';
 import {
   InteractionRequiredAuthError,
@@ -170,6 +171,11 @@ export function MicrosoftAuthProvider({ children }: { children: ReactNode }) {
   );
 
   function setCurrentAccount(account: AccountInfo | null) {
+    if (!configureLocalAccount(account?.homeAccountId || account?.username || null, getAccountEmail(account), getLastAccountId())) {
+      setIsReady(false);
+      window.location.reload();
+      throw new Error('Reopening the workspace for the selected account.');
+    }
     setAccountEmail(getAccountEmail(account));
     setAccountName(account?.name?.trim() || null);
     rememberAccount(account);
@@ -339,7 +345,7 @@ export function MicrosoftAuthProvider({ children }: { children: ReactNode }) {
         ensureAccessToken,
       }}
     >
-      {children}
+      {isReady ? children : null}
     </MicrosoftAuthContext.Provider>
   );
 }

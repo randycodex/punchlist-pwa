@@ -1,3 +1,5 @@
+import { withBrowserLock } from '@/lib/browserLocks';
+import { localAccountKey } from '@/lib/localAccount';
 import { applyCheckpointRules, mergeCheckpointRules } from '@/lib/checkpointRules';
 import { openDB, DBSchema, IDBPDatabase } from 'idb';
 import {
@@ -38,6 +40,8 @@ interface ElevationDrawingRecord extends FacadeElevationDrawing {
 
 interface SyncMetadataRecord {
   key: 'pending';
+  projectRevisions?: Record<string, string>;
+  fullSyncRevision?: string;
   projectIds: string[];
   fullSyncNeeded: boolean;
   updatedAt: Date;
@@ -119,7 +123,7 @@ interface PunchListDB extends DBSchema {
     indexes: { 'by-project': string; 'by-project-area': [string, string] };
   };
   elevationDrawings: {
-    key: string;
+    key: [string, string];
     value: ElevationDrawingRecord;
     indexes: { 'by-project': string };
   };
@@ -150,7 +154,7 @@ function reportLocalSaveStatus(detail: LocalSaveStatusDetail) {
   if (typeof window === 'undefined' || typeof window.dispatchEvent !== 'function') return;
   if (detail.status === 'saved') {
     try {
-      window.localStorage.setItem('punchlist:last-confirmed-local-save', new Date().toISOString());
+      window.localStorage.setItem(localAccountKey('punchlist:last-confirmed-local-save'), new Date().toISOString());
     } catch {}
   }
   window.dispatchEvent(new CustomEvent('punchlist-local-save-status', { detail }));
@@ -168,7 +172,7 @@ async function runLocalPersistence<T>(operation: () => Promise<T>, scope = 'proj
   activeLocalWrites += 1;
   reportLocalSaveStatus({ status: 'saving' });
   try {
-    const result = await operation();
+    const result = await withBrowserLock('local-persistence', operation);
     failedLocalWrites.delete(scope);
     return result;
   } catch (error) {
@@ -481,7 +485,9 @@ function preserveExistingMediaPayloads(
 
 function getDB() {
   if (!dbPromise) {
-    dbPromise = openDB<PunchListDB>('punchlist-db', 8, {
+    dbPromise = openDB<PunchListDB>(localAccountKey('punchlist-db'), 9, {
+      blocked() { reportLocalSaveStatus({ status: 'error', message: 'Close other PunchList tabs to finish upgrading local storage. Your existing data is retained.' }); },
+      terminated() { dbPromise = null; },
       blocking() {
         void dbPromise?.then((database) => database.close());
         dbPromise = null;
@@ -500,7 +506,7 @@ function getDB() {
         }
 
         if (!db.objectStoreNames.contains('elevationDrawings')) {
-          const drawingStore = db.createObjectStore('elevationDrawings', { keyPath: 'id' });
+          const drawingStore = db.createObjectStore('elevationDrawings', { keyPath: ['projectId', 'id'] });
           drawingStore.createIndex('by-project', 'projectId');
         }
 
@@ -518,6 +524,14 @@ function getDB() {
           const metadataSyncStore = db.createObjectStore('sharedProjectMetadataSyncQueue', { keyPath: 'key' });
           metadataSyncStore.createIndex('by-local-project', 'localProjectId');
           metadataSyncStore.createIndex('by-queued-at', 'queuedAt');
+        }
+
+        if (oldVersion > 0 && oldVersion < 9) {
+          const drawings = await transaction.objectStore('elevationDrawings').getAll();
+          db.deleteObjectStore('elevationDrawings');
+          const store = db.createObjectStore('elevationDrawings', { keyPath: ['projectId', 'id'] });
+          store.createIndex('by-project', 'projectId');
+          for (const drawing of drawings) await store.put(drawing);
         }
 
         if (oldVersion < 3 && db.objectStoreNames.contains('projects')) {
@@ -587,7 +601,7 @@ function getDB() {
           }
         }
       },
-    });
+    }).catch((error) => { dbPromise = null; throw error; });
   }
   return dbPromise;
 }
@@ -890,7 +904,7 @@ export async function saveProjectArea(
         await Promise.all(
           existingDrawingRecords
             .filter((record) => !nextDrawingIds.has(record.id))
-            .map((record) => drawingStore.delete(record.id))
+            .map((record) => drawingStore.delete([record.projectId, record.id]))
         );
         await Promise.all(
           nextDrawingMetadata
@@ -905,7 +919,7 @@ export async function saveProjectArea(
                 projectId: project.id,
               });
             })
-            .filter((operation): operation is Promise<string> => operation !== null)
+            .filter((operation): operation is Promise<[string, string]> => operation !== null)
         );
       }
 
@@ -917,6 +931,32 @@ export async function saveProjectArea(
     }
     reportSharedSyncQueueChanged();
   });
+}
+
+export async function saveAreaNotes(projectId: string, areaId: string, value: string, baseValue?: string) {
+  await runLocalPersistence(async () => {
+    const db = await getDB();
+    const tx = db.transaction(['projects', 'syncMetadata', 'sharedAreaSyncQueue'], 'readwrite');
+    try {
+      const project = await tx.objectStore('projects').get(projectId);
+      const area = project?.areas.find((entry) => entry.id === areaId);
+      if (!project || project.deletedAt || !area || area.deletedAt) throw new Error('The original area is unavailable. The note is retained for recovery.');
+      const current = area.notes ?? '';
+      area.notes = baseValue === undefined || current === baseValue || current === value
+        ? value : current.endsWith(`\n${value}`) ? current : `${current.trimEnd()}\n${value}`.trim();
+      area.updatedAt = new Date();
+      project.updatedAt = area.updatedAt;
+      await tx.objectStore('projects').put(project);
+      await markPendingProjectInStore(tx.objectStore('syncMetadata'), projectId);
+      await queueSavedArea(tx.objectStore('sharedAreaSyncQueue'), project, area);
+      await tx.done;
+    } catch (error) {
+      try { tx.abort(); } catch {}
+      await tx.done.catch(() => {});
+      throw error;
+    }
+    reportSharedSyncQueueChanged();
+  }, `area-note:${projectId}:${areaId}`);
 }
 
 export async function saveProjectPreserveTimestamps(project: Project): Promise<void> {
@@ -964,12 +1004,15 @@ export async function saveCheckpointInspectionChange(
       if (photos.length || options.removePhotoIds?.length) {
         const store = tx.objectStore('checkpointMedia');
         const media = await store.get([projectId, checkpointId]) ?? { checkpointId, projectId, areaId, photos: [], files: [] };
+        const deletedIds = new Set(checkpoint.deletedPhotoIds ?? []);
+        if (photos.some((photo) => deletedIds.has(photo.id))) throw new Error('This photo was deliberately deleted. Keep the recovery draft or attach it again as a new photo.');
         const existingIds = new Set(media.photos.map((photo) => photo.id));
         media.photos.push(...compactPhotos.filter((photo) => !existingIds.has(photo.id)));
         const metadataIds = new Set(checkpoint.photos.map((photo) => photo.id));
         checkpoint.photos.push(...photos.filter((photo) => !metadataIds.has(photo.id)).map((photo) => ({ ...photo, imageData: '', thumbnail: undefined })));
         if (options.removePhotoIds?.length) {
           const removed = new Set(options.removePhotoIds);
+          checkpoint.deletedPhotoIds = [...new Set([...(checkpoint.deletedPhotoIds ?? []), ...removed])];
           media.photos = media.photos.filter((photo) => !removed.has(photo.id));
           checkpoint.photos = checkpoint.photos.filter((photo) => !removed.has(photo.id));
         }
@@ -1035,7 +1078,7 @@ async function saveProjectInternal(project: Project, options: { touch: boolean }
   await Promise.all(
     existingDrawingRecords
       .filter((record) => !nextDrawingIds.has(record.id))
-      .map((record) => drawingStore.delete(record.id))
+      .map((record) => drawingStore.delete([record.projectId, record.id]))
   );
 
   await Promise.all(
@@ -1049,7 +1092,7 @@ async function saveProjectInternal(project: Project, options: { touch: boolean }
           projectId: project.id,
         });
       })
-      .filter((operation): operation is Promise<string> => operation !== null)
+      .filter((operation): operation is Promise<[string, string]> => operation !== null)
   );
   await tx.done;
 }
@@ -1072,7 +1115,7 @@ export async function deleteProject(id: string): Promise<void> {
     await Promise.all(mediaRecords.map((record) => mediaStore.delete([id, record.checkpointId])));
     const drawingStore = tx.objectStore('elevationDrawings');
     const drawingRecords = await drawingStore.index('by-project').getAll(id);
-    await Promise.all(drawingRecords.map((record) => drawingStore.delete(record.id)));
+    await Promise.all(drawingRecords.map((record) => drawingStore.delete([record.projectId, record.id])));
     const areaSyncStore = tx.objectStore('sharedAreaSyncQueue');
     const areaSyncKeys = await areaSyncStore.index('by-local-project').getAllKeys(id);
     await Promise.all(areaSyncKeys.map((key) => areaSyncStore.delete(key)));
@@ -1081,7 +1124,9 @@ export async function deleteProject(id: string): Promise<void> {
     await Promise.all(metadataSyncKeys.map((key) => metadataSyncStore.delete(key)));
     await markFullSyncNeededInStore(tx.objectStore('syncMetadata'));
     await tx.done;
-    for (const key of failedLocalWrites.keys()) if (key.startsWith(`checkpoint:${id}:`)) failedLocalWrites.delete(key);
+    for (const key of failedLocalWrites.keys()) {
+      if (key.startsWith(`checkpoint:${id}:`) || key.startsWith(`area-note:${id}:`)) failedLocalWrites.delete(key);
+    }
   });
   reportSharedSyncQueueChanged();
 }
@@ -1096,6 +1141,8 @@ async function markPendingProjectInStore(
   await store.put({
     key: 'pending',
     projectIds: [...projectIds],
+    projectRevisions: { ...current?.projectRevisions, [projectId]: uuidv4() },
+    fullSyncRevision: current?.fullSyncRevision,
     fullSyncNeeded: current?.fullSyncNeeded ?? false,
     updatedAt: new Date(),
   });
@@ -1106,6 +1153,8 @@ async function markFullSyncNeededInStore(store: SyncMetadataStore) {
   await store.put({
     key: 'pending',
     projectIds: current?.projectIds ?? [],
+    projectRevisions: current?.projectRevisions,
+    fullSyncRevision: uuidv4(),
     fullSyncNeeded: true,
     updatedAt: new Date(),
   });
@@ -1120,18 +1169,40 @@ export async function getDurablePendingSyncState() {
   };
 }
 
+/** Add work; an empty UI mirror must never clear durable work. */
 export async function persistDurablePendingSyncState(projectIds: string[], fullSyncNeeded: boolean) {
   const db = await getDB();
-  if (projectIds.length === 0 && !fullSyncNeeded) {
-    await db.delete('syncMetadata', 'pending');
-    return;
+  const tx = db.transaction('syncMetadata', 'readwrite');
+  for (const projectId of new Set(projectIds)) await markPendingProjectInStore(tx.store, projectId);
+  if (fullSyncNeeded) await markFullSyncNeededInStore(tx.store);
+  await tx.done;
+}
+
+export async function capturePendingBackupRevisions() {
+  const db = await getDB();
+  return db.get('syncMetadata', 'pending');
+}
+
+/** Only acknowledge revisions captured before the upload started. */
+export async function acknowledgePendingBackupRevisions(
+  sent: Awaited<ReturnType<typeof capturePendingBackupRevisions>>,
+  projectIds?: string[],
+) {
+  if (!sent) return;
+  const db = await getDB();
+  const tx = db.transaction('syncMetadata', 'readwrite');
+  const current = await tx.store.get('pending');
+  if (current) {
+    const completed = new Set(projectIds ?? sent.projectIds);
+    const remaining = current.projectIds.filter((id) => !completed.has(id)
+      || !sent.projectIds.includes(id)
+      || current.projectRevisions?.[id] !== sent.projectRevisions?.[id]);
+    const fullSyncNeeded = current.fullSyncNeeded && (!sent.fullSyncNeeded || projectIds !== undefined
+      || current.fullSyncRevision !== sent.fullSyncRevision);
+    if (!remaining.length && !fullSyncNeeded) await tx.store.delete('pending');
+    else await tx.store.put({ ...current, projectIds: remaining, fullSyncNeeded });
   }
-  await db.put('syncMetadata', {
-    key: 'pending',
-    projectIds: [...new Set(projectIds)],
-    fullSyncNeeded,
-    updatedAt: new Date(),
-  });
+  await tx.done;
 }
 
 function getSharedProjectMetadataSyncKey(input: {

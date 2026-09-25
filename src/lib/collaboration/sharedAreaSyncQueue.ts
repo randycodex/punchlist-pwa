@@ -1,3 +1,4 @@
+import { withBrowserLock } from '@/lib/browserLocks';
 import {
   completePendingSharedAreaSync,
   discardPendingSharedAreaSync,
@@ -60,7 +61,7 @@ function shouldPauseAutomaticRetry(error: unknown) {
   const input = error as { code?: unknown; message?: unknown };
   const code = typeof input.code === 'string' ? input.code : '';
   const message = typeof input.message === 'string' ? input.message.toLowerCase() : '';
-  return code === '42501'
+  return code === '42501' || code === '55P03' || code === '22023'
     || message.includes('publish the shared project once');
 }
 
@@ -240,14 +241,17 @@ async function syncRecord(
   }
 }
 
-export async function flushPendingSharedAreaSyncs(): Promise<FlushSummary> {
-  if (flushPromise) return flushPromise;
+export async function flushPendingSharedAreaSyncs(localProjectId?: string): Promise<FlushSummary> {
+  if (flushPromise) {
+    await flushPromise;
+    return flushPendingSharedAreaSyncs(localProjectId);
+  }
 
-  flushPromise = (async () => {
+  flushPromise = withBrowserLock('sharedAreaSyncQueue', async () => {
     ensureBrowserListeners();
-    const records = await getPendingSharedAreaSyncs();
+    const records = (await getPendingSharedAreaSyncs()).filter((record) => !localProjectId || record.localProjectId === localProjectId);
     if (records.length === 0) return { synced: 0, pending: 0, conflicted: 0 };
-    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
       return { synced: 0, pending: records.length, conflicted: 0 };
     }
 
@@ -269,7 +273,7 @@ export async function flushPendingSharedAreaSyncs(): Promise<FlushSummary> {
       else pending += 1;
     }
     return { synced, pending, conflicted };
-  })().finally(() => {
+  }).finally(() => {
     flushPromise = null;
     if (flushRequested) {
       flushRequested = false;

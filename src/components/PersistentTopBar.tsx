@@ -1,5 +1,6 @@
 'use client';
 
+import { getCollaborationDeviceId } from '@/lib/collaboration/deviceIdentity';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
@@ -590,7 +591,7 @@ export default function PersistentTopBar() {
       ]);
       const local = projects.find((entry) => !entry.deletedAt && entry.sharedProjectId === sharedProjectId);
       setRecoverAreaNames(new Map(local?.areas.map((area) => [area.id, area.name]) ?? []));
-      setRecoverClaims(claims.filter((claim) => claim.claimedByUserId !== collaborationAuth.user?.id));
+      setRecoverClaims(claims.filter((claim) => claim.claimedByUserId !== collaborationAuth.user?.id || claim.deviceId !== getCollaborationDeviceId()));
     } catch (error) {
       setRecoverError(error instanceof Error ? error.message : 'Could not load area locks.');
     } finally {
@@ -1058,9 +1059,9 @@ export default function PersistentTopBar() {
         <div className="modal-overlay fixed inset-0 z-[150] flex items-center justify-center p-4">
           <div className="modal-panel max-h-[82dvh] w-full max-w-md overflow-y-auto rounded-[1.9rem] p-6" role="dialog" aria-modal="true" aria-labelledby="recover-locks-title">
             <h2 id="recover-locks-title" className="text-xl font-semibold">Recover area locks</h2>
-            <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">For a teammate who has left an area locked. Ask them to sync and release it first when possible.</p>
+            <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">For a teammate or another device that has left an area locked. Sync and release it on that device first when possible.</p>
             {recoverLoading ? <p className="mt-5 text-sm">Loading locks…</p> : recoverClaims.length === 0 ? (
-              <p className="mt-5 text-sm">No areas are locked by other teammates.</p>
+              <p className="mt-5 text-sm">No areas are locked by other teammates or devices.</p>
             ) : (
               <div className="mt-5 space-y-2">
                 {recoverClaims.map((claim) => (

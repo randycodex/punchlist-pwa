@@ -197,6 +197,7 @@ export async function runCollaborationHealthCheck(): Promise<CollaborationHealth
       p_base_version: 0,
       p_base_published_at: ZERO_DATE,
       p_client_id: ZERO_UUID,
+      p_device_id: ZERO_UUID,
     })),
     checkRpc('backup_snapshot', 'Backup function', () => supabase.rpc('capture_shared_project_backup', {
       p_project_id: ZERO_UUID,
@@ -205,14 +206,17 @@ export async function runCollaborationHealthCheck(): Promise<CollaborationHealth
       p_reason: 'manual',
       p_note: 'Diagnostic probe',
     })),
-    checkRpc('claim_area', 'Area lock claim function', () => supabase.rpc('claim_shared_project_area', {
+    checkRpc('claim_area', 'Area lock claim function', () => supabase.rpc('claim_shared_project_area_v2', {
       p_project_id: ZERO_UUID,
       p_area_id: ZERO_UUID,
-      p_expires_at: ZERO_DATE,
+      p_device_id: ZERO_UUID,
     })),
-    checkRpc('release_area', 'Area lock release function', () => supabase.rpc('release_shared_project_area', {
+    checkRpc('release_area', 'Area lock release function', () => supabase.rpc('release_shared_project_area_v2', {
       p_project_id: ZERO_UUID,
       p_area_id: ZERO_UUID,
+      p_claim_id: ZERO_UUID,
+      p_device_id: ZERO_UUID,
+      p_expected_version: 0,
     })),
     checkRpc('transfer_ownership', 'Ownership transfer function', () => supabase.rpc('transfer_shared_project_ownership', {
       p_project_id: ZERO_UUID,

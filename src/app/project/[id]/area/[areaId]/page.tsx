@@ -1,5 +1,7 @@
 'use client';
 
+import { getCollaborationDeviceId } from '@/lib/collaboration/deviceIdentity';
+import { saveRecoverableAreaNote } from '@/features/inspection/captureRecovery';
 import { clearAreaReturnTarget, rememberAreaReturnTarget } from '@/lib/areaReturnPosition';
 import { getProjectFloorLevels, normalizeFloorLabel } from '@/lib/unitFloors';
 
@@ -333,9 +335,14 @@ export default function AreaDetailPage() {
     const targetArea = currentProject.areas.find((entry) => entry.id === currentArea.id);
     if (!targetArea) return;
     if ((targetArea.notes ?? '') === value) return;
+    try {
+      if (!await saveRecoverableAreaNote(currentProject.id, targetArea.id, value, targetArea.notes ?? '')) return;
+    } catch (error) {
+      setSyncError(error instanceof Error ? error.message : 'General notes could not be saved. Keep this page open and retry.');
+      throw error;
+    }
     targetArea.notes = value;
     targetArea.updatedAt = new Date();
-    await saveProjectAreaMetadataOnly(currentProject, targetArea.id);
     scheduleSyncRef.current(currentProject.id);
     setProject({ ...currentProject, areas: [...currentProject.areas] });
     setArea({ ...targetArea });
@@ -381,7 +388,7 @@ export default function AreaDetailPage() {
     return () => {
       if (notesTimerRef.current) {
         clearTimeout(notesTimerRef.current);
-        void persistGeneralNotes(notesDraftRef.current);
+        void persistGeneralNotes(notesDraftRef.current).catch(() => {});
       }
     };
   }, [persistGeneralNotes]);
@@ -542,7 +549,7 @@ export default function AreaDetailPage() {
       void getActiveSharedProjectAreaClaims(sharedProjectId).then((claims) => {
         if (!active) return;
         const current = claims.find((claim) => claim.areaId === currentAreaId);
-        if (current?.claimedByUserId === userId) return;
+        if (current?.claimedByUserId === userId && current.deviceId === getCollaborationDeviceId()) return;
         setHasAreaClaim(false);
         setAreaClaimProblem({
           kind: 'blocked',
@@ -1504,6 +1511,7 @@ export default function AreaDetailPage() {
     if (!checkpoint) throw new Error('The checkpoint is no longer available.');
     const removed = new Set(ids);
     await saveCheckpointInspectionChange(project.id, area.id, checkpointId, {}, [], { removePhotoIds: ids });
+    checkpoint.deletedPhotoIds = [...new Set([...(checkpoint.deletedPhotoIds ?? []), ...ids])];
     checkpoint.photos = checkpoint.photos.filter((photo) => !removed.has(photo.id));
     checkpoint.updatedAt = new Date();
     scheduleSync(project.id);
@@ -1522,6 +1530,7 @@ export default function AreaDetailPage() {
     const checkpoint = findCheckpoint(locationId, itemId, checkpointId);
     if (!checkpoint) return;
 
+    checkpoint.deletedPhotoIds = [...new Set([...(checkpoint.deletedPhotoIds ?? []), photoId])];
     checkpoint.photos = checkpoint.photos.filter((p) => p.id !== photoId);
     checkpoint.updatedAt = new Date();
     syncAreaCompletion(area);
@@ -1573,6 +1582,7 @@ export default function AreaDetailPage() {
     const checkpoint = findCheckpoint(locationId, itemId, checkpointId);
     if (!checkpoint) return;
 
+    checkpoint.deletedFileIds = [...new Set([...(checkpoint.deletedFileIds ?? []), fileId])];
     checkpoint.files = (checkpoint.files ?? []).filter((f) => f.id !== fileId);
     checkpoint.updatedAt = new Date();
     syncAreaCompletion(area);
@@ -1640,12 +1650,12 @@ export default function AreaDetailPage() {
         notesTimerRef.current = null;
         await persistGeneralNotes(notesDraftRef.current);
       }
-      await flushPendingSharedAreaSyncs();
+      await flushPendingSharedAreaSyncs(project.id);
       const remaining = await getPendingSharedAreaSyncsForProject(project.id);
       if (remaining.some((record) => record.areaId === area.id)) {
         throw new Error('This area still has changes waiting to reach the team. Its lock is staying with you. Sync Projects and review any conflicts, then release it.');
       }
-      await releaseSharedProjectArea(project.sharedProjectId, area.id);
+      await releaseSharedProjectArea(project.sharedProjectId, area.id, project.id);
       setHasAreaClaim(false);
       setAreaClaimError(null);
       router.push(getAreaReturnPath(project.id, returnToHome));
@@ -1684,9 +1694,13 @@ export default function AreaDetailPage() {
       setConfirmDialog(null);
       clearAreaReturnTarget(project.id, area.id);
       if (project.sharedProjectId && hasAreaClaim) {
-        void flushPendingSharedAreaSyncs()
-          .then(() => releaseSharedProjectArea(project.sharedProjectId!, area.id))
-          .catch((error) => console.info('Area deleted; shared lock release will retry after its lease:', error));
+        void flushPendingSharedAreaSyncs(project.id)
+          .then(async () => {
+            const remaining = await getPendingSharedAreaSyncsForProject(project.id);
+            if (remaining.some((record) => record.areaId === area.id)) return;
+            await releaseSharedProjectArea(project.sharedProjectId!, area.id, project.id);
+          })
+          .catch((error) => console.info('Area deletion or lock release is pending. Sync this project to retry:', error));
       }
       router.replace(getAreaReturnPath(project.id, returnToHome));
     } catch (error) {
@@ -1702,9 +1716,7 @@ export default function AreaDetailPage() {
     if (notesTimerRef.current) {
       clearTimeout(notesTimerRef.current);
     }
-    notesTimerRef.current = setTimeout(() => {
-      void persistGeneralNotes(value);
-    }, 400);
+    void persistGeneralNotes(value).catch(() => { /* The retained draft and error remain visible. */ });
   }
 
   function scrollTargetToListAnchor(getTarget: () => HTMLElement | null | undefined) {
@@ -2657,7 +2669,7 @@ export default function AreaDetailPage() {
                   clearTimeout(notesTimerRef.current);
                 }
                 notesDraftRef.current = value;
-                void persistGeneralNotes(value);
+                void persistGeneralNotes(value).catch(() => {});
               }}
             />
           )}

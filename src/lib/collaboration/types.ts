@@ -115,6 +115,7 @@ export interface CollaborationAreaClaim {
   projectId: string;
   areaId: string;
   claimedByUserId: string;
+  deviceId?: string;
   status: CollaborationAreaClaimStatus;
   claimedAt: Date;
   expiresAt?: Date;

@@ -3,13 +3,14 @@
 import Link from 'next/link';
 import { AlertTriangle, RefreshCw } from 'lucide-react';
 import { useSyncExternalStore } from 'react';
+import { localAccountKey } from '@/lib/localAccount';
 
 const subscribeRecoveryTimes = () => () => {};
 
 function readRecoveryTimes() {
   try {
-    const settings = JSON.parse(window.localStorage.getItem('punchlist:app-settings') ?? '{}') as { lastSyncAt?: string };
-    return `${window.localStorage.getItem('punchlist:last-confirmed-local-save') ?? ''}|${settings.lastSyncAt ?? ''}`;
+    const settings = JSON.parse(window.localStorage.getItem(localAccountKey('punchlist:app-settings')) ?? '{}') as { lastSyncAt?: string };
+    return `${window.localStorage.getItem(localAccountKey('punchlist:last-confirmed-local-save')) ?? ''}|${settings.lastSyncAt ?? ''}`;
   } catch {
     return '|';
   }

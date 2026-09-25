@@ -1,4 +1,7 @@
+import { capturePendingBackupRevisions, acknowledgePendingBackupRevisions } from '@/lib/db';
 import {
+  flushPendingBackupQueueWrites,
+  restorePendingSyncStateFromDurableStorage,
   clearPendingProjectSync,
   clearPendingSyncState,
   hasPendingSyncState,
@@ -69,6 +72,9 @@ export async function runManualOneDriveSync(options: {
       return { status: 'needs-auth' };
     }
 
+    await flushPendingBackupQueueWrites();
+    await restorePendingSyncStateFromDurableStorage();
+    const sentRevisions = await capturePendingBackupRevisions();
     const pendingSyncState = loadPendingSyncState();
     const requestedProjectIds = selectedProjectIds ?? (pendingSyncState.fullSyncNeeded
       ? undefined
@@ -119,8 +125,10 @@ export async function runManualOneDriveSync(options: {
       };
     }
 
+    await acknowledgePendingBackupRevisions(sentRevisions, selectedProjectIds ?? undefined);
     if (selectedProjectIds) clearPendingProjectSync(selectedProjectIds, pendingSyncState.revision);
     else clearPendingSyncState(pendingSyncState.revision);
+    await restorePendingSyncStateFromDurableStorage();
     return {
       status: 'success',
       syncedAt: result.syncedAt,

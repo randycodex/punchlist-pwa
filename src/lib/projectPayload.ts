@@ -157,6 +157,8 @@ function parseCheckpoint(value: unknown, path: string): Checkpoint {
     issueState,
     comments: stringWithDefault(input.comments, `${path}.comments`),
     sortOrder: finiteNumber(input.sortOrder, `${path}.sortOrder`, 0),
+    deletedPhotoIds: input.deletedPhotoIds === undefined ? undefined : array(input.deletedPhotoIds, `${path}.deletedPhotoIds`).map((id) => requiredString(id, `${path}.deletedPhotoIds`)),
+    deletedFileIds: input.deletedFileIds === undefined ? undefined : array(input.deletedFileIds, `${path}.deletedFileIds`).map((id) => requiredString(id, `${path}.deletedFileIds`)),
     photos: array(input.photos ?? [], `${path}.photos`).map((photo, index) => parsePhoto(photo, `${path}.photos[${index}]`)),
     files: array(input.files ?? [], `${path}.files`).map((file, index) => parseFile(file, `${path}.files[${index}]`)),
     elevationMarker: marker,
@@ -255,12 +257,14 @@ export function parseProjectPayload(value: unknown, payloadVersion = CURRENT_PRO
   }
 
   const input = record(rawProject, 'project');
-  return {
+  const project: Project = {
     id: requiredString(input.id, 'project.id'),
     recoveredFromProjectId: optionalString(input.recoveredFromProjectId, 'project.recoveredFromProjectId'),
     sharedProjectId: optionalString(input.sharedProjectId, 'project.sharedProjectId'),
     sharedProjectLinkedAt: optionalDate(input.sharedProjectLinkedAt, 'project.sharedProjectLinkedAt'),
     sharedSnapshotPublishedAt: optionalDate(input.sharedSnapshotPublishedAt, 'project.sharedSnapshotPublishedAt'),
+    sharedMetadataVersion: optionalFiniteNumber(input.sharedMetadataVersion, 'project.sharedMetadataVersion'),
+    sharedMetadataPublishedAt: optionalDate(input.sharedMetadataPublishedAt, 'project.sharedMetadataPublishedAt'),
     sharedBaselinePublishedAt: optionalDate(input.sharedBaselinePublishedAt, 'project.sharedBaselinePublishedAt'),
     detachedSharedProjectId: optionalString(input.detachedSharedProjectId, 'project.detachedSharedProjectId'),
     detachedSharedProjectAt: optionalDate(input.detachedSharedProjectAt, 'project.detachedSharedProjectAt'),
@@ -289,6 +293,8 @@ export function parseProjectPayload(value: unknown, payloadVersion = CURRENT_PRO
     createdAt: date(input.createdAt, 'project.createdAt'),
     updatedAt: date(input.updatedAt, 'project.updatedAt'),
   };
+  validateProjectIdentity(project);
+  return project;
 }
 
 export function serializeProjectPayload(project: Project) {
@@ -296,4 +302,30 @@ export function serializeProjectPayload(project: Project) {
     payloadVersion: CURRENT_PROJECT_PAYLOAD_VERSION,
     project,
   });
+}
+
+/** Reject ambiguous identities before maps or compound media keys can lose data. */
+export function validateProjectIdentity(project: Project) {
+  const seen = new Set<string>();
+  const check = (kind: string, id: string, parent: string, expected: string) => {
+    if (parent !== expected) throw new ProjectPayloadValidationError(`${kind} ${id} belongs to a different parent.`);
+    const key = `${kind}:${id}`;
+    if (seen.has(key)) throw new ProjectPayloadValidationError(`Duplicate ${kind} ID: ${id}.`);
+    seen.add(key);
+  };
+  for (const drawing of project.facadeElevationDrawings ?? []) check('drawing', drawing.id, project.id, project.id);
+  for (const area of project.areas) {
+    check('area', area.id, area.projectId, project.id);
+    for (const location of area.locations) {
+      check('location', location.id, location.areaId, area.id);
+      for (const item of location.items) {
+        check('item', item.id, item.locationId, location.id);
+        for (const checkpoint of item.checkpoints) {
+          check('checkpoint', checkpoint.id, checkpoint.itemId, item.id);
+          for (const photo of checkpoint.photos) check('attachment', photo.id, photo.checkpointId, checkpoint.id);
+          for (const file of checkpoint.files ?? []) check('attachment', file.id, file.checkpointId, checkpoint.id);
+        }
+      }
+    }
+  }
 }

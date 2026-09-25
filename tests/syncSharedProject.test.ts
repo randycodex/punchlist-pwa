@@ -55,7 +55,7 @@ describe('selected shared project sync', () => {
     expect(mocks.getProject).toHaveBeenCalledWith('selected-project');
     expect(mocks.pushChanges).toHaveBeenCalledOnce();
     expect(mocks.pushChanges).toHaveBeenCalledWith('selected-project');
-    expect(mocks.releaseClaims).toHaveBeenCalledWith('selected-team');
+    expect(mocks.releaseClaims).toHaveBeenCalledWith('selected-team', 'selected-project');
   });
 
   it('keeps its locks when the selected project needs a team merge', async () => {

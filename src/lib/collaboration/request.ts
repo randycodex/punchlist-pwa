@@ -1,3 +1,4 @@
+import { assertLocalAccountEmail } from '@/lib/localAccount';
 export const COLLABORATION_REQUEST_TIMEOUT_MS = 20_000;
 export const COLLABORATION_TRANSFER_TIMEOUT_MS = 90_000;
 export const COLLABORATION_RETRY_ATTEMPTS = 3;
@@ -206,6 +207,19 @@ export async function fetchWithCollaborationTimeout(
   input: RequestInfo | URL,
   init?: RequestInit
 ) {
+  const url = getRequestUrl(input);
+  if (url.includes('/rest/v1/') || url.includes('/storage/v1/')) {
+    const headers = new Headers(init?.headers ?? (input instanceof Request ? input.headers : undefined));
+    const token = headers.get('authorization')?.replace(/^Bearer /i, '');
+    let email: string | undefined;
+    if (token?.split('.').length === 3) {
+      try {
+        const payload = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+        email = (JSON.parse(atob(payload)) as { email?: string }).email;
+      } catch { /* The server remains the authentication authority. */ }
+    }
+    assertLocalAccountEmail(email);
+  }
   const policy = getCollaborationRequestPolicy(input, init);
   const controller = new AbortController();
   const callerSignal = init?.signal;

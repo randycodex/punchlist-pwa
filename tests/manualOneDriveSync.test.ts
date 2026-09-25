@@ -1,3 +1,5 @@
+import { acknowledgePendingBackupRevisions, capturePendingBackupRevisions } from '@/lib/db';
+import { flushPendingBackupQueueWrites } from '@/lib/pendingSync';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   runManualOneDriveRestore,
@@ -20,7 +22,9 @@ class MemoryStorage implements Storage {
   setItem(key: string, value: string) { this.values.set(key, String(value)); }
 }
 
-beforeEach(() => {
+beforeEach(async () => {
+  await flushPendingBackupQueueWrites();
+  await acknowledgePendingBackupRevisions(await capturePendingBackupRevisions());
   vi.stubGlobal('localStorage', new MemoryStorage());
   vi.stubGlobal('window', {});
   clearPendingSyncState();

@@ -1,3 +1,4 @@
+import { withBrowserLock } from '@/lib/browserLocks';
 import {
   completePendingSharedProjectMetadataSync,
   discardPendingSharedProjectMetadataSync,
@@ -158,14 +159,17 @@ async function syncRecord(
   }
 }
 
-export async function flushPendingSharedProjectMetadataSyncs(): Promise<FlushSummary> {
-  if (flushPromise) return flushPromise;
+export async function flushPendingSharedProjectMetadataSyncs(localProjectId?: string): Promise<FlushSummary> {
+  if (flushPromise) {
+    await flushPromise;
+    return flushPendingSharedProjectMetadataSyncs(localProjectId);
+  }
 
-  flushPromise = (async () => {
+  flushPromise = withBrowserLock('sharedProjectMetadataSyncQueue', async () => {
     ensureBrowserListeners();
-    const records = await getPendingSharedProjectMetadataSyncs();
+    const records = (await getPendingSharedProjectMetadataSyncs()).filter((record) => !localProjectId || record.localProjectId === localProjectId);
     if (records.length === 0) return { synced: 0, pending: 0, conflicted: 0 };
-    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
       return { synced: 0, pending: records.length, conflicted: 0 };
     }
 
@@ -186,7 +190,7 @@ export async function flushPendingSharedProjectMetadataSyncs(): Promise<FlushSum
       else pending += 1;
     }
     return { synced, pending, conflicted };
-  })().finally(() => {
+  }).finally(() => {
     flushPromise = null;
     if (flushRequested) {
       flushRequested = false;

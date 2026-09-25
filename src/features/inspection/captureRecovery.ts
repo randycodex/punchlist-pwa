@@ -1,5 +1,5 @@
 import type { PhotoAttachment } from '@/types';
-import { getProjectForArea, saveCheckpointInspectionChange } from '@/lib/db';
+import { getProjectForArea, saveAreaNotes, saveCheckpointInspectionChange } from '@/lib/db';
 import { stageCaptureDraft, listCaptureDrafts, clearCaptureDraft, CAPTURE_RECOVERY_EVENT, type CaptureDraft } from '@/lib/captureJournal';
 export { stageCaptureDraft, listCaptureDrafts, clearCaptureDraft, CAPTURE_RECOVERY_EVENT, CAPTURE_CLEARED_EVENT, type CaptureDraft } from '@/lib/captureJournal';
 function notify() { if (typeof window !== 'undefined') window.dispatchEvent(new Event(CAPTURE_RECOVERY_EVENT)); }
@@ -20,6 +20,20 @@ export async function saveRecoverableNote(projectId: string, areaId: string, che
     return true;
   } catch (error) { notify(); throw error; }
 }
+export async function saveRecoverableAreaNote(projectId: string, areaId: string, value: string, baseValue: string) {
+  const draft: CaptureDraft = { key: `area-note:${projectId}:${areaId}`, revision: crypto.randomUUID(), projectId, areaId, checkpointId: areaId, kind: 'area-note', value, baseValue, savedAt: new Date() };
+  latestNoteRevision.set(draft.key, draft.revision);
+  try {
+    await stageCaptureDraft(draft);
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    if (latestNoteRevision.get(draft.key) !== draft.revision) return false;
+    await saveAreaNotes(projectId, areaId, value);
+    await clearCaptureDraft(draft);
+    if (latestNoteRevision.get(draft.key) === draft.revision) latestNoteRevision.delete(draft.key);
+    return true;
+  } catch (error) { notify(); throw error; }
+}
+
 export async function saveRecoverablePhotos(projectId: string, areaId: string, checkpointId: string, photos: PhotoAttachment[]) {
   const drafts: CaptureDraft[] = photos.map((photo) => ({ key: `photo:${projectId}:${photo.id}`, revision: photo.id, projectId, areaId, checkpointId, kind: 'photo', photo, savedAt: new Date() }));
   let recoveryStored = false;
@@ -41,6 +55,11 @@ export async function restoreCaptureDraft(draft: CaptureDraft) {
   if (currentDrafts.find((entry) => entry.key === draft.key)?.revision !== draft.revision) throw new Error('This capture has already been saved or changed. Reopen the area to refresh recovery.');
   const project = await getProjectForArea(draft.projectId, draft.areaId);
   const area = project?.areas.find((entry) => entry.id === draft.areaId && !entry.deletedAt);
+  if (draft.kind === 'area-note') {
+    await saveAreaNotes(draft.projectId, draft.areaId, draft.value, draft.baseValue);
+    await clearCaptureDraft(draft);
+    return;
+  }
   const checkpoint = area?.locations.flatMap((location) => location.items.flatMap((item) => item.checkpoints)).find((entry) => entry.id === draft.checkpointId);
   if (!project || project.deletedAt || !checkpoint) throw new Error('The original checkpoint is unavailable. Keep this recovery record until the project or area is restored.');
   if (draft.kind === 'photo') {

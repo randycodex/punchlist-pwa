@@ -11,6 +11,7 @@ export type SharedSnapshotAssetReference = {
   path: string;
   mimeType: string;
   sizeBytes: number;
+  sha256?: string;
 };
 
 export type SharedSnapshotAssetManifest = {
@@ -50,7 +51,11 @@ function parseAssetReference(value: unknown, path: string): SharedSnapshotAssetR
     throw new ProjectPayloadValidationError(`${path}.sizeBytes must be a non-negative safe integer.`);
   }
 
+  if (input.sha256 !== undefined && (typeof input.sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(input.sha256))) {
+    throw new ProjectPayloadValidationError(`${path}.sha256 is invalid.`);
+  }
   return {
+    sha256: input.sha256 as string | undefined,
     bucket: requiredString(input.bucket, `${path}.bucket`),
     path: requiredString(input.path, `${path}.path`),
     mimeType: requiredString(input.mimeType, `${path}.mimeType`),

@@ -44,8 +44,8 @@ export default function CaptureRecovery({ projectId, area, canEdit, beforeRestor
       const item = area.locations.flatMap((location) => location.items).find((item) => item.checkpoints.some((checkpoint) => checkpoint.id === draft.checkpointId));
       const checkpoint = item?.checkpoints.find((checkpoint) => checkpoint.id === draft.checkpointId);
       return <div key={draft.key} className="mt-3 border-t border-amber-600/20 pt-3">
-        <p className="font-medium">{item?.name ?? 'Original item'} › {checkpoint?.name ?? 'Unavailable checkpoint'}</p>
-        <p className="mt-1 whitespace-pre-wrap break-words text-xs">{draft.kind === 'note' ? draft.value || '(Empty note)' : draft.kind === 'voice' ? draft.transcript || 'Voice recording retained on this device' : 'Photo retained on this device'}</p>
+        <p className="font-medium">{draft.kind === 'area-note' ? 'General notes' : `${item?.name ?? 'Original item'} › ${checkpoint?.name ?? 'Unavailable checkpoint'}`} </p>
+        <p className="mt-1 whitespace-pre-wrap break-words text-xs">{draft.kind === 'note' || draft.kind === 'area-note' ? draft.value || '(Empty note)' : draft.kind === 'voice' ? draft.transcript || 'Voice recording retained on this device' : 'Photo retained on this device'}</p>
         {draft.kind === 'voice' && <VoicePlayback audio={draft.audio} />}
         <button type="button" className="mt-2 min-h-11 rounded-xl px-4 font-semibold accent-bg text-white disabled:opacity-50" disabled={!canEdit || busy} onClick={() => void restore(draft)}>{busy ? 'Restoring…' : draft.kind === 'voice' ? 'Transcribe and restore note' : 'Restore capture'}</button>
       </div>;

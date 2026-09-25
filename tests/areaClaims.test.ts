@@ -1,3 +1,5 @@
+vi.mock('@/lib/db', () => ({ getPendingSharedAreaSyncsForProject: vi.fn(async () => []), getProjectMetadata: vi.fn(async () => ({ sharedProjectId: 'shared-project-id', areas: ['area-1', 'area-2', 'area-3'].map((id) => ({ id, sharedVersion: 1 })) })) }));
+vi.mock('@/lib/collaboration/deviceIdentity', () => ({ getCollaborationDeviceId: () => 'device-1' }));
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { rpcMock, fromMock, getUserMock } = vi.hoisted(() => ({
@@ -91,10 +93,10 @@ describe('persistent shared area claims', () => {
       claimedByUserId: 'claimant',
       status: 'active',
     });
-    expect(rpcMock).toHaveBeenCalledWith('claim_shared_project_area', {
+    expect(rpcMock).toHaveBeenCalledWith('claim_shared_project_area_v2', {
       p_project_id: 'shared-project-id',
       p_area_id: 'area-id',
-      p_expires_at: null,
+      p_device_id: 'device-1',
     });
   });
 
@@ -120,7 +122,7 @@ describe('persistent shared area claims', () => {
                 id: 'c1',
                 project_id: 'shared-project-id',
                 area_id: 'area-1',
-                claimed_by_user_id: 'me',
+                claimed_by_user_id: 'me', device_id: 'device-1',
                 status: 'active',
                 claimed_at: '2026-07-19T12:00:00.000Z',
                 expires_at: null,
@@ -142,7 +144,7 @@ describe('persistent shared area claims', () => {
                 id: 'c3',
                 project_id: 'shared-project-id',
                 area_id: 'area-3',
-                claimed_by_user_id: 'me',
+                claimed_by_user_id: 'me', device_id: 'device-1',
                 status: 'active',
                 claimed_at: '2026-07-19T12:05:00.000Z',
                 expires_at: null,
@@ -155,19 +157,21 @@ describe('persistent shared area claims', () => {
         }),
       }),
     });
-    rpcMock.mockResolvedValue({ data: null, error: null });
+    rpcMock.mockResolvedValue({ data: true, error: null });
 
-    await expect(releaseAllMySharedProjectAreaClaims('shared-project-id')).resolves.toEqual({
+    await expect(releaseAllMySharedProjectAreaClaims('shared-project-id', 'local-project')).resolves.toEqual({
       releasedCount: 2,
     });
     expect(rpcMock).toHaveBeenCalledTimes(2);
-    expect(rpcMock).toHaveBeenCalledWith('release_shared_project_area', {
+    expect(rpcMock).toHaveBeenCalledWith('release_shared_project_area_v2', {
       p_project_id: 'shared-project-id',
       p_area_id: 'area-1',
+      p_claim_id: 'c1', p_device_id: 'device-1', p_expected_version: 1,
     });
-    expect(rpcMock).toHaveBeenCalledWith('release_shared_project_area', {
+    expect(rpcMock).toHaveBeenCalledWith('release_shared_project_area_v2', {
       p_project_id: 'shared-project-id',
       p_area_id: 'area-3',
+      p_claim_id: 'c3', p_device_id: 'device-1', p_expected_version: 1,
     });
   });
 
@@ -184,7 +188,7 @@ describe('persistent shared area claims', () => {
       }),
     });
 
-    await expect(releaseAllMySharedProjectAreaClaims('shared-project-id')).resolves.toEqual({
+    await expect(releaseAllMySharedProjectAreaClaims('shared-project-id', 'local-project')).resolves.toEqual({
       releasedCount: 0,
     });
     expect(rpcMock).not.toHaveBeenCalled();
@@ -198,7 +202,7 @@ describe('persistent shared area claims', () => {
           eq: vi.fn().mockResolvedValue({
             data: ['area-1', 'area-2'].map((areaId) => ({
               id: areaId, project_id: 'shared-project-id', area_id: areaId,
-              claimed_by_user_id: 'me', status: 'active', claimed_at: '2026-07-19T12:00:00.000Z',
+              claimed_by_user_id: 'me', device_id: 'device-1', status: 'active', claimed_at: '2026-07-19T12:00:00.000Z',
               expires_at: null, released_at: null, transferred_to_user_id: null,
             })),
             error: null,
@@ -208,14 +212,32 @@ describe('persistent shared area claims', () => {
     });
     let finishFirst: (() => void) | undefined;
     rpcMock.mockImplementationOnce(() => new Promise((resolve) => {
-      finishFirst = () => resolve({ data: null, error: null });
+      finishFirst = () => resolve({ data: true, error: null });
     }));
     rpcMock.mockResolvedValueOnce({ data: null, error: { message: 'Too many connections issued to the database' } });
 
-    const pending = releaseAllMySharedProjectAreaClaims('shared-project-id');
+    const pending = releaseAllMySharedProjectAreaClaims('shared-project-id', 'local-project');
     await vi.waitFor(() => expect(rpcMock).toHaveBeenCalledOnce());
     finishFirst?.();
     await expect(pending).rejects.toThrow('Released 1 lock, but 1 still need attention');
     expect(rpcMock).toHaveBeenCalledTimes(2);
   });
+});
+
+it('does not release a lock while this device has an unsent area change', async () => {
+  const db = await import('@/lib/db');
+  vi.mocked(db.getPendingSharedAreaSyncsForProject).mockResolvedValueOnce([{ areaId: 'area-1' } as Awaited<ReturnType<typeof db.getPendingSharedAreaSyncsForProject>>[number]]);
+  getUserMock.mockResolvedValue({ data: { user: { id: 'me' } }, error: null });
+  fromMock.mockReturnValue({ select: () => ({ eq: () => ({ eq: async () => ({ data: [{ id: 'pending-lock', project_id: 'shared-project-id', area_id: 'area-1', claimed_by_user_id: 'me', device_id: 'device-1', status: 'active', claimed_at: '2026-09-25T00:00:00Z' }], error: null }) }) }) });
+  rpcMock.mockClear();
+  await expect(releaseAllMySharedProjectAreaClaims('shared-project-id', 'local-project')).rejects.toThrow('waiting to send');
+  expect(rpcMock).not.toHaveBeenCalled();
+});
+
+it('does not release a phone claim when the same account syncs on a computer', async () => {
+  getUserMock.mockResolvedValue({ data: { user: { id: 'me' } }, error: null });
+  fromMock.mockReturnValue({ select: () => ({ eq: () => ({ eq: async () => ({ data: [{ id: 'phone-lock', project_id: 'shared-project-id', area_id: 'area-1', claimed_by_user_id: 'me', device_id: 'phone', status: 'active', claimed_at: '2026-09-25T00:00:00Z' }], error: null }) }) }) });
+  rpcMock.mockClear();
+  await expect(releaseAllMySharedProjectAreaClaims('shared-project-id', 'local-project')).resolves.toEqual({ releasedCount: 0 });
+  expect(rpcMock).not.toHaveBeenCalled();
 });

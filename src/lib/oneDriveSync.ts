@@ -1063,12 +1063,16 @@ function mergeFiles(localFiles: FileAttachment[] = [], remoteFiles: FileAttachme
 }
 
 function mergeCheckpoints(localCheckpoint: Checkpoint, remoteCheckpoint: Checkpoint): Checkpoint {
+  const deletedPhotoIds = [...new Set([...(localCheckpoint.deletedPhotoIds ?? []), ...(remoteCheckpoint.deletedPhotoIds ?? [])])];
+  const deletedFileIds = [...new Set([...(localCheckpoint.deletedFileIds ?? []), ...(remoteCheckpoint.deletedFileIds ?? [])])];
   const base = isRightNewer(localCheckpoint, remoteCheckpoint) ? remoteCheckpoint : localCheckpoint;
   return {
     ...base,
     updatedAt: maxDate(localCheckpoint.updatedAt, remoteCheckpoint.updatedAt) ?? base.updatedAt,
-    photos: mergePhotos(localCheckpoint.photos, remoteCheckpoint.photos),
-    files: mergeFiles(localCheckpoint.files, remoteCheckpoint.files),
+    deletedPhotoIds,
+    deletedFileIds,
+    photos: mergePhotos(localCheckpoint.photos, remoteCheckpoint.photos).filter((photo) => !deletedPhotoIds.includes(photo.id)),
+    files: mergeFiles(localCheckpoint.files, remoteCheckpoint.files).filter((file) => !deletedFileIds.includes(file.id)),
   };
 }
 

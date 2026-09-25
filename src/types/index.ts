@@ -39,6 +39,8 @@ export interface Checkpoint {
   comments: string;
   sortOrder: number;
   photos: PhotoAttachment[];
+  deletedPhotoIds?: string[];
+  deletedFileIds?: string[];
   files: FileAttachment[];
   elevationMarker?: ElevationMarker;
   createdAt: Date;

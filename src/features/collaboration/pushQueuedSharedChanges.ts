@@ -24,8 +24,8 @@ type QueuedSharedPushDependencies = {
   getPendingMetadataSync(
     localProjectId: string
   ): Promise<PendingSharedProjectMetadataSyncRecord | undefined>;
-  flushAreaSyncs(): Promise<unknown>;
-  flushMetadataSyncs(): Promise<unknown>;
+  flushAreaSyncs(localProjectId: string): Promise<unknown>;
+  flushMetadataSyncs(localProjectId: string): Promise<unknown>;
   resumeReviewedAreaSyncs?(localProjectId: string): Promise<unknown>;
 };
 
@@ -53,8 +53,8 @@ export async function pushQueuedSharedChanges(
 
   // These flushes both write to the team database. Keep one project sync from
   // issuing the two sets of writes at the same time.
-  await dependencies.flushAreaSyncs();
-  await dependencies.flushMetadataSyncs();
+  await dependencies.flushAreaSyncs(localProjectId);
+  await dependencies.flushMetadataSyncs(localProjectId);
 
   const [areaSyncsAfter, metadataSyncAfter] = await Promise.all([
     dependencies.getPendingAreaSyncs(localProjectId),

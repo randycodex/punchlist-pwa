@@ -121,6 +121,7 @@ export interface CollaborationDatabase {
           project_id: string;
           area_id: string;
           claimed_by_user_id: string;
+          device_id?: string | null;
           status: 'active' | 'released' | 'transferred' | 'expired';
           claimed_at: string;
           expires_at: string | null;
@@ -134,6 +135,7 @@ export interface CollaborationDatabase {
           project_id: string;
           area_id: string;
           claimed_by_user_id: string;
+          device_id?: string | null;
           status?: 'active' | 'released' | 'transferred' | 'expired';
           claimed_at?: string;
           expires_at?: string | null;
@@ -376,6 +378,7 @@ export interface CollaborationDatabase {
           p_base_version?: number;
           p_base_published_at?: string;
           p_client_id: string;
+          p_device_id?: string;
         };
         Returns: {
           area_version: number;
@@ -412,6 +415,14 @@ export interface CollaborationDatabase {
           p_member_display_name?: string | null;
         };
         Returns: Json;
+      };
+      claim_shared_project_area_v2: {
+        Args: { p_project_id: string; p_area_id: string; p_device_id: string };
+        Returns: Json;
+      };
+      release_shared_project_area_v2: {
+        Args: { p_project_id: string; p_area_id: string; p_claim_id: string; p_device_id: string; p_expected_version: number };
+        Returns: boolean;
       };
       claim_shared_project_area: {
         Args: {

@@ -1,3 +1,4 @@
+import { localAccountKey } from '@/lib/localAccount';
 import type { Project } from '@/types';
 import { getCollaborationSupabaseClient } from './supabaseClient';
 import {
@@ -12,6 +13,10 @@ import {
   type SharedSnapshotAssetReference,
 } from './sharedSnapshotPayload';
 import { retryCollaborationOperation } from './request';
+
+export class SharedAttachmentIntegrityError extends Error {
+  readonly code = '22023';
+}
 
 export type SharedAttachmentMetadataRow = {
   storage_bucket: string;
@@ -125,6 +130,7 @@ function referenceFromMetadata(row: SharedAttachmentMetadataRow): SharedSnapshot
     path: row.storage_path,
     mimeType: row.mime_type,
     sizeBytes: Number(row.size_bytes),
+    sha256: /^([a-f0-9]{64})-/.exec(row.file_name)?.[1],
   };
 }
 
@@ -159,10 +165,10 @@ export function projectHasSharedSnapshotAttachments(project: Project) {
   );
 }
 
-export function buildSharedSnapshotAssetPlan(
+export async function buildSharedSnapshotAssetPlan(
   project: Project,
   existingMetadata: SharedAttachmentMetadataRow[] = []
-): SharedSnapshotAssetPlan {
+): Promise<SharedSnapshotAssetPlan> {
   if (!project.sharedProjectId) {
     throw new Error('Share this project before preparing shared attachments.');
   }
@@ -197,7 +203,7 @@ export function buildSharedSnapshotAssetPlan(
   }
   let attachmentCount = 0;
 
-  function planReference(input: {
+  async function planReference(input: {
     attachmentId: string;
     areaId: string | null;
     checkpointId: string | null;
@@ -205,7 +211,7 @@ export function buildSharedSnapshotAssetPlan(
     fallbackMimeType: string;
     fileName: (mimeType: string) => string;
     existingPredicate: (row: SharedAttachmentMetadataRow) => boolean;
-  }): SharedSnapshotAssetReference | null {
+  }): Promise<SharedSnapshotAssetReference | null> {
     if (!input.dataUrl) {
       const existing = metadataByAttachmentId
         .get(input.attachmentId)
@@ -214,7 +220,10 @@ export function buildSharedSnapshotAssetPlan(
     }
 
     const info = parseDataUrlInfo(input.dataUrl, input.fallbackMimeType);
-    const fileName = input.fileName(info.mimeType);
+    const bytes = await dataUrlToBlob(input.dataUrl).arrayBuffer();
+    const digest = await crypto.subtle.digest('SHA-256', bytes);
+    const sha256 = [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join('');
+    const fileName = `${sha256}-${input.fileName(info.mimeType)}`;
     const path = buildCollaborationAttachmentPath({
       projectId: sharedProjectId,
       attachmentId: input.attachmentId,
@@ -225,6 +234,7 @@ export function buildSharedSnapshotAssetPlan(
       path,
       mimeType: info.mimeType,
       sizeBytes: info.sizeBytes,
+      sha256,
     };
     const existing = metadataByPath.get(`${reference.bucket}:${path}`);
     if (
@@ -247,7 +257,7 @@ export function buildSharedSnapshotAssetPlan(
 
   for (const drawing of project.facadeElevationDrawings ?? []) {
     attachmentCount += 1;
-    const reference = planReference({
+    const reference = await planReference({
       attachmentId: drawing.id,
       areaId: null,
       checkpointId: null,
@@ -256,6 +266,7 @@ export function buildSharedSnapshotAssetPlan(
       fileName: () => `${drawing.updatedAt.getTime()}-${drawing.fileName}`,
       existingPredicate: () => true,
     });
+    if (!reference) throw new SharedAttachmentIntegrityError(`Drawing ${drawing.id} has no saved content. Restore it before syncing.`);
     if (reference) {
       assets.drawings[drawing.id] = reference;
     }
@@ -267,25 +278,26 @@ export function buildSharedSnapshotAssetPlan(
         for (const checkpoint of item.checkpoints) {
           for (const photo of checkpoint.photos) {
             attachmentCount += 1;
-            const image = planReference({
+            const image = await planReference({
               attachmentId: photo.id,
               areaId: area.id,
               checkpointId: checkpoint.id,
               dataUrl: photo.imageData,
               fallbackMimeType: 'image/jpeg',
               fileName: (mimeType) => `photo.${extensionForMimeType(mimeType)}`,
-              existingPredicate: (row) => !row.file_name.toLowerCase().startsWith('thumbnail.'),
+              existingPredicate: (row) => !/(^|-)thumbnail\./i.test(row.file_name),
             });
-            const thumbnail = planReference({
+            const thumbnail = await planReference({
               attachmentId: photo.id,
               areaId: area.id,
               checkpointId: checkpoint.id,
               dataUrl: photo.thumbnail,
               fallbackMimeType: 'image/jpeg',
               fileName: (mimeType) => `thumbnail.${extensionForMimeType(mimeType)}`,
-              existingPredicate: (row) => row.file_name.toLowerCase().startsWith('thumbnail.'),
+              existingPredicate: (row) => /(^|-)thumbnail\./i.test(row.file_name),
             });
-            const resolvedImage = image ?? thumbnail;
+            if (!image) throw new SharedAttachmentIntegrityError(`Photo ${photo.id} has no full image. Restore it before syncing.`);
+            const resolvedImage = image;
             if (resolvedImage) {
               assets.photos[photo.id] = {
                 image: resolvedImage,
@@ -296,7 +308,7 @@ export function buildSharedSnapshotAssetPlan(
 
           for (const file of checkpoint.files ?? []) {
             attachmentCount += 1;
-            const reference = planReference({
+            const reference = await planReference({
               attachmentId: file.id,
               areaId: area.id,
               checkpointId: checkpoint.id,
@@ -305,6 +317,7 @@ export function buildSharedSnapshotAssetPlan(
               fileName: () => file.name,
               existingPredicate: () => true,
             });
+            if (!reference) throw new SharedAttachmentIntegrityError(`File ${file.id} has no saved content. Restore it before syncing.`);
             if (reference) {
               assets.files[file.id] = reference;
             }
@@ -344,7 +357,7 @@ export async function prepareCompactSharedSnapshotPayload(
     return result.data ?? [];
   });
 
-  const plan = buildSharedSnapshotAssetPlan(project, data);
+  const plan = await buildSharedSnapshotAssetPlan(project, data);
   const uploadConcurrency = plan.uploads.some((upload) => upload.reference.sizeBytes > 5 * 1024 * 1024)
     ? 1
     : 2;
@@ -356,9 +369,9 @@ export async function prepareCompactSharedSnapshotPayload(
         .upload(upload.reference.path, blob, {
           cacheControl: '3600',
           contentType: upload.reference.mimeType,
-          upsert: true,
+          upsert: false,
         });
-      if (uploadError) throw uploadError;
+      if (uploadError && !['409', 'Duplicate'].includes(String(uploadError.statusCode))) throw uploadError;
     });
 
     await retryCollaborationOperation(async () => {
@@ -375,7 +388,7 @@ export async function prepareCompactSharedSnapshotPayload(
           mime_type: upload.reference.mimeType,
           size_bytes: upload.reference.sizeBytes,
           deleted_at: null,
-        }, { onConflict: 'storage_bucket,storage_path' });
+        }, { onConflict: 'storage_bucket,storage_path', ignoreDuplicates: true });
       if (metadataError) throw metadataError;
     });
   });
@@ -431,10 +444,9 @@ export async function hydrateSharedSnapshotAssetsWithResolver(
   const downloaded = new Map<string, string>();
   await runWithConcurrency([...references.entries()], 3, async ([key, entry]) => {
     try {
-      downloaded.set(key, await retryCollaborationOperation(
-        () => resolve(entry.reference),
-        { attempts: 2 }
-      ));
+      const value = await retryCollaborationOperation(() => resolve(entry.reference), { attempts: 2 });
+      await verifyAssetContent(entry.reference, dataUrlToBlob(value));
+      downloaded.set(key, value);
     } catch (error) {
       if (!entry.required) return;
       throw error;
@@ -448,6 +460,7 @@ export async function hydrateSharedSnapshotAssetsWithResolver(
 
   for (const drawing of project.facadeElevationDrawings ?? []) {
     const reference = assets.drawings[drawing.id];
+    if (!reference && !drawing.dataUrl) throw new SharedAttachmentIntegrityError(`Drawing ${drawing.id} is missing from the shared attachment manifest.`);
     if (reference) drawing.dataUrl = getDownloaded(reference) ?? '';
   }
   for (const area of project.areas) {
@@ -456,12 +469,16 @@ export async function hydrateSharedSnapshotAssetsWithResolver(
         for (const checkpoint of item.checkpoints) {
           for (const photo of checkpoint.photos) {
             const references = assets.photos[photo.id];
-            if (!references) continue;
+            if (!references) {
+              if (!photo.imageData) throw new SharedAttachmentIntegrityError(`Photo ${photo.id} is missing from the shared attachment manifest.`);
+              continue;
+            }
             photo.imageData = getDownloaded(references.image) ?? '';
             photo.thumbnail = getDownloaded(references.thumbnail);
           }
           for (const file of checkpoint.files ?? []) {
             const reference = assets.files[file.id];
+            if (!reference && !file.data) throw new SharedAttachmentIntegrityError(`File ${file.id} is missing from the shared attachment manifest.`);
             if (reference) file.data = getDownloaded(reference) ?? '';
           }
         }
@@ -470,6 +487,42 @@ export async function hydrateSharedSnapshotAssetsWithResolver(
   }
 
   return project;
+}
+
+async function verifyAssetContent(reference: SharedSnapshotAssetReference, blob: Blob) {
+  if (!reference.sha256) return; // Read legacy snapshots without inventing a checksum.
+  const digest = await crypto.subtle.digest('SHA-256', await blob.arrayBuffer());
+  const hash = [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join('');
+  if (hash !== reference.sha256 || blob.size !== reference.sizeBytes) {
+    throw new SharedAttachmentIntegrityError('Shared attachment content failed verification. The local project was not replaced.');
+  }
+}
+
+/** A bounded, disposable cache. Canonical offline media remains in IndexedDB. */
+async function downloadVerifiedAsset(reference: SharedSnapshotAssetReference, download: () => Promise<Blob>) {
+  const key = `https://punchlist-cache.invalid/${encodeURIComponent(reference.bucket)}/${reference.path}`;
+  let cache: Cache | undefined;
+  if (reference.sha256 && typeof caches !== 'undefined') {
+    try {
+      cache = await caches.open(localAccountKey('punchlist-shared-assets-v1'));
+      const cached = await cache.match(key);
+      if (cached) {
+        const blob = await cached.blob();
+        try { await verifyAssetContent(reference, blob); return blob; }
+        catch { await cache.delete(key); }
+      }
+    } catch { cache = undefined; }
+  }
+  const blob = await download();
+  await verifyAssetContent(reference, blob);
+  if (cache && blob.size <= 1024 * 1024) {
+    try {
+      // At most 64 entries of at most 1 MiB; no cleanup touches project records.
+      for (const request of (await cache.keys()).slice(0, -63)) await cache.delete(request);
+      await cache.put(key, new Response(blob));
+    } catch { /* Quota-limited devices can still persist the canonical project. */ }
+  }
+  return blob;
 }
 
 export async function hydrateSharedSnapshotAssets(
@@ -487,13 +540,12 @@ export async function hydrateSharedSnapshotAssets(
     assets,
     sharedProjectId,
     async (reference) => {
-      const { data, error } = await supabase.storage
-        .from(reference.bucket)
-        .download(reference.path);
-      if (error || !data) {
-        throw error ?? new Error(`Shared attachment ${reference.path} could not be downloaded.`);
-      }
-      return blobToDataUrl(data);
+      const blob = await downloadVerifiedAsset(reference, async () => {
+        const { data, error } = await supabase.storage.from(reference.bucket).download(reference.path);
+        if (error || !data) throw error ?? new Error(`Shared attachment ${reference.path} could not be downloaded.`);
+        return data;
+      });
+      return blobToDataUrl(blob);
     }
   );
 }

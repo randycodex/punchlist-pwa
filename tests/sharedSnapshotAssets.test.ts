@@ -121,18 +121,18 @@ describe('shared snapshot attachment transfer', () => {
     expect(prepared.uploadedAssetCount).toBe(1);
     expect(storageFromMock).toHaveBeenCalledWith('punchlist-attachments');
     expect(storageUploadMock).toHaveBeenCalledWith(
-      'shared-project-1/photo-1/photo.jpg',
+      expect.stringMatching(/^shared-project-1\/photo-1\/[a-f0-9]{64}-photo\.jpg$/),
       expect.any(Blob),
-      expect.objectContaining({ contentType: 'image/jpeg', upsert: true })
+      expect.objectContaining({ contentType: 'image/jpeg', upsert: false })
     );
     expect(attachmentUpsertMock).toHaveBeenCalledWith(
       expect.objectContaining({
         project_id: 'shared-project-1',
         checkpoint_id: 'checkpoint-1',
         uploaded_by_user_id: 'user-1',
-        storage_path: 'shared-project-1/photo-1/photo.jpg',
+        storage_path: expect.stringMatching(/^shared-project-1\/photo-1\/[a-f0-9]{64}-photo\.jpg$/),
       }),
-      { onConflict: 'storage_bucket,storage_path' }
+      { onConflict: 'storage_bucket,storage_path', ignoreDuplicates: true }
     );
 
     const compactPhoto = prepared.payload.project.areas[0].locations[0].items[0].checkpoints[0].photos[0];

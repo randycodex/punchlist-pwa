@@ -1,3 +1,4 @@
+import { localAccountKey } from '@/lib/localAccount';
 import {
   getDurablePendingSyncState,
   persistDurablePendingSyncState,
@@ -62,13 +63,6 @@ function persistPendingSyncState(state: PendingSyncState) {
   };
   volatilePendingSyncState = nextState;
 
-  // Preserve call order so a slow clear cannot erase a newer queued edit.
-  durablePendingSyncWrite = durablePendingSyncWrite
-    .catch(() => undefined)
-    .then(() => persistDurablePendingSyncState(nextState.projectIds, nextState.fullSyncNeeded));
-  void durablePendingSyncWrite.catch((error) => {
-    console.info('Durable pending sync state could not be updated:', error);
-  });
 
   try {
     if (
@@ -78,12 +72,12 @@ function persistPendingSyncState(state: PendingSyncState) {
       !nextState.retryNotBefore &&
       !nextState.autoRetryPaused
     ) {
-      localStorage.removeItem(PENDING_SYNC_STORAGE_KEY);
+      localStorage.removeItem(localAccountKey(PENDING_SYNC_STORAGE_KEY));
       localStorageMirrorUnavailable = false;
       return;
     }
 
-    localStorage.setItem(PENDING_SYNC_STORAGE_KEY, JSON.stringify(nextState));
+    localStorage.setItem(localAccountKey(PENDING_SYNC_STORAGE_KEY), JSON.stringify(nextState));
     localStorageMirrorUnavailable = false;
   } catch (error) {
     // IndexedDB remains the durable source of truth. Keep an in-memory copy so
@@ -94,19 +88,19 @@ function persistPendingSyncState(state: PendingSyncState) {
 }
 
 export async function restorePendingSyncStateFromDurableStorage() {
-  const localState = loadPendingSyncState();
   try {
     const durableState = await getDurablePendingSyncState();
+    const localState = loadPendingSyncState();
     const restoredState: PendingSyncState = {
       ...localState,
-      projectIds: [...new Set([...durableState.projectIds, ...localState.projectIds])],
+      projectIds: [...new Set([...localState.projectIds, ...durableState.projectIds])],
       fullSyncNeeded: durableState.fullSyncNeeded || localState.fullSyncNeeded,
     };
     persistPendingSyncState(restoredState);
     return restoredState;
   } catch (error) {
     console.info('Durable pending sync state could not be restored:', error);
-    return localState;
+    return loadPendingSyncState();
   }
 }
 
@@ -120,7 +114,7 @@ export function loadPendingSyncState(): PendingSyncState {
   }
 
   try {
-    const raw = localStorage.getItem(PENDING_SYNC_STORAGE_KEY);
+    const raw = localStorage.getItem(localAccountKey(PENDING_SYNC_STORAGE_KEY));
     if (!raw) {
       if (localStorageMirrorUnavailable) {
         return volatilePendingSyncState ?? getDefaultPendingSyncState();
@@ -150,6 +144,10 @@ export function queuePendingSync(projectId?: string, options?: { fullSync?: bool
   if (projectId) {
     projectIds.add(projectId);
   }
+
+  durablePendingSyncWrite = durablePendingSyncWrite.catch(() => undefined)
+    .then(() => persistDurablePendingSyncState(projectId ? [projectId] : [], Boolean(options?.fullSync)));
+  void durablePendingSyncWrite.catch((error) => console.warn('Could not queue backup work:', error));
 
   persistPendingSyncState({
     projectIds: [...projectIds],
@@ -243,3 +241,5 @@ export function recordPendingSyncRetry(
     retryAt,
   };
 }
+
+export async function flushPendingBackupQueueWrites() { await durablePendingSyncWrite; }

@@ -99,7 +99,7 @@ function projectWithAssets(): Project {
 }
 
 describe('compact shared snapshot payloads', () => {
-  it('keeps legacy inline version-1 snapshots readable', () => {
+  it('keeps legacy inline version-1 snapshots readable', async () => {
     const project = projectWithAssets();
     const parsed = parseSharedSnapshotPayload(JSON.parse(JSON.stringify(project)), 1);
 
@@ -110,7 +110,7 @@ describe('compact shared snapshot payloads', () => {
 
   it('externalizes binary payloads and hydrates them through validated references', async () => {
     const project = projectWithAssets();
-    const plan = buildSharedSnapshotAssetPlan(project);
+    const plan = await buildSharedSnapshotAssetPlan(project);
     const payload = createCompactSharedSnapshotPayload(project, plan.assets);
     const serializedPayload = JSON.parse(JSON.stringify(payload));
     const parsed = parseSharedSnapshotPayload(
@@ -144,9 +144,9 @@ describe('compact shared snapshot payloads', () => {
     expect(parsed.project.areas[0].locations[0].items[0].checkpoints[0].files[0].data).toBe(fileData);
   });
 
-  it('skips uploads already represented by active attachment metadata', () => {
+  it('skips uploads already represented by active attachment metadata', async () => {
     const project = projectWithAssets();
-    const firstPlan = buildSharedSnapshotAssetPlan(project);
+    const firstPlan = await buildSharedSnapshotAssetPlan(project);
     const existingMetadata: SharedAttachmentMetadataRow[] = firstPlan.uploads.map((upload) => ({
       storage_bucket: upload.reference.bucket,
       storage_path: upload.reference.path,
@@ -157,12 +157,12 @@ describe('compact shared snapshot payloads', () => {
       updated_at: timestamp.toISOString(),
     }));
 
-    expect(buildSharedSnapshotAssetPlan(project, existingMetadata).uploads).toHaveLength(0);
+    expect((await buildSharedSnapshotAssetPlan(project, existingMetadata)).uploads).toHaveLength(0);
   });
 
   it('retries a transient shared attachment download before applying the snapshot', async () => {
     const project = projectWithAssets();
-    const plan = buildSharedSnapshotAssetPlan(project);
+    const plan = await buildSharedSnapshotAssetPlan(project);
     const parsed = parseSharedSnapshotPayload(
       JSON.parse(JSON.stringify(createCompactSharedSnapshotPayload(project, plan.assets))),
       COMPACT_SHARED_SNAPSHOT_PAYLOAD_VERSION
@@ -185,7 +185,7 @@ describe('compact shared snapshot payloads', () => {
 
   it('rejects attachment references outside the linked shared project', async () => {
     const project = projectWithAssets();
-    const plan = buildSharedSnapshotAssetPlan(project);
+    const plan = await buildSharedSnapshotAssetPlan(project);
     plan.assets.photos['photo-1'].image.path = 'another-project/photo-1/photo.jpg';
 
     await expect(hydrateSharedSnapshotAssetsWithResolver(
@@ -198,7 +198,7 @@ describe('compact shared snapshot payloads', () => {
 
   it('rejects traversal segments inside an otherwise valid project prefix', async () => {
     const project = projectWithAssets();
-    const plan = buildSharedSnapshotAssetPlan(project);
+    const plan = await buildSharedSnapshotAssetPlan(project);
     plan.assets.photos['photo-1'].image.path = 'shared-project-1/../another-project/photo.jpg';
 
     await expect(hydrateSharedSnapshotAssetsWithResolver(
@@ -208,4 +208,30 @@ describe('compact shared snapshot payloads', () => {
       async () => photoData
     )).rejects.toThrow('outside this shared project');
   });
+});
+
+it('uses different immutable paths for changed content of the same byte length', async () => {
+  const project = projectWithAssets();
+  const photo = project.areas[0].locations[0].items[0].checkpoints[0].photos[0];
+  photo.imageData = 'data:image/jpeg;base64,YQ==';
+  const first = await buildSharedSnapshotAssetPlan(project);
+  photo.imageData = 'data:image/jpeg;base64,Yg==';
+  const second = await buildSharedSnapshotAssetPlan(project);
+  expect(first.assets.photos[photo.id].image.sizeBytes).toBe(second.assets.photos[photo.id].image.sizeBytes);
+  expect(first.assets.photos[photo.id].image.path).not.toBe(second.assets.photos[photo.id].image.path);
+});
+
+it('rejects a photo without full image data instead of publishing a thumbnail as the original', async () => {
+  const project = projectWithAssets();
+  project.areas[0].locations[0].items[0].checkpoints[0].photos[0].imageData = '';
+  await expect(buildSharedSnapshotAssetPlan(project)).rejects.toThrow('no full image');
+});
+
+it('rejects corrupt downloaded content even if its length matches the manifest', async () => {
+  const project = projectWithAssets();
+  const plan = await buildSharedSnapshotAssetPlan(project);
+  const photo = project.areas[0].locations[0].items[0].checkpoints[0].photos[0];
+  const values = new Map(plan.uploads.map((upload) => [upload.reference.path, upload.dataUrl]));
+  values.set(plan.assets.photos[photo.id].image.path, 'data:image/jpeg;base64,Yg==');
+  await expect(hydrateSharedSnapshotAssetsWithResolver(project, plan.assets, project.sharedProjectId!, async (ref) => values.get(ref.path)!)).rejects.toThrow('failed verification');
 });

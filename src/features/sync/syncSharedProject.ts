@@ -91,6 +91,6 @@ async function syncSharedProjectOnce(
     return { status: 'pending', message: 'This project still has local changes to send. Its areas stayed locked.' };
   }
 
-  const released = await releaseAllMySharedProjectAreaClaims(sharedProjectId);
+  const released = await releaseAllMySharedProjectAreaClaims(sharedProjectId, localProjectId);
   return { status: 'synced', releasedAreaCount: released.releasedCount };
 }

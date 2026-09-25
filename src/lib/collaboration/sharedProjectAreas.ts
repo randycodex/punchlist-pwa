@@ -1,3 +1,4 @@
+import { getCollaborationDeviceId } from './deviceIdentity';
 import type { Area, FacadeElevationDrawing, Project } from '@/types';
 import type { Json } from './database';
 import { getCollaborationSupabaseClient } from './supabaseClient';
@@ -121,6 +122,7 @@ export async function publishSharedProjectAreaSnapshot(input: {
     p_base_version: baseVersion,
     p_base_published_at: basePublishedAt,
     p_client_id: clientId,
+    p_device_id: getCollaborationDeviceId(),
   });
   if (error) {
     if (isSharedProjectAreaConflictError(error)) {

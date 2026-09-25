@@ -1,3 +1,4 @@
+vi.mock('@/lib/collaboration/deviceIdentity', () => ({ getCollaborationDeviceId: () => 'device-1' }));
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Project } from '@/types';
 
@@ -86,6 +87,7 @@ describe('shared project area publishing', () => {
         p_base_version: 4,
         p_base_published_at: timestamp.toISOString(),
         p_client_id: 'mutation-1',
+      p_device_id: 'device-1',
         p_payload_version: 1,
       })
     );
