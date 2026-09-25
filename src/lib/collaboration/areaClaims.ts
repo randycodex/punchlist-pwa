@@ -16,12 +16,13 @@ export function isAreaClaimActive(
 }
 
 export function canUserEditClaimedArea(
-  claim: Pick<CollaborationAreaClaim, 'claimedByUserId' | 'status' | 'expiresAt'> | null | undefined,
-  userId: string
+  claim: Pick<CollaborationAreaClaim, 'claimedByUserId' | 'status' | 'expiresAt' | 'deviceId'> | null | undefined,
+  userId: string,
+  deviceId?: string
 ) {
   if (!claim) return true;
   if (!isAreaClaimActive(claim)) return true;
-  return claim.claimedByUserId === userId;
+  return claim.claimedByUserId === userId && (!claim.deviceId || claim.deviceId === deviceId);
 }
 
 function reviveAreaClaim(
@@ -129,6 +130,7 @@ export async function claimSharedProjectArea(sharedProjectId: string, areaId: st
           projectId: sharedProjectId,
           areaId,
           claimedByUserId: revivedClaim.claimedByUserId,
+          deviceId: revivedClaim.deviceId,
           status: 'active' as const,
           expiresAt: revivedClaim.expiresAt,
         };
@@ -150,6 +152,7 @@ export async function claimSharedProjectArea(sharedProjectId: string, areaId: st
     projectId: sharedProjectId,
     areaId,
     claimedByUserId,
+    deviceId: getStringFromJsonObject(data, 'device_id') ?? getCollaborationDeviceId(),
     status: 'active' as const,
   };
 }

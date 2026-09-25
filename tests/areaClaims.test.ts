@@ -57,6 +57,13 @@ describe('persistent shared area claims', () => {
     expect(isSharedAreaClaimBlockedError(new Error('Failed to fetch'))).toBe(false);
   });
 
+  it('requires the matching device for a device-bound edit permission', () => {
+    const claim = { status: 'active' as const, claimedByUserId: 'claimant', deviceId: 'phone' };
+    expect(canUserEditClaimedArea(claim, 'claimant', 'phone')).toBe(true);
+    expect(canUserEditClaimedArea(claim, 'claimant', 'computer')).toBe(false);
+    expect(canUserEditClaimedArea(claim, 'claimant')).toBe(false);
+  });
+
   it('allows local work when locking is unavailable but blocks a known teammate lock', () => {
     expect(shouldBlockSharedAreaEdits(false, null)).toBe(true);
     expect(shouldBlockSharedAreaEdits(false, 'lost')).toBe(false);
@@ -91,6 +98,7 @@ describe('persistent shared area claims', () => {
       projectId: 'shared-project-id',
       areaId: 'area-id',
       claimedByUserId: 'claimant',
+      deviceId: 'device-1',
       status: 'active',
     });
     expect(rpcMock).toHaveBeenCalledWith('claim_shared_project_area_v2', {

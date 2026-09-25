@@ -72,6 +72,10 @@ Source search found no current UI callers of `syncProjectsWithOneDrive`, `pushPr
 
 Project deletion now explicitly aborts its main IndexedDB transaction on partial failure and cleans the separate capture journal only after the project/media/queue deletion commits. An injected media-deletion failure verifies that both the original project and its recovery note remain; retrying successfully removes both. The two databases cannot share one transaction: interruption after the main commit can leave orphan recovery drafts, which is preferable to losing drafts before a failed deletion. Verification: 339 tests in 70 files and lint passed; production build validation recorded with this commit.
 
+### Late callbacks and device permission consistency
+
+Checkpoint persistence rejects projects already in Trash and purged areas; general-note persistence also rejects purged areas. This prevents delayed inspection/recovery callbacks from changing deleted work. The shared edit-permission helper now requires a matching device for device-bound claims, and returned claim objects retain their device ID. Tests cover late callbacks and missing/wrong/matching device IDs. These are client consistency checks in addition to the server RPC enforcement; the helper currently has no app call sites.
+
 ## Coordinated rollout required
 
 1. Back up the hosted database and record the current app release. Inspect existing grants, attachment paths, and active claims for drift from the migration chain.

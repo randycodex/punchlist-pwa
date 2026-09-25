@@ -989,7 +989,7 @@ export async function saveAreaNotes(projectId: string, areaId: string, value: st
     try {
       const project = await tx.objectStore('projects').get(projectId);
       const area = project?.areas.find((entry) => entry.id === areaId);
-      if (!project || project.deletedAt || !area || area.deletedAt) throw new Error('The original area is unavailable. The note is retained for recovery.');
+      if (!project || project.deletedAt || !area || area.deletedAt || area.purgedAt) throw new Error('The original area is unavailable. The note is retained for recovery.');
       const current = area.notes ?? '';
       area.notes = baseValue === undefined || current === baseValue || current === value
         ? value : current.endsWith(`\n${value}`) ? current : `${current.trimEnd()}\n${value}`.trim();
@@ -1069,7 +1069,7 @@ export async function saveCheckpointInspectionChange(
       const area = project?.areas.find((entry) => entry.id === areaId && !entry.deletedAt);
       const checkpoint = area?.locations.flatMap((location) => location.items)
         .flatMap((item) => item.checkpoints).find((entry) => entry.id === checkpointId);
-      if (!project || !area || !checkpoint) {
+      if (!project || project.deletedAt || !area || area.purgedAt || !checkpoint) {
         tx.abort();
         await tx.done.catch(() => {});
         throw new Error('This checkpoint is no longer available. Your draft is still open.');

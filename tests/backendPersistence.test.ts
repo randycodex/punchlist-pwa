@@ -25,6 +25,24 @@ function fixture() {
 }
 
 describe('backup acknowledgements and attachment identity', () => {
+  it('rejects late notes and checkpoint callbacks for a purged area', async () => {
+    const { project, area, checkpoint } = fixture();
+    area.purgedAt = new Date();
+    await saveProject(project);
+    await expect(saveAreaNotes(project.id, area.id, 'Late note')).rejects.toThrow('unavailable');
+    await expect(saveCheckpointInspectionChange(project.id, area.id, checkpoint.id, { comments: 'Late callback' })).rejects.toThrow('no longer available');
+  });
+
+  it('rejects a late inspection save after the project moves to Trash', async () => {
+    const { project, area, checkpoint } = fixture();
+    project.deletedAt = new Date();
+    await saveProject(project);
+    await expect(saveCheckpointInspectionChange(project.id, area.id, checkpoint.id, { comments: 'Late callback' })).rejects.toThrow('no longer available');
+    const stored = (await getProject(project.id))!;
+    expect(stored.deletedAt).toBeDefined();
+    expect(stored.areas[0].locations[0].items[0].checkpoints[0].comments).toBe('');
+  });
+
   it('retains the project and recovery journal when deletion fails partway through', async () => {
     const { project, area, checkpoint } = fixture();
     checkpoint.photos.push(createPhotoAttachment(checkpoint.id, 'data:image/jpeg;base64,YQ=='));
