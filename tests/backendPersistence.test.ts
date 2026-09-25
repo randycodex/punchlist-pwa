@@ -3,7 +3,7 @@ import {
   acknowledgePendingBackupRevisions, capturePendingBackupRevisions, createProject, createArea,
   createLocation, createItem, createCheckpoint, createPhotoAttachment, getDurablePendingSyncState,
   getProject, persistDurablePendingSyncState, saveProject, saveProjectPreserveTimestamps,
-  saveCheckpointInspectionChange, saveAreaNotes, deleteProject,
+  saveCheckpointInspectionChange, saveAreaNotes, deleteProject, deleteProjectIfUnchanged,
   acknowledgePublishedSharedProject, getPendingSharedAreaSyncsForProject,
   getPendingSharedProjectMetadataSyncForProject, saveProjectMetadataWithSharedSync,
   captureLocalProjectSaveToken, saveDownloadedProjectIfUnchanged,
@@ -25,6 +25,24 @@ function fixture() {
 }
 
 describe('backup acknowledgements and attachment identity', () => {
+  it('preserves an unchanged project with a recovery draft during automatic deletion', async () => {
+    const { project, area, checkpoint } = fixture();
+    await saveProjectPreserveTimestamps(project);
+    const reviewed = (await getProject(project.id))!;
+    const draft: CaptureDraft = {
+      key: `note:${project.id}:${checkpoint.id}`, revision: crypto.randomUUID(),
+      projectId: project.id, areaId: area.id, checkpointId: checkpoint.id,
+      kind: 'note', value: 'Not committed yet', baseValue: '', savedAt: new Date(),
+    };
+    await stageCaptureDraft(draft);
+    expect(await deleteProjectIfUnchanged(project.id, reviewed)).toBe(false);
+    expect(await getProject(project.id)).toBeDefined();
+    expect(await listCaptureDrafts(project.id, area.id)).toEqual([draft]);
+    // Explicit user deletion is still allowed and clears its recovery data.
+    await deleteProject(project.id);
+    expect(await listCaptureDrafts(project.id, area.id)).toEqual([]);
+  });
+
   it('rejects late notes and checkpoint callbacks for a purged area', async () => {
     const { project, area, checkpoint } = fixture();
     area.purgedAt = new Date();

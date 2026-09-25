@@ -1,6 +1,7 @@
 import { localAccountKey } from '@/lib/localAccount';
 import { openDB, type DBSchema } from 'idb';
 import type { PhotoAttachment } from '@/types';
+import { withBrowserLock } from '@/lib/browserLocks';
 
 export type CaptureDraft = {
   key: string; revision: string; projectId: string; areaId: string; checkpointId: string; savedAt: Date;
@@ -15,8 +16,19 @@ export const CAPTURE_CLEARED_EVENT = 'punchlist-capture-cleared';
 export const CAPTURE_RECOVERY_EVENT = 'punchlist-capture-recovery-needed';
 
 export async function stageCaptureDraft(draft: CaptureDraft) {
+  await withBrowserLock('local-persistence', async () => {
+    const db = await journal();
+    try { await db.put('drafts', draft); } finally { db.close(); }
+  });
+}
+
+export async function hasProjectCaptureDrafts(projectId: string): Promise<boolean> {
   const db = await journal();
-  try { await db.put('drafts', draft); } finally { db.close(); }
+  try {
+    const cursor = await db.transaction('drafts').store.index('by-area')
+      .openKeyCursor(IDBKeyRange.lowerBound([projectId]));
+    return cursor?.key[0] === projectId;
+  } finally { db.close(); }
 }
 export async function listCaptureDrafts(projectId: string, areaId: string) {
   const db = await journal();

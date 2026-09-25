@@ -15,7 +15,7 @@ import {
 } from '@/types';
 import type { AreaTypeKey, ApartmentUnitType, FacadeOrientation } from '@/lib/areas';
 import { v4 as uuidv4 } from 'uuid';
-import { deleteProjectCaptureDrafts } from '@/lib/captureJournal';
+import { deleteProjectCaptureDrafts, hasProjectCaptureDrafts } from '@/lib/captureJournal';
 
 type StoredPhotoAttachment = Omit<PhotoAttachment, 'imageData' | 'thumbnail'> & {
   imageData: string | Blob;
@@ -1244,6 +1244,9 @@ export async function deleteProjectIfUnchanged(id: string, reviewedProject: Proj
 
 async function deleteProjectInternal(id: string, reviewedProject?: Project | null): Promise<boolean> {
   const deleted = await runLocalPersistence(async () => {
+    // Automatic deletion must retain uncommitted capture work. Staging uses
+    // the same browser lock, closing the gap between this check and deletion.
+    if (reviewedProject !== undefined && await hasProjectCaptureDrafts(id)) return false;
     const db = await getDB();
     const tx = db.transaction([
       'projects',
@@ -1287,7 +1290,9 @@ async function deleteProjectInternal(id: string, reviewedProject?: Project | nul
     }
     // The journal is a separate database: clean it only after project deletion
     // commits, so a failed deletion cannot discard recoverable field work.
-    await deleteProjectCaptureDrafts(id);
+    // Automatic deletion never clears the separate recovery database. This
+    // also preserves a racing draft on browsers without cross-tab Web Locks.
+    if (reviewedProject === undefined) await deleteProjectCaptureDrafts(id);
     for (const key of failedLocalWrites.keys()) {
       if (key.startsWith(`checkpoint:${id}:`) || key.startsWith(`area-note:${id}:`)) failedLocalWrites.delete(key);
     }

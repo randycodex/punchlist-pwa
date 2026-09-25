@@ -2020,7 +2020,7 @@ export async function restoreMissingProjectsFromOneDrive(
         changedDuringDeletion.add(deletion.id);
         failedProjects.push({
           id: deletion.id, name: deletion.name,
-          message: 'This local copy changed while its deletion was being checked. The local copy and OneDrive files were kept for review.',
+          message: 'This local copy changed while its deletion was being checked, or has unsaved recovery drafts. The local copy and OneDrive files were kept for review.',
         });
         continue;
       }
