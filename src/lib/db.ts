@@ -1235,7 +1235,15 @@ async function saveProjectInternal(project: Project, options: { touch: boolean; 
 }
 
 export async function deleteProject(id: string): Promise<void> {
-  await runLocalPersistence(async () => {
+  await deleteProjectInternal(id);
+}
+
+export async function deleteProjectIfUnchanged(id: string, reviewedProject: Project | null): Promise<boolean> {
+  return deleteProjectInternal(id, reviewedProject);
+}
+
+async function deleteProjectInternal(id: string, reviewedProject?: Project | null): Promise<boolean> {
+  const deleted = await runLocalPersistence(async () => {
     const db = await getDB();
     const tx = db.transaction([
       'projects',
@@ -1246,6 +1254,17 @@ export async function deleteProject(id: string): Promise<void> {
       'sharedProjectMetadataSyncQueue',
     ], 'readwrite');
     try {
+      if (reviewedProject !== undefined) {
+        const current = await tx.objectStore('projects').get(id);
+        if (reviewedProject ? !current || projectMetadataSignature(current) !== projectMetadataSignature(reviewedProject) : Boolean(current)) {
+          await tx.done;
+          return false;
+        }
+        if (!current) {
+          await tx.done;
+          return true;
+        }
+      }
       await tx.objectStore('projects').delete(id);
       const mediaStore = tx.objectStore('checkpointMedia');
       const mediaRecords = await mediaStore.index('by-project').getAll(id);
@@ -1272,8 +1291,10 @@ export async function deleteProject(id: string): Promise<void> {
     for (const key of failedLocalWrites.keys()) {
       if (key.startsWith(`checkpoint:${id}:`) || key.startsWith(`area-note:${id}:`)) failedLocalWrites.delete(key);
     }
+    return true;
   });
-  reportSharedSyncQueueChanged();
+  if (deleted) reportSharedSyncQueueChanged();
+  return deleted;
 }
 
 async function markPendingProjectInStore(

@@ -83,6 +83,10 @@ OneDrive lease release now sends `If-Match` with the lock file's observed ETag. 
 
 Renewals are serialized, and release waits for an in-flight renewal before reading the version to delete. Queued timer callbacks cannot renew after release begins. A deferred-response regression test covers overlapping timer ticks and release during renewal. Lease-scoped credentials now check ownership validity before and after every Graph request, including throttle retries, and before local restore writes and backup acknowledgements. Expiry, release, or rejected renewal permanently invalidates that operation; delayed responses cannot revive it. Tests cover browser-suspension expiry, rejected renewals, throttling beyond expiry, late write responses, successful renewal, and release. These are client-side guards: a request already accepted by Graph cannot be rolled back or fenced atomically by a separate lock file. Hosted concurrency acceptance and server-side conditional-write behavior remain important boundaries.
 
+### Cloud-driven deletion race
+
+Permanent-deletion recovery now compares the reviewed local project with the current record inside the deletion transaction. A changed record, or a project created while remote deletion evidence was downloading, blocks both local deletion and subsequent OneDrive cleanup for that project. Comparison includes record contents rather than relying on timestamps. Regression tests create and edit local copies during the remote read while preserving their timestamps; both retain the copy and skip cloud deletion. Explicit user deletion retains its existing behavior.
+
 ## Coordinated rollout required
 
 1. Back up the hosted database and record the current app release. Inspect existing grants, attachment paths, and active claims for drift from the migration chain.

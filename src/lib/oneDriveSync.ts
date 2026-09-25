@@ -7,7 +7,7 @@ import {
   captureLocalProjectSaveToken,
   saveDownloadedProjectIfUnchanged,
   getProject,
-  deleteProject,
+  deleteProjectIfUnchanged,
   saveProjectOneDriveFolderName,
   saveProjectPreserveTimestamps,
 } from '@/lib/db';
@@ -2000,10 +2000,17 @@ export async function restoreMissingProjectsFromOneDrive(
       deletionsToApply.push({ id: projectId, name, files, localProject });
     }
 
+    const changedDuringDeletion = new Set<string>();
     for (const deletion of deletionsToApply) {
-      if (!deletion.localProject) continue;
       assertOneDriveLeaseActive(token);
-      await deleteProject(deletion.id);
+      if (!await deleteProjectIfUnchanged(deletion.id, deletion.localProject ?? null)) {
+        changedDuringDeletion.add(deletion.id);
+        failedProjects.push({
+          id: deletion.id, name: deletion.name,
+          message: 'This local copy changed while its deletion was being checked. The local copy and OneDrive files were kept for review.',
+        });
+        continue;
+      }
       localById.delete(deletion.id);
     }
     if (!syncStateMapsEqual(deletionStates, localDeletionStates)) {
@@ -2013,6 +2020,7 @@ export async function restoreMissingProjectsFromOneDrive(
       await uploadDeletionLog(token, deletionStates);
     }
     for (const deletion of deletionsToApply) {
+      if (changedDuringDeletion.has(deletion.id)) continue;
       try {
         await runWithConcurrency(deletion.files, 2, (file) =>
           ignoreMissingRemoteItem(() => deleteDriveItem(token, file.id))

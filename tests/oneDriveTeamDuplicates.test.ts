@@ -205,6 +205,32 @@ describe('OneDrive and team project identity', () => {
     expect(await getProject(recovery.id)).toBeUndefined();
   });
 
+  it.each([true, false])('preserves work appearing during permanent deletion review (already present: %s)', async (alreadyPresent) => {
+    const project = createProject('Deletion race');
+    if (alreadyPresent) await saveProjectPreserveTimestamps(project);
+    downloadDeletionLogMock.mockResolvedValue({
+      [project.id]: { updatedAt: new Date(Date.now() + 60_000).toISOString(), scope: 'personal' },
+    });
+    listProjectFilesMock.mockResolvedValue([{
+      id: 'deletion-race-file', name: `Deletion_race_${project.id}.json`,
+      lastModifiedDateTime: project.updatedAt.toISOString(),
+    }]);
+    downloadProjectFileMock.mockImplementationOnce(async () => {
+      // Same timestamp deliberately: safety must compare the record, not clocks.
+      await saveProjectPreserveTimestamps({ ...project, projectName: 'New field work' });
+      return serializeProjectPayload(project);
+    });
+
+    const result = await restoreMissingProjectsFromOneDrive('test-token');
+
+    expect((await getProject(project.id))?.projectName).toBe('New field work');
+    expect(result.permanentlyDeletedProjectNames).toEqual([]);
+    expect(result.failedProjects?.[0]?.message).toContain('changed while its deletion');
+    expect(deleteDriveItemMock).not.toHaveBeenCalled();
+    expect(deleteProjectFolderFromStateMock).not.toHaveBeenCalled();
+    expect(deleteProjectPhotoFolderMock).not.toHaveBeenCalled();
+  });
+
   it('does not re-upload a permanently deleted copy during a project-only backup', async () => {
     const staleCopy = createProject('Recovered local copy - Ilse Hoffman House');
     staleCopy.recoveredFromProjectId = crypto.randomUUID();
