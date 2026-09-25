@@ -24,6 +24,8 @@ Implementation and verification are local. No hosted database migrations, Produc
 - Initial verification: 69 test files, 318 tests passed, including the complete migration chain in PGlite with authenticated roles. This is PostgreSQL evidence, not a hosted Supabase/PostgREST integration test.
 - ESLint, TypeScript, production build, and diff whitespace checks pass.
 - After the OneDrive lease-release fix: 71 test files, 344 tests pass; lint, standalone TypeScript checking, and production build pass.
+- After recovery-draft deletion protection: 71 test files, 356 tests pass; lint, TypeScript, and production build pass. Account-namespace tests were rerun during the final account-switch review: the namespace cannot change within a mounted page, and a different account requires reload before the workspace opens.
+- Hosted read-only recheck on September 25: the remote migration chain still ends at `20260923160000`; all four migrations listed below remain unapplied. The Supabase branch list is empty. There is no hosted staging acceptance evidence for this change set.
 - Installed dependency audit: zero reported vulnerabilities at verification time.
 - Isolated Chromium session against the local production build: created a project and unit, entered general notes, reloaded, and observed the same saved note. No browser runtime errors were reported. No external account or live team data was used.
 - Follow-up fixed the short-window General Notes overlap by reserving layout space for the bottom navigation. Verified normal clicks and note editing at 1280×640 and 390×667 in Chromium; measured that the content viewport ends at the navigation's top edge. This is responsive-browser evidence, not physical iOS acceptance.
