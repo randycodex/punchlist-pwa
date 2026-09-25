@@ -25,7 +25,7 @@ Implementation and verification are local. No hosted database migrations, Produc
 - ESLint, TypeScript, production build, and diff whitespace checks pass.
 - After the OneDrive lease-release fix: 71 test files, 344 tests pass; lint, standalone TypeScript checking, and production build pass.
 - After recovery-draft deletion protection: 71 test files, 356 tests pass; lint, TypeScript, and production build pass. Account-namespace tests were rerun during the final account-switch review: the namespace cannot change within a mounted page, and a different account requires reload before the workspace opens.
-- Hosted read-only recheck on September 25: the remote migration chain still ends at `20260923160000`; all four migrations listed below remain unapplied. The Supabase branch list is empty. There is no hosted staging acceptance evidence for this change set.
+- Hosted read-only recheck on September 25: the remote migration chain still ends at `20260923160000`; all four migrations listed below remain unapplied. The Supabase branch list is empty. At that point there was no hosted staging acceptance evidence. The later disposable hosted run below supersedes that gap for its covered API/storage scenarios.
 - Installed dependency audit: zero reported vulnerabilities at verification time.
 - Isolated Chromium session against the local production build: created a project and unit, entered general notes, reloaded, and observed the same saved note. No browser runtime errors were reported. No external account or live team data was used.
 - Follow-up fixed the short-window General Notes overlap by reserving layout space for the bottom navigation. Verified normal clicks and note editing at 1280×640 and 390×667 in Chromium; measured that the content viewport ends at the navigation's top edge. This is responsive-browser evidence, not physical iOS acceptance.
@@ -94,6 +94,10 @@ Automatic deletion also checks the separate capture journal while holding the lo
 ### Backup identity before destructive operations
 
 Personal backup replacement and permanent-deletion processing now reject remote payload IDs that differ from the filename-derived project ID. This extends the existing restore/merge identity checks to overwrite and deletion decisions. Tests cover retaining both copies during deletion and refusing active/trashed backup overwrites; no photo upload or file deletion follows a mismatch.
+
+## Hosted verification
+
+After approval, a separate temporary Supabase project passed 24 real HTTP checks with the complete migration chain. It was then deleted and the project listing confirmed cleanup. See [hosted verification evidence](hosted-backend-verification-2026-09-25.md) for checks, harness corrections, cleanup, and remaining limits. No Production migrations or deployment were performed.
 
 ## Coordinated rollout required
 
