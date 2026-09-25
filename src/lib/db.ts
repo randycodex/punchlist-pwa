@@ -1026,6 +1026,27 @@ export async function saveDownloadedProjectIfUnchanged(project: Project, expecte
   return saved;
 }
 
+export async function saveReviewedSharedProject(project: Project, reviewedSource: Project, areaIds: string[], preserveMetadata: boolean): Promise<boolean> {
+  if (project.id !== reviewedSource.id || !project.sharedProjectId || project.sharedProjectId !== reviewedSource.sharedProjectId) {
+    throw new Error('The reviewed project no longer matches its team link.');
+  }
+  const saved = await runLocalPersistence(() => saveProjectInternal(project, {
+    touch: false, reviewedSource, reviewedAreaIds: areaIds, reviewedMetadata: preserveMetadata,
+  }));
+  if (saved) reportSharedSyncQueueChanged();
+  return saved;
+}
+
+function projectMetadataSignature(project: Project) {
+  const metadata = applyCheckpointRules(cloneProjectWithoutMediaPayload(project));
+  return JSON.stringify(metadata, (_key, value) => {
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      return Object.fromEntries(Object.entries(value).sort(([left], [right]) => left.localeCompare(right)));
+    }
+    return value;
+  });
+}
+
 // Read the latest stored record inside the write transaction. A note or photo
 // save must not replace another checkpoint's edits with an older React snapshot.
 export async function saveCheckpointInspectionChange(
@@ -1097,7 +1118,7 @@ export async function saveCheckpointInspectionChange(
   }, `checkpoint:${projectId}:${checkpointId}`);
 }
 
-async function saveProjectInternal(project: Project, options: { touch: boolean; expectedToken?: string | null; resetSharedQueues?: boolean }): Promise<boolean> {
+async function saveProjectInternal(project: Project, options: { touch: boolean; expectedToken?: string | null; resetSharedQueues?: boolean; reviewedSource?: Project; reviewedAreaIds?: string[]; reviewedMetadata?: boolean }): Promise<boolean> {
   const db = await getDB();
   if (options.touch) {
     project.updatedAt = new Date();
@@ -1110,6 +1131,13 @@ async function saveProjectInternal(project: Project, options: { touch: boolean; 
   const drawingStore = tx.objectStore('elevationDrawings');
 
   try {
+    if (options.reviewedSource) {
+      const current = await projectStore.get(project.id);
+      if (!current || projectMetadataSignature(current) !== projectMetadataSignature(options.reviewedSource)) {
+        await tx.done;
+        return false;
+      }
+    }
     if (options.expectedToken !== undefined) {
       const current = await projectStore.get(project.id);
       if ((current ? JSON.stringify(current) : null) !== options.expectedToken) {
@@ -1119,7 +1147,7 @@ async function saveProjectInternal(project: Project, options: { touch: boolean; 
     }
 
     await projectStore.put(storedProject);
-    if (options.touch || options.resetSharedQueues) {
+    if (options.touch || options.resetSharedQueues || options.reviewedSource) {
       await markPendingProjectInStore(tx.objectStore('syncMetadata'), project.id);
     }
     if (options.resetSharedQueues) {
@@ -1127,6 +1155,31 @@ async function saveProjectInternal(project: Project, options: { touch: boolean; 
       const metadata = tx.objectStore('sharedProjectMetadataSyncQueue');
       for (const key of await areas.index('by-local-project').getAllKeys(project.id)) await areas.delete(key);
       for (const key of await metadata.index('by-local-project').getAllKeys(project.id)) await metadata.delete(key);
+    }
+    if (options.reviewedSource && project.sharedProjectId) {
+      const areaStore = tx.objectStore('sharedAreaSyncQueue');
+      for (const areaId of new Set(options.reviewedAreaIds)) {
+        const area = project.areas.find((entry) => entry.id === areaId);
+        if (!area) throw new Error('A reviewed area is missing from the merge.');
+        const key = `${project.id}:${project.sharedProjectId}:${areaId}`;
+        const existing = await areaStore.get(key);
+        const basePublishedAt = area.sharedPublishedAt ?? project.sharedBaselinePublishedAt ?? project.sharedSnapshotPublishedAt;
+        if (!basePublishedAt) throw new Error('The reviewed merge has no team baseline.');
+        await areaStore.put({
+          key, localProjectId: project.id, sharedProjectId: project.sharedProjectId, areaId,
+          baseVersion: area.sharedVersion ?? 0,
+          basePublishedAt: basePublishedAt.toISOString(),
+          clientId: uuidv4(), revision: (existing?.revision ?? 0) + 1, attemptCount: 0,
+          blockedByConflict: true, readyAfterConflictReview: true,
+          queuedAt: existing?.queuedAt ?? new Date(),
+          lastError: 'Team updates were merged. Review this area, then tap Sync Projects.',
+        });
+      }
+      if (options.reviewedMetadata) {
+        await putPendingSharedProjectMetadataSyncInStore(tx.objectStore('sharedProjectMetadataSyncQueue'), {
+          localProjectId: project.id, sharedProjectId: project.sharedProjectId, baseVersion: project.sharedMetadataVersion ?? 0,
+        });
+      }
     }
 
     const existingMediaRecords = await mediaStore.index('by-project').getAll(project.id);

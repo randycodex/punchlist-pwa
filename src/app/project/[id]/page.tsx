@@ -1,6 +1,6 @@
 'use client';
 
-import { acknowledgePublishedSharedProject, captureLocalProjectSaveToken, saveDownloadedProjectIfUnchanged } from '@/lib/db';
+import { acknowledgePublishedSharedProject, captureLocalProjectSaveToken, saveDownloadedProjectIfUnchanged, saveReviewedSharedProject } from '@/lib/db';
 
 import AreaListReturnPosition from '@/features/projects/AreaListReturnPosition';
 
@@ -20,7 +20,6 @@ import {
   getProjectMetadata,
   saveProject,
   saveProjectMetadataOnly,
-  saveProjectPreserveTimestamps,
   createArea,
 } from '@/lib/db';
 import { cacheProjectPreview, getCachedProjectPreview } from '@/lib/projectNavigationCache';
@@ -107,7 +106,6 @@ import {
   listSharedProjectBackups,
   publishSharedProjectSnapshot,
   queueSharedProjectAreaSyncs,
-  rebaseSharedProjectAreaSyncsAfterPull,
   removeSharedProjectMember,
   saveAndQueueSharedProjectMetadataSync,
   runCollaborationHealthCheck,
@@ -1147,13 +1145,8 @@ export default function ProjectDetailPage() {
         'Local data before pulling shared data.'
       );
 
-      await saveProjectPreserveTimestamps(pullState.resolutionProject);
-      await rebaseSharedProjectAreaSyncsAfterPull(
-        pullState.resolutionProject,
-        pullState.preservedLocalAreaIds
-      );
-      if (pullState.preservedLocalProjectMetadata) {
-        await saveAndQueueSharedProjectMetadataSync(pullState.resolutionProject);
+      if (!await saveReviewedSharedProject(pullState.resolutionProject, pullState.localProject, pullState.preservedLocalAreaIds, pullState.preservedLocalProjectMetadata)) {
+        throw new Error('Local work changed after this merge was prepared. Your current project was kept. Get team updates again to review a fresh merge.');
       }
       clearSharedUpdateAvailable(pullState.localProject.id);
       setProject({ ...pullState.resolutionProject, areas: [...pullState.resolutionProject.areas] });

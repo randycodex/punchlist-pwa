@@ -7,6 +7,7 @@ import {
   acknowledgePublishedSharedProject, getPendingSharedAreaSyncsForProject,
   getPendingSharedProjectMetadataSyncForProject, saveProjectMetadataWithSharedSync,
   captureLocalProjectSaveToken, saveDownloadedProjectIfUnchanged,
+  saveReviewedSharedProject,
 } from '@/lib/db';
 import { mergeProjects } from '@/lib/oneDriveSync';
 import { parseProjectPayload, serializeProjectPayload } from '@/lib/projectPayload';
@@ -23,6 +24,25 @@ function fixture() {
 }
 
 describe('backup acknowledgements and attachment identity', () => {
+  it('rejects a stale reviewed merge and atomically queues preserved work on a fresh review', async () => {
+    const { project, area } = fixture();
+    project.sharedProjectId = crypto.randomUUID();
+    project.sharedSnapshotPublishedAt = new Date();
+    await saveProject(project);
+    const reviewed = (await getProject(project.id))!;
+    const resolution = structuredClone(reviewed);
+    resolution.areas[0].sharedVersion = 4;
+    resolution.sharedMetadataVersion = 3;
+    await saveAreaNotes(project.id, area.id, 'Typed after review opened');
+    expect(await saveReviewedSharedProject(resolution, reviewed, [area.id], true)).toBe(false);
+    expect((await getProject(project.id))!.areas[0].notes).toBe('Typed after review opened');
+    const fresh = (await getProject(project.id))!;
+    resolution.areas[0].notes = fresh.areas[0].notes;
+    expect(await saveReviewedSharedProject(resolution, fresh, [area.id], true)).toBe(true);
+    expect(await getPendingSharedAreaSyncsForProject(project.id)).toEqual([expect.objectContaining({ baseVersion: 4, blockedByConflict: true, readyAfterConflictReview: true })]);
+    expect(await getPendingSharedProjectMetadataSyncForProject(project.id)).toMatchObject({ baseVersion: 3 });
+  });
+
   it('rolls back project and queue replacement if a media write fails', async () => {
     const { project, area, checkpoint } = fixture();
     project.sharedProjectId = crypto.randomUUID();

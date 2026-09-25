@@ -50,6 +50,10 @@ Automatic shared-project sync now captures the durable local state before its ne
 
 The ordinary Get Team Updates action on both project surfaces now uses the same stale-source guard. Backup restoration also checks the source captured before downloading. Its project/media replacement and clearing of old collaboration queues happen in one IndexedDB transaction, and the restored project is marked for personal backup. Explicit abort handling rolls back all writes if media persistence throws. Tests cover stale restore rejection, accepted restore queue reset, and an injected media-write failure preserving the original note and queued change. Verification: 331 tests in 70 files, lint, and production build including TypeScript passed. Reviewed merge confirmations, file imports, and personal-cloud download paths remain separate review items.
 
+### Reviewed merge confirmation
+
+Both confirmation surfaces now compare the current durable project metadata with the local source used to prepare the review. Changed work rejects the confirmation and remains saved. Accepted merges atomically persist the project/media and rebase preserved area queues, including their explicit next-sync review hold, plus any retained metadata queue. This removes the separate post-merge metadata write that could replace newer work. Derived checkpoint rules are normalized for comparison; JSON property order does not create a false mismatch. Regression coverage verifies rejection after typing during review and successful queue rebasing on a fresh review. Verification: 332 tests in 70 files, lint, TypeScript, and production build pass. File imports and personal-cloud downloads remain under review.
+
 ## Coordinated rollout required
 
 1. Back up the hosted database and record the current app release. Inspect existing grants, attachment paths, and active claims for drift from the migration chain.
