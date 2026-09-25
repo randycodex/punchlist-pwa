@@ -4,7 +4,7 @@ import UnitPhotoDropTarget from './UnitPhotoDropTarget';
 import { useAppSettings } from '@/contexts/AppSettingsContext';
 import { memo } from 'react';
 import Link from 'next/link';
-import { ChevronRight } from 'lucide-react';
+import { Check, ChevronRight, Square } from 'lucide-react';
 import CollaborationAvatar from '@/components/CollaborationAvatar';
 import MetadataLine from '@/components/MetadataLine';
 import type { Project } from '@/types';
@@ -87,7 +87,7 @@ export const AreaCard = memo(function AreaCard({
       }}
       className={`main-card-surface area-card-surface card-surface block transition-all ${nested ? 'floor-area-card rounded-[1.25rem] p-3 sm:p-4' : 'rounded-[1.65rem] p-4 sm:p-5'} ${
         isSelected
-          ? 'bg-gray-100 dark:bg-white/[0.1]'
+          ? 'ring-2 ring-orange-500 bg-orange-50 dark:bg-orange-500/[0.14]'
           : blockedByClaim
             ? 'opacity-80'
             : 'hover:-translate-y-px dark:hover:bg-white/[0.07]'
@@ -96,6 +96,7 @@ export const AreaCard = memo(function AreaCard({
       <div className="flex items-start gap-3">
         <Link
           href={deleteMode || blockedByClaim ? '#' : `/project/${projectId}/area/${area.id}`}
+          tabIndex={deleteMode ? -1 : undefined}
           onClick={(event) => {
             if (deleteMode || blockedByClaim) {
               event.preventDefault();
@@ -136,6 +137,14 @@ export const AreaCard = memo(function AreaCard({
         <div className="flex shrink-0 self-stretch flex-col items-center">
           <Link
             href={deleteMode || blockedByClaim ? '#' : `/project/${projectId}/area/${area.id}`}
+            role={deleteMode ? 'button' : undefined}
+            aria-pressed={deleteMode ? isSelected : undefined}
+            onKeyDown={(event) => {
+              if (deleteMode && event.key === ' ') {
+                event.preventDefault();
+                onToggleSelection(area.id);
+              }
+            }}
             onClick={(event) => {
               if (deleteMode || blockedByClaim) {
                 event.preventDefault();
@@ -156,9 +165,13 @@ export const AreaCard = memo(function AreaCard({
               if (!deleteMode && !blockedByClaim) onPrimeOpen(area.id);
             }}
             className="soft-control mt-1 flex h-10 w-10 items-center justify-center rounded-[1rem] text-gray-500 transition hover:text-gray-700 dark:text-gray-300 dark:hover:text-white"
-            aria-label={`Open ${displayName}`}
+            aria-label={deleteMode ? `${isSelected ? 'Deselect' : 'Select'} ${displayName}` : `Open ${displayName}`}
           >
-            <ChevronRight className="w-5 h-5 text-gray-400" />
+            {deleteMode
+              ? isSelected
+                ? <Check className="h-5 w-5 text-orange-500" aria-hidden="true" />
+                : <Square className="h-5 w-5 text-gray-400" aria-hidden="true" />
+              : <ChevronRight className="w-5 h-5 text-gray-400" />}
           </Link>
         </div>
       </div>

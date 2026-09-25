@@ -150,14 +150,14 @@ async function runWithConcurrency<T>(
   if (firstFailure) throw firstFailure.reason;
 }
 
-function sanitizeNamePart(value: string | undefined, fallback: string) {
+function sanitizeNamePart(value: string | undefined, fallback: string, maxLength = 48) {
   const cleaned = (value ?? '')
     .trim()
     .replace(/\s+/g, '-')
     .replace(/[^a-z0-9-_]/gi, '-')
     .replace(/-+/g, '-')
     .replace(/^-+|-+$/g, '')
-    .slice(0, 48);
+    .slice(0, maxLength);
   return cleaned || fallback;
 }
 
@@ -169,8 +169,13 @@ function currentProjectFolderName(project: Pick<Project, 'projectName'>) {
   return sanitizeNamePart(project.projectName, 'project');
 }
 
+function uniqueProjectFolderName(project: Pick<Project, 'id' | 'projectName'>) {
+  return `${currentProjectFolderName(project)}_${project.id}`;
+}
+
 function projectFolderName(project: Pick<Project, 'projectName' | 'oneDriveFolderName'>) {
-  return sanitizeNamePart(project.oneDriveFolderName, currentProjectFolderName(project));
+  // Project-specific folders carry a 36-character ID after the name.
+  return sanitizeNamePart(project.oneDriveFolderName, currentProjectFolderName(project), 90);
 }
 
 function isProjectInTrash(project: Pick<Project, 'deletedAt'>) {
@@ -217,6 +222,19 @@ function buildRemoteProjectFileIndex(remoteFiles: RemoteProjectFile[]) {
     }
   }
   return remoteById;
+}
+
+function buildRemoteFolderProjectFilenames(remoteFiles: RemoteProjectFile[]) {
+  const namesByFolder = new Map<string, Set<string>>();
+  for (const file of remoteFiles) {
+    if (isRemoteProjectFileInTrash(file)) continue;
+    const folderName = getProjectFolderNameFromRemoteFile(file);
+    if (!folderName || !file.name.endsWith('.json')) continue;
+    const names = namesByFolder.get(folderName) ?? new Set<string>();
+    names.add(file.name);
+    namesByFolder.set(folderName, names);
+  }
+  return namesByFolder;
 }
 
 function pickPrimaryRemoteProjectFile<
@@ -319,15 +337,25 @@ function isCanonicalRemoteProjectFile(
 }
 
 function resolveRemoteProjectFolderName(
-  project: Pick<Project, 'projectName' | 'oneDriveFolderName'>,
-  remoteFiles: RemoteProjectFile[]
+  project: Pick<Project, 'id' | 'projectName' | 'oneDriveFolderName'>,
+  remoteFiles: RemoteProjectFile[],
+  namesByFolder?: Map<string, Set<string>>
 ) {
-  const currentFolder = currentProjectFolderName(project);
-  if (remoteFiles.some((file) => getProjectFolderNameFromRemoteFile(file) === currentFolder)) {
-    return currentFolder;
+  const uniqueFolder = uniqueProjectFolderName(project);
+  if (remoteFiles.some((file) => getProjectFolderNameFromRemoteFile(file) === uniqueFolder)) {
+    return uniqueFolder;
   }
+  const currentFolder = currentProjectFolderName(project);
   const remote = pickPrimaryRemoteProjectFile(remoteFiles);
-  return (remote ? getProjectFolderNameFromRemoteFile(remote) : null) ?? projectFolderName(project);
+  const existingFolder = remoteFiles.some((file) => getProjectFolderNameFromRemoteFile(file) === currentFolder)
+    ? currentFolder
+    : (remote ? getProjectFolderNameFromRemoteFile(remote) : null) ?? projectFolderName(project);
+  // A folder can contain old team and personal backups, even with the same ID.
+  // Give the personal copy its own stable path before writing another photo.
+  if (!remoteFiles.length || [...(namesByFolder?.get(existingFolder) ?? [])].some((name) => name !== projectJsonFilename(project))) {
+    return uniqueFolder;
+  }
+  return existingFolder;
 }
 
 function withProjectFolderName<T extends Project>(project: T, folderName?: string | null): T {
@@ -786,6 +814,68 @@ async function backupProjectPhotosToOneDrive(
     }
     const blob = await dataUrlToBlob(photo.imageData);
     await uploadProjectPhotoFile(token, targetFolderName, filename, blob, false);
+  });
+}
+
+async function separatePersonalProjectPhotos(
+  token: string,
+  project: Project,
+  sourceFolderName: string,
+  targetFolderName: string,
+  remoteIndex?: OneDriveSyncRemoteIndex
+) {
+  // Do not move the only copy of a photo. Fill missing local media from the
+  // old backup, write the new folder, and verify every referenced photo first.
+  const hydrated = await hydrateProjectPhotosFromOneDrive(token, project, sourceFolderName, remoteIndex);
+  const referencedPhotos = getProjectPhotos(hydrated);
+  const missing = referencedPhotos.filter((photo) => !photo.imageData);
+  if (missing.length > 0) {
+    throw new Error(`${missing.length} photos are unavailable on this device and in the old OneDrive folder. The original backup was left untouched.`);
+  }
+  await backupProjectPhotosToOneDrive(token, hydrated, targetFolderName, remoteIndex);
+  const targetPhotoFiles = await listProjectPhotoFiles(token, targetFolderName, false, false);
+  const targetPhotoIds = new Set(targetPhotoFiles.map((file) => getPhotoIdFromFilename(file.name)).filter(
+    (id): id is string => Boolean(id)
+  ));
+  if (referencedPhotos.some((photo) => !targetPhotoIds.has(photo.id))) {
+    throw new Error('Could not verify every photo in the new OneDrive folder. The original backup was left untouched; sync again to finish.');
+  }
+}
+
+async function removeSeparatedPersonalProjectPhotosFromOldFolder(
+  token: string,
+  project: Project,
+  sourceFolderName: string,
+  targetFolderName: string,
+  allRemoteFiles: RemoteProjectFile[]
+) {
+  // Older project snapshots can share photo IDs. Read the other JSON backups
+  // in the source folder before removing a K&J-named JPEG from that folder.
+  const otherSourceFiles = allRemoteFiles.filter((file) =>
+    !isRemoteProjectFileInTrash(file)
+    && getProjectFolderNameFromRemoteFile(file) === sourceFolderName
+    && file.name !== projectJsonFilename(project)
+  );
+  const otherPhotoIds = new Set<string>();
+  await runWithConcurrency(otherSourceFiles, 2, async (file) => {
+    const otherProject = await downloadRemoteProject(token, file.id);
+    if (!otherProject) {
+      throw new Error('An older OneDrive backup could not be checked. The mixed photo folder was left untouched.');
+    }
+    getProjectPhotos(otherProject).forEach((photo) => otherPhotoIds.add(photo.id));
+  });
+
+  const oldPhotos = await listProjectPhotoFiles(token, sourceFolderName, false, false);
+  const projectPrefix = `${currentProjectFolderName(project)}_`;
+  const previousPhotosPath = `${getProjectPhotosFolderPath(targetFolderName, false)}/previous`;
+  await runWithConcurrency(oldPhotos.filter((file) => file.name.startsWith(projectPrefix)), 2, async (file) => {
+    const photoId = getPhotoIdFromFilename(file.name);
+    if (!file.id || !photoId || otherPhotoIds.has(photoId)) return;
+    // Older JPEGs might differ from a current photo with the same ID. Keep
+    // them in this project's archive instead of deleting the only old bytes.
+    await ignoreMissingRemoteItem(async () => {
+      await moveDriveItemToFolder(token, file.id, previousPhotosPath);
+    });
   });
 }
 
@@ -1520,11 +1610,7 @@ export async function pushProjectsToOneDrive(token: string, projectIds: string[]
   }
 }
 
-/**
- * Creates a one-way personal OneDrive backup. This deliberately never pulls,
- * merges, moves, or deletes local/remote project data. Supabase remains the
- * source of truth for shared collaboration.
- */
+/** Creates personal OneDrive backups; Team Projects use Supabase instead. */
 export async function backupProjectsToOneDrive(
   token: string,
   projectIds?: string[],
@@ -1547,6 +1633,7 @@ export async function backupProjectsToOneDrive(
     const remoteFilesById = new Map([...allRemoteFilesById].map(([id, entries]) =>
       [id, entries.filter((entry) => !isRemoteProjectFileInTrash(entry))] as const
     ));
+    const namesByFolder = buildRemoteFolderProjectFilenames(remoteFiles);
     const remoteIndex: OneDriveSyncRemoteIndex = {};
     const conflictsById = new Map<string, SyncConflict>();
     const backedUpProjectIds: string[] = [];
@@ -1603,11 +1690,24 @@ export async function backupProjectsToOneDrive(
           return;
         }
         const remoteEntries = remoteFilesById.get(localProject.id) ?? [];
-        const targetFolderName = resolveRemoteProjectFolderName(localProject, remoteEntries);
+        const targetFolderName = resolveRemoteProjectFolderName(localProject, remoteEntries, namesByFolder);
+        const filename = projectJsonFilename(localProject);
         const canonicalRemote = remoteEntries.find((entry) =>
           isCanonicalRemoteProjectFile(localProject, entry, targetFolderName)
         );
-        const remote = canonicalRemote ?? pickPrimaryRemoteProjectFile(remoteEntries);
+        const remote = canonicalRemote
+          ?? remoteEntries.find((entry) => entry.name === filename)
+          ?? pickPrimaryRemoteProjectFile(remoteEntries);
+        const migrationSource = remoteEntries.find((entry) => {
+          const folder = getProjectFolderNameFromRemoteFile(entry);
+          return entry.name === filename
+            && !!folder
+            && folder !== targetFolderName
+            && [...(namesByFolder.get(folder) ?? [])].some((name) => name !== filename);
+        });
+        const migrationSourceFolder = migrationSource
+          ? getProjectFolderNameFromRemoteFile(migrationSource)
+          : null;
         const localUpdatedAt = getProjectUpdatedAt(localProject);
         const remoteUpdatedAt = await getRemoteProjectPayloadUpdatedAt(token, remote);
         const freshnessComparison = compareTimestampsWithTolerance(localUpdatedAt, remoteUpdatedAt);
@@ -1623,16 +1723,18 @@ export async function backupProjectsToOneDrive(
         }
 
         const projectForBackup = withProjectFolderName(localProject, targetFolderName);
-        // The folder name is metadata. Rewriting every photo record here can
-        // leave an iOS IndexedDB transaction inactive during a long sync.
-        await saveProjectOneDriveFolderName(projectForBackup.id, targetFolderName);
 
         try {
+          if (migrationSourceFolder) {
+            await separatePersonalProjectPhotos(
+              token, projectForBackup, migrationSourceFolder, targetFolderName, remoteIndex
+            );
+          }
           if (freshnessComparison > 0 || !canonicalRemote || forceIds.has(localProject.id)) {
             await uploadProjectFileRecoveringMissingRemote(
               token,
               targetFolderName,
-              projectJsonFilename(projectForBackup),
+              filename,
               serializeProjectPayload(stripProjectMediaPayload(projectForBackup)),
               false,
               canonicalRemote?.eTag
@@ -1641,7 +1743,18 @@ export async function backupProjectsToOneDrive(
 
           // Photo backups are append-only. Deleting a photo on the device does not
           // remove the computer-accessible JPEG from OneDrive.
-          await backupProjectPhotosToOneDrive(token, projectForBackup, targetFolderName, remoteIndex);
+          if (!migrationSourceFolder) {
+            await backupProjectPhotosToOneDrive(token, projectForBackup, targetFolderName, remoteIndex);
+          }
+          if (migrationSourceFolder && migrationSource) {
+            await removeSeparatedPersonalProjectPhotosFromOldFolder(
+              token, projectForBackup, migrationSourceFolder, targetFolderName, remoteFiles
+            );
+            await ignoreMissingRemoteItem(() => deleteDriveItem(token, migrationSource.id));
+          }
+          // Only point the local project at the new folder after its JSON and
+          // referenced photos are verified. Avoid rewriting photo records here.
+          await saveProjectOneDriveFolderName(projectForBackup.id, targetFolderName);
           backedUpProjectIds.push(projectForBackup.id);
         } catch (error) {
           if (isConflictError(error)) {
@@ -1712,7 +1825,9 @@ export async function mergePersonalProjectsFromOneDrive(token: string, projectId
       if (permanentDeletions[projectId]?.scope === 'personal') return;
       const local = localById.get(projectId);
       if (!local || local.deletedAt || local.sharedProjectId) return;
-      const remote = pickPrimaryRemoteProjectFile(remoteEntries);
+      const remote = pickPrimaryRemoteProjectFile(
+        remoteEntries.filter((entry) => entry.name === projectJsonFilename(local))
+      ) ?? pickPrimaryRemoteProjectFile(remoteEntries);
       if (!remote?.id || !remote.name.endsWith('.json')) return;
       const remoteProject = await downloadRemoteProject(token, remote.id);
       if (!remoteProject || remoteProject.sharedProjectId) return;

@@ -12,7 +12,7 @@ import {
 } from '@/lib/db';
 import { serializeProjectPayload } from '@/lib/projectPayload';
 
-const { listProjectFilesMock, listPhotoProjectFoldersMock, listProjectPhotoFilesMock, downloadProjectFileMock, uploadProjectFileMock, uploadProjectPhotoFileMock, deleteDriveItemMock, downloadDeletionLogMock, uploadDeletionLogMock, deleteProjectFolderFromStateMock, deleteProjectPhotoFolderMock } = vi.hoisted(() => ({
+const { listProjectFilesMock, listPhotoProjectFoldersMock, listProjectPhotoFilesMock, downloadProjectFileMock, uploadProjectFileMock, uploadProjectPhotoFileMock, deleteDriveItemMock, moveDriveItemToFolderMock, downloadDeletionLogMock, uploadDeletionLogMock, deleteProjectFolderFromStateMock, deleteProjectPhotoFolderMock } = vi.hoisted(() => ({
   listProjectFilesMock: vi.fn(),
   listPhotoProjectFoldersMock: vi.fn(),
   listProjectPhotoFilesMock: vi.fn(),
@@ -20,6 +20,7 @@ const { listProjectFilesMock, listPhotoProjectFoldersMock, listProjectPhotoFiles
   uploadProjectFileMock: vi.fn(),
   uploadProjectPhotoFileMock: vi.fn(),
   deleteDriveItemMock: vi.fn(),
+  moveDriveItemToFolderMock: vi.fn(),
   downloadDeletionLogMock: vi.fn(),
   uploadDeletionLogMock: vi.fn(),
   deleteProjectFolderFromStateMock: vi.fn(),
@@ -37,6 +38,7 @@ vi.mock('@/lib/oneDrive', async (importOriginal) => ({
   uploadProjectFile: uploadProjectFileMock,
   uploadProjectPhotoFile: uploadProjectPhotoFileMock,
   deleteDriveItem: deleteDriveItemMock,
+  moveDriveItemToFolder: moveDriveItemToFolderMock,
   downloadDeletionLog: downloadDeletionLogMock,
   uploadDeletionLog: uploadDeletionLogMock,
   deleteProjectFolderFromState: deleteProjectFolderFromStateMock,
@@ -54,6 +56,7 @@ describe('OneDrive and team project identity', () => {
     uploadProjectFileMock.mockReset();
     uploadProjectPhotoFileMock.mockReset().mockResolvedValue(undefined);
     deleteDriveItemMock.mockReset().mockResolvedValue(undefined);
+    moveDriveItemToFolderMock.mockReset().mockResolvedValue({ id: 'moved-photo' });
     downloadDeletionLogMock.mockReset().mockResolvedValue({});
     uploadDeletionLogMock.mockReset().mockResolvedValue({ id: 'deletion-log' });
     deleteProjectFolderFromStateMock.mockReset().mockResolvedValue(undefined);
@@ -308,7 +311,96 @@ describe('OneDrive and team project identity', () => {
     expect(stored?.areas[0].locations[0].items[0].checkpoints[0].photos[0].imageData).toBe(imageData);
     expect(stored?.oneDriveFolderName).toBeTruthy();
     expect(mediaWrites).toHaveLength(0);
-    expect(uploadProjectPhotoFileMock).not.toHaveBeenCalled();
+    expect(uploadProjectPhotoFileMock).toHaveBeenCalledWith(
+      'test-token', `Photo-project_${project.id}`, expect.stringContaining(checkpoint.photos[0].id),
+      expect.any(Blob), false
+    );
+  });
+
+  it('separates a personal backup from a mixed folder after verifying its photos', async () => {
+    const personal = createProject('Ilse Hoffman House - K&J (Kwassi)');
+    personal.oneDriveFolderName = 'Ilse-Hoffman-House';
+    const area = createArea(personal.id, 'Unit 1', 0);
+    const location = createLocation(area.id, 'Kitchen', 0);
+    const item = createItem(location.id, 'Window', 0);
+    const checkpoint = createCheckpoint(item.id, 'Finish', 0);
+    const photo = createPhotoAttachment(checkpoint.id, 'data:image/jpeg;base64,cGhvdG8=');
+    checkpoint.photos.push(photo);
+    item.checkpoints.push(checkpoint);
+    location.items.push(item);
+    area.locations.push(location);
+    personal.areas.push(area);
+    await saveProjectPreserveTimestamps(personal);
+
+    const historical = createProject('Ilse Hoffman House');
+    const filename = `Ilse-Hoffman-House-K-J-Kwassi_${personal.id}.json`;
+    const oldPhotoName = `Ilse-Hoffman-House-K-J-Kwassi_Unit-1_001_${photo.id}.jpg`;
+    const newFolder = `Ilse-Hoffman-House-K-J-Kwassi_${personal.id}`;
+    const remotePhotos: Array<{ id: string; name: string }> = [];
+    listProjectFilesMock.mockResolvedValue([
+      { id: 'old-personal', name: filename, punchlistPath: `PunchList/Ilse-Hoffman-House/${filename}` },
+      { id: 'historical', name: `Ilse-Hoffman-House_${historical.id}.json`, punchlistPath: `PunchList/Ilse-Hoffman-House/Ilse-Hoffman-House_${historical.id}.json` },
+    ]);
+    downloadProjectFileMock.mockImplementation(async (_token: string, id: string) =>
+      serializeProjectPayload(id === 'historical' ? historical : personal)
+    );
+    listPhotoProjectFoldersMock.mockResolvedValue([{ id: 'old-folder', name: 'Ilse-Hoffman-House' }]);
+    listProjectPhotoFilesMock.mockImplementation(async (_token: string, folder: string) =>
+      folder === newFolder ? remotePhotos : [{ id: 'old-photo', name: oldPhotoName }]
+    );
+    uploadProjectPhotoFileMock.mockImplementation(async (_token: string, _folder: string, name: string) => {
+      remotePhotos.push({ id: 'new-photo', name });
+    });
+    uploadProjectFileMock.mockResolvedValue({ id: 'new-personal' });
+
+    const result = await backupProjectsToOneDrive('test-token', [personal.id]);
+
+    expect(result.failedProjects).toEqual([]);
+    expect(result.backedUpProjectIds).toContain(personal.id);
+    expect(uploadProjectFileMock).toHaveBeenCalledWith(
+      'test-token', newFolder, filename, expect.any(String), false, undefined
+    );
+    expect(moveDriveItemToFolderMock).toHaveBeenCalledWith(
+      'test-token', 'old-photo', `PunchList/${newFolder}/photos/previous`
+    );
+    expect(deleteDriveItemMock).toHaveBeenCalledWith('test-token', 'old-personal');
+    expect(deleteDriveItemMock).not.toHaveBeenCalledWith('test-token', 'historical');
+    expect(uploadProjectPhotoFileMock.mock.invocationCallOrder[0])
+      .toBeLessThan(uploadProjectFileMock.mock.invocationCallOrder[0]);
+    expect(uploadProjectFileMock.mock.invocationCallOrder[0])
+      .toBeLessThan(moveDriveItemToFolderMock.mock.invocationCallOrder[0]);
+    expect((await getProject(personal.id))?.oneDriveFolderName).toBe(newFolder);
+  });
+
+  it('keeps the mixed-folder backup if the new photo cannot be verified', async () => {
+    const personal = createProject('Ilse Hoffman House - K&J (Kwassi)');
+    personal.oneDriveFolderName = 'Ilse-Hoffman-House';
+    const area = createArea(personal.id, 'Unit 1', 0);
+    const location = createLocation(area.id, 'Kitchen', 0);
+    const item = createItem(location.id, 'Window', 0);
+    const checkpoint = createCheckpoint(item.id, 'Finish', 0);
+    checkpoint.photos.push(createPhotoAttachment(checkpoint.id, 'data:image/jpeg;base64,cGhvdG8='));
+    item.checkpoints.push(checkpoint);
+    location.items.push(item);
+    area.locations.push(location);
+    personal.areas.push(area);
+    await saveProjectPreserveTimestamps(personal);
+    const historical = createProject('Ilse Hoffman House');
+    const filename = `Ilse-Hoffman-House-K-J-Kwassi_${personal.id}.json`;
+    listProjectFilesMock.mockResolvedValue([
+      { id: 'old-personal', name: filename, punchlistPath: `PunchList/Ilse-Hoffman-House/${filename}` },
+      { id: 'historical', name: `Ilse-Hoffman-House_${historical.id}.json`, punchlistPath: `PunchList/Ilse-Hoffman-House/Ilse-Hoffman-House_${historical.id}.json` },
+    ]);
+    downloadProjectFileMock.mockResolvedValue(serializeProjectPayload(personal));
+    listPhotoProjectFoldersMock.mockResolvedValue([{ id: 'old-folder', name: 'Ilse-Hoffman-House' }]);
+    listProjectPhotoFilesMock.mockResolvedValue([]);
+
+    const result = await backupProjectsToOneDrive('test-token', [personal.id]);
+
+    expect(result.failedProjects?.[0]?.message).toContain('Could not verify every photo');
+    expect(uploadProjectFileMock).not.toHaveBeenCalled();
+    expect(deleteDriveItemMock).not.toHaveBeenCalled();
+    expect((await getProject(personal.id))?.oneDriveFolderName).toBe('Ilse-Hoffman-House');
   });
 
   it('finishes another personal backup when one project upload fails', async () => {

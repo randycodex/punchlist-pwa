@@ -143,10 +143,15 @@ export default function AreaGroupList({ areas, renderArea, unitFloorNumbering, p
             {!isCollapsed && (
               <div id={contentId} className="list-stack mt-2">
                 {group.key === 'units' ? groupAreasByFloor(groupedAreas, unitFloorNumbering, projectLevelRange).map(({ floor, areas: floorAreas }) => (
-                  <details key={floor ?? '__unknown'} className="group/floor inspection-location-surface overflow-hidden rounded-[1.7rem]">
+                  <details key={floor ?? '__unknown'} className={`group/floor inspection-location-surface overflow-hidden rounded-[1.7rem] ${onSelectAreas && floorAreas.some((area) => selectedAreaIds?.has(area.id)) ? 'ring-2 ring-orange-500/70' : ''}`}>
                     <summary className="flex min-h-16 w-full cursor-pointer list-none items-center justify-between gap-4 px-4 py-4 text-left transition hover:bg-black/[0.02] dark:hover:bg-white/[0.04] [&::-webkit-details-marker]:hidden">
                       <span className="text-[1.02rem] font-semibold tracking-[-0.02em] text-gray-900 dark:text-white">{floor === null ? 'Floor not set' : floor === 'Roof' ? 'Roof' : `Floor ${floor}`}</span>
                       <span className="flex shrink-0 items-center gap-2 text-xs font-medium text-gray-500 dark:text-gray-400">
+                        {onSelectAreas && floorAreas.some((area) => selectedAreaIds?.has(area.id)) && (
+                          <span className="rounded-full bg-orange-500/15 px-2 py-1 font-semibold text-orange-700 dark:text-orange-300">
+                            {floorAreas.filter((area) => selectedAreaIds?.has(area.id)).length} selected
+                          </span>
+                        )}
                         {floorAreas.length} {floorAreas.length === 1 ? 'area' : 'areas'}
                         <ChevronRight aria-hidden="true" className="h-4 w-4 group-open/floor:hidden" />
                         <ChevronDown aria-hidden="true" className="hidden h-4 w-4 group-open/floor:block" />

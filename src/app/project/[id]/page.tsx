@@ -1719,7 +1719,7 @@ export default function ProjectDetailPage() {
                 </div>
               </div>
             ) : areaViewMode === 'grouped' ? (
-              <AreaGroupList selectedAreaIds={selectedAreaIds} onSelectAreas={deleteMode ? selectAreaGroup : undefined} unitFloorNumbering={project.unitFloorNumbering} projectLevelRange={areaSearch.trim() ? null : project} areas={visibleAreas} renderArea={(area, nested) => {
+              <AreaGroupList selectedAreaIds={selectedAreaIds} onSelectAreas={deleteMode ? selectAreaGroup : undefined} unitFloorNumbering={project.unitFloorNumbering} projectLevelRange={areaSearch.trim() || showOnlyAreaIssues ? null : project} areas={visibleAreas} renderArea={(area, nested) => {
               const metric = areaMetrics.get(area.id);
               const isSelected = selectedAreaIds.has(area.id);
               return (

@@ -2099,7 +2099,7 @@ export default function AreaDetailPage() {
                 disabled={releasingAreaClaim}
                 className="h-10 shrink-0 rounded-xl bg-emerald-700 px-3 text-xs font-semibold text-white disabled:opacity-60"
               >
-                {releasingAreaClaim ? 'Finishing…' : 'Done · release'}
+                {releasingAreaClaim ? 'Finishing…' : 'Release'}
               </button>
             )}
 
