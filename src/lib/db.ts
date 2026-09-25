@@ -1012,6 +1012,18 @@ export async function saveProjectPreserveTimestamps(project: Project): Promise<v
   await runLocalPersistence(() => saveProjectInternal(project, { touch: false }));
 }
 
+/** Capture before loading a project for a network operation. Never log this token. */
+export async function captureLocalProjectSaveToken(projectId: string): Promise<string | null> {
+  const db = await getDB();
+  const current = await db.get('projects', projectId);
+  return current ? JSON.stringify(current) : null;
+}
+
+/** Apply downloaded data only if no local project write changed its source. */
+export async function saveDownloadedProjectIfUnchanged(project: Project, expectedToken: string | null): Promise<boolean> {
+  return runLocalPersistence(() => saveProjectInternal(project, { touch: false, expectedToken }));
+}
+
 // Read the latest stored record inside the write transaction. A note or photo
 // save must not replace another checkpoint's edits with an older React snapshot.
 export async function saveCheckpointInspectionChange(
@@ -1083,7 +1095,7 @@ export async function saveCheckpointInspectionChange(
   }, `checkpoint:${projectId}:${checkpointId}`);
 }
 
-async function saveProjectInternal(project: Project, options: { touch: boolean }): Promise<void> {
+async function saveProjectInternal(project: Project, options: { touch: boolean; expectedToken?: string | null }): Promise<boolean> {
   const db = await getDB();
   if (options.touch) {
     project.updatedAt = new Date();
@@ -1094,6 +1106,14 @@ async function saveProjectInternal(project: Project, options: { touch: boolean }
   const projectStore = tx.objectStore('projects');
   const mediaStore = tx.objectStore('checkpointMedia');
   const drawingStore = tx.objectStore('elevationDrawings');
+
+  if (options.expectedToken !== undefined) {
+    const current = await projectStore.get(project.id);
+    if ((current ? JSON.stringify(current) : null) !== options.expectedToken) {
+      await tx.done;
+      return false;
+    }
+  }
 
   await projectStore.put(storedProject);
   if (options.touch) {
@@ -1144,6 +1164,7 @@ async function saveProjectInternal(project: Project, options: { touch: boolean }
       .filter((operation): operation is Promise<[string, string]> => operation !== null)
   );
   await tx.done;
+  return true;
 }
 
 export async function deleteProject(id: string): Promise<void> {

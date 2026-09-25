@@ -6,6 +6,7 @@ import {
   saveCheckpointInspectionChange, saveAreaNotes, deleteProject,
   acknowledgePublishedSharedProject, getPendingSharedAreaSyncsForProject,
   getPendingSharedProjectMetadataSyncForProject, saveProjectMetadataWithSharedSync,
+  captureLocalProjectSaveToken, saveDownloadedProjectIfUnchanged,
 } from '@/lib/db';
 import { mergeProjects } from '@/lib/oneDriveSync';
 import { parseProjectPayload, serializeProjectPayload } from '@/lib/projectPayload';
@@ -22,6 +23,25 @@ function fixture() {
 }
 
 describe('backup acknowledgements and attachment identity', () => {
+  it('rejects a downloaded replacement after a local note save, including media deletion', async () => {
+    const { project, area, checkpoint } = fixture();
+    const photo = createPhotoAttachment(checkpoint.id, 'data:image/jpeg;base64,YQ==');
+    checkpoint.photos.push(photo);
+    await saveProject(project);
+    const token = await captureLocalProjectSaveToken(project.id);
+    const downloaded = structuredClone(project);
+    downloaded.areas[0].locations[0].items[0].checkpoints[0].photos = [];
+    await saveAreaNotes(project.id, area.id, 'Local note during download');
+    expect(await saveDownloadedProjectIfUnchanged(downloaded, token)).toBe(false);
+    const kept = (await getProject(project.id))!;
+    expect(kept.areas[0].notes).toBe('Local note during download');
+    expect(kept.areas[0].locations[0].items[0].checkpoints[0].photos[0].imageData).toBe(photo.imageData);
+    const latest = await captureLocalProjectSaveToken(project.id);
+    downloaded.areas[0].notes = kept.areas[0].notes;
+    expect(await saveDownloadedProjectIfUnchanged(downloaded, latest)).toBe(true);
+    expect((await getProject(project.id))!.areas[0].locations[0].items[0].checkpoints[0].photos).toHaveLength(0);
+  });
+
   it('preserves and queues edits made while the first shared baseline uploads', async () => {
     const { project, area } = fixture();
     project.sharedProjectId = crypto.randomUUID();

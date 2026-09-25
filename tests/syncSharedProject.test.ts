@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   getPendingPull: vi.fn(),
   pushChanges: vi.fn(),
   releaseClaims: vi.fn(),
+  saveDownloaded: vi.fn(),
 }));
 
 vi.mock('@/lib/db', () => ({
@@ -17,7 +18,8 @@ vi.mock('@/lib/db', () => ({
   getPendingSharedAreaSyncsForProject: mocks.getPendingAreas,
   getPendingSharedProjectMetadataSyncForProject: mocks.getPendingMetadata,
   acknowledgePublishedSharedProject: vi.fn(),
-  saveProjectPreserveTimestamps: vi.fn(),
+  captureLocalProjectSaveToken: vi.fn(async () => 'original-local-copy'),
+  saveDownloadedProjectIfUnchanged: mocks.saveDownloaded,
 }));
 vi.mock('@/lib/collaboration', () => ({
   getSharedProjectSnapshotMetadata: mocks.getMetadata,
@@ -52,6 +54,7 @@ describe('selected shared project sync', () => {
     mocks.getMetadata.mockResolvedValue({ publishedAt: '2026-01-01T12:00:00.000Z' });
     mocks.pushChanges.mockResolvedValue({ remainingAreaCount: 0, metadataRemaining: false });
     mocks.releaseClaims.mockResolvedValue({ releasedCount: 2 });
+    mocks.saveDownloaded.mockResolvedValue(true);
   });
 
   it('pushes and releases only the selected team project', async () => {
@@ -76,6 +79,16 @@ describe('selected shared project sync', () => {
   it('does not report success when a new queued edit arrives during publication', async () => {
     mocks.getPendingAreas.mockResolvedValue([{ areaId: 'edited-during-upload' }]);
     await expect(syncSharedProject(project.id, 'user-1')).resolves.toMatchObject({ status: 'pending', message: expect.stringContaining('New local changes') });
+    expect(mocks.releaseClaims).not.toHaveBeenCalled();
+  });
+
+  it('keeps local work when it changes during an otherwise clean team download', async () => {
+    mocks.getMetadata.mockResolvedValue({ publishedAt: '2026-01-01T12:00:01.000Z' });
+    mocks.getPendingPull.mockResolvedValue({ resolutionProject: project, preservedLocalAreaCount: 0, preservedLocalProjectMetadata: false, hasNewerLocalChanges: false });
+    mocks.saveDownloaded.mockResolvedValue(false);
+    await expect(syncSharedProject(project.id, 'user-1')).resolves.toMatchObject({ status: 'pending', message: expect.stringContaining('downloading') });
+    expect(mocks.saveDownloaded).toHaveBeenCalledWith(project, 'original-local-copy');
+    expect(mocks.pushChanges).not.toHaveBeenCalled();
     expect(mocks.releaseClaims).not.toHaveBeenCalled();
   });
 

@@ -4,7 +4,8 @@ import {
   getPendingSharedAreaSyncsForProject,
   getPendingSharedProjectMetadataSyncForProject,
   getProject,
-  saveProjectPreserveTimestamps,
+  captureLocalProjectSaveToken,
+  saveDownloadedProjectIfUnchanged,
 } from '@/lib/db';
 import {
   getSharedProjectSnapshotMetadata,
@@ -44,6 +45,7 @@ async function syncSharedProjectOnce(
   userId: string,
   options: { localCopiesAlreadyChecked?: boolean }
 ): Promise<SharedProjectSyncResult> {
+  const sourceToken = await captureLocalProjectSaveToken(localProjectId);
   let project = await getProject(localProjectId);
   if (!project?.sharedProjectId) throw new Error('This project is not linked to team data.');
   const sharedProjectId = project.sharedProjectId;
@@ -63,7 +65,9 @@ async function syncSharedProjectOnce(
     if (pendingAreas.length > 0 || pull.hasNewerLocalChanges || pull.preservedLocalAreaCount > 0 || pull.preservedLocalProjectMetadata) {
       return { status: 'review', pull };
     }
-    await saveProjectPreserveTimestamps(pull.resolutionProject);
+    if (!await saveDownloadedProjectIfUnchanged(pull.resolutionProject, sourceToken)) {
+      return { status: 'pending', message: 'Local work changed while team updates were downloading. Your current copy was kept. Sync this project again to review the latest changes.' };
+    }
     project = pull.resolutionProject;
   }
 

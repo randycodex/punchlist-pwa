@@ -42,6 +42,10 @@ Full-project publication previously saved the uploaded in-memory project back ov
 
 Regression coverage reproduces a note and project rename during the first baseline upload, unchanged baseline acceptance, deletion during upload, and newly queued work before release. The suite passes 327 tests in 70 files; lint and the production build including TypeScript pass. Hosted network-race acceptance remains outstanding.
 
+### Automatic download race
+
+Automatic shared-project sync now captures the durable local state before its network work and checks that state inside the replacement write transaction. A changed local record prevents the downloaded project and its media from replacing current work; the result remains pending and no locks are released. Tests prove that a note and photo survive a rejected stale download and that an unchanged source permits replacement. This guard currently covers the automatic pull inside selected-project sync; other explicit restore/import paths still require separate review. Verification: 329 tests in 70 files, lint, and production build including TypeScript passed.
+
 ## Coordinated rollout required
 
 1. Back up the hosted database and record the current app release. Inspect existing grants, attachment paths, and active claims for drift from the migration chain.
