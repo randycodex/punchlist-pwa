@@ -1,5 +1,7 @@
 'use client';
 
+import { acknowledgePublishedSharedProject } from '@/lib/db';
+
 import AreaListReturnPosition from '@/features/projects/AreaListReturnPosition';
 
 import ReportContentChoice from '@/components/inspection/ReportContentChoice';
@@ -2237,7 +2239,7 @@ export default function ProjectsPage() {
         showMessage(formatQueuedSharedPushMessage(result));
       } else {
         const result = await publishSharedProjectSnapshot(loadedProject, collaborationAuth.user.id);
-        await saveProjectMetadataOnly(loadedProject, { touch: false });
+        await acknowledgePublishedSharedProject(loadedProject);
         clearSharedUpdateAvailable(loadedProject.id);
         setProjects((prev) =>
           prev.map((entry) =>
@@ -2447,7 +2449,7 @@ export default function ProjectsPage() {
         await syncSharedProjectMetadataNow(result.project);
         const publishResult = await publishSharedProjectSnapshot(result.project, collaborationAuth.user.id);
         publishedAt = publishResult.publishedAt;
-        await saveProjectMetadataOnly(result.project, { touch: false });
+        await acknowledgePublishedSharedProject(result.project);
         clearSharedUpdateAvailable(result.project.id);
       }
       setProjects((prev) =>

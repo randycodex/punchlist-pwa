@@ -36,6 +36,12 @@ Implementation and verification are local. No hosted database migrations, Produc
 - Added legacy drawing-byte upgrade coverage and database tests denying unrelated authenticated users project/media access and guarded operations.
 - Read-only hosted inspection found one Supabase project (`punchlist`) and no staging branches. Production's migration history stops at `20260923160000`; the earlier `20260923200000_owner_area_lock_recovery.sql` is also pending. There are **four pending migrations**, including that prerequisite and the three new hardening migrations. No hosted migrations were applied.
 
+### Publish acknowledgement race
+
+Full-project publication previously saved the uploaded in-memory project back over the durable local record. Edits made while attachment/network work was running could therefore disappear. All five publish acknowledgement call sites now use a transaction that updates only accepted collaboration markers, preserves current local contents, and queues area/metadata differences for another send. An acknowledgement rejects a removed or relinked local project instead of resurrecting it. Final sync verification also checks for new queue records before reporting success or releasing locks.
+
+Regression coverage reproduces a note and project rename during the first baseline upload, unchanged baseline acceptance, deletion during upload, and newly queued work before release. The suite passes 327 tests in 70 files; lint and the production build including TypeScript pass. Hosted network-race acceptance remains outstanding.
+
 ## Coordinated rollout required
 
 1. Back up the hosted database and record the current app release. Inspect existing grants, attachment paths, and active claims for drift from the migration chain.

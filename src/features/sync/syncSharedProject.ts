@@ -1,8 +1,9 @@
+import { acknowledgePublishedSharedProject } from '@/lib/db';
 import {
   getAllProjects,
   getPendingSharedAreaSyncsForProject,
+  getPendingSharedProjectMetadataSyncForProject,
   getProject,
-  saveProjectMetadataOnly,
   saveProjectPreserveTimestamps,
 } from '@/lib/db';
 import {
@@ -68,7 +69,7 @@ async function syncSharedProjectOnce(
 
   if (!project.sharedSnapshotPublishedAt) {
     await publishSharedProjectSnapshot(project, userId);
-    await saveProjectMetadataOnly(project, { touch: false });
+    await acknowledgePublishedSharedProject(project);
   } else {
     const pushed = await pushQueuedSharedChanges(localProjectId);
     if (pushed.remainingAreaCount > 0 || pushed.metadataRemaining) {
@@ -80,6 +81,16 @@ async function syncSharedProjectOnce(
   }
 
   const verifiedProject = await getProject(localProjectId);
+  if (!verifiedProject || verifiedProject.deletedAt || verifiedProject.sharedProjectId !== sharedProjectId) {
+    return { status: 'pending', message: 'The local project or team link changed during sync. No area locks were released.' };
+  }
+  const [remainingAreas, remainingMetadata] = await Promise.all([
+    getPendingSharedAreaSyncsForProject(localProjectId),
+    getPendingSharedProjectMetadataSyncForProject(localProjectId),
+  ]);
+  if (remainingAreas.length || remainingMetadata) {
+    return { status: 'pending', message: 'New local changes arrived during sync. Sync this project again to send them before releasing its areas.' };
+  }
   const latestMetadata = await getSharedProjectSnapshotMetadata(sharedProjectId);
   if (!latestMetadata) {
     return { status: 'pending', message: 'Could not verify the team copy after sending. Its areas stayed locked; sync this project again.' };

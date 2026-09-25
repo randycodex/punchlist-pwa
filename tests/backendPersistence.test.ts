@@ -4,6 +4,8 @@ import {
   createLocation, createItem, createCheckpoint, createPhotoAttachment, getDurablePendingSyncState,
   getProject, persistDurablePendingSyncState, saveProject, saveProjectPreserveTimestamps,
   saveCheckpointInspectionChange, saveAreaNotes, deleteProject,
+  acknowledgePublishedSharedProject, getPendingSharedAreaSyncsForProject,
+  getPendingSharedProjectMetadataSyncForProject, saveProjectMetadataWithSharedSync,
 } from '@/lib/db';
 import { mergeProjects } from '@/lib/oneDriveSync';
 import { parseProjectPayload, serializeProjectPayload } from '@/lib/projectPayload';
@@ -20,6 +22,40 @@ function fixture() {
 }
 
 describe('backup acknowledgements and attachment identity', () => {
+  it('preserves and queues edits made while the first shared baseline uploads', async () => {
+    const { project, area } = fixture();
+    project.sharedProjectId = crypto.randomUUID();
+    await saveProject(project);
+    const uploading = structuredClone(project);
+    await saveAreaNotes(project.id, area.id, 'Typed while uploading');
+    const edited = (await getProject(project.id))!;
+    edited.projectName = 'Renamed while uploading';
+    await saveProjectMetadataWithSharedSync(edited);
+    uploading.sharedSnapshotPublishedAt = new Date();
+    uploading.sharedBaselinePublishedAt = uploading.sharedSnapshotPublishedAt;
+    await acknowledgePublishedSharedProject(uploading);
+    const saved = (await getProject(project.id))!;
+    expect(saved.projectName).toBe('Renamed while uploading');
+    expect(saved.areas[0].notes).toBe('Typed while uploading');
+    expect(saved.sharedBaselinePublishedAt).toEqual(uploading.sharedBaselinePublishedAt);
+    expect(await getPendingSharedAreaSyncsForProject(project.id)).toEqual([expect.objectContaining({ areaId: area.id, baseVersion: 0 })]);
+    expect(await getPendingSharedProjectMetadataSyncForProject(project.id)).toBeDefined();
+  });
+
+  it('acknowledges an unchanged baseline without queuing edits or resurrecting a removed project', async () => {
+    const { project } = fixture();
+    project.sharedProjectId = crypto.randomUUID();
+    await saveProject(project);
+    project.sharedSnapshotPublishedAt = new Date();
+    project.sharedBaselinePublishedAt = project.sharedSnapshotPublishedAt;
+    await acknowledgePublishedSharedProject(project);
+    expect(await getPendingSharedAreaSyncsForProject(project.id)).toHaveLength(0);
+    expect(await getPendingSharedProjectMetadataSyncForProject(project.id)).toBeUndefined();
+    await deleteProject(project.id);
+    await expect(acknowledgePublishedSharedProject(project)).rejects.toThrow('removed');
+    expect(await getProject(project.id)).toBeUndefined();
+  });
+
   it('cannot clear a newer save or a different project through an older UI mirror', async () => {
     const first = createProject('First'); const second = createProject('Second');
     await saveProject(first);

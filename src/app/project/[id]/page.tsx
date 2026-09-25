@@ -1,5 +1,7 @@
 'use client';
 
+import { acknowledgePublishedSharedProject } from '@/lib/db';
+
 import AreaListReturnPosition from '@/features/projects/AreaListReturnPosition';
 
 import { applyCheckpointRules } from '@/lib/checkpointRules';
@@ -1025,7 +1027,7 @@ export default function ProjectDetailPage() {
         showMessage(formatQueuedSharedPushMessage(result));
       } else {
         const result = await publishSharedProjectSnapshot(loadedProject, collaborationAuth.user.id);
-        await saveProjectMetadataOnly(loadedProject, { touch: false });
+        await acknowledgePublishedSharedProject(loadedProject);
         clearSharedUpdateAvailable(loadedProject.id);
         setProject((currentProject) =>
           currentProject?.id === loadedProject.id
@@ -1224,7 +1226,7 @@ export default function ProjectDetailPage() {
         await syncSharedProjectMetadataNow(result.project);
         const publishResult = await publishSharedProjectSnapshot(result.project, collaborationAuth.user.id);
         publishedAt = publishResult.publishedAt;
-        await saveProjectMetadataOnly(result.project, { touch: false });
+        await acknowledgePublishedSharedProject(result.project);
         clearSharedUpdateAvailable(result.project.id);
       }
       setProject({ ...result.project, areas: [...result.project.areas] });

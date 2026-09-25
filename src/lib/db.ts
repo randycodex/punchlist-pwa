@@ -669,6 +669,55 @@ export async function saveProject(project: Project): Promise<void> {
   await runLocalPersistence(() => saveProjectInternal(project, { touch: true }));
 }
 
+/** A network acknowledgement must never replace edits made during its upload. */
+export async function acknowledgePublishedSharedProject(published: Project): Promise<void> {
+  if (!published.sharedProjectId || !published.sharedBaselinePublishedAt) {
+    throw new Error('The published project has no confirmed team baseline.');
+  }
+  const baseline = published.sharedBaselinePublishedAt;
+  await runLocalPersistence(async () => {
+    const db = await getDB();
+    const tx = db.transaction(['projects', 'sharedAreaSyncQueue', 'sharedProjectMetadataSyncQueue'], 'readwrite');
+    try {
+      const current = await tx.objectStore('projects').get(published.id);
+      if (!current || current.deletedAt || current.sharedProjectId !== published.sharedProjectId) {
+        throw new Error('The local project was removed or its team link changed during publishing.');
+      }
+      const sent = cloneProjectWithoutMediaPayload(published);
+      const sentAreas = new Map(sent.areas.map((area) => [area.id, area]));
+      if ((current.sharedBaselinePublishedAt?.getTime() ?? 0) > baseline.getTime()) {
+        await tx.done;
+        return;
+      }
+      current.sharedBaselinePublishedAt = baseline;
+      if ((current.sharedSnapshotPublishedAt?.getTime() ?? 0) < baseline.getTime()) current.sharedSnapshotPublishedAt = baseline;
+      if ((current.sharedMetadataVersion ?? 0) < (published.sharedMetadataVersion ?? 0)) {
+        current.sharedMetadataVersion = published.sharedMetadataVersion;
+        current.sharedMetadataPublishedAt = published.sharedMetadataPublishedAt;
+      }
+      for (const area of current.areas) {
+        const sentArea = sentAreas.get(area.id);
+        if (JSON.stringify(area) !== JSON.stringify(sentArea)) {
+          await queueSavedArea(tx.objectStore('sharedAreaSyncQueue'), current, area);
+        }
+      }
+      const metadataKeys = ['projectName', 'address', 'date', 'inspector', 'gcName', 'gcSignoff', 'checkpointRules', 'unitFloorNumbering', 'facadeLevelStart', 'facadeLevelEnd'] as const;
+      if (metadataKeys.some((key) => JSON.stringify(current[key]) !== JSON.stringify(sent[key]))) {
+        await putPendingSharedProjectMetadataSyncInStore(tx.objectStore('sharedProjectMetadataSyncQueue'), {
+          localProjectId: current.id, sharedProjectId: current.sharedProjectId!, baseVersion: current.sharedMetadataVersion ?? 0,
+        });
+      }
+      await tx.objectStore('projects').put(current);
+      await tx.done;
+    } catch (error) {
+      try { tx.abort(); } catch {}
+      await tx.done.catch(() => {});
+      throw error;
+    }
+  });
+  reportSharedSyncQueueChanged();
+}
+
 export async function saveProjectMetadataOnly(
   project: Project,
   options: { touch?: boolean } = {}

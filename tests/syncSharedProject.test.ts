@@ -4,6 +4,7 @@ const mocks = vi.hoisted(() => ({
   getAllProjects: vi.fn(),
   getProject: vi.fn(),
   getPendingAreas: vi.fn(),
+  getPendingMetadata: vi.fn(),
   getMetadata: vi.fn(),
   getPendingPull: vi.fn(),
   pushChanges: vi.fn(),
@@ -14,7 +15,8 @@ vi.mock('@/lib/db', () => ({
   getAllProjects: mocks.getAllProjects,
   getProject: mocks.getProject,
   getPendingSharedAreaSyncsForProject: mocks.getPendingAreas,
-  saveProjectMetadataOnly: vi.fn(),
+  getPendingSharedProjectMetadataSyncForProject: mocks.getPendingMetadata,
+  acknowledgePublishedSharedProject: vi.fn(),
   saveProjectPreserveTimestamps: vi.fn(),
 }));
 vi.mock('@/lib/collaboration', () => ({
@@ -45,6 +47,8 @@ describe('selected shared project sync', () => {
     Object.values(mocks).forEach((mock) => mock.mockReset());
     mocks.getProject.mockResolvedValue(project);
     mocks.getAllProjects.mockResolvedValue([project]);
+    mocks.getPendingAreas.mockResolvedValue([]);
+    mocks.getPendingMetadata.mockResolvedValue(undefined);
     mocks.getMetadata.mockResolvedValue({ publishedAt: '2026-01-01T12:00:00.000Z' });
     mocks.pushChanges.mockResolvedValue({ remainingAreaCount: 0, metadataRemaining: false });
     mocks.releaseClaims.mockResolvedValue({ releasedCount: 2 });
@@ -66,6 +70,18 @@ describe('selected shared project sync', () => {
 
     await expect(syncSharedProject(project.id, 'user-1')).resolves.toEqual({ status: 'review', pull });
     expect(mocks.pushChanges).not.toHaveBeenCalled();
+    expect(mocks.releaseClaims).not.toHaveBeenCalled();
+  });
+
+  it('does not report success when a new queued edit arrives during publication', async () => {
+    mocks.getPendingAreas.mockResolvedValue([{ areaId: 'edited-during-upload' }]);
+    await expect(syncSharedProject(project.id, 'user-1')).resolves.toMatchObject({ status: 'pending', message: expect.stringContaining('New local changes') });
+    expect(mocks.releaseClaims).not.toHaveBeenCalled();
+  });
+
+  it('does not release locks after the local project disappears during sync', async () => {
+    mocks.getProject.mockResolvedValueOnce(project).mockResolvedValueOnce(undefined);
+    await expect(syncSharedProject(project.id, 'user-1')).resolves.toMatchObject({ status: 'pending', message: expect.stringContaining('team link changed') });
     expect(mocks.releaseClaims).not.toHaveBeenCalled();
   });
 
