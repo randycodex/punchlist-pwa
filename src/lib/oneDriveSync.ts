@@ -1404,10 +1404,12 @@ export async function syncProjectsWithOneDrive(token: string, options: SyncOptio
       return;
     }
     const localProject = localProjectMap.get(projectId);
+    const sourceToken = localProject ? await captureLocalProjectSaveToken(projectId) : null;
     const remoteProject = await downloadRemoteProject(token, remote.id);
     if (!remoteProject) {
       return;
     }
+    if (remoteProject.id !== projectId) throw new Error('The OneDrive backup ID does not match its filename.');
     const remoteProjectWithFolder = withProjectFolderName(remoteProject, remoteFolderName);
     const remoteUpdatedAt = getProjectUpdatedAt(remoteProjectWithFolder);
     remoteProjectUpdatedAtByItemId.set(remote.id, remoteUpdatedAt);
@@ -1421,7 +1423,9 @@ export async function syncProjectsWithOneDrive(token: string, options: SyncOptio
 
     if (!localProject) {
       const hydratedRemoteProject = await hydrateRemoteProject();
-      await saveProjectPreserveTimestamps(hydratedRemoteProject);
+      if (!await saveDownloadedProjectIfUnchanged(hydratedRemoteProject, sourceToken)) {
+        throw new Error('Local work changed while OneDrive was downloading. Your current project was kept. Retry sync to review the latest changes.');
+      }
       localProjectMap.set(projectId, hydratedRemoteProject);
       return;
     }
@@ -1433,7 +1437,9 @@ export async function syncProjectsWithOneDrive(token: string, options: SyncOptio
       localUpdatedAt <= staleDeleteUpdatedAt + CLOCK_SKEW_TOLERANCE_MS
     ) {
       const hydratedRemoteProject = await hydrateRemoteProject();
-      await saveProjectPreserveTimestamps(hydratedRemoteProject);
+      if (!await saveDownloadedProjectIfUnchanged(hydratedRemoteProject, sourceToken)) {
+        throw new Error('Local work changed while OneDrive was downloading. Your current project was kept. Retry sync to review the latest changes.');
+      }
       localProjectMap.set(projectId, hydratedRemoteProject);
       return;
     }
@@ -1448,7 +1454,9 @@ export async function syncProjectsWithOneDrive(token: string, options: SyncOptio
         remoteFolderName ?? undefined,
         remoteIndex
       );
-      await saveProjectPreserveTimestamps(hydratedMergedProject);
+      if (!await saveDownloadedProjectIfUnchanged(hydratedMergedProject, sourceToken)) {
+        throw new Error('Local work changed while OneDrive was downloading. Your current project was kept. Retry sync to review the latest changes.');
+      }
       localProjectMap.set(projectId, hydratedMergedProject);
     }
     if (!projectsEqual(mergedProject, remoteProjectWithFolder)) {
@@ -1483,7 +1491,7 @@ export async function syncProjectsWithOneDrive(token: string, options: SyncOptio
       return;
     }
     const fullProject = withProjectFolderName(projectForUpload, targetFolderName);
-    await saveProjectPreserveTimestamps(fullProject);
+    await saveProjectOneDriveFolderName(fullProject.id, targetFolderName);
 
     const localUpdatedAt = getProjectUpdatedAt(project);
     const remoteUpdatedAt = await getRemoteProjectPayloadUpdatedAt(
@@ -1574,7 +1582,7 @@ export async function pushProjectsToOneDrive(token: string, projectIds: string[]
     }
 
     const localProjectWithFolder = withProjectFolderName(localProject, targetFolderName);
-    await saveProjectPreserveTimestamps(localProjectWithFolder);
+    await saveProjectOneDriveFolderName(localProjectWithFolder.id, targetFolderName);
 
     if (freshnessComparison === 0) {
       await syncProjectStorageToOneDriveState(token, localProjectWithFolder, remoteEntries, targetFolderName, remoteIndex);

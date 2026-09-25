@@ -64,6 +64,10 @@ Missing-project recovery now inserts only if the local ID remains absent. Explic
 
 Import-surface clarification: source inspection found CSV/TSV unit import in `AreaEditorModal`, but no general JSON project-file import UI. Full-project payload imports occur through OneDrive and team snapshots and use the validated payload parser. The older exported full-sync entry points remain a separate review item; ordinary current personal backup uses the newer merge/backup/recovery functions.
 
+### Older sync entry points
+
+Source search found no current UI callers of `syncProjectsWithOneDrive`, `pushProjectsToOneDrive`, or their recovery wrapper. Their folder-name persistence now uses the existing narrow field update instead of replacing the project. Full-sync download branches also use stale-source checks and reject filename/payload ID mismatch. Tests confirm a newly created local project survives a legacy download and no upload starts after that rejection; folder bookkeeping preserves a newer note and its pending backup marker. Verification: 338 tests in 70 files, lint, and production build including TypeScript passed. The only remaining unconditional whole-project save in OneDrive sync creates a separately identified recovery copy.
+
 ## Coordinated rollout required
 
 1. Back up the hosted database and record the current app release. Inspect existing grants, attachment paths, and active claims for drift from the migration chain.

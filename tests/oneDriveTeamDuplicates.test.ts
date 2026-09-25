@@ -46,9 +46,21 @@ vi.mock('@/lib/oneDrive', async (importOriginal) => ({
   deleteProjectPhotoFolder: deleteProjectPhotoFolderMock,
 }));
 
-import { backupProjectsToOneDrive, markProjectDeleted, mergePersonalProjectsFromOneDrive, restoreMissingProjectsFromOneDrive, hydrateProjectMediaFromOneDrive } from '@/lib/oneDriveSync';
+import { backupProjectsToOneDrive, markProjectDeleted, mergePersonalProjectsFromOneDrive, restoreMissingProjectsFromOneDrive, hydrateProjectMediaFromOneDrive, syncProjectsWithOneDrive } from '@/lib/oneDriveSync';
 
 describe('OneDrive and team project identity', () => {
+  it('guards the older full-sync entry point against a project appearing during download', async () => {
+    const backup = createProject('Legacy download race');
+    listProjectFilesMock.mockResolvedValue([{ id: 'legacy-download', name: `Legacy-download-race_${backup.id}.json` }]);
+    downloadProjectFileMock.mockImplementationOnce(async () => {
+      await saveProjectPreserveTimestamps({ ...backup, projectName: 'Newer local copy' });
+      return serializeProjectPayload(backup);
+    });
+    await expect(syncProjectsWithOneDrive('test-token')).rejects.toThrow('Local work changed');
+    expect((await getProject(backup.id))!.projectName).toBe('Newer local copy');
+    expect(uploadProjectFileMock).not.toHaveBeenCalled();
+  });
+
   it('rejects a personal backup whose payload ID disagrees with its filename', async () => {
     const local = createProject('Expected project');
     await saveProjectPreserveTimestamps(local);

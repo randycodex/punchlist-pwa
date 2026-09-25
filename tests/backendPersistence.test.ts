@@ -8,6 +8,7 @@ import {
   getPendingSharedProjectMetadataSyncForProject, saveProjectMetadataWithSharedSync,
   captureLocalProjectSaveToken, saveDownloadedProjectIfUnchanged,
   saveReviewedSharedProject,
+  saveProjectOneDriveFolderName,
 } from '@/lib/db';
 import { mergeProjects } from '@/lib/oneDriveSync';
 import { parseProjectPayload, serializeProjectPayload } from '@/lib/projectPayload';
@@ -24,6 +25,17 @@ function fixture() {
 }
 
 describe('backup acknowledgements and attachment identity', () => {
+  it('records a cloud folder without replacing newer inspection work', async () => {
+    const { project, area } = fixture();
+    await saveProject(project);
+    await saveAreaNotes(project.id, area.id, 'Saved during cloud lookup');
+    await saveProjectOneDriveFolderName(project.id, 'Confirmed-cloud-folder');
+    const current = (await getProject(project.id))!;
+    expect(current.areas[0].notes).toBe('Saved during cloud lookup');
+    expect(current.oneDriveFolderName).toBe('Confirmed-cloud-folder');
+    expect((await getDurablePendingSyncState()).projectIds).toContain(project.id);
+  });
+
   it('rejects a stale reviewed merge and atomically queues preserved work on a fresh review', async () => {
     const { project, area } = fixture();
     project.sharedProjectId = crypto.randomUUID();
