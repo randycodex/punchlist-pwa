@@ -22,10 +22,11 @@ export function registerInspectionWorker() {
 
 export async function checkPreparedPages(paths: string[], prepare = false) {
   const registration = await registerInspectionWorker();
+  let installationTimer: ReturnType<typeof setTimeout> | undefined;
   const ready = await Promise.race([
     navigator.serviceWorker.ready,
-    new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Offline installation is still pending. Stay online and retry.')), 60000)),
-  ]);
+    new Promise<never>((_, reject) => { installationTimer = setTimeout(() => reject(new Error('Offline installation is still pending. Stay online and retry.')), 60000); }),
+  ]).finally(() => clearTimeout(installationTimer));
   if (registration.waiting) throw new Error('An app update is waiting. Finish saving, close all app tabs, reopen online, and prepare again.');
   const worker = ready.active;
   if (!worker) throw new Error('Offline preparation is not installed yet.');
@@ -43,7 +44,7 @@ export async function checkPreparedPages(paths: string[], prepare = false) {
 }
 
 export function inspectOfflineProject(project: Project) {
-  const areas = project.areas.filter((area) => !area.deletedAt);
+  const areas = project.areas.filter((area) => !area.deletedAt && !area.purgedAt);
   const checkpoints = areas.flatMap((area) => area.locations.flatMap((location) => location.items.flatMap((item) => item.checkpoints)));
   const missingMedia = checkpoints.reduce((count, checkpoint) => count
     + checkpoint.photos.filter((photo) => !photo.imageData?.startsWith('data:')).length
@@ -55,4 +56,17 @@ export function inspectOfflineProject(project: Project) {
     areaCount: areas.length,
     shared: Boolean(project.sharedProjectId),
   };
+}
+
+// Read actual cache contents on every pass so browser eviction is recoverable.
+export async function prepareSavedProjectPages(projects: Project[], check = checkPreparedPages) {
+  const paths = [...new Set(['/', ...projects.filter((project) => !project.deletedAt)
+    .flatMap((project) => inspectOfflineProject(project).paths)])];
+  // Small batches bound message timeouts and also support large project libraries.
+  for (let offset = 0; offset < paths.length; offset += 5) {
+    const batch = paths.slice(offset, offset + 5);
+    if (!(await check(batch)).ready && !(await check(batch, true)).ready) {
+      throw new Error('Some saved pages are still unavailable offline. Stay online and retry.');
+    }
+  }
 }

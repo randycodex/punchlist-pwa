@@ -3,7 +3,7 @@
 Created September 25, 2026 with authorization to keep a temporary test app and database available while the owner tests them. Delete these resources after the owner finishes; this is a new environment, distinct from the previously deleted backend-verification project.
 
 - App: https://punchlist-device-test.vercel.app
-- Verified deployment: `dpl_6i6eDGWiDEhpxs2ooDwAyyYuEz57` (READY).
+- Latest verified deployment: `dpl_GB9NLfFtBfMAoUJyMCN6t5K2uQRr` (READY, September 27 offline repair). Original September 25 deployment: `dpl_6i6eDGWiDEhpxs2ooDwAyyYuEz57`.
 - Vercel project: `punchlist-device-test`, `prj_JEf9um26VMzPMMlu4rZofncvSEIe`, team `team_9EJNb6mc4ZUQ5bhRcRhmoBRR`.
 - Supabase project: `punchlist-device-test`, `yuaqxwlgcjohcbynimkf`, us-east-2. All 40 migrations applied.
 - Disposable project: **PHONE + COMPUTER TEST**, with units 101 and 102.
@@ -42,3 +42,17 @@ The browser test left this harmless note in unit 101: “Staging browser check: 
 ## Cleanup after testing
 
 Delete only Vercel project `prj_JEf9um26VMzPMMlu4rZofncvSEIe` and Supabase project `yuaqxwlgcjohcbynimkf`, then confirm they no longer appear in project listings. Preserve the actual production projects (`prj_2iCX8Z76vQJXsfO7Jhebj2OEZ7V5` and `wwutemmdbimzucrijckg`). Remove the local temporary workspace/credentials after capturing any required test evidence. No automatic deletion is scheduled because the owner's test completion time is unknown.
+
+## Offline area repair — September 27, 2026
+
+The original app registered the offline worker but never invoked project-page preparation. The hosted cache contained only `/`; saving project data did not cache its area documents. Online navigations also were not retained. Automatic preparation now runs on startup, reconnect, focus, worker activation, and completed local saves. It checks actual cache entries, downloads missing project/area pages in bounded batches, repairs missing assets, excludes removed records, and displays preparation progress/errors with a retry action. Same-build HTML navigations are retained without mixing newer deployment HTML into older bundles.
+
+Build asset URLs now encode individual path segments. A server-stopped webpack browser check exposed unencoded `[id]` and `[areaId]` filenames that otherwise prevented the cached area page from hydrating.
+
+Verification: 359 tests passed; lint and typecheck passed. A production-mode isolated test build automatically cached home, project, and both area routes after team download, before visiting either area. With its local server stopped and browser networking disabled, an unvisited area rendered, reloaded, returned to its project, and opened the second area. The 390×844 rendered area was inspected; no browser runtime errors were collected. No test notes, photos, or remote area claims were added by this offline check. Physical phone acceptance remains pending.
+
+Updated phone sequence: reconnect, reload the test app to download its update, then close all its tabs/windows and reopen online if it reports a waiting update. Wait for **Saved pages ready offline** after syncing the project. Enable airplane mode and open either saved area, including one not previously visited, then reload it. This status verifies page availability; separately test the saved photos, notes, and reconnect delivery. Do not clear browser storage. Keep this temporary environment until the owner completes testing.
+
+Deployment verification also caught a locally generated worker uploaded with a different build ID. `.vercelignore` now excludes local outputs and credentials, including `public/inspection-sw.js`, so the hosted build supplies its own matching worker. The final stable alias serves matching HTML/worker build `79c6dc4b-bc5c-4449-88d5-8da37be7bf52` with 42 assets.
+
+Final hosted browser verification: after sign-in and team download, the readiness status appeared automatically and the current cache contained all 42 assets plus home, project, and both areas (46 entries). Opening an area and reloading with browser networking disabled succeeded; runtime-error collection was empty. The separate server-stopped local check above establishes actual cache fallback, since browser network emulation alone may not disable service-worker network fetches.

@@ -19,7 +19,7 @@ function worker() {
     return new Response(path.endsWith('.js') ? 'bundle' : '<meta name="punchlist-build" content="test-build">', { headers: { 'content-type': path.endsWith('.js') ? 'text/javascript' : 'text/html' } });
   });
   const claim = vi.fn();
-  runInNewContext(readFileSync('scripts/offline-worker.js', 'utf8').replace('__PUNCHLIST_BUILD__', JSON.stringify({ id: 'test-build', assets: ['/_next/static/chunk.js'] })), {
+  runInNewContext(readFileSync('scripts/offline-worker.js', 'utf8').replace('__PUNCHLIST_BUILD__', JSON.stringify({ id: 'test-build', assets: ['/_next/static/chunk.js', '/_next/static/app/project/%5Bid%5D/area/%5BareaId%5D/page.js'] })), {
     self: { addEventListener: (name: string, handler: (event: WorkerEvent) => void) => listeners.set(name, handler), location: { origin: 'https://app.test' }, clients: { claim } },
     caches, fetch, Response, URL, AbortSignal,
   });
@@ -48,7 +48,21 @@ describe('prepared offline application', () => {
     sw.fetch.mockRejectedValue(new Error('Offline'));
     expect(await (await sw.request('/project/id/area/room'))?.text()).toContain('test-build');
     expect(await (await sw.request('/_next/static/chunk.js', 'cors'))?.text()).toBe('bundle');
+    expect(await (await sw.request('/_next/static/app/project/%5Bid%5D/area/%5BareaId%5D/page.js', 'cors'))?.text()).toBe('bundle');
     expect((await sw.request('/project/unprepared'))?.status).toBe(503);
+  });
+  it('caches visited HTML but never replaces it with another build or a redirect', async () => {
+    const sw = worker(); await sw.dispatch('install');
+    await sw.request('/project/id/area/visited');
+    for (const response of [
+      new Response('<meta name="punchlist-build" content="different">', { headers: { 'content-type': 'text/html' } }),
+      new Response('Redirect', { status: 302, headers: { location: '/login' } }),
+    ]) {
+      sw.fetch.mockResolvedValue(response);
+      await sw.request('/project/id/area/visited');
+    }
+    sw.fetch.mockRejectedValue(new Error('Offline'));
+    expect(await (await sw.request('/project/id/area/visited'))?.text()).toContain('test-build');
   });
   it('preserves the requested worker URL by returning a synthetic cached response', async () => {
     const sw = worker(); await sw.dispatch('install');
@@ -82,6 +96,10 @@ describe('prepared offline application', () => {
     const sw = worker(); await sw.dispatch('install'); await sw.message('PREPARE', ['/project/id']);
     sw.entries.get('punchlist-site-v1-test-build')!.delete('/_next/static/chunk.js');
     expect((await sw.message('CHECK', ['/project/id'])).ready).toBe(false);
+    expect((await sw.message('PREPARE', ['/project/id'])).ready).toBe(true);
+    sw.fetch.mockClear();
+    expect((await sw.message('PREPARE', ['/project/id'])).ready).toBe(true);
+    expect(sw.fetch).not.toHaveBeenCalled();
   });
   it('rejects mixed-build preparation and keeps unrelated caches on activation', async () => {
     const sw = worker(); await sw.dispatch('install');

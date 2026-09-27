@@ -9,7 +9,7 @@ const result = spawnSync(process.execPath, ['node_modules/next/dist/bin/next', '
 if (result.status !== 0) process.exit(result.status ?? 1);
 const files = await readdir('.next/static', { recursive: true });
 // Voice model/runtime downloads are separately disclosed; they are not site-readiness prerequisites.
-const assets = files.filter((file) => /\.(js|css|woff2?|png|svg)$/.test(file)).map((file) => `/_next/static/${file}`);
+const assets = files.filter((file) => /\.(js|css|woff2?|png|svg)$/.test(file)).map((file) => `/_next/static/${file.split('/').map(encodeURIComponent).join('/')}`);
 assets.push('/voice-capture-worklet.js', '/uai-logo.png', '/manifest.json', '/icons/icon-192x192.png', '/icons/icon-512x512.png', '/icons/apple-touch-icon.png');
 const source = await readFile('scripts/offline-worker.js', 'utf8');
 await writeFile('public/inspection-sw.js', source.replace('__PUNCHLIST_BUILD__', JSON.stringify({ id: buildId, assets })));

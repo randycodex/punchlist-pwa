@@ -47,7 +47,9 @@ self.addEventListener('message', (event) => {
       if (!Array.isArray(paths) || !paths.length || paths.length > 1000 || paths.some((path) => typeof path !== 'string' || !isPage(path))) throw new Error('Invalid preparation request.');
       const cache = await caches.open(CACHE);
       if (event.data.type === 'PREPARE') {
-        for (const path of paths) await cache.put(path, await checkedFetch(path, true));
+        for (const path of [...BUILD.assets, ...paths]) {
+          if (!(await cache.match(path))) await cache.put(path, await checkedFetch(path, isPage(path)));
+        }
       } else if (event.data.type !== 'CHECK') throw new Error('Unknown preparation request.');
       // Read every asset, not just a readiness flag; browser eviction invalidates readiness.
       const missing = [];
@@ -73,6 +75,15 @@ self.addEventListener('fetch', (event) => {
       try {
         const response = await fetch(request, { signal: AbortSignal.timeout(5000) });
         if (response.status >= 500) throw new Error('Server unavailable');
+        // Only retain HTML from this worker's build; never mix an app update's bundles.
+        if (response.ok && !response.redirected && !url.search && (response.headers.get('content-type') || '').includes('text/html')) {
+          try {
+            const html = await response.clone().text();
+            if (html.includes(`name="punchlist-build" content="${BUILD.id}"`)) {
+              await (await caches.open(CACHE)).put(url.pathname, response.clone());
+            }
+          } catch { /* A cache failure must not prevent online navigation. */ }
+        }
         return response;
       } catch {
         const cached = await (await caches.open(CACHE)).match(url.pathname);
