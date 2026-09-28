@@ -155,7 +155,7 @@ export function parseSharedSnapshotPayload(
 ): ParsedSharedSnapshotPayload {
   if (payloadVersion === 1) {
     return {
-      project: parseProjectPayload(value, 1),
+      project: parseProjectPayload(value, 1, { onAttachmentRekey: () => {} }),
       assets: createEmptySharedSnapshotAssetManifest(),
     };
   }
@@ -183,7 +183,10 @@ export function parseSharedSnapshotPayload(
       })();
 
   return {
-    project: parseProjectPayload(envelope.project, 1),
+    project: parseProjectPayload(envelope.project, 1, { onAttachmentRekey: ({ kind, oldId, newId }) => {
+      if (kind === 'photos' && assets.photos[oldId]) assets.photos[newId] = assets.photos[oldId];
+      if (kind === 'files' && assets.files[oldId]) assets.files[newId] = assets.files[oldId];
+    } }),
     assets,
   };
 }

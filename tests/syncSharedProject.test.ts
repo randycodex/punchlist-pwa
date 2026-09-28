@@ -39,6 +39,7 @@ import { syncSharedProject } from '@/features/sync/syncSharedProject';
 
 const project = {
   id: 'selected-project',
+  areas: [],
   sharedProjectId: 'selected-team',
   sharedSnapshotPublishedAt: new Date('2026-01-01T12:00:00.000Z'),
   updatedAt: new Date('2026-01-01T12:00:00.000Z'),

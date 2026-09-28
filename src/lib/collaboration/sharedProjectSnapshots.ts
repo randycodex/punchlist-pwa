@@ -1,3 +1,4 @@
+import { validateProjectIdentity } from '@/lib/projectPayload';
 import type { Area, Project } from '@/types';
 import type { Json } from './database';
 import type { CollaborationSnapshotBackup, CollaborationSnapshotBackupReason } from './types';
@@ -150,6 +151,7 @@ function omitChangedAreaAssets(
 }
 
 async function prepareSnapshotTransfer(project: Project, uploadedByUserId: string) {
+  validateProjectIdentity(project);
   if (!projectHasSharedSnapshotAttachments(project)) {
     return {
       payload: toJson(project),

@@ -1,3 +1,4 @@
+import { validateProjectIdentity } from '@/lib/projectPayload';
 import { getCollaborationDeviceId } from './deviceIdentity';
 import type { Area, FacadeElevationDrawing, Project } from '@/types';
 import type { Json } from './database';
@@ -111,6 +112,7 @@ export async function publishSharedProjectAreaSnapshot(input: {
   }
 
   const scopedProject = scopeProjectToArea(project, area, baseVersion + 1);
+  validateProjectIdentity(scopedProject);
   const transfer = projectHasSharedSnapshotAttachments(scopedProject)
     ? await prepareCompactSharedSnapshotPayload(scopedProject, publishedByUserId, { areaId })
     : { payload: scopedProject, payloadVersion: 1 };

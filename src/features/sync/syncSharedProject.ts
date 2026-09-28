@@ -1,3 +1,5 @@
+import { validateProjectIdentity } from '@/lib/projectPayload';
+import { repairDuplicateCheckpointIdentities } from '@/lib/checkpointIdentityRepair';
 import { acknowledgePublishedSharedProject } from '@/lib/db';
 import {
   getAllProjects,
@@ -51,6 +53,14 @@ async function syncSharedProjectOnce(
   let project = await getProject(localProjectId);
   if (!project?.sharedProjectId) throw new Error('This project is not linked to team data.');
   const sharedProjectId = project.sharedProjectId;
+  if (repairDuplicateCheckpointIdentities(project).changed) {
+    validateProjectIdentity(project);
+    if (!await saveDownloadedProjectIfUnchanged(project, sourceToken)) {
+      return { status: 'pending', message: 'Local work changed while repairing checkpoint identities. Your latest work was kept. Sync again when editing has stopped.' };
+    }
+    return syncSharedProjectOnce(localProjectId, userId, options, setStage);
+  }
+
   if (!options.localCopiesAlreadyChecked) {
     const activeCopies = (await getAllProjects()).filter((candidate) =>
       !candidate.deletedAt && candidate.sharedProjectId === sharedProjectId

@@ -1,3 +1,4 @@
+import { repairDuplicateCheckpointIdentities, type AttachmentIdentityChange } from '@/lib/checkpointIdentityRepair';
 import { parseUnitFloorNumbering } from '@/lib/unitFloors';
 import { parseCheckpointRules } from '@/lib/checkpointRules';
 import type {
@@ -242,7 +243,7 @@ function parseElevationDrawing(value: unknown, path: string): FacadeElevationDra
   };
 }
 
-export function parseProjectPayload(value: unknown, payloadVersion = CURRENT_PROJECT_PAYLOAD_VERSION): Project {
+export function parseProjectPayload(value: unknown, payloadVersion = CURRENT_PROJECT_PAYLOAD_VERSION, legacyRepair?: { onAttachmentRekey: (change: AttachmentIdentityChange) => void }): Project {
   if (payloadVersion !== CURRENT_PROJECT_PAYLOAD_VERSION) {
     throw new ProjectPayloadValidationError(`Project payload version ${payloadVersion} is not supported.`);
   }
@@ -293,6 +294,9 @@ export function parseProjectPayload(value: unknown, payloadVersion = CURRENT_PRO
     createdAt: date(input.createdAt, 'project.createdAt'),
     updatedAt: date(input.updatedAt, 'project.updatedAt'),
   };
+  if (legacyRepair) {
+    for (const change of repairDuplicateCheckpointIdentities(project).attachments) legacyRepair.onAttachmentRekey(change);
+  }
   validateProjectIdentity(project);
   return project;
 }
