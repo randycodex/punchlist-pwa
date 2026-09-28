@@ -1,56 +1,70 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { usePathname } from 'next/navigation';
 import { getAllProjects } from '@/lib/db';
 import { AppUpdateWaitingError, isOfflinePage, offlineBuild, prepareSavedProjectPages } from './sitePreparation';
+
+type StatusNotice = { message: string; kind: 'offline' | 'preparation'; error?: boolean };
 
 export default function OfflineAppStatus() {
   const pathname = usePathname();
   const showAboveAddButton = pathname === '/' || /^\/project\/[^/]+$/.test(pathname);
   const isAreaRoute = /^\/project\/[^/]+\/area\/[^/]+$/.test(pathname);
   const floatingStatusClass = 'pointer-events-auto fixed inset-x-4 z-20 mx-auto max-w-sm px-2 text-center text-xs leading-4 text-slate-700 dark:text-slate-300';
-  const [offline, setOffline] = useState(false);
-  const [preparation, setPreparation] = useState('Preparing saved pages for offline use…');
-  const [error, setError] = useState(false);
+  const [notice, setNotice] = useState<StatusNotice | null>(null);
+  const activeNotice = useRef<StatusNotice | null>(null);
+  const noticeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const [retry, setRetry] = useState(0);
+  const clearNotice = useCallback(() => {
+    clearTimeout(noticeTimer.current);
+    noticeTimer.current = undefined;
+    activeNotice.current = null;
+    setNotice(null);
+  }, []);
+  const showNotice = useCallback((next: StatusNotice) => {
+    if (next.kind !== 'offline' && !navigator.onLine) return;
+    const current = activeNotice.current;
+    if (current?.kind === next.kind && current.message === next.message && current.error === next.error) return;
+    clearTimeout(noticeTimer.current);
+    activeNotice.current = next;
+    setNotice(next);
+    noticeTimer.current = setTimeout(() => {
+      noticeTimer.current = undefined;
+      activeNotice.current = null;
+      setNotice(null);
+    }, 30_000);
+  }, []);
+  useEffect(() => () => {
+    clearTimeout(noticeTimer.current);
+    noticeTimer.current = undefined;
+    activeNotice.current = null;
+  }, []);
   useEffect(() => {
     if (offlineBuild === 'development') return;
     let disposed = false;
     let running = false;
     let requested = false;
+    let firstCheck = true;
     let timer: ReturnType<typeof setTimeout>;
-    let updateNoticeTimer: ReturnType<typeof setTimeout> | undefined;
-    const clearUpdateNoticeTimer = () => {
-      clearTimeout(updateNoticeTimer);
-      updateNoticeTimer = undefined;
-    };
     const prepare = async () => {
       if (disposed || !navigator.onLine) return;
       if (running) { requested = true; return; }
       running = true;
       requested = false;
-      setError(false);
-      if (!updateNoticeTimer) setPreparation('Preparing saved pages for offline use…');
+      if (firstCheck) showNotice({ kind: 'preparation', message: 'Preparing saved pages for offline use…' });
+      firstCheck = false;
       try {
         await prepareSavedProjectPages(await getAllProjects());
-        if (!disposed) {
-          clearUpdateNoticeTimer();
-          setPreparation('Saved pages ready offline');
-        }
+        if (!disposed) showNotice({ kind: 'preparation', message: 'Saved pages ready offline' });
       } catch (reason) {
         if (!disposed) {
           const updateWaiting = reason instanceof AppUpdateWaitingError;
-          if (updateWaiting && !updateNoticeTimer) {
-            updateNoticeTimer = setTimeout(() => {
-              updateNoticeTimer = undefined;
-              if (!disposed) setPreparation('');
-            }, 30_000);
-          } else if (!updateWaiting) {
-            clearUpdateNoticeTimer();
-          }
-          setError(!updateWaiting);
-          setPreparation(reason instanceof Error ? reason.message : 'Offline preparation failed. Stay online and retry.');
+          showNotice({
+            kind: 'preparation',
+            message: reason instanceof Error ? reason.message : 'Offline preparation failed. Stay online and retry.',
+            error: !updateWaiting,
+          });
         }
       } finally {
         running = false;
@@ -72,15 +86,17 @@ export default function OfflineAppStatus() {
     return () => {
       disposed = true;
       clearTimeout(timer);
-      clearUpdateNoticeTimer();
       window.removeEventListener('online', schedule);
       window.removeEventListener('focus', schedule);
       window.removeEventListener('punchlist-local-save-status', saved);
       navigator.serviceWorker?.removeEventListener('controllerchange', schedule);
     };
-  }, [retry]);
+  }, [retry, showNotice]);
   useEffect(() => {
-    const update = () => setOffline(!navigator.onLine);
+    const update = () => {
+      if (!navigator.onLine) showNotice({ kind: 'offline', message: 'Offline · Edits save on this device. Team delivery waits for a connection.' });
+      else if (activeNotice.current?.kind === 'offline') clearNotice();
+    };
     update();
     window.addEventListener('online', update);
     window.addEventListener('offline', update);
@@ -99,10 +115,10 @@ export default function OfflineAppStatus() {
       window.removeEventListener('online', update); window.removeEventListener('offline', update);
       document.removeEventListener('click', navigate, true);
     };
-  }, []);
-  if (offline) return <div role="status" className="shrink-0 bg-amber-100 px-4 py-2 text-xs text-amber-950 dark:bg-amber-950 dark:text-amber-100">Offline · Edits save on this device. Team delivery waits for a connection.</div>;
+  }, [clearNotice, showNotice]);
+  if (notice?.kind === 'offline') return <div role="status" className="shrink-0 bg-amber-100 px-4 py-2 text-xs text-amber-950 dark:bg-amber-950 dark:text-amber-100">{notice.message}</div>;
   if (offlineBuild === 'development') return null;
-  if (!preparation) return null;
+  if (!notice) return null;
   return <div
     role="status"
     className={isAreaRoute
@@ -111,7 +127,7 @@ export default function OfflineAppStatus() {
         ? `${floatingStatusClass} bottom-[calc(env(safe-area-inset-bottom)+5.5rem)]`
         : 'shrink-0 bg-slate-100 px-4 py-2 text-xs text-slate-700 dark:bg-slate-900 dark:text-slate-200'}
   >
-    {preparation}
-    {error && <button type="button" className="ml-2 underline" onClick={() => setRetry((value) => value + 1)}>Retry</button>}
+    {notice.message}
+    {notice.error && <button type="button" className="ml-2 underline" onClick={() => setRetry((value) => value + 1)}>Retry</button>}
   </div>;
 }
