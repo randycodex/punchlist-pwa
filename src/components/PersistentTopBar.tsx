@@ -749,7 +749,7 @@ export default function PersistentTopBar() {
               priority
             />
           </Link>
-          {!showAuth && currentProjectTitle && (
+          {!showAuth && isAreaRoute && currentProjectTitle && (
             <div className="min-w-0 truncate text-sm font-semibold text-gray-900 dark:text-white">
               {currentProjectTitle}
             </div>
