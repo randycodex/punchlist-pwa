@@ -1,6 +1,6 @@
 import { Area, Checkpoint, FileAttachment, Item, Location, PhotoAttachment, Project } from '@/types';
 import { splitFacadeLevels } from '@/lib/areas';
-import { parseProjectPayload, serializeProjectPayload } from '@/lib/projectPayload';
+import { parseProjectPayload, ProjectPayloadValidationError, serializeProjectPayload } from '@/lib/projectPayload';
 import { readLocalStorage, writeLocalStorage } from '@/lib/browserStorage';
 import {
   getAllProjects,
@@ -556,6 +556,11 @@ function getPhotoIdFromFilename(name: string) {
   return match?.[1] ?? null;
 }
 
+// Old backups can contain two sibling checkpoints with the same ID. Repairing
+// the second checkpoint also rekeys its photo, but the original photo file in
+// OneDrive is still named with the old ID until this device backs it up again.
+const legacyPhotoSourceIds = new WeakMap<PhotoAttachment, string>();
+
 function getProjectPhotos(project: Project) {
   const photos: PhotoAttachment[] = [];
   for (const area of project.areas ?? []) {
@@ -639,6 +644,9 @@ async function hydrateProjectPhotosFromOneDrive(
   });
 
   if (candidateFolders.length === 0) {
+    if (getProjectPhotos(normalizedProject).some((photo) => legacyPhotoSourceIds.has(photo) && !photo.imageData)) {
+      throw new Error('A photo in this older OneDrive backup is missing. The local project was not changed.');
+    }
     return normalizedProject;
   }
 
@@ -666,7 +674,8 @@ async function hydrateProjectPhotosFromOneDrive(
             if (photo.imageData) {
               continue;
             }
-            const driveItem = remotePhotoById.get(photo.id);
+            const driveItem = remotePhotoById.get(photo.id)
+              ?? remotePhotoById.get(legacyPhotoSourceIds.get(photo) ?? '');
             if (!driveItem?.id) {
               continue;
             }
@@ -687,6 +696,10 @@ async function hydrateProjectPhotosFromOneDrive(
       }
     }
   });
+
+  if (getProjectPhotos(normalizedProject).some((photo) => legacyPhotoSourceIds.has(photo) && !photo.imageData)) {
+    throw new Error('A photo in this older OneDrive backup could not be recovered. The local project was not changed.');
+  }
 
   return normalizedProject;
 }
@@ -1045,11 +1058,14 @@ function mergePhotos(localPhotos: PhotoAttachment[] = [], remotePhotos: PhotoAtt
     const base = timestampMs(remotePhoto.createdAt) > timestampMs(localPhoto.createdAt)
       ? remotePhoto
       : localPhoto;
-    return {
+    const mergedPhoto = {
       ...base,
       imageData: base.imageData || localPhoto.imageData || remotePhoto.imageData,
       thumbnail: base.thumbnail || localPhoto.thumbnail || remotePhoto.thumbnail,
     };
+    const sourceId = legacyPhotoSourceIds.get(remotePhoto) ?? legacyPhotoSourceIds.get(localPhoto);
+    if (sourceId) legacyPhotoSourceIds.set(mergedPhoto, sourceId);
+    return mergedPhoto;
   });
 }
 
@@ -1283,9 +1299,24 @@ async function downloadRemoteProject(token: OneDriveToken, remoteId: string): Pr
     throw error;
   }
   try {
-    return parseProjectPayload(JSON.parse(raw));
+    const photoSourceIds = new Map<string, string>();
+    const project = parseProjectPayload(JSON.parse(raw), 1, {
+      onAttachmentRekey: ({ kind, oldId, newId }) => {
+        if (kind === 'photos') photoSourceIds.set(newId, oldId);
+      },
+    });
+    if (photoSourceIds.size > 0) {
+      for (const photo of getProjectPhotos(project)) {
+        const sourceId = photoSourceIds.get(photo.id);
+        if (sourceId) legacyPhotoSourceIds.set(photo, sourceId);
+      }
+    }
+    return project;
   } catch (error) {
-    throw new Error('OneDrive project data is invalid. Your local project was not changed.', { cause: error });
+    const problem = error instanceof ProjectPayloadValidationError
+      ? `OneDrive project data is invalid: ${error.message}`
+      : 'OneDrive project data is invalid.';
+    throw new Error(`${problem} Your local project was not changed.`, { cause: error });
   }
 }
 
@@ -1967,9 +1998,23 @@ export async function restoreMissingProjectsFromOneDrive(
       localProject?: Project;
     }> = [];
     for (const [projectId, state] of Object.entries(deletionStates)) {
+      if (state.scope && state.scope !== 'personal') continue;
       const localProject = localById.get(projectId);
       const files = remoteFilesById.get(projectId) ?? [];
-      const remoteProjects = await Promise.all(files.map((file) => downloadRemoteProject(token, file.id)));
+      let remoteProjects: Array<Project | null>;
+      try {
+        remoteProjects = await Promise.all(files.map((file) => downloadRemoteProject(token, file.id)));
+      } catch (error) {
+        // A malformed historical file must not abort restores of other projects
+        // or authorize deleting this project's local or cloud copy.
+        protectedDeletedIds.add(projectId);
+        failedProjects.push({
+          id: projectId,
+          name: localProject?.projectName ?? files[0]?.name.replace(/_[0-9a-f-]{36}\.json$/i, '').replace(/[-_]/g, ' ') ?? 'Personal project',
+          message: error instanceof Error ? error.message : 'Could not check the OneDrive backup. No copy was deleted.',
+        });
+        continue;
+      }
       const isRecoveredCopy = (project: Project | null | undefined) => Boolean(
         project?.recoveredFromProjectId && project.projectName.startsWith('Recovered local copy - ')
       );

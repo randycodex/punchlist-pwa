@@ -13,11 +13,12 @@ import {
 } from '@/lib/db';
 import { serializeProjectPayload } from '@/lib/projectPayload';
 
-const { listProjectFilesMock, listPhotoProjectFoldersMock, listProjectPhotoFilesMock, downloadProjectFileMock, uploadProjectFileMock, uploadProjectPhotoFileMock, deleteDriveItemMock, moveDriveItemToFolderMock, downloadDeletionLogMock, uploadDeletionLogMock, deleteProjectFolderFromStateMock, deleteProjectPhotoFolderMock } = vi.hoisted(() => ({
+const { listProjectFilesMock, listPhotoProjectFoldersMock, listProjectPhotoFilesMock, downloadProjectFileMock, downloadDriveItemAsDataUrlMock, uploadProjectFileMock, uploadProjectPhotoFileMock, deleteDriveItemMock, moveDriveItemToFolderMock, downloadDeletionLogMock, uploadDeletionLogMock, deleteProjectFolderFromStateMock, deleteProjectPhotoFolderMock } = vi.hoisted(() => ({
   listProjectFilesMock: vi.fn(),
   listPhotoProjectFoldersMock: vi.fn(),
   listProjectPhotoFilesMock: vi.fn(),
   downloadProjectFileMock: vi.fn(),
+  downloadDriveItemAsDataUrlMock: vi.fn(),
   uploadProjectFileMock: vi.fn(),
   uploadProjectPhotoFileMock: vi.fn(),
   deleteDriveItemMock: vi.fn(),
@@ -34,6 +35,7 @@ vi.mock('@/lib/oneDrive', async (importOriginal) => ({
   ensurePunchListFolders: async () => {},
   listProjectFiles: listProjectFilesMock,
   downloadProjectFile: downloadProjectFileMock,
+  downloadDriveItemAsDataUrl: downloadDriveItemAsDataUrlMock,
   listPhotoProjectFolders: listPhotoProjectFoldersMock,
   listProjectPhotoFiles: listProjectPhotoFilesMock,
   uploadProjectFile: uploadProjectFileMock,
@@ -122,6 +124,7 @@ describe('OneDrive and team project identity', () => {
     listPhotoProjectFoldersMock.mockReset().mockResolvedValue([]);
     listProjectPhotoFilesMock.mockReset().mockResolvedValue([]);
     downloadProjectFileMock.mockReset();
+    downloadDriveItemAsDataUrlMock.mockReset();
     uploadProjectFileMock.mockReset();
     uploadProjectPhotoFileMock.mockReset().mockResolvedValue(undefined);
     deleteDriveItemMock.mockReset().mockResolvedValue(undefined);
@@ -136,6 +139,82 @@ describe('OneDrive and team project identity', () => {
       setItem: (key: string, value: string) => { values.set(key, value); },
       removeItem: (key: string) => { values.delete(key); },
     });
+  });
+
+  it('keeps a malformed deletion-era backup for review while restoring another project', async () => {
+    const malformed = createProject('Older damaged copy');
+    const valid = createProject('Restorable copy');
+    await saveProjectPreserveTimestamps(malformed);
+    downloadDeletionLogMock.mockResolvedValue({
+      [malformed.id]: { updatedAt: new Date(Date.now() + 60_000).toISOString(), scope: 'personal' },
+    });
+    listProjectFilesMock.mockResolvedValue([
+      { id: 'damaged-file', name: `Older-damaged-copy_${malformed.id}.json` },
+      { id: 'valid-file', name: `Restorable-copy_${valid.id}.json` },
+    ]);
+    downloadProjectFileMock.mockImplementation(async (_token: string, id: string) =>
+      id === 'damaged-file'
+        ? JSON.stringify({ payloadVersion: 1, project: { ...malformed, areas: 'broken' } })
+        : serializeProjectPayload(valid)
+    );
+
+    const result = await restoreMissingProjectsFromOneDrive('test-token');
+
+    expect(result.restoredProjectIds).toContain(valid.id);
+    expect(result.failedProjects).toEqual([expect.objectContaining({
+      id: malformed.id,
+      message: expect.stringContaining('project.areas must be an array'),
+    })]);
+    expect(deleteDriveItemMock).not.toHaveBeenCalled();
+    expect((await getProject(malformed.id))?.projectName).toBe('Older damaged copy');
+    expect(await getProject(valid.id)).toBeDefined();
+  });
+
+  it('restores both legacy sibling checkpoints and their shared OneDrive photo bytes', async () => {
+    const backup = createProject('Legacy restore');
+    const area = createArea(backup.id, 'Unit 1', 0);
+    const location = createLocation(area.id, 'Kitchen', 0);
+    const item = createItem(location.id, 'Appliances', 0);
+    const checkpoint = createCheckpoint(item.id, 'Refrigerator', 0);
+    const photo = createPhotoAttachment(checkpoint.id, '');
+    checkpoint.photos.push(photo);
+    const sibling = structuredClone(checkpoint);
+    sibling.name = 'Yes/No';
+    item.checkpoints.push(checkpoint, sibling);
+    location.items.push(item);
+    area.locations.push(location);
+    backup.areas.push(area);
+    listProjectFilesMock.mockResolvedValue([{ id: 'legacy-file', name: `Legacy-restore_${backup.id}.json` }]);
+    downloadProjectFileMock.mockResolvedValue(serializeProjectPayload(backup));
+    listPhotoProjectFoldersMock.mockResolvedValue([{ id: 'photo-folder', name: 'Legacy-restore' }]);
+    listProjectPhotoFilesMock.mockResolvedValue([{ id: 'photo-file', name: `legacy_${photo.id}.jpg` }]);
+    downloadDriveItemAsDataUrlMock.mockResolvedValue('data:image/jpeg;base64,cGhvdG8=');
+
+    const result = await restoreMissingProjectsFromOneDrive('test-token');
+
+    expect(result.failedProjects).toEqual([]);
+    expect(result.restoredProjectIds).toContain(backup.id);
+    const checkpoints = (await getProject(backup.id))!.areas[0].locations[0].items[0].checkpoints;
+    expect(checkpoints.map((entry) => entry.name)).toEqual(['Refrigerator', 'Yes/No']);
+    expect(checkpoints[0].id).not.toBe(checkpoints[1].id);
+    expect(checkpoints[0].photos[0].id).not.toBe(checkpoints[1].photos[0].id);
+    expect(checkpoints.map((entry) => entry.photos[0].imageData)).toEqual([
+      'data:image/jpeg;base64,cGhvdG8=', 'data:image/jpeg;base64,cGhvdG8=',
+    ]);
+    expect(downloadDriveItemAsDataUrlMock).toHaveBeenCalledTimes(2);
+
+    const missingPhotoBackup = structuredClone(backup);
+    missingPhotoBackup.id = crypto.randomUUID();
+    missingPhotoBackup.areas[0].projectId = missingPhotoBackup.id;
+    listProjectFilesMock.mockResolvedValue([{ id: 'legacy-missing-photo', name: `Legacy-restore_${missingPhotoBackup.id}.json` }]);
+    downloadProjectFileMock.mockResolvedValue(serializeProjectPayload(missingPhotoBackup));
+    listPhotoProjectFoldersMock.mockResolvedValue([]);
+    const missingPhotoResult = await restoreMissingProjectsFromOneDrive('test-token');
+    expect(missingPhotoResult.failedProjects).toEqual([expect.objectContaining({
+      id: missingPhotoBackup.id,
+      message: expect.stringContaining('older OneDrive backup is missing'),
+    })]);
+    expect(await getProject(missingPhotoBackup.id)).toBeUndefined();
   });
 
   it('does not restore a recovery copy after it was permanently deleted from Trash', async () => {
