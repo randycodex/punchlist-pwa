@@ -57,6 +57,7 @@ import {
   ChevronDown,
   ChevronUp,
   CloudUpload,
+  Loader2,
   FileDown,
   KeyRound,
   LogIn,
@@ -756,7 +757,13 @@ export default function PersistentTopBar() {
         </div>
         {showAppMenuControl && isReady && (!homeMenuState.showTrash || isAreaRoute) && (
           <div ref={menuRef} className="app-menu-top-actions relative flex items-center gap-2">
-            {renderSharedSyncIndicator()}
+            {projectSyncing || homeMenuState.syncing ? (
+              <div role="status" aria-live="polite" aria-busy="true"
+                className="flex h-10 shrink-0 items-center gap-2 rounded-[1rem] bg-sky-100 px-3 text-sm font-medium text-sky-800 dark:bg-sky-400/15 dark:text-sky-100">
+                <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" />
+                Syncing…
+              </div>
+            ) : renderSharedSyncIndicator()}
             {!isAreaRoute && (
               <div className="relative h-10 w-10">
                 <button
