@@ -721,10 +721,8 @@ export default function PersistentTopBar() {
   const menuGroupLabelClass = 'px-2 pb-1.5 pt-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-gray-500 dark:text-gray-400';
   const menuListGridClass = 'app-menu-list grid grid-cols-2 gap-2 px-1 pb-1';
   const menuRowClass = 'flex min-h-10 min-w-0 items-center gap-2 rounded-full bg-black/[0.08] px-3 py-2 text-left text-[13px] font-medium leading-tight text-gray-800 transition-colors hover:bg-black/[0.12] dark:bg-white/[0.08] dark:text-gray-200 dark:hover:bg-white/[0.12]';
-  const menuRowSecondaryClass = 'flex min-h-10 min-w-0 items-center gap-2 rounded-full bg-black/[0.04] px-3 py-2 text-left text-[13px] font-medium leading-tight text-gray-600 transition-colors hover:bg-black/[0.08] dark:bg-white/[0.04] dark:text-gray-400 dark:hover:bg-white/[0.08]';
   const syncMenuRowBaseClass = `${menuRowClass} disabled:cursor-default`;
   const disabledMenuRowClass = `${menuRowClass} disabled:cursor-default disabled:opacity-60`;
-  const disabledMenuRowSecondaryClass = `${menuRowSecondaryClass} disabled:cursor-default disabled:opacity-60`;
   return (
     <div className="persistent-top-bar relative z-30 md:border-b">
       <div className="top-bar-surface mx-auto flex h-14 w-full max-w-6xl items-center justify-between px-4 sm:px-5">
@@ -899,53 +897,46 @@ export default function PersistentTopBar() {
                           </button>
                         )}
                         {homeMenuState.isSingleProject && homeMenuState.isSharedProject && (!sharedProjectAccess.isReady || sharedProjectAccess.isActiveMember || sharedProjectAccess.hasError) && (
-                          <details className="group/team col-span-2">
-                            <summary className={`${menuRowClass} cursor-pointer list-none [&::-webkit-details-marker]:hidden`}>
-                              <Users className="h-4 w-4 shrink-0" />
-                              Team settings
-                              <ChevronDown className="ml-auto h-4 w-4 group-open/team:rotate-180" />
-                            </summary>
-                            <div className={`${menuListGridClass} mt-2`}>
-                          <button
-                            onClick={() => dispatchHomeAction('invite-people')}
-                            disabled={!!homeMenuState.isCreatingJoinCode}
-                            className={disabledMenuRowClass}
-                          >
-                            <UserPlus className="h-4 w-4 shrink-0" />
-                            {homeMenuState.isCreatingJoinCode ? 'Preparing…' : 'Invite'}
-                          </button>
-                          <button
-                            onClick={() => dispatchHomeAction('shared-members')}
-                            disabled={!!homeMenuState.isLoadingSharedMembers}
-                            className={disabledMenuRowSecondaryClass}
-                          >
-                            <Users className="h-4 w-4 shrink-0" />
-                            {homeMenuState.isLoadingSharedMembers ? 'Loading…' : 'Members'}
-                          </button>
-                          <button onClick={() => dispatchHomeAction('shared-backups')} className={menuRowSecondaryClass}>
-                            <ArchiveRestore className="h-4 w-4 shrink-0" />
-                            Team Backups
-                          </button>
-                          {sharedProjectAccess.isOwner && (
-                            <button onClick={() => void openRecoverLocks()} className={menuRowSecondaryClass}>
-                              <KeyRound className="h-4 w-4 shrink-0" />
-                              Recover area locks
-                            </button>
-                          )}
-                          {sharedProjectAccess.isReady && sharedProjectAccess.isActiveMember && (
+                          <>
                             <button
-                              onClick={() => dispatchHomeAction('disconnect-shared-project')}
-                              disabled={!!homeMenuState.isDisconnectingSharedProject}
-                              className={disabledMenuRowSecondaryClass}
+                              onClick={() => dispatchHomeAction('invite-people')}
+                              disabled={!!homeMenuState.isCreatingJoinCode}
+                              className={disabledMenuRowClass}
                             >
-                              <LogOut className="h-4 w-4 shrink-0" />
-                              {homeMenuState.isDisconnectingSharedProject
-                                ? sharedProjectAccess.isOwner ? 'Stopping…' : 'Leaving…'
-                                : sharedProjectAccess.isOwner ? 'Stop sharing for everyone' : 'Leave Team Project'}
+                              <UserPlus className="h-4 w-4 shrink-0" />
+                              {homeMenuState.isCreatingJoinCode ? 'Preparing…' : 'Invite'}
                             </button>
-                          )}
-                            </div>
-                          </details>
+                            <button
+                              onClick={() => dispatchHomeAction('shared-members')}
+                              disabled={!!homeMenuState.isLoadingSharedMembers}
+                              className={disabledMenuRowClass}
+                            >
+                              <Users className="h-4 w-4 shrink-0" />
+                              {homeMenuState.isLoadingSharedMembers ? 'Loading…' : 'Members'}
+                            </button>
+                            <button onClick={() => dispatchHomeAction('shared-backups')} className={menuRowClass}>
+                              <ArchiveRestore className="h-4 w-4 shrink-0" />
+                              Team Backups
+                            </button>
+                            {sharedProjectAccess.isOwner && (
+                              <button onClick={() => void openRecoverLocks()} className={menuRowClass}>
+                                <KeyRound className="h-4 w-4 shrink-0" />
+                                Recover area locks
+                              </button>
+                            )}
+                            {sharedProjectAccess.isReady && sharedProjectAccess.isActiveMember && (
+                              <button
+                                onClick={() => dispatchHomeAction('disconnect-shared-project')}
+                                disabled={!!homeMenuState.isDisconnectingSharedProject}
+                                className={disabledMenuRowClass}
+                              >
+                                <LogOut className="h-4 w-4 shrink-0" />
+                                {homeMenuState.isDisconnectingSharedProject
+                                  ? sharedProjectAccess.isOwner ? 'Stopping…' : 'Leaving…'
+                                  : sharedProjectAccess.isOwner ? 'Stop sharing for everyone' : 'Leave Team Project'}
+                              </button>
+                            )}
+                          </>
                         )}
                         {homeMenuState.isSharedProject && sharedProjectAccess.hasError && (
                           <div className="col-span-2 px-2 py-2 text-xs text-amber-700 dark:text-amber-300">
