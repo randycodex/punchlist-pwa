@@ -1,6 +1,7 @@
 import { mergeCheckpointRules } from '@/lib/checkpointRules';
 import { getSharedProjectSnapshot, hasNewerLocalChangesThanSharedSnapshot } from '@/lib/collaboration';
 import {
+  completePendingSharedAreaSync,
   getPendingSharedAreaSyncsForProject,
   getPendingSharedProjectMetadataSyncForProject,
 } from '@/lib/db';
@@ -82,6 +83,13 @@ export function mergeSharedProjectAreas(
       preservedLocalAreaCount += 1;
       preservedLocalAreaIds.push(localArea.id);
       return localArea;
+    }
+
+    if (localArea.purgedAt && remoteArea.purgedAt
+      && new Date(localArea.purgedAt).getTime() === new Date(remoteArea.purgedAt).getTime()
+      && localArea.locations.length === 0 && remoteArea.locations.length === 0) {
+      appliedRemoteAreaCount += 1;
+      return remoteArea;
     }
 
     if (forcedLocalAreaIds.has(areaId)) {
@@ -178,6 +186,17 @@ export async function mergeSharedProjectAreasWithPendingMetadata(
     getPendingSharedProjectMetadataSyncForProject(localProject.id),
     getPendingSharedAreaSyncsForProject(localProject.id),
   ]);
+  for (const record of pendingAreas) {
+    const remote = sharedProject.areas.find((area) => area.id === record.areaId);
+    const local = localProject.areas.find((area) => area.id === record.areaId);
+    if (remote?.purgedAt && local?.purgedAt && remote.sharedVersion && remote.sharedPublishedAt
+      && new Date(remote.purgedAt).getTime() === new Date(local.purgedAt).getTime()
+      && remote.locations.length === 0 && local.locations.length === 0) {
+      await completePendingSharedAreaSync({ key: record.key, clientId: record.clientId, revision: record.revision,
+        areaVersion: remote.sharedVersion, publishedAt: new Date(remote.sharedPublishedAt).toISOString(),
+        confirmedPurgedAt: new Date(remote.purgedAt).toISOString() });
+    }
+  }
   return mergeSharedProjectAreas(localProject, sharedProject, {
     preserveLocalProjectMetadata: Boolean(pendingMetadata),
     preserveLocalAreaIds: pendingAreas.map((record) => record.areaId),
@@ -205,7 +224,7 @@ export function formatPendingSharedPullMessage(pendingPull: PendingSharedPullSta
   const projectName = pendingPull.localProject.projectName || 'This project';
   const preservedAreaNames = pendingPull.localProject.areas
     .filter((area) => pendingPull.preservedLocalAreaIds.includes(area.id))
-    .map((area) => area.name);
+    .map((area) => `${area.name}${area.purgedAt || area.deletedAt ? " (pending deletion)" : ""}`);
   const preservedAreaSummary = preservedAreaNames.length > 0
     ? `\n\nYour local areas: ${preservedAreaNames.slice(0, 5).join(', ')}${preservedAreaNames.length > 5 ? `, and ${preservedAreaNames.length - 5} more` : ''}.`
     : '';

@@ -44,6 +44,18 @@ function metadataRecord(blockedByConflict = false): PendingSharedProjectMetadata
 }
 
 describe('queued shared changes push', () => {
+  it('distinguishes an owning-device lock from a newer-data conflict', async () => {
+    const locked = { ...areaRecord('5B', true), lastError: 'This area is locked by another user or another device.' };
+    const result = await pushQueuedSharedChanges('local-project', {
+      getPendingAreaSyncs: vi.fn().mockResolvedValue([locked]),
+      getPendingMetadataSync: vi.fn().mockResolvedValue(undefined),
+      flushAreaSyncs: vi.fn(), flushMetadataSyncs: vi.fn(),
+    });
+    expect(result.lockedAreaIds).toEqual(['5B']);
+    expect(result.conflictedAreaCount).toBe(0);
+    expect(formatQueuedSharedPushMessage(result)).toContain('Merging again will not release');
+  });
+
   it('flushes area and metadata queues without invoking a snapshot publisher', async () => {
     const getPendingAreaSyncs = vi
       .fn()

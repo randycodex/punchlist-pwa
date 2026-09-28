@@ -92,6 +92,10 @@ async function syncSharedProjectOnce(
   } else {
     const pushed = await pushQueuedSharedChanges(localProjectId);
     if (pushed.remainingAreaCount > 0 || pushed.metadataRemaining) {
+      if (pushed.lockedAreaIds?.length) {
+        const names = pushed.lockedAreaIds.map((id) => project!.areas.find((area) => area.id === id)?.name ?? id);
+        return { status: 'pending', message: `Waiting for the user or device holding these areas: ${names.join(', ')}. Your pending work remains saved. Sync and release on the owning device, then retry here. Back Up + Merge will not release these locks.` };
+      }
       if (pushed.conflictedAreaCount > 0 || pushed.metadataConflicted) {
         return { status: 'review', pull: await getPendingSharedPullState(project, 'publish-conflict') };
       }

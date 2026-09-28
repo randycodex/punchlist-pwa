@@ -1,3 +1,4 @@
+import { isAreaLockError } from '@/lib/collaboration/areaLockError';
 import { withBrowserLock } from '@/lib/browserLocks';
 import { localAccountKey } from '@/lib/localAccount';
 import { applyCheckpointRules, mergeCheckpointRules } from '@/lib/checkpointRules';
@@ -1644,6 +1645,7 @@ export async function completePendingSharedAreaSync(input: {
   revision: number;
   areaVersion: number;
   publishedAt: string;
+  confirmedPurgedAt?: string;
 }): Promise<{ stillPending: boolean }> {
   const db = await getDB();
   const tx = db.transaction(['sharedAreaSyncQueue', 'projects'], 'readwrite');
@@ -1651,6 +1653,14 @@ export async function completePendingSharedAreaSync(input: {
   const projectStore = tx.objectStore('projects');
   const current = await queueStore.get(input.key);
 
+  if (current && input.confirmedPurgedAt) {
+    const project = await projectStore.get(current.localProjectId);
+    const area = project?.areas.find((entry) => entry.id === current.areaId);
+    if (!area?.purgedAt || new Date(area.purgedAt).toISOString() !== input.confirmedPurgedAt || area.locations.length > 0) {
+      await tx.done;
+      return { stillPending: true };
+    }
+  }
   if (current) {
     if (current.clientId === input.clientId && current.revision === input.revision) {
       await queueStore.delete(input.key);
@@ -1769,7 +1779,7 @@ export async function resumeReviewedPendingSharedAreaSyncs(localProjectId: strin
   let resumed = 0;
 
   for (const record of records) {
-    if (!record.blockedByConflict || !record.readyAfterConflictReview) continue;
+    if (!record.blockedByConflict || (!record.readyAfterConflictReview && !isAreaLockError(record.lastError))) continue;
     await store.put({
       ...record,
       attemptCount: 0,

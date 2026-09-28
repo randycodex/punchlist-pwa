@@ -58,6 +58,13 @@ describe('selected shared project sync', () => {
     mocks.saveDownloaded.mockResolvedValue(true);
   });
 
+  it('keeps a lock blocker out of the repeated merge flow', async () => {
+    mocks.pushChanges.mockResolvedValue({ remainingAreaCount: 1, lockedAreaIds: ['5B'], conflictedAreaCount: 0, metadataRemaining: false });
+    await expect(syncSharedProject(project.id, 'user-1')).resolves.toMatchObject({ status: 'pending', message: expect.stringContaining('5B') });
+    expect(mocks.getPendingPull).not.toHaveBeenCalled();
+    expect(mocks.releaseClaims).not.toHaveBeenCalled();
+  });
+
   it('pushes and releases only the selected team project', async () => {
     await expect(syncSharedProject(project.id, 'user-1')).resolves.toEqual({ status: 'synced', releasedAreaCount: 2 });
     expect(mocks.getProject).toHaveBeenCalledWith('selected-project');

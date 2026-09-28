@@ -18,6 +18,21 @@ import {
 import { queueSharedProjectAreaSyncs } from '@/lib/collaboration/sharedAreaSyncQueue';
 
 describe('durable shared area sync queue', () => {
+  it('acknowledges a confirmed purge but preserves a concurrently restored area', async () => {
+    const project = createProject('Purge queue'); project.sharedProjectId = 'team';
+    const area = createArea(project.id, '3Z', 0); area.deletedAt = new Date(); area.purgedAt = area.deletedAt;
+    project.areas = [area]; await saveProjectPreserveTimestamps(project);
+    const record = await queuePendingSharedAreaSync({ localProjectId: project.id, sharedProjectId: 'team', areaId: area.id, baseVersion: 1, basePublishedAt: new Date().toISOString() });
+    const proof = { key: record.key, clientId: record.clientId, revision: record.revision, areaVersion: 2, publishedAt: new Date().toISOString(), confirmedPurgedAt: area.purgedAt.toISOString() };
+    area.purgedAt = undefined; area.deletedAt = undefined;
+    await saveProjectPreserveTimestamps(project);
+    expect(await completePendingSharedAreaSync(proof)).toEqual({ stillPending: true });
+    area.purgedAt = new Date(proof.confirmedPurgedAt); area.deletedAt = area.purgedAt;
+    await saveProjectPreserveTimestamps(project);
+    expect(await completePendingSharedAreaSync(proof)).toEqual({ stillPending: false });
+    expect((await getProjectMetadata(project.id))?.areas[0].purgedAt).toEqual(area.purgedAt);
+  });
+
   it('does not count conflicts on project copies moved to Trash', () => {
     const records = [
       { localProjectId: 'trashed-copy', blockedByConflict: true, lastError: 'Newer team data' },

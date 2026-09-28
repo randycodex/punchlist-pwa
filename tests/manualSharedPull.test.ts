@@ -36,6 +36,26 @@ function project(areas: Area[], updatedAt: string): Project {
 }
 
 describe('manual shared project area merge', () => {
+  it('does not preserve an already confirmed empty purge as another local edit', () => {
+    const localArea = area('z', 'Unit 3Z', '2026-01-01T12:10:00.000Z');
+    localArea.deletedAt = base; localArea.purgedAt = base;
+    const remoteArea = { ...localArea, sharedVersion: 6 };
+    const result = mergeSharedProjectAreas(project([localArea], base.toISOString()), project([remoteArea], base.toISOString()), { preserveLocalAreaIds: ['z'] });
+    expect(result.preservedLocalAreaIds).toEqual([]);
+    expect(result.resolutionProject.areas[0].purgedAt).toEqual(base);
+    expect(result.resolutionProject.areas[0].sharedVersion).toBe(6);
+  });
+
+  it('labels a deletion still waiting to be published', () => {
+    const localArea = area('z', 'Unit 3Z', '2026-01-01T12:10:00.000Z');
+    localArea.deletedAt = base;
+    const local = project([localArea], base.toISOString());
+    const remote = project([], base.toISOString());
+    const message = formatPendingSharedPullMessage({ localProject: local, sharedProject: remote,
+      ...mergeSharedProjectAreas(local, remote), publishedAt: base.toISOString(), hasNewerLocalChanges: true, reason: 'manual-pull' });
+    expect(message).toContain('Unit 3Z (pending deletion)');
+  });
+
   it('names the project and retained local area in the review action', () => {
     const local = project([area('a', 'Unit 3Z', '2026-01-01T12:10:00.000Z')], '2026-01-01T12:10:00.000Z');
     const remote = project([area('a', 'Older unit', '2026-01-01T11:00:00.000Z')], '2026-01-01T12:12:00.000Z');

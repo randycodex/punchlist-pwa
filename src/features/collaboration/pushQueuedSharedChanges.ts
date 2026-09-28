@@ -1,3 +1,4 @@
+import { isAreaLockError } from '@/lib/collaboration/areaLockError';
 import {
   getPendingSharedAreaSyncsForProject,
   getPendingSharedProjectMetadataSyncForProject,
@@ -9,6 +10,7 @@ import { flushPendingSharedAreaSyncs } from '@/lib/collaboration/sharedAreaSyncQ
 import { flushPendingSharedProjectMetadataSyncs } from '@/lib/collaboration/sharedProjectMetadataSyncQueue';
 
 export type QueuedSharedPushResult = {
+  lockedAreaIds?: string[];
   attemptedAreaCount: number;
   pushedAreaCount: number;
   remainingAreaCount: number;
@@ -60,13 +62,15 @@ export async function pushQueuedSharedChanges(
     dependencies.getPendingAreaSyncs(localProjectId),
     dependencies.getPendingMetadataSync(localProjectId),
   ]);
+  const lockedAreaIds = areaSyncsAfter.filter((record) => isAreaLockError(record.lastError)).map((record) => record.areaId);
   const remainingAreaKeys = new Set(areaSyncsAfter.map((record) => record.key));
 
   return {
+    ...(lockedAreaIds.length ? { lockedAreaIds } : {}),
     attemptedAreaCount: areaSyncsBefore.length,
     pushedAreaCount: areaSyncsBefore.filter((record) => !remainingAreaKeys.has(record.key)).length,
     remainingAreaCount: areaSyncsAfter.length,
-    conflictedAreaCount: areaSyncsAfter.filter((record) => record.blockedByConflict).length,
+    conflictedAreaCount: areaSyncsAfter.filter((record) => record.blockedByConflict && !isAreaLockError(record.lastError)).length,
     attemptedMetadata: Boolean(metadataSyncBefore),
     pushedMetadata: Boolean(metadataSyncBefore && !metadataSyncAfter),
     metadataRemaining: Boolean(metadataSyncAfter),
@@ -75,6 +79,7 @@ export async function pushQueuedSharedChanges(
 }
 
 export function formatQueuedSharedPushMessage(result: QueuedSharedPushResult) {
+  if (result.lockedAreaIds?.length) return `${result.lockedAreaIds.length} area(s) are waiting for another user or device to sync and release them. Your pending work is kept. Merging again will not release these locks.`;
   const conflictCount = result.conflictedAreaCount + (result.metadataConflicted ? 1 : 0);
   if (conflictCount > 0) {
     return `${conflictCount} change${conflictCount === 1 ? '' : 's'} need review before the team can take them. Tap Sync Team Projects, review the project, then sync again.`;
