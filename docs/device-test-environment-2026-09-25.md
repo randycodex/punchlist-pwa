@@ -69,3 +69,19 @@ After disabling the fault and retrying Release, the sender returned to its proje
 - `91c8f5e7-59e9-45db-b8cd-d529d1eb731c`: 4022 bytes, SHA-256 `701838b17ac1c3aa1bd85edbe446e5671b27d476686f2b113232a0089626f10d`.
 
 The receiving browser then acquired and released the area successfully. Both isolated browser sessions were closed. The disposable project remains in the temporary environment for audit/cleanup with that environment. The owner's existing phone-test project was not edited. This verifies publication failure before server acceptance and subsequent retry, not a dropped acknowledgement after server commit, interruption mid-photo upload, physical low-storage behavior, or lost-device owner recovery. Production and app source were unchanged by this test.
+
+## Lost-device owner recovery — September 28, 2026
+
+Nine authenticated hosted RPC checks passed against the isolated test backend, using the existing disposable owner/member accounts and a new `LOST DEVICE RECOVERY CHECK` project (`a0ced569-de89-4ff2-ae20-57b5beb75fab`). No service-role credential was used. The verification script and structured result are retained temporarily under `/tmp/punchlist-device-staging/verify-owner-recovery.mjs` and `owner-recovery-result.json`; neither contains authentication tokens or passwords.
+
+1. An ordinary member cannot use owner recovery, even for their own other-device claim (`42501`).
+2. An incorrect area/claim pairing releases neither lock.
+3. The owner can release the exact abandoned member claim while preserving an unrelated area's claim.
+4. Another device can claim the recovered area.
+5. Repeating the old recovery request returns false and preserves the replacement claim.
+6. The former device cannot publish while the replacement device holds the lock.
+7. Published snapshot contents remain identical after recovery and rejected stale publication.
+8. The owner can also recover their own other-device claim.
+9. Final cleanup confirms zero active claims in this verification project.
+
+This establishes hosted permission, identity, and stale-request behavior. It does not constitute a rendered owner-menu test or recover unsent data from an unavailable physical phone. The test project remains disposable and can be removed with the temporary environment. The owner's phone-test project and Production were untouched. Storage-pressure verification remains outstanding.
