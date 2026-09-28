@@ -2208,7 +2208,9 @@ export default function AreaDetailPage() {
             })}
           </div>
           <span className="text-xs text-gray-500 dark:text-gray-400">{area.locations.filter((location) => location.reviewedAt).length} / {area.locations.length} rooms reviewed</span>
-          {activeLocation && <p className="w-full truncate text-sm font-medium">{activeLocation.name}{activeItem ? ` › ${activeItem.name}` : ''}</p>}
+          <p className="h-5 w-full truncate text-sm font-medium leading-5">
+            {activeLocation?.name}{activeLocation && activeItem ? ` › ${activeItem.name}` : ''}
+          </p>
         </div>
       </header>
 
