@@ -13,7 +13,7 @@ import {
   type SharedSnapshotAssetManifest,
   type SharedSnapshotAssetReference,
 } from './sharedSnapshotPayload';
-import { retryCollaborationOperation } from './request';
+import { isCollaborationCapacityError, retryCollaborationOperation } from './request';
 
 export class SharedAttachmentIntegrityError extends Error {
   readonly code = '22023';
@@ -141,16 +141,26 @@ function runWithConcurrency<T>(
   worker: (value: T) => Promise<void>
 ) {
   let nextIndex = 0;
+  let failed = false;
+  let firstError: unknown;
   const workerCount = Math.min(Math.max(concurrency, 1), values.length);
   return Promise.all(
     Array.from({ length: workerCount }, async () => {
-      while (nextIndex < values.length) {
+      while (!failed && nextIndex < values.length) {
         const value = values[nextIndex];
         nextIndex += 1;
-        await worker(value);
+        try {
+          await worker(value);
+        } catch (error) {
+          if (!failed) firstError = error;
+          failed = true;
+        }
       }
     })
-  ).then(() => undefined);
+  ).then(() => {
+    // Drain requests already in flight before allowing a subsequent transfer.
+    if (failed) throw firstError;
+  });
 }
 
 export function projectHasSharedSnapshotAttachments(project: Project) {
@@ -449,7 +459,7 @@ export async function hydrateSharedSnapshotAssetsWithResolver(
       await verifyAssetContent(entry.reference, dataUrlToBlob(value));
       downloaded.set(key, value);
     } catch (error) {
-      if (!entry.required) return;
+      if (!entry.required && !isCollaborationCapacityError(error)) return;
       throw error;
     }
   });

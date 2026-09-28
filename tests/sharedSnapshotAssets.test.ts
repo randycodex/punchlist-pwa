@@ -157,3 +157,24 @@ describe('shared snapshot attachment transfer', () => {
     expect(attachmentUpsertMock).toHaveBeenCalledTimes(1);
   });
 });
+
+it('stops starting attachments after capacity rejection and drains the in-flight upload', async () => {
+  const input = project();
+  const checkpoint = input.areas[0].locations[0].items[0].checkpoints[0];
+  checkpoint.photos = Array.from({ length: 8 }, (_, index) => ({ ...checkpoint.photos[0], id: `photo-${index}` }));
+  attachmentIsMock.mockResolvedValue({ data: [], error: null });
+  attachmentUpsertMock.mockResolvedValue({ error: null });
+  let finishSecond!: () => void;
+  const capacity = { status: 500, message: 'Too many connections issued to the database' };
+  storageUploadMock.mockReset();
+  storageUploadMock.mockResolvedValueOnce({ error: capacity });
+  storageUploadMock.mockImplementationOnce(() => new Promise((resolve) => { finishSecond = () => resolve({ error: null }); }));
+  let settled = false;
+  const transfer = prepareCompactSharedSnapshotPayload(input, 'user-1').finally(() => { settled = true; });
+  const rejected = expect(transfer).rejects.toBe(capacity);
+  await vi.waitFor(() => expect(storageUploadMock).toHaveBeenCalledTimes(2));
+  expect(settled).toBe(false);
+  finishSecond();
+  await rejected;
+  expect(storageUploadMock).toHaveBeenCalledTimes(2);
+});

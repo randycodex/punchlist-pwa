@@ -132,6 +132,8 @@ export function isCollaborationCapacityError(error: unknown) {
 }
 
 export function isRetryableCollaborationError(error: unknown) {
+  // Capacity failures can also carry HTTP 500/503; never retry those immediately.
+  if (isCollaborationCapacityError(error)) return false;
   if (error instanceof CollaborationRequestTimeoutError) return true;
 
   const text = getCollaborationErrorText(error);

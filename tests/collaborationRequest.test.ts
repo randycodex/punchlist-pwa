@@ -43,6 +43,17 @@ describe('collaboration request timeout', () => {
     expect(isCollaborationCapacityError({ code: '42501', message: 'Not allowed' })).toBe(false);
   });
 
+  it('does not retry connection exhaustion disguised as an HTTP server error', async () => {
+    let attempts = 0;
+    const error = { status: 500, message: 'Too many connections issued to the database' };
+    await expect(retryCollaborationOperation(async () => {
+      attempts += 1;
+      throw error;
+    }, { baseDelayMs: 0 })).rejects.toBe(error);
+    expect(attempts).toBe(1);
+    expect(isRetryableCollaborationError({ ...error, status: 503 })).toBe(false);
+  });
+
   it('allows full shared snapshot transfers more time than lightweight requests', () => {
     expect(getCollaborationRequestPolicy(
       'https://example.supabase.co/rest/v1/rpc/publish_shared_project_snapshot',
