@@ -1,10 +1,12 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { usePathname } from 'next/navigation';
 import { getAllProjects } from '@/lib/db';
 import { isOfflinePage, offlineBuild, prepareSavedProjectPages } from './sitePreparation';
 
 export default function OfflineAppStatus() {
+  const pathname = usePathname();
   const [offline, setOffline] = useState(false);
   const [preparation, setPreparation] = useState('Preparing saved pages for offline use…');
   const [error, setError] = useState(false);
@@ -79,7 +81,12 @@ export default function OfflineAppStatus() {
   }, []);
   if (offline) return <div role="status" className="shrink-0 bg-amber-100 px-4 py-2 text-xs text-amber-950 dark:bg-amber-950 dark:text-amber-100">Offline · Edits save on this device. Team delivery waits for a connection.</div>;
   if (offlineBuild === 'development') return null;
-  return <div role="status" className="shrink-0 bg-slate-100 px-4 py-2 text-xs text-slate-700 dark:bg-slate-900 dark:text-slate-200">
+  return <div
+    role="status"
+    className={pathname === '/'
+      ? 'pointer-events-auto fixed inset-x-4 bottom-[calc(env(safe-area-inset-bottom)+5.5rem)] z-20 mx-auto max-w-sm px-2 text-center text-xs leading-4 text-slate-700 dark:text-slate-300'
+      : 'shrink-0 bg-slate-100 px-4 py-2 text-xs text-slate-700 dark:bg-slate-900 dark:text-slate-200'}
+  >
     {preparation}
     {error && <button type="button" className="ml-2 underline" onClick={() => setRetry((value) => value + 1)}>Retry</button>}
   </div>;
