@@ -98,6 +98,7 @@ interface PhotoCaptureProps {
   onAddFiles?: (files: Array<{ data: string; name: string; mimeType: string; size: number }>) => void | Promise<void>;
   onDeletePhoto: (photoId: string) => void;
   onDeleteFile: (fileId: string) => void;
+  readOnly?: boolean;
   compactActions?: boolean;
   hideCameraButton?: boolean;
   hideLibraryButton?: boolean;
@@ -113,6 +114,7 @@ export default function PhotoCapture({
   onAddPhotos,
   onDeletePhoto,
   onDeleteFile,
+  readOnly = false,
   compactActions = false,
   hideCameraButton = false,
   hideLibraryButton = false,
@@ -587,14 +589,14 @@ export default function PhotoCapture({
   }, [stopCameraStream]);
 
   useEffect(() => {
-    if (!openCameraSignal) return;
+    if (readOnly || !openCameraSignal) return;
     void openCamera();
-  }, [openCameraSignal, openCamera]);
+  }, [readOnly, openCameraSignal, openCamera]);
 
   useEffect(() => {
-    if (!openLibrarySignal) return;
+    if (readOnly || !openLibrarySignal) return;
     openPhotoPicker();
-  }, [openLibrarySignal, openPhotoPicker]);
+  }, [readOnly, openLibrarySignal, openPhotoPicker]);
 
   return (
     <div className="space-y-3">
@@ -617,7 +619,7 @@ export default function PhotoCapture({
                 alt="Checkpoint photo"
                 className="w-full h-full object-cover"
               />
-              <button
+              {!readOnly && <button
                 onClick={(e) => {
                   e.stopPropagation();
                   onDeletePhoto(photo.id);
@@ -627,7 +629,7 @@ export default function PhotoCapture({
                 }`}
               >
                 <X className={compactActions ? 'h-3 w-3' : 'h-3.5 w-3.5'} />
-              </button>
+              </button>}
             </div>
           ))}
           </div>
@@ -653,20 +655,20 @@ export default function PhotoCapture({
                   {file.name}
                 </a>
               </div>
-              <button
+              {!readOnly && <button
                 onClick={() => onDeleteFile(file.id)}
                 className={`flex items-center justify-center rounded-full text-gray-400 transition hover:bg-black/[0.04] hover:text-[var(--accent)] dark:hover:bg-white/[0.06] ${compactActions ? 'h-5 w-5' : 'ml-2 h-7 w-7'}`}
                 aria-label={`Delete ${file.name}`}
               >
                 <X className="w-3 h-3" />
-              </button>
+              </button>}
             </div>
           ))}
         </div>
       )}
 
       <div className={`flex items-center gap-3 ${hideCameraButton ? 'justify-end' : ''}`}>
-        {!hideCameraButton && (
+        {!readOnly && !hideCameraButton && (
           <button
             onClick={() => void openCamera()}
             disabled={savingPhotos}
@@ -678,7 +680,7 @@ export default function PhotoCapture({
             <Camera className={compactActions ? 'h-4 w-4' : 'h-4.5 w-4.5'} />
           </button>
         )}
-        {!hideLibraryButton && (
+        {!readOnly && !hideLibraryButton && (
           <button
             onClick={openPhotoPicker}
             disabled={savingPhotos}
@@ -696,7 +698,7 @@ export default function PhotoCapture({
           accept={PHOTO_INPUT_ACCEPT}
           multiple
           onChange={handlePhotoSelect}
-          disabled={savingPhotos}
+          disabled={readOnly || savingPhotos}
           className="hidden"
         />
       </div>

@@ -99,6 +99,7 @@ import CustomItemComposer from '@/components/inspection/CustomItemComposer';
 import FacadeElevationViewer, {
   type FacadeElevationSelection,
 } from '@/components/inspection/FacadeElevationViewer';
+import ReadOnlyArea from '@/components/inspection/ReadOnlyArea';
 import InspectionLocationCard from '@/components/inspection/InspectionLocationCard';
 import CaptureRecovery from '@/features/inspection/CaptureRecoveryPanel';
 import { saveRecoverableNote, saveRecoverablePhotos } from '@/features/inspection/captureRecovery';
@@ -2286,12 +2287,7 @@ export default function AreaDetailPage() {
           const restored = await getProjectForArea(project.id, area.id);
           if (restored) { setProject(restored); setArea(restored.areas.find((entry) => entry.id === area.id) ?? null); scheduleSync(project.id); }
         }} />
-        <div
-          className={`list-stack mx-auto min-h-[calc(100%+1px)] w-full max-w-6xl transition-opacity ${
-            areaEditingLocked ? 'pointer-events-none opacity-60' : ''
-          }`}
-          aria-disabled={areaEditingLocked}
-        >
+        {areaEditingLocked ? <ReadOnlyArea area={area} /> : <div className="list-stack mx-auto min-h-[calc(100%+1px)] w-full max-w-6xl">
           {!deleteMode && area.areaTypeKey === 'facade' && elevationDrawing && (
             <FacadeElevationViewer
               drawing={elevationDrawing}
@@ -2674,9 +2670,9 @@ export default function AreaDetailPage() {
             />
           )}
           <div className="mt-auto pt-1" />
-        </div>
+        </div>}
       </main>
-      <nav aria-label="Continue inspection" className="area-bottom-nav relative shrink-0 z-20 border-t border-black/5 bg-[var(--background)] px-4 pb-[calc(env(safe-area-inset-bottom)+0.25rem)] pt-2 dark:border-white/10">
+      <nav hidden={areaEditingLocked} aria-label="Continue inspection" className="area-bottom-nav relative shrink-0 z-20 border-t border-black/5 bg-[var(--background)] px-4 pb-[calc(env(safe-area-inset-bottom)+0.25rem)] pt-2 dark:border-white/10">
         <div className="mx-auto flex max-w-6xl gap-2">
           <button type="button" className="min-h-12 flex-1 rounded-xl soft-control px-3 text-sm font-semibold" onClick={() => void advanceInspection('item')}>Next item →</button>
           <button type="button" className="min-h-12 flex-1 rounded-xl accent-bg px-3 text-sm font-semibold text-white" onClick={() => void advanceInspection('room')}>Next room →</button>
