@@ -140,6 +140,8 @@ export default function PersistentTopBar() {
   const showAuth = pathname === '/';
   const [loadedProjectTitle, setLoadedProjectTitle] = useState({ projectId: '', title: '' });
   const [showHomeMenu, setShowHomeMenu] = useState(false);
+  const [accessRetry, setAccessRetry] = useState(0);
+  const [checkingAccess, setCheckingAccess] = useState(false);
   const [areAreaGroupsCollapsed, setAreAreaGroupsCollapsed] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
   const [infoDialog, setInfoDialog] = useState<{ title: string; message: string } | null>(null);
@@ -466,6 +468,7 @@ export default function PersistentTopBar() {
       };
     }
 
+    setCheckingAccess(true);
     void getSharedProjectAccess(sharedProjectId, userId)
       .then((access) => {
         if (cancelled) return;
@@ -493,13 +496,9 @@ export default function PersistentTopBar() {
           isOwner: false,
           hasError: true,
         };
-        sharedProjectAccessCache.set(`${userId}:${sharedProjectId}`, {
-          isActiveMember: next.isActiveMember,
-          isOwner: next.isOwner,
-          hasError: next.hasError,
-        });
+        sharedProjectAccessCache.delete(`${userId}:${sharedProjectId}`);
         setSharedProjectAccessSnapshot(next);
-      });
+      }).finally(() => { if (!cancelled) setCheckingAccess(false); });
 
     return () => {
       cancelled = true;
@@ -509,6 +508,7 @@ export default function PersistentTopBar() {
     collaborationAuth.user?.id,
     homeMenuState.sharedProjectId,
     showHomeMenu,
+    accessRetry,
   ]);
 
   async function handleMicrosoftAuthAction() {
@@ -947,15 +947,24 @@ export default function PersistentTopBar() {
                             </div>
                           </details>
                         )}
+                        {homeMenuState.isSharedProject && sharedProjectAccess.hasError && (
+                          <div className="col-span-2 px-2 py-2 text-xs text-amber-700 dark:text-amber-300">
+                            <p>Team access could not be checked. Your project is still connected; this does not mean your access was removed.</p>
+                            <button type="button" disabled={checkingAccess}
+                              className="mt-2 rounded-full px-3 py-2 font-semibold underline disabled:opacity-50"
+                              onClick={() => setAccessRetry((value) => value + 1)}>
+                              {checkingAccess ? 'Checking team access…' : 'Retry access check'}
+                            </button>
+                          </div>
+                        )}
                         {homeMenuState.isSingleProject &&
                           homeMenuState.isSharedProject &&
                           sharedProjectAccess.isReady &&
+                          !sharedProjectAccess.hasError &&
                           !sharedProjectAccess.isActiveMember && (
                           <>
                             <div className="col-span-2 px-2 py-2 text-xs text-amber-700 dark:text-amber-300">
-                              {sharedProjectAccess.hasError
-                                ? 'Could not verify team access. Retry an action, or keep working from this device only.'
-                                : 'This device has a team copy that is not active for your account. Reconnect the team project or keep it as a local-only copy.'}
+                              This device has a team copy that is not active for your account. Reconnect the team project or keep it as a local-only copy.
                             </div>
                             <button
                               onClick={() => dispatchHomeAction('my-shared-projects')}

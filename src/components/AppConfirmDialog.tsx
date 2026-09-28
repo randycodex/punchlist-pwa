@@ -1,5 +1,7 @@
 'use client';
 
+import { createPortal } from 'react-dom';
+
 type AppConfirmDialogProps = {
   title: string;
   message: string;
@@ -19,7 +21,8 @@ export default function AppConfirmDialog({
   onCancel,
   onConfirm,
 }: AppConfirmDialogProps) {
-  return (
+  if (typeof document === 'undefined') return null;
+  return createPortal(
     <div className="modal-overlay modal-overlay-confirm fixed inset-0 flex items-center justify-center p-4">
       <div className="modal-panel max-h-[85dvh] w-full max-w-md overflow-y-auto rounded-[1.9rem] p-6">
         <h2 className="mb-4 text-xl font-semibold tracking-[-0.02em] text-gray-900 dark:text-white">
@@ -48,5 +51,5 @@ export default function AppConfirmDialog({
         </div>
       </div>
     </div>
-  );
+  , document.body);
 }
