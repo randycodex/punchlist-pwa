@@ -147,7 +147,7 @@ type SharedAreaLockProblem =
 const SHARED_AREA_LOCK_BLOCKED_MESSAGE =
   'Someone else is working in this area. Wait until they release it, or go back and pick another area.';
 const SHARED_AREA_LOCK_LOST_MESSAGE =
-  'Team locking is unavailable. Changes will stay on this device until you reconnect and sync. Another teammate may edit this area meanwhile, so review any conflict before sending your work. Tap Try again when the connection returns.';
+  'Team lock unavailable. Work stays on this device until sync. Others may edit this area; check for conflicts.';
 
 export default function AreaDetailPage() {
   const params = useParams<{ id: string; areaId: string }>();
