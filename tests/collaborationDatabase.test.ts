@@ -113,3 +113,26 @@ it('denies an unrelated signed-in user access to projects, photos, and guarded w
   await db.exec('reset role; set role anon');
   await expect(db.query('select public.claim_shared_project_area_v2($1,$2,$3)', [project, area, phone])).rejects.toMatchObject({ code: '42501' });
 });
+
+it('preserves a legacy user-only claim and adopts it only on that user upgraded device', async () => {
+  const legacyArea = crypto.randomUUID();
+  await signIn(member, 'member@uai-ny.com');
+  // Simulate an existing pre-migration claim through the retained implementation.
+  await db.exec('reset role');
+  const legacy = (await db.query<{ result: { id: string; device_id: string | null } }>(
+    'select public.claim_shared_project_area($1,$2,null) as result', [project, legacyArea]
+  )).rows[0].result;
+  await signIn(owner, 'owner@uai-ny.com');
+  await expect(db.query('select public.claim_shared_project_area_v2($1,$2,$3)', [project, legacyArea, computer]))
+    .rejects.toMatchObject({ code: '55P03' });
+  await signIn(member, 'member@uai-ny.com');
+  const adopted = (await db.query<{ result: { id: string; device_id: string } }>(
+    'select public.claim_shared_project_area_v2($1,$2,$3) as result', [project, legacyArea, phone]
+  )).rows[0].result;
+  expect(adopted.id).toBe(legacy.id);
+  expect(adopted.device_id).toBe(phone);
+  expect((await db.query('select id from public.area_claims where project_id=$1 and area_id=$2', [project, legacyArea])).rows).toHaveLength(1);
+  await expect(db.query('select public.claim_shared_project_area_v2($1,$2,$3)', [project, legacyArea, computer]))
+    .rejects.toMatchObject({ code: '55P03' });
+  expect((await db.query<{ ok: boolean }>('select public.release_shared_project_area_v2($1,$2,$3,$4,0) as ok', [project, legacyArea, legacy.id, phone])).rows[0].ok).toBe(true);
+});

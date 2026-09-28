@@ -1,27 +1,27 @@
-# Production release preparation — September 28, 2026
+# Production release — September 28, 2026
 
-Status: prepared candidate, not deployed. Production rollout requires a save/sync/release window and final approval. Real Microsoft/OneDrive end-to-end acceptance remains deferred, not passed.
+Status: deployed to production after explicit owner approval and sync/pause confirmation. All four migrations applied and the prepared candidate was promoted. Existing locks were preserved. Signed-in production device acceptance and real Microsoft/OneDrive end-to-end acceptance remain unverified.
 
-## Candidate and existing release
+## Preparation snapshot (before rollout)
 
 - Candidate application source: `ea3c0515fa116385a85310f0aba2ee3cbeb06eeb` on `codex/backend-sync-hardening`.
 - Clean source archive: `/tmp/punchlist-release-20260928`, excluding the pre-existing manualSharedPull edit and untracked output directory. Temporary files may not survive machine cleanup.
-- Verification on that clean archive: 359 tests in 72 files, lint, typecheck, and production build passed. A second local build passed, but Vercel replaced four sensitive environment values with placeholders during export, so it is compilation evidence only. The remotely built, unpromoted candidate is the configuration-authoritative artifact. Environment files are private and excluded from Git/deployment uploads.
+- Verification on that clean archive: 359 tests in 72 files, lint, typecheck, and production build passed. A second local build passed, but Vercel replaced four sensitive environment values with placeholders during export, so it is compilation evidence only. The remotely built candidate is the configuration-authoritative artifact. Environment files are private and excluded from Git/deployment uploads.
 - Current production app: `dpl_8s6Unzj2CEQc1RW47MUUkDAeqUnA`, `https://punchlist-cud0kl8ek-randycodexs-projects-b72fc111.vercel.app`, aliased at `https://punchlist-pwa.vercel.app`.
 - Production Vercel project: `prj_2iCX8Z76vQJXsfO7Jhebj2OEZ7V5`; Supabase: `wwutemmdbimzucrijckg`.
 - Production database migration history ends at `20260923160000`. Read-only queries confirmed the device claim RPC is absent and authenticated direct UPDATE privileges still exist on claims and snapshots, consistent with the pre-hardening schema.
 - Production currently has 78 active claims held by 6 users and 9 non-archived projects. All 78 claims are more than one day old. This is a point-in-time count, not proof of active editing or safe abandonment. Do not bulk-release them without owner review and confirmation that local work is safe.
 
-## Exact pending migration order
+## Applied migration order
 
 1. `20260923200000_owner_area_lock_recovery.sql` — SHA-256 `a23ae5ddda9abfccf12622bc26ab19149c7854134594add1972e5ebdec3f962b`.
 2. `20260925170000_protect_collaboration_writes.sql` — SHA-256 `3b22dbf4ac0c1e6a07b8fb9845fe8e4e165f2fd5a0798b435220269c7583247a`.
 3. `20260925171000_device_area_claims.sql` — SHA-256 `31bdff6fa8b386fb2ab2416bbed1454cd806cd074d556b9f69d0cc7030092adc`.
 4. `20260925172000_immutable_attachment_objects.sql` — SHA-256 `d118d05ffc2ecc03b8cb2c0ebfb205572b962525d84c57eb37d0121455499447`.
 
-## Execution sequence after approval
+## Release procedure
 
-1. Confirm all inspectors have finished local saves, synced pending work, and released areas. Recheck active claims and inspect any remainder with the owner. A server cannot prove that disconnected phones have no pending work.
+1. Confirm all inspectors have finished local saves, synced pending work, and paused editing. Recheck active claims and preserve remaining claims unless separately authorized recovery is needed. A server cannot prove that disconnected phones have no pending work.
 2. Refresh the database backup immediately before the maintenance window. Keep the existing deployment identity and verified migration checksums. Verify production linkage again.
 3. Build the clean candidate using production settings. Prepare its Vercel deployment without assigning the live domain, inspect successful build output, and verify matching HTML/service-worker IDs before promotion. Do not accidentally include the disposable password-login overlay or test backend.
 4. Apply exactly the four pending migrations in timestamp order during the coordinated window, recording their history. If any migration fails, stop and inspect which transactions committed; do not blindly retry the whole set or promote the app.
@@ -49,4 +49,16 @@ The owner confirmed that all inspectors have saved and synced and can stop editi
 
 The archive's full contents were successfully decoded with `pg_restore --file=/dev/null`; its index was also read. SHA-256: `76c67b269d24e251fb219f10b8ec3543ee4fa4ef29b0e5ea0aede19e5f5ed7ef`. This validates archive readability, not a tested database restore.
 
-Final active-lock recheck still returned 78 claims across 6 users after the owner's sync/pause confirmation. Release execution remains on hold pending ordinary claim release or explicit owner-reviewed recovery of the remaining claims, followed by final rollout approval. Do not mark this release as deployed.
+## Completed rollout
+
+The owner explicitly approved proceeding after discussing the remaining locks. The immediate preflight counted 63 active claims, 21 total projects, 17 project snapshots, and 640 area snapshots. All counts were unchanged after migration; all 63 claims remained active with null device IDs for adoption by their current users. No claims were force-released.
+
+- Fresh pre-migration backup: `/Users/randy/.codex/backups/punchlist/2026-09-28/production-pre-rollout.dump`, 348834879 bytes; SHA-256 `a69420a37e8bea80639b91b18870fb1b60d97bd15f4a2e45df6b79c07fbdbe4c`. Full archive decoding passed; a database restore has not been rehearsed. Same exclusions as the earlier backup apply.
+- All four listed migrations applied successfully; migration history now ends at `20260925172000`.
+- Production alias `https://punchlist-pwa.vercel.app` resolves to `dpl_2kkE8UGkLdFmjnsgTmN3X8vLzddu`, READY, following successful Vercel promotion.
+- Live HTML and service worker both report build `2cec6519-abc3-43c7-81d3-180d95342934`; all 42 worker assets returned HTTP 200.
+- Read-only production checks confirmed authenticated direct claim/snapshot UPDATE privileges are denied; new claim/release and guarded publication are allowed; old claim/release, internal publisher, and anonymous claim execution are denied. The full-project replacement lock guard remains present.
+- Additional local database regression passed with all 9 database tests: a legacy user-only lock retains its ID and can be adopted by the same user's upgraded device; another user/device cannot take it.
+- Isolated signed-out production browser opened the project landing page, displayed Sign In, and reported no browser errors. The browser was closed. The initial deployment error-log query returned no logs; this is not proof of authenticated workflow correctness.
+
+Inspectors should close all app tabs, reopen online, and wait for saved-page readiness. Opening their own held area in the updated app allows the legacy claim to be adopted by that device before further edits/sync. Do not clear browser storage. Verify one signed-in production note/photo/sync/release workflow before broad field use. The temporary test environment remains available until live acceptance and subsequent authorized cleanup.
