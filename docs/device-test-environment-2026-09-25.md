@@ -85,3 +85,14 @@ Nine authenticated hosted RPC checks passed against the isolated test backend, u
 9. Final cleanup confirms zero active claims in this verification project.
 
 This establishes hosted permission, identity, and stale-request behavior. It does not constitute a rendered owner-menu test or recover unsent data from an unavailable physical phone. The test project remains disposable and can be removed with the temporary environment. The owner's phone-test project and Production were untouched. Storage-pressure verification remains outstanding.
+
+## Controlled storage-pressure checks — September 28, 2026
+
+Using an isolated browser profile and the disposable `INTERRUPTED SYNC CHECK` project, browser-only fault injection threw `QuotaExceededError` from `IDBObjectStore.put` for `sharedAreaSyncQueue`. This exercises failed canonical save transactions after journaling without filling the owner's disk or changing hosted code.
+
+- A checkpoint note and one new photo failed canonical persistence. The existing blank checkpoint note and two previous photos remained intact; the journal held the exact note and the full new photo (13859-character data URL).
+- The UI displayed an unsaved-note warning and Restore capture actions. After reload removed the injected failure, both recovery records were still visible. Restoring them produced the exact note and three distinct photos, including new ID `de214581-9df5-41a6-b297-ba83329026e3`.
+- A second injected quota failure targeted `drafts`, simulating recovery storage itself being unavailable. The new text remained in the editor with “Your latest note could not be saved. Keep this page open and retry.” The previously committed note remained visible as the saved value; no durability was claimed for the rejected new text.
+- Disabling the fault and clicking Retry save committed `Recovery storage full: retry this unsaved text.`. Release then flushed delivery and returned to the project. Final inspection found three unique photo IDs, zero recovery drafts, and zero pending area changes in the tested project.
+
+These are rendered-browser tests with injected quota exceptions, not actual device disk exhaustion, browser eviction, or blocked-upgrade tests. Closing the page after the journal itself rejects a write can still lose unsaved text; the UI instructs the user to keep it open and retry. No app source or production deployment changed. The isolated browser was closed after verification.
