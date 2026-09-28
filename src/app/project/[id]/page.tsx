@@ -28,6 +28,7 @@ import AreaEditorModal from '@/components/AreaEditorModal';
 import ProjectEditModal from '@/components/ProjectEditModal';
 import AppMessageDialog from '@/components/AppMessageDialog';
 import AppConfirmDialog from '@/components/AppConfirmDialog';
+import TeamBackupCard from '@/components/TeamBackupCard';
 import AppPromptDialog from '@/components/AppPromptDialog';
 import CollaborationHealthDialog from '@/components/CollaborationHealthDialog';
 import InvitePeopleDialog from '@/components/InvitePeopleDialog';
@@ -71,6 +72,7 @@ import { AreaCard,
 } from '@/features/projects/AreaCard';
 import AreaGroupList from '@/features/projects/AreaGroupList';
 import { matchesAreaSearch } from '@/features/projects/areaSearch';
+import { formatTeamBackupImpact, type TeamBackupImpact } from '@/features/projects/teamBackupImpact';
 import { getProjectFloorLevels, hasFloorGroupedAreas, hasProjectFloorLevels, normalizeFloorLabel } from '@/lib/unitFloors';
 import type { ListSortOption } from '@/components/ListSortMenu';
 import {
@@ -160,6 +162,7 @@ function formatSharedBackupReason(reason: CollaborationSnapshotBackup['reason'])
 type BackupRestoreConfirmState = {
   backup: CollaborationSnapshotBackup;
   publishAfterRestore: boolean;
+  impact: TeamBackupImpact;
 };
 
 export default function ProjectDetailPage() {
@@ -1187,8 +1190,8 @@ export default function ProjectDetailPage() {
     }
   }, [collaborationAuth.isSignedIn, project, showMessage]);
 
-  async function handleRestoreSharedBackup(backup: CollaborationSnapshotBackup, publishAfterRestore = false) {
-    setBackupRestoreConfirm({ backup, publishAfterRestore });
+  function handleRestoreSharedBackup(backup: CollaborationSnapshotBackup, publishAfterRestore: boolean, impact: TeamBackupImpact) {
+    setBackupRestoreConfirm({ backup, publishAfterRestore, impact });
   }
 
   async function confirmRestoreSharedBackup(backup: CollaborationSnapshotBackup, publishAfterRestore: boolean) {
@@ -1229,6 +1232,11 @@ export default function ProjectDetailPage() {
       }
       setProject({ ...result.project, areas: [...result.project.areas] });
       setBackupProject({ ...result.project, areas: [...result.project.areas] });
+      if (backupProject.sharedProjectId) {
+        void listSharedProjectBackups(backupProject.sharedProjectId).then(setSharedBackups).catch((error) => {
+          console.info('Restored backup, but the backup list could not refresh:', error);
+        });
+      }
       showMessage(
         publishedAt
           ? `Backup restored and published as the team version at ${new Date(publishedAt).toLocaleTimeString()}.`
@@ -1822,11 +1830,9 @@ export default function ProjectDetailPage() {
       {backupRestoreConfirm && (
         <AppConfirmDialog
           title={backupRestoreConfirm.publishAfterRestore ? 'Restore + Publish Backup' : 'Restore Backup'}
-          message={
-            backupRestoreConfirm.publishAfterRestore
-              ? `Restore backup from ${backupRestoreConfirm.backup.capturedAt.toLocaleString()}, then publish it as the current team version?\n\nThis will replace the shared version after first saving a backup of your current local data.`
-              : `Restore backup from ${backupRestoreConfirm.backup.capturedAt.toLocaleString()} to this device?\n\nPublish shared data after restoring if this should become the team version.`
-          }
+          message={`${backupRestoreConfirm.publishAfterRestore
+            ? 'This replaces the project and any unsent edits on this device, then publishes the backup as the team version.'
+            : 'This replaces the project and any unsent edits on this device only; the team version stays as it is.'}\n\nCompared with this device (not the current team version):\n${formatTeamBackupImpact(backupRestoreConfirm.impact).join('\n')}\n\nBefore restoring, we’ll save this device’s current version as a Team Backup. Project details and inspection data are restored too, including changes not listed here.`}
           confirmLabel={backupRestoreConfirm.publishAfterRestore ? 'Restore + Publish' : 'Restore'}
           danger={backupRestoreConfirm.publishAfterRestore}
           onCancel={() => setBackupRestoreConfirm(null)}
@@ -1931,9 +1937,12 @@ export default function ProjectDetailPage() {
       {backupProject && (
         <div className="modal-overlay fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="modal-panel max-h-[82dvh] w-full max-w-md overflow-y-auto rounded-[1.9rem] p-6">
-            <h2 className="mb-1 text-xl font-semibold tracking-[-0.02em] text-gray-900 dark:text-white">Shared Backups</h2>
+            <h2 className="mb-1 text-xl font-semibold tracking-[-0.02em] text-gray-900 dark:text-white">Team Backups</h2>
             <p className="mb-5 text-sm text-gray-500 dark:text-gray-400">
               {backupProject.projectName}
+            </p>
+            <p className="mb-4 text-xs leading-5 text-gray-500 dark:text-gray-400">
+              Compare a backup with this device before restoring. Restore changes this device; Restore + publish also changes the team version. Your current device version is saved first.
             </p>
             {loadingSharedBackups ? (
               <div className="flex items-center gap-3 rounded-[1.25rem] soft-control px-4 py-5 text-sm text-gray-500 dark:bg-white/[0.04] dark:text-gray-400">
@@ -1949,35 +1958,9 @@ export default function ProjectDetailPage() {
                 {sharedBackups.map((backup) => {
                   const isRestoring = restoringBackupId === backup.id;
                   return (
-                    <div key={backup.id} className="rounded-[1.25rem] soft-control p-4 dark:bg-white/[0.04]">
-                      <div className="text-sm font-semibold text-gray-900 dark:text-white">
-                        {formatSharedBackupReason(backup.reason)}
-                      </div>
-                      <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                        {backup.capturedAt.toLocaleString()}
-                      </div>
-                      {backup.note && (
-                        <div className="mt-2 text-xs text-gray-500 dark:text-gray-400">
-                          {backup.note}
-                        </div>
-                      )}
-                      <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2">
-                        <button
-                          onClick={() => void handleRestoreSharedBackup(backup)}
-                          disabled={!!restoringBackupId}
-                          className="soft-control rounded-2xl px-4 py-3 text-sm font-medium text-gray-700 transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-50 dark:text-gray-300 dark:hover:bg-white/[0.08]"
-                        >
-                          {isRestoring ? 'Restoring...' : 'Restore'}
-                        </button>
-                        <button
-                          onClick={() => void handleRestoreSharedBackup(backup, true)}
-                          disabled={!!restoringBackupId}
-                          className="rounded-2xl bg-zinc-900 px-4 py-3 text-sm font-medium text-white transition hover:bg-black disabled:cursor-not-allowed disabled:opacity-50 dark:bg-white dark:text-gray-900 dark:hover:bg-gray-200"
-                        >
-                          Restore + publish
-                        </button>
-                      </div>
-                    </div>
+                    <TeamBackupCard key={backup.id} backup={backup} label={formatSharedBackupReason(backup.reason)}
+                      project={backupProject} restoreBusy={!!restoringBackupId} isRestoring={isRestoring}
+                      onRestore={(publishAfterRestore, impact) => handleRestoreSharedBackup(backup, publishAfterRestore, impact)} />
                   );
                 })}
               </div>

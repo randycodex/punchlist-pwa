@@ -3,18 +3,22 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const {
   fromMock,
   limitMock,
+  maybeSingleMock,
   selectMock,
 } = vi.hoisted(() => {
   const query: Record<string, ReturnType<typeof vi.fn>> = {};
   const limitMock = vi.fn();
+  const maybeSingleMock = vi.fn();
   const selectMock = vi.fn<(columns: string) => typeof query>(() => query);
   query.select = selectMock;
   query.eq = vi.fn(() => query);
   query.order = vi.fn(() => query);
   query.limit = limitMock;
+  query.maybeSingle = maybeSingleMock;
   return {
     fromMock: vi.fn(() => query),
     limitMock,
+    maybeSingleMock,
     selectMock,
   };
 });
@@ -23,7 +27,8 @@ vi.mock('@/lib/collaboration/supabaseClient', () => ({
   getCollaborationSupabaseClient: () => ({ from: fromMock }),
 }));
 
-import { listSharedProjectBackups } from '@/lib/collaboration/sharedProjectSnapshots';
+import { createProject } from '@/lib/db';
+import { getSharedProjectBackupPreview, listSharedProjectBackups } from '@/lib/collaboration/sharedProjectSnapshots';
 
 const backupRow = {
   id: 'backup-1',
@@ -40,6 +45,7 @@ describe('shared snapshot backup listing', () => {
     fromMock.mockClear();
     selectMock.mockClear();
     limitMock.mockReset();
+    maybeSingleMock.mockReset();
   });
 
   it('lists backup metadata without downloading historical project payloads', async () => {
@@ -71,5 +77,20 @@ describe('shared snapshot backup listing', () => {
     expect(selectMock).toHaveBeenCalledTimes(2);
     expect(selectMock.mock.calls[1][0]).toContain('project_payload');
     expect(backups[0]).toMatchObject({ projectName: 'Legacy backup' });
+  });
+
+  it('loads one backup payload on demand for an impact preview', async () => {
+    const project = createProject('Team project');
+    project.sharedProjectId = 'shared-project-1';
+    maybeSingleMock.mockResolvedValue({
+      data: { project_payload: JSON.parse(JSON.stringify(project)), payload_version: 1, captured_at: backupRow.captured_at },
+      error: null,
+    });
+
+    const preview = await getSharedProjectBackupPreview(project, 'backup-1');
+
+    expect(preview.projectName).toBe('Team project');
+    expect(selectMock).toHaveBeenCalledWith('project_payload, payload_version, captured_at');
+    expect(fromMock).toHaveBeenCalledWith('shared_project_snapshot_history');
   });
 });

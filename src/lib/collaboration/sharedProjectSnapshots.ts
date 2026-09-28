@@ -474,7 +474,7 @@ export async function listSharedProjectBackups(sharedProjectId: string): Promise
   return (legacyResult.data ?? []).map((row) => reviveBackup(row));
 }
 
-export async function getSharedProjectBackupSnapshot(localProject: Project, backupId: string): Promise<SnapshotResult> {
+async function loadSharedProjectBackup(localProject: Project, backupId: string) {
   if (!localProject.sharedProjectId) {
     throw new Error('This project is not linked to a shared project.');
   }
@@ -499,11 +499,23 @@ export async function getSharedProjectBackupSnapshot(localProject: Project, back
     throw new Error('Could not find this shared project backup.');
   }
 
+  return data;
+}
+
+/** Read backup contents for a comparison without downloading attachment binaries. */
+export async function getSharedProjectBackupPreview(localProject: Project, backupId: string): Promise<Project> {
+  const data = await loadSharedProjectBackup(localProject, backupId);
+  return parseSharedSnapshotPayload(data.project_payload, data.payload_version).project;
+}
+
+export async function getSharedProjectBackupSnapshot(localProject: Project, backupId: string): Promise<SnapshotResult> {
+  const data = await loadSharedProjectBackup(localProject, backupId);
+
   const parsed = parseSharedSnapshotPayload(data.project_payload, data.payload_version);
   const hydratedProject = await hydrateSharedSnapshotAssets(
     parsed.project,
     parsed.assets,
-    localProject.sharedProjectId
+    localProject.sharedProjectId!
   );
   const retargetedProject = retargetProject(hydratedProject, localProject);
   return {
