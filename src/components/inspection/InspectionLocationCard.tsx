@@ -347,7 +347,7 @@ export default function InspectionLocationCard({
               <div className="text-[1.02rem] font-semibold tracking-[-0.02em] text-gray-900 dark:text-white">
                 {location.name}
               </div>
-              <MetadataLine className="mt-1" issues={locationStats.issues} issuesOnly />
+              <MetadataLine className="mt-1" issues={locationStats.issues} photos={locationMetric?.photoCount ?? 0} />
             </div>
             <div className="ml-3 flex items-center gap-2">
               {!deleteMode && location.isCustom ? (
