@@ -20,19 +20,36 @@ export default function OfflineAppStatus() {
     let running = false;
     let requested = false;
     let timer: ReturnType<typeof setTimeout>;
+    let updateNoticeTimer: ReturnType<typeof setTimeout> | undefined;
+    const clearUpdateNoticeTimer = () => {
+      clearTimeout(updateNoticeTimer);
+      updateNoticeTimer = undefined;
+    };
     const prepare = async () => {
       if (disposed || !navigator.onLine) return;
       if (running) { requested = true; return; }
       running = true;
       requested = false;
       setError(false);
-      setPreparation('Preparing saved pages for offline use…');
+      if (!updateNoticeTimer) setPreparation('Preparing saved pages for offline use…');
       try {
         await prepareSavedProjectPages(await getAllProjects());
-        if (!disposed) setPreparation('Saved pages ready offline');
+        if (!disposed) {
+          clearUpdateNoticeTimer();
+          setPreparation('Saved pages ready offline');
+        }
       } catch (reason) {
         if (!disposed) {
-          setError(!(reason instanceof AppUpdateWaitingError));
+          const updateWaiting = reason instanceof AppUpdateWaitingError;
+          if (updateWaiting && !updateNoticeTimer) {
+            updateNoticeTimer = setTimeout(() => {
+              updateNoticeTimer = undefined;
+              if (!disposed) setPreparation('');
+            }, 30_000);
+          } else if (!updateWaiting) {
+            clearUpdateNoticeTimer();
+          }
+          setError(!updateWaiting);
           setPreparation(reason instanceof Error ? reason.message : 'Offline preparation failed. Stay online and retry.');
         }
       } finally {
@@ -55,6 +72,7 @@ export default function OfflineAppStatus() {
     return () => {
       disposed = true;
       clearTimeout(timer);
+      clearUpdateNoticeTimer();
       window.removeEventListener('online', schedule);
       window.removeEventListener('focus', schedule);
       window.removeEventListener('punchlist-local-save-status', saved);
@@ -84,6 +102,7 @@ export default function OfflineAppStatus() {
   }, []);
   if (offline) return <div role="status" className="shrink-0 bg-amber-100 px-4 py-2 text-xs text-amber-950 dark:bg-amber-950 dark:text-amber-100">Offline · Edits save on this device. Team delivery waits for a connection.</div>;
   if (offlineBuild === 'development') return null;
+  if (!preparation) return null;
   return <div
     role="status"
     className={isAreaRoute
