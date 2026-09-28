@@ -2,6 +2,7 @@ import type { Project } from '@/types';
 
 export const offlineBuild = process.env.NEXT_PUBLIC_OFFLINE_BUILD_ID ?? 'development';
 export const isOfflinePage = (path: string) => path === '/' || /^\/project\/[a-zA-Z0-9-]+(?:\/area\/[a-zA-Z0-9-]+)?$/.test(path);
+export class AppUpdateWaitingError extends Error {}
 let registrationPromise: Promise<ServiceWorkerRegistration> | undefined;
 
 export function registerInspectionWorker() {
@@ -27,7 +28,7 @@ export async function checkPreparedPages(paths: string[], prepare = false) {
     navigator.serviceWorker.ready,
     new Promise<never>((_, reject) => { installationTimer = setTimeout(() => reject(new Error('Offline installation is still pending. Stay online and retry.')), 60000); }),
   ]).finally(() => clearTimeout(installationTimer));
-  if (registration.waiting) throw new Error('An app update is waiting. Finish saving, close all app tabs, reopen online, and prepare again.');
+  if (registration.waiting) throw new AppUpdateWaitingError('A new PunchList version is ready. Finish saving, close all PunchList tabs, then reopen online.');
   const worker = ready.active;
   if (!worker) throw new Error('Offline preparation is not installed yet.');
   return new Promise<{ ready: boolean; build: string; missing: string[] }>((resolve, reject) => {

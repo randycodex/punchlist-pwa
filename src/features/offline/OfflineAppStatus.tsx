@@ -3,11 +3,13 @@
 import { useEffect, useState } from 'react';
 import { usePathname } from 'next/navigation';
 import { getAllProjects } from '@/lib/db';
-import { isOfflinePage, offlineBuild, prepareSavedProjectPages } from './sitePreparation';
+import { AppUpdateWaitingError, isOfflinePage, offlineBuild, prepareSavedProjectPages } from './sitePreparation';
 
 export default function OfflineAppStatus() {
   const pathname = usePathname();
   const showAboveAddButton = pathname === '/' || /^\/project\/[^/]+$/.test(pathname);
+  const isAreaRoute = /^\/project\/[^/]+\/area\/[^/]+$/.test(pathname);
+  const floatingStatusClass = 'pointer-events-auto fixed inset-x-4 z-20 mx-auto max-w-sm px-2 text-center text-xs leading-4 text-slate-700 dark:text-slate-300';
   const [offline, setOffline] = useState(false);
   const [preparation, setPreparation] = useState('Preparing saved pages for offline use…');
   const [error, setError] = useState(false);
@@ -30,7 +32,7 @@ export default function OfflineAppStatus() {
         if (!disposed) setPreparation('Saved pages ready offline');
       } catch (reason) {
         if (!disposed) {
-          setError(true);
+          setError(!(reason instanceof AppUpdateWaitingError));
           setPreparation(reason instanceof Error ? reason.message : 'Offline preparation failed. Stay online and retry.');
         }
       } finally {
@@ -84,9 +86,11 @@ export default function OfflineAppStatus() {
   if (offlineBuild === 'development') return null;
   return <div
     role="status"
-    className={showAboveAddButton
-      ? 'pointer-events-auto fixed inset-x-4 bottom-[calc(env(safe-area-inset-bottom)+5.5rem)] z-20 mx-auto max-w-sm px-2 text-center text-xs leading-4 text-slate-700 dark:text-slate-300'
-      : 'shrink-0 bg-slate-100 px-4 py-2 text-xs text-slate-700 dark:bg-slate-900 dark:text-slate-200'}
+    className={isAreaRoute
+      ? `${floatingStatusClass} bottom-[calc(env(safe-area-inset-bottom)+4.5rem)]`
+      : showAboveAddButton
+        ? `${floatingStatusClass} bottom-[calc(env(safe-area-inset-bottom)+5.5rem)]`
+        : 'shrink-0 bg-slate-100 px-4 py-2 text-xs text-slate-700 dark:bg-slate-900 dark:text-slate-200'}
   >
     {preparation}
     {error && <button type="button" className="ml-2 underline" onClick={() => setRetry((value) => value + 1)}>Retry</button>}
