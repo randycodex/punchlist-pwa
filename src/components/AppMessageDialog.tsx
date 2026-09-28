@@ -1,6 +1,11 @@
 'use client';
 
 import { createPortal } from 'react-dom';
+import { useSyncExternalStore } from 'react';
+
+const subscribe = () => () => {};
+const clientSnapshot = () => true;
+const serverSnapshot = () => false;
 
 type AppMessageDialogProps = {
   title: string;
@@ -15,7 +20,8 @@ export default function AppMessageDialog({
   onClose,
   actionLabel = 'OK',
 }: AppMessageDialogProps) {
-  if (typeof document === 'undefined') return null;
+  const mounted = useSyncExternalStore(subscribe, clientSnapshot, serverSnapshot);
+  if (!mounted) return null;
   return createPortal(
     <div className="modal-overlay modal-overlay-message fixed inset-0 flex items-center justify-center p-4">
       <div className="modal-panel max-h-[85dvh] w-full max-w-md overflow-y-auto rounded-[1.9rem] p-6">
