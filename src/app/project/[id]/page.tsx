@@ -1567,7 +1567,7 @@ export default function ProjectDetailPage() {
                 )}
               </div>
               {project.address ? (
-                <p className="mt-1 truncate text-sm text-gray-500 dark:text-gray-400">
+                <p className="mt-7 truncate text-sm text-gray-500 dark:text-gray-400">
                   {project.address}
                 </p>
               ) : null}

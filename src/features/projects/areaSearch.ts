@@ -1,5 +1,5 @@
 import type { Area, Project } from '@/types';
-import { getAreaFloor, normalizeFloorLabel } from '@/lib/unitFloors';
+import { formatFloorLabel, getAreaFloor, normalizeFloorLabel } from '@/lib/unitFloors';
 
 export function matchesAreaSearch(
   area: Area,
@@ -10,7 +10,7 @@ export function matchesAreaSearch(
   const query = search.trim().toLocaleLowerCase();
   if (!query) return true;
   const floor = getAreaFloor(area, convention);
-  const text = [displayName, area.name, area.areaNumber, area.unitFloor, floor && `Floor ${floor}`]
+  const text = [displayName, area.name, area.areaNumber, area.unitFloor, floor && formatFloorLabel(floor), floor && `Floor ${floor}`]
     .filter(Boolean).join(' ').toLocaleLowerCase();
   if (text.includes(query)) return true;
   const normalizedFloor = normalizeFloorLabel(query);

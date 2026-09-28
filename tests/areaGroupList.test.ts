@@ -35,4 +35,18 @@ describe('project floor groups', () => {
     expect(emptyProjectMarkup).toContain('Roof');
     expect(emptyProjectMarkup).toContain('No areas yet');
   });
+  it('labels negative project levels as cellars', () => {
+    const project = createProject('Tower');
+    project.facadeLevelStart = -2;
+    project.facadeLevelEnd = -1;
+    const markup = renderToStaticMarkup(createElement(AreaGroupList, {
+      areas: [],
+      projectLevelRange: project,
+      renderArea: (area) => createElement('span', { key: area.id }, area.name),
+    }));
+
+    expect(markup).toContain('Cellar 2');
+    expect(markup).toContain('>Cellar</span>');
+    expect(markup).not.toContain('Floor -');
+  });
 });

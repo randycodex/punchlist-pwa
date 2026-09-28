@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { parseBulkApartmentSchedule } from '@/lib/apartmentSchedule';
 import { describe, expect, it } from 'vitest';
-import { getAreaFloor, getProjectFloorLevels, getUnitFloor, groupAreasByFloor, groupUnitsByFloor, normalizeFloorLabel, parseUnitFloorNumbering } from '@/lib/unitFloors';
+import { formatFloorLabel, getAreaFloor, getProjectFloorLevels, getUnitFloor, groupAreasByFloor, groupUnitsByFloor, normalizeFloorLabel, parseUnitFloorNumbering } from '@/lib/unitFloors';
 import { createArea, createProject } from '@/lib/db';
 import { createSharedProjectMetadataPayload, applySharedProjectMetadataSnapshot } from '@/lib/collaboration/sharedProjectMetadata';
 import { parseProjectPayload } from '@/lib/projectPayload';
@@ -58,6 +58,13 @@ describe('unit floors', () => {
     project.facadeLevelStart = 2;
     project.facadeLevelEnd = -1;
     expect(getProjectFloorLevels(project)).toEqual(['-1', '1', '2', 'Roof']);
+  });
+  it('displays negative levels as distinct cellars without changing their floor values', () => {
+    expect(formatFloorLabel('-1')).toBe('Cellar');
+    expect(formatFloorLabel('-2')).toBe('Cellar 2');
+    expect(formatFloorLabel('2')).toBe('Floor 2');
+    expect(normalizeFloorLabel('Cellar')).toBe('-1');
+    expect(normalizeFloorLabel('Cellar 2')).toBe('-2');
   });
   it('keeps a large floor group in input order with the empty Roof above it', () => {
     const project = createProject('Large tower');

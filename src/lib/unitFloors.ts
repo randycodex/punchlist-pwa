@@ -37,9 +37,19 @@ export function normalizeFloorLabel(value?: string): string | undefined {
   const floor = value?.trim();
   if (!floor) return undefined;
   if (/^roof$/i.test(floor)) return 'Roof';
+  const cellar = floor.match(/^cellar(?:\s+([1-9]\d*))?$/i);
+  if (cellar) return `-${Number(cellar[1] ?? '1')}`;
   const number = floor.match(/^(?:floor|level)\s*(-?\d+)$/i)
     ?? floor.match(/^(-?\d+)(?:st|nd|rd|th)?(?:\s+(?:floor|level))?$/i);
   return number ? String(Number(number[1])) : floor;
+}
+
+export function formatFloorLabel(floor: string | null): string {
+  if (floor === null) return 'Floor not set';
+  if (floor === 'Roof') return 'Roof';
+  const cellar = floor.match(/^-(?:0*)([1-9]\d*)$/);
+  if (cellar) return cellar[1] === '1' ? 'Cellar' : `Cellar ${cellar[1]}`;
+  return `Floor ${floor}`;
 }
 
 export function getAreaFloor(area: Area, convention?: UnitFloorNumbering): string | null {

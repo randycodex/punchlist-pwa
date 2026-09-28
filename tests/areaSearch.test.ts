@@ -19,4 +19,11 @@ describe('area search', () => {
     expect(matchesAreaSearch(area, area.name, 'Roof')).toBe(true);
     expect(matchesAreaSearch(area, area.name, 'corridor')).toBe(true);
   });
+
+  it('finds a negative floor by its cellar name or numeric floor', () => {
+    const area = createArea('project-1', 'Electrical Room', 0);
+    area.unitFloor = '-2';
+    expect(matchesAreaSearch(area, area.name, 'Cellar 2')).toBe(true);
+    expect(matchesAreaSearch(area, area.name, 'Floor -2')).toBe(true);
+  });
 });
