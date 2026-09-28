@@ -122,7 +122,7 @@ describe('selected shared project sync', () => {
 
     const result = await syncSharedProject(project.id, 'user-1');
 
-    expect(result).toMatchObject({ status: 'pending', message: expect.stringContaining('release any remaining area locks') });
+    expect(result).toMatchObject({ status: 'pending', message: expect.stringContaining('Any locks not yet released are still held') });
     expect(mocks.pushChanges).not.toHaveBeenCalled();
     expect(mocks.releaseClaims).not.toHaveBeenCalled();
   });
@@ -135,4 +135,19 @@ describe('selected shared project sync', () => {
     expect(result.status).toBe('pending');
     expect(mocks.releaseClaims).toHaveBeenCalledOnce();
   });
+
+it('identifies whether capacity failure happened before publication or during release', async () => {
+  const capacity = { code: '53300', message: 'Too many connections issued to the database' };
+  mocks.getMetadata.mockRejectedValueOnce(capacity);
+  await expect(syncSharedProject(project.id, 'user-1')).resolves.toMatchObject({status: 'pending', message: expect.stringContaining('checking for team updates')});
+  mocks.getProject.mockResolvedValue(project);
+  mocks.getAllProjects.mockResolvedValue([project]);
+  mocks.getMetadata.mockResolvedValue({publishedAt:'2026-01-01T12:00:00.000Z'});
+  mocks.getPendingAreas.mockResolvedValue([]);
+  mocks.getPendingMetadata.mockResolvedValue(undefined);
+  mocks.pushChanges.mockResolvedValue({remainingAreaCount:0,metadataRemaining:false});
+  mocks.releaseClaims.mockRejectedValueOnce(capacity);
+  await expect(syncSharedProject(project.id, 'user-1')).resolves.toMatchObject({status:'pending',message:expect.stringContaining('releasing saved areas')});
+});
+
 });

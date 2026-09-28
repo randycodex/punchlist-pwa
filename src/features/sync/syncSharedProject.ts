@@ -29,13 +29,14 @@ export async function syncSharedProject(
   userId: string,
   options: { localCopiesAlreadyChecked?: boolean } = {}
 ): Promise<SharedProjectSyncResult> {
+  let stage = 'checking saved work';
   try {
-    return await syncSharedProjectOnce(localProjectId, userId, options);
+    return await syncSharedProjectOnce(localProjectId, userId, options, (value) => { stage = value; });
   } catch (error) {
     if (!isCollaborationCapacityError(error)) throw error;
     return {
       status: 'pending',
-      message: 'The team service is busy. Your changes remain saved on this device. Sync This Project again in a minute to finish sending and release any remaining area locks.',
+      message: `Sync paused while ${stage}: the team service rejected a connection. Your local changes remain saved. Any locks not yet released are still held.`,
     };
   }
 }
@@ -43,7 +44,8 @@ export async function syncSharedProject(
 async function syncSharedProjectOnce(
   localProjectId: string,
   userId: string,
-  options: { localCopiesAlreadyChecked?: boolean }
+  options: { localCopiesAlreadyChecked?: boolean },
+  setStage: (stage: string) => void
 ): Promise<SharedProjectSyncResult> {
   const sourceToken = await captureLocalProjectSaveToken(localProjectId);
   let project = await getProject(localProjectId);
@@ -58,8 +60,10 @@ async function syncSharedProjectOnce(
     }
   }
 
+  setStage('checking for team updates');
   const metadata = await getSharedProjectSnapshotMetadata(sharedProjectId);
   if (metadata && isSharedSnapshotNewer(project, metadata.publishedAt)) {
+    setStage('downloading team updates and photos');
     const pull = await getPendingSharedPullState(project, 'manual-pull');
     const pendingAreas = await getPendingSharedAreaSyncsForProject(localProjectId);
     if (pendingAreas.length > 0 || pull.hasNewerLocalChanges || pull.preservedLocalAreaCount > 0 || pull.preservedLocalProjectMetadata) {
@@ -71,6 +75,7 @@ async function syncSharedProjectOnce(
     project = pull.resolutionProject;
   }
 
+  setStage('sending saved changes and photos');
   if (!project.sharedSnapshotPublishedAt) {
     await publishSharedProjectSnapshot(project, userId);
     await acknowledgePublishedSharedProject(project);
@@ -95,6 +100,7 @@ async function syncSharedProjectOnce(
   if (remainingAreas.length || remainingMetadata) {
     return { status: 'pending', message: 'New local changes arrived during sync. Sync this project again to send them before releasing its areas.' };
   }
+  setStage('confirming the saved team copy');
   const latestMetadata = await getSharedProjectSnapshotMetadata(sharedProjectId);
   if (!latestMetadata) {
     return { status: 'pending', message: 'Could not verify the team copy after sending. Its areas stayed locked; sync this project again.' };
@@ -106,6 +112,7 @@ async function syncSharedProjectOnce(
     return { status: 'pending', message: 'This project still has local changes to send. Its areas stayed locked.' };
   }
 
+  setStage('releasing saved areas');
   const released = await releaseAllMySharedProjectAreaClaims(sharedProjectId, localProjectId);
   return { status: 'synced', releasedAreaCount: released.releasedCount };
 }
