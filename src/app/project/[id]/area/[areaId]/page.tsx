@@ -1653,7 +1653,7 @@ export default function AreaDetailPage() {
       await flushPendingSharedAreaSyncs(project.id);
       const remaining = await getPendingSharedAreaSyncsForProject(project.id);
       if (remaining.some((record) => record.areaId === area.id)) {
-        throw new Error('This area still has changes waiting to reach the team. Its lock is staying with you. Sync Projects and review any conflicts, then release it.');
+        throw new Error('This area still has changes waiting to reach the team. Its lock is staying with you. Sync Team Projects and review any conflicts, then release it.');
       }
       await releaseSharedProjectArea(project.sharedProjectId, area.id, project.id);
       setHasAreaClaim(false);

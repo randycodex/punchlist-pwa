@@ -81,6 +81,7 @@ const sharedProjectAccessCache = new Map<
 
 type SortOption = ListSortOption;
 type HomeMenuState = {
+  syncing?: boolean;
   context?: 'home' | 'project';
   sortOption: SortOption;
   areaViewMode: AreaListViewMode;
@@ -618,21 +619,29 @@ export default function PersistentTopBar() {
     }
   }
 
+  function startHomeSync(action: 'sync-now' | 'onedrive-sync') {
+    if (localSaveStatus === 'error') {
+      setInfoDialog({ title: 'Local save needs attention', message: `This device could not save the latest change. Keep the app open and try the action again.${localSaveError ? `\n\n${localSaveError}` : ''}` });
+      return;
+    }
+    dispatchHomeAction(action);
+  }
+
   function renderSyncButton() {
     const label = localSaveStatus === 'error'
       ? 'Local save needs attention'
       : displayRetryInSeconds > 0 && !syncProjectId
       ? `Sync team projects now. OneDrive available in ${displayRetryInSeconds} seconds`
       : syncProjectId && displayStatus !== 'syncing'
-        ? 'Sync only this project and release its team areas when sent'
+        ? homeMenuState.sharedProjectId ? 'Sync this team project and release its areas when sent' : 'Sync and back up this personal project with OneDrive'
         : syncButtonLabel[displayStatus];
     const shortLabel = localSaveStatus === 'error'
       ? 'Save error'
       : projectSyncing || displayStatus === 'syncing'
         ? 'Syncing…'
         : syncProjectId
-          ? 'Sync This Project'
-          : 'Sync All Projects';
+          ? homeMenuState.sharedProjectId ? 'Sync This Team Project' : 'OneDrive Sync / Backup'
+          : 'Sync Team Projects';
     const SyncIcon = localSaveStatus === 'error'
       ? Activity
       : displayRetryInSeconds > 0 && !syncProjectId
@@ -658,7 +667,7 @@ export default function PersistentTopBar() {
           if (syncProjectId && !isAreaRoute) void handleProjectSync();
           else dispatchHomeAction('sync-now');
         }}
-        disabled={projectSyncing || displayStatus === 'syncing' || sharedTransferStatus !== null}
+        disabled={homeMenuState.syncing || projectSyncing || displayStatus === 'syncing' || sharedTransferStatus !== null}
         className={`${syncMenuRowBaseClass} ${buttonClasses}`}
         aria-label={label}
         title={label}
@@ -972,7 +981,23 @@ export default function PersistentTopBar() {
                             New Project
                           </button>
                         )}
-                        {showAuth && isSignedIn && renderSyncButton()}
+                        {showAuth && isSignedIn && (
+                          <>
+                            <button type="button" onClick={() => startHomeSync('sync-now')}
+                              disabled={homeMenuState.syncing || projectSyncing || displayStatus === 'syncing' || sharedTransferStatus !== null}
+                              className={syncMenuRowBaseClass}>
+                              <CloudUpload className="h-4 w-4 shrink-0" />
+                              {homeMenuState.syncing ? 'Sync in progress…' : 'Sync Team Projects'}
+                            </button>
+                            <button type="button" onClick={() => startHomeSync('onedrive-sync')}
+                              disabled={homeMenuState.syncing || projectSyncing || displayStatus === 'syncing' || sharedTransferStatus !== null}
+                              className={syncMenuRowBaseClass}
+                              title="Restore and back up personal projects with OneDrive">
+                              <CloudUpload className="h-4 w-4 shrink-0" />
+                              OneDrive Sync / Backup
+                            </button>
+                          </>
+                        )}
                         {showAuth &&
                           isSignedIn &&
                           collaborationAuth.canUseCollaboration &&

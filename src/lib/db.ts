@@ -1172,7 +1172,7 @@ async function saveProjectInternal(project: Project, options: { touch: boolean; 
           clientId: uuidv4(), revision: (existing?.revision ?? 0) + 1, attemptCount: 0,
           blockedByConflict: true, readyAfterConflictReview: true,
           queuedAt: existing?.queuedAt ?? new Date(),
-          lastError: 'Team updates were merged. Review this area, then tap Sync Projects.',
+          lastError: 'Team updates were merged. Review this area, then tap Sync Team Projects.',
         });
       }
       if (options.reviewedMetadata) {
@@ -1750,7 +1750,7 @@ export async function rebasePendingSharedAreaSyncsForReview(
       blockedByConflict: true,
       readyAfterConflictReview: true,
       queuedAt: existing?.queuedAt ?? new Date(),
-      lastError: 'Team updates were merged. Review this area, then tap Sync Projects.',
+      lastError: 'Team updates were merged. Review this area, then tap Sync Team Projects.',
     };
     await store.put(record);
     records.push(record);

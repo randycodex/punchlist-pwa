@@ -1042,7 +1042,7 @@ export default function ProjectDetailPage() {
           setPendingPull(await getPendingSharedPullState(fullProject, 'publish-conflict'));
         } catch (reviewError) {
           console.error('Failed to load shared data for publish conflict review:', reviewError);
-          showMessage('The team has newer work. Tap Sync Projects to review it, then sync again.');
+          showMessage('The team has newer work. Tap Sync Team Projects to review it, then sync again.');
         }
         return;
       }

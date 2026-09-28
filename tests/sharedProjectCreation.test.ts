@@ -98,6 +98,6 @@ describe('shared project creation', () => {
       : { data: [], error: null });
 
     await expect(joinSharedProjectByCode('JOIN-CODE', 'member@uai-ny.com'))
-      .rejects.toThrow('Tap Sync Projects to finish adding it');
+      .rejects.toThrow('Tap Sync Team Projects to finish adding it');
   });
 });

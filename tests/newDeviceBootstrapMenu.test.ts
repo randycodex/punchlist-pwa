@@ -12,10 +12,12 @@ describe('new device project restoration menu', () => {
     expect(persistentTopBar).toContain('{homeMenuState.hasProjects && (');
   });
 
-  it('offers one sync action for personal and team projects', () => {
+  it('offers separate team and OneDrive sync actions', () => {
     expect(persistentTopBar).toContain("dispatchHomeAction('sync-now')");
-    expect(persistentTopBar).toContain('Sync All Projects');
-    expect(persistentTopBar).toContain('Sync This Project');
+    expect(persistentTopBar).toContain('Sync Team Projects');
+    expect(persistentTopBar).toContain("startHomeSync('onedrive-sync')");
+    expect(persistentTopBar).toContain('OneDrive Sync / Backup');
+    expect(persistentTopBar).toContain('Sync This Team Project');
     expect(persistentTopBar).not.toContain("dispatchHomeAction('restore-onedrive-backup')");
     expect(persistentTopBar).not.toContain("dispatchHomeAction('publish-shared-project')");
     expect(persistentTopBar).not.toContain("dispatchHomeAction('pull-shared-project')");

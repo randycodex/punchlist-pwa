@@ -336,7 +336,7 @@ export async function joinSharedProjectByCode(
     console.info('Joined team project, but could not load its directory identity:', directoryError);
   }
   if (!directoryEntry?.localProjectId) {
-    throw new Error('You joined the team project, but this device could not confirm its project ID. Tap Sync Projects to finish adding it.');
+    throw new Error('You joined the team project, but this device could not confirm its project ID. Tap Sync Team Projects to finish adding it.');
   }
 
   return { sharedProjectId, projectName, localProjectId: directoryEntry.localProjectId };

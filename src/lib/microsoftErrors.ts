@@ -121,20 +121,20 @@ export function getMicrosoftRetryDelayMs(error: unknown): number | null {
 
 export function formatMicrosoftRestoreRetryMessage(error: unknown, retryInSeconds: number) {
   if (isMicrosoftConnectionError(error)) {
-    return 'Could not reach OneDrive. Your projects are still saved on this device. Check your connection, then tap Sync Projects again.';
+    return 'Could not reach OneDrive. Your projects are still saved on this device. Check your connection, then tap OneDrive Sync / Backup again.';
   }
 
   const message = extractErrorMessage(error).toLowerCase();
   if (message.includes('throttled') || message.includes('too many requests')) {
-    return `Microsoft is limiting OneDrive requests. Your projects are still saved on this device. Sync Projects will be available again in about ${retryInSeconds} seconds.`;
+    return `Microsoft is limiting OneDrive requests. Your projects are still saved on this device. OneDrive Sync / Backup will be available again in about ${retryInSeconds} seconds.`;
   }
 
-  return `OneDrive is temporarily unavailable. Your projects are still saved on this device. Tap Sync Projects again in about ${retryInSeconds} seconds.`;
+  return `OneDrive is temporarily unavailable. Your projects are still saved on this device. Tap OneDrive Sync / Backup again in about ${retryInSeconds} seconds.`;
 }
 
 export function formatMicrosoftManualRetryMessage(retryInSeconds?: number) {
   if (retryInSeconds && retryInSeconds > 0) {
-    return `Saved locally. OneDrive is temporarily unavailable. Tap Sync Projects again in about ${retryInSeconds} seconds.`;
+    return `Saved locally. OneDrive is temporarily unavailable. Tap OneDrive Sync / Backup again in about ${retryInSeconds} seconds.`;
   }
-  return 'Saved locally. OneDrive needs a manual retry. Tap Sync Projects when you are ready.';
+  return 'Saved locally. OneDrive needs a manual retry. Tap OneDrive Sync / Backup when you are ready.';
 }

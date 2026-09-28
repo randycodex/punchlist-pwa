@@ -209,12 +209,12 @@ export function formatPendingSharedPullMessage(pendingPull: PendingSharedPullSta
   const preservedAreaSummary = preservedAreaNames.length > 0
     ? `\n\nYour local areas: ${preservedAreaNames.slice(0, 5).join(', ')}${preservedAreaNames.length > 5 ? `, and ${preservedAreaNames.length - 5} more` : ''}.`
     : '';
-  const mergeSummary = `Next step: save a safety backup of this device, keep your ${pendingPull.preservedLocalAreaCount} local area change${pendingPull.preservedLocalAreaCount === 1 ? '' : 's'}, and bring in ${pendingPull.appliedRemoteAreaCount} team area update${pendingPull.appliedRemoteAreaCount === 1 ? '' : 's'}.`;
+  const mergeSummary = `Next step: back up this device's project, keep your version of ${pendingPull.preservedLocalAreaCount} area${pendingPull.preservedLocalAreaCount === 1 ? '' : 's'}, and load the team's versions of the other ${pendingPull.appliedRemoteAreaCount} area${pendingPull.appliedRemoteAreaCount === 1 ? '' : 's'}.`;
   const metadataSummary = pendingPull.preservedLocalProjectMetadata
     ? '\n\nYour edited project name/details on this device will stay and be re-sent to the team afterward.'
     : '';
   const conflictSummary = pendingPull.conflictingAreaNames.length > 0
-    ? `\n\nChanged on both sides (keeping your version for now): ${pendingPull.conflictingAreaNames.join(', ')}. Review those areas before syncing again.`
+    ? `\n\nChanged on both sides: ${pendingPull.conflictingAreaNames.join(', ')}. Your device's complete version of each named area will be kept. Individual room and item edits from the team in those areas are not combined. Review them before syncing again; their locks stay with you until your changes are sent.`
     : '';
 
   if (pendingPull.reason === 'publish-conflict') {
@@ -227,12 +227,12 @@ export function formatPendingSharedPullSuccessMessage(pendingPull: PendingShared
   const preserved: string[] = [];
   if (pendingPull.conflictingAreaNames.length > 0) {
     const count = pendingPull.conflictingAreaNames.length;
-    preserved.push(`${count} area${count === 1 ? '' : 's'} had changes on both sides — your version on this device was kept.`);
+    preserved.push(`${count} area${count === 1 ? '' : 's'} had changes on both sides. Your device's versions were kept; review them before sending to the team.`);
   }
   if (pendingPull.preservedLocalProjectMetadata) {
     preserved.push('Your project details on this device were kept and will re-send to the team.');
   }
   return preserved.length > 0
-    ? `Team updates applied. ${preserved.join(' ')}`
+    ? `Team copies for the other areas were loaded. ${preserved.join(' ')} After review, tap Sync Team Projects again to send your changes and release their locks.`
     : `Team updates applied from ${new Date(pendingPull.publishedAt).toLocaleString()}.`;
 }

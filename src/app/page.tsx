@@ -267,6 +267,7 @@ export default function ProjectsPage() {
   const [areaViewMode, setAreaViewMode] = useState<AreaListViewMode>('grouped');
   const [areaSearch, setAreaSearch] = useState('');
   const [syncing, setSyncing] = useState(false);
+  const syncInProgressRef = useRef(false);
   const [syncError, setSyncError] = useState<string | null>(null);
   const [deleteMode, setDeleteMode] = useState(false);
   const [exportMode, setExportMode] = useState(false);
@@ -546,23 +547,18 @@ export default function ProjectsPage() {
   }, []);
 
   async function handleSync() {
-    if (syncing) return;
+    if (syncInProgressRef.current) return;
+    syncInProgressRef.current = true;
     setSyncing(true);
-    setSyncError(null);
-    setSyncStatus('syncing');
     const completed: string[] = [];
     const problems: string[] = [];
     let pendingPullCandidate: PendingSharedPullState | null = null;
-    const showSyncResult = (message: string, title = 'Sync Projects') => {
+    const showSyncResult = (message: string, title = 'Sync Team Projects') => {
       if (pendingPullCandidate) {
         setPendingPullSyncSummary(message);
         setPendingPull(pendingPullCandidate);
       } else showMessage(message, title);
     };
-    let personalReady = true;
-    let personalRestoreIncomplete = false;
-    let mergedPersonalProjectIds: string[] = [];
-    const autoArchivedRecoveryIds: string[] = [];
     try {
       if (collaborationAuth.isSignedIn) {
         try {
@@ -618,7 +614,7 @@ export default function ProjectsPage() {
                   return next;
                 });
               }
-              completed.push(`${entry.projectName}: team changes synced to Team Projects${result.releasedAreaCount ? `; ${result.releasedAreaCount} area${result.releasedAreaCount === 1 ? '' : 's'} released` : ''} (team project data is not backed up to OneDrive)`);
+              completed.push(`${entry.projectName}: team changes synced to Team Projects${result.releasedAreaCount ? `; ${result.releasedAreaCount} area${result.releasedAreaCount === 1 ? '' : 's'} released` : ''}`);
             } catch (error) {
               console.error(`Team sync failed for ${entry.projectName}:`, error);
               problems.push(`${entry.projectName}: ${getCollaborationErrorMessage(error, 'Team sync failed. Please try again.')}`);
@@ -628,15 +624,39 @@ export default function ProjectsPage() {
           console.error('Team sync failed:', error);
           problems.push(getCollaborationErrorMessage(error, 'Team sync failed. Please try again.'));
         }
-      } else if ((await getAllProjects()).some((project) => project.sharedProjectId)) {
+      } else {
         problems.push('Team projects are not connected on this device. Enable Team Projects, then sync again.');
       }
 
+      await loadProjects();
+      showSyncResult([...completed, ...problems].join('\n') || 'Your team projects are up to date.');
+    } catch (error) {
+      showSyncResult(error instanceof Error ? error.message : 'Team sync failed. Please try again.');
+    } finally {
+      syncInProgressRef.current = false;
+      setSyncing(false);
+    }
+  }
+
+  async function handleOneDriveSync() {
+    if (syncInProgressRef.current) return;
+    syncInProgressRef.current = true;
+    setSyncing(true);
+    setSyncError(null);
+    setSyncStatus('syncing');
+    const completed: string[] = [];
+    const problems: string[] = [];
+    const showSyncResult = (message: string, title = 'OneDrive Sync / Backup') => showMessage(message, title);
+    let personalReady = true;
+    let personalRestoreIncomplete = false;
+    let mergedPersonalProjectIds: string[] = [];
+    const autoArchivedRecoveryIds: string[] = [];
+    try {
       if (retryAt && retryAt.getTime() > Date.now()) {
         const remainingSeconds = Math.ceil((retryAt.getTime() - Date.now()) / 1000);
         setSyncStatus('pending');
         await loadProjects();
-        showSyncResult([...completed, ...problems, `Personal backup: OneDrive can be retried in about ${remainingSeconds} seconds.`].join('\n'), 'Sync Projects');
+        showSyncResult([...completed, ...problems, `Personal backup: OneDrive can be retried in about ${remainingSeconds} seconds.`].join('\n'), 'OneDrive Sync / Backup');
         return;
       }
       setRetryAt(null);
@@ -655,7 +675,7 @@ export default function ProjectsPage() {
           problems.push(`Microsoft sign-in: ${error instanceof Error ? error.message : 'Could not sign in.'}`);
         }
         if (restore.status === 'needs-auth') {
-          showSyncResult([...completed, ...problems, 'Personal backup was not completed. Tap Sync Projects again after Microsoft sign-in.'].join('\n'), 'Sync Projects');
+          showSyncResult([...completed, ...problems, 'Personal backup was not completed. Tap OneDrive Sync / Backup again after Microsoft sign-in.'].join('\n'), 'OneDrive Sync / Backup');
           return;
         }
       }
@@ -711,7 +731,7 @@ export default function ProjectsPage() {
         if (personalRestoreIncomplete) queuePendingSync(undefined, { fullSync: true });
         setSyncStatus(restore.status === 'retry' ? 'pending' : 'error');
         await loadProjects();
-        showSyncResult([...completed, ...problems].join('\n'), 'Sync Projects');
+        showSyncResult([...completed, ...problems].join('\n'), 'OneDrive Sync / Backup');
         return;
       }
       if (!personalRestoreIncomplete) {
@@ -748,7 +768,7 @@ export default function ProjectsPage() {
       }
       const currentProjects = await getAllProjects();
       const personalBackupIds = [
-        ...currentProjects.filter((project) => !project.deletedAt).map((project) => project.id),
+        ...currentProjects.filter((project) => !project.deletedAt && !project.sharedProjectId).map((project) => project.id),
         ...autoArchivedRecoveryIds,
       ];
       let result = await runManualOneDriveSync({
@@ -770,7 +790,7 @@ export default function ProjectsPage() {
           problems.push(`Microsoft sign-in: ${error instanceof Error ? error.message : 'Could not sign in.'}`);
         }
         if (result.status === 'needs-auth') {
-          showSyncResult([...completed, ...problems, 'Personal backup was not completed. Tap Sync Projects again after Microsoft sign-in.'].join('\n'), 'Sync Projects');
+          showSyncResult([...completed, ...problems, 'Personal backup was not completed. Tap OneDrive Sync / Backup again after Microsoft sign-in.'].join('\n'), 'OneDrive Sync / Backup');
           return;
         }
       }
@@ -784,26 +804,26 @@ export default function ProjectsPage() {
         setSyncConflicts(result.conflicts);
         setSyncError(result.message);
         setSyncStatus('error');
-        showSyncResult([...completed, ...problems, result.message].join('\n'), 'Sync Projects');
+        showSyncResult([...completed, ...problems, result.message].join('\n'), 'OneDrive Sync / Backup');
         return;
       }
       if (result.status === 'partial') {
         setSyncConflicts([]);
         setSyncError(result.message);
         setSyncStatus('pending');
-        showSyncResult([...completed, ...problems, result.message].join('\n'), 'Sync Projects');
+        showSyncResult([...completed, ...problems, result.message].join('\n'), 'OneDrive Sync / Backup');
         return;
       }
       if (result.status === 'retry') {
         setSyncError(result.message);
         setSyncStatus('pending');
-        showSyncResult([...completed, ...problems, result.message].join('\n'), 'Sync Projects');
+        showSyncResult([...completed, ...problems, result.message].join('\n'), 'OneDrive Sync / Backup');
         return;
       }
       if (result.status === 'error') {
         setSyncError(result.message);
         setSyncStatus('error');
-        showSyncResult([...completed, ...problems, result.message].join('\n'), 'Sync Projects');
+        showSyncResult([...completed, ...problems, result.message].join('\n'), 'OneDrive Sync / Backup');
         return;
       }
       setSyncConflicts([]);
@@ -813,13 +833,14 @@ export default function ProjectsPage() {
       setSyncStatus(personalRestoreIncomplete ? 'pending' : problems.length > 0 ? 'error' : hasPendingSyncState() ? 'pending' : 'idle');
       if (problems.length === 0) markSyncedNow();
       await loadProjects();
-      showSyncResult([...completed, ...problems].join('\n') || 'Everything is up to date.', 'Sync Projects');
+      showSyncResult([...completed, ...problems].join('\n') || 'Everything is up to date.', 'OneDrive Sync / Backup');
     } catch (error) {
       console.error('Sync failed:', error);
       setSyncStatus('error');
       problems.push(error instanceof Error ? error.message : 'Sync failed. Please try again.');
       showSyncResult([...completed, ...problems].join('\n'));
     } finally {
+      syncInProgressRef.current = false;
       setSyncing(false);
     }
   }
@@ -1610,7 +1631,7 @@ export default function ProjectsPage() {
       setCopyReview(null);
       showMessage(teamSnapshot
         ? `Merged ${copies.length} local copies into one project. Original copies are in Trash for 30 days. ${safeAreaIds.length} changed areas are queued for team sync.${unavailableMediaIds.size ? ` ${unavailableMediaIds.size} areas still have photos or files missing on this device and were kept local for recovery.` : ''}`
-        : `Merged ${copies.length} personal copies into one project. The extra copy is in Trash for 30 days. Tap Sync Projects to update your personal backup and archive the extra copy.`);
+        : `Merged ${copies.length} personal copies into one project. The extra copy is in Trash for 30 days. Tap OneDrive Sync / Backup to update your personal backup and archive the extra copy.`);
     } catch (error) {
       console.error('Could not merge project copies:', error);
       showMessage(error instanceof Error ? error.message : 'Could not merge these copies. No copies were removed.');
@@ -2265,7 +2286,7 @@ export default function ProjectsPage() {
           setPendingPull(await getPendingSharedPullState(fullProject, 'publish-conflict'));
         } catch (reviewError) {
           console.error('Failed to load shared data for publish conflict review:', reviewError);
-          showMessage('The team has newer work. Tap Sync Projects to review it, then sync again.');
+          showMessage('The team has newer work. Tap Sync Team Projects to review it, then sync again.');
         }
         return;
       }
@@ -2647,6 +2668,11 @@ export default function ProjectsPage() {
       return;
     }
 
+    if (detail.action === 'onedrive-sync') {
+      void handleOneDriveSync();
+      return;
+    }
+
     if (detail.action === 'sync-now') {
       void handleSync();
       return;
@@ -2802,6 +2828,7 @@ export default function ProjectsPage() {
       new CustomEvent('punchlist-home-menu-state', {
         detail: {
           context: 'home',
+          syncing,
           sortOption,
           areaViewMode,
           showTrash,
@@ -2823,6 +2850,7 @@ export default function ProjectsPage() {
       })
     );
   }, [
+    syncing,
     creatingJoinCode,
     activeProjects.length,
     deleteMode,
@@ -3359,14 +3387,20 @@ export default function ProjectsPage() {
                       </button>
                     ) : null}
                     {isSignedIn && (
+                      <>
                       <button
                         type="button"
                         onClick={() => void handleSync()}
                         disabled={syncing}
                         className="inline-flex h-11 items-center justify-center rounded-full px-5 text-sm font-medium text-gray-600 transition hover:bg-black/[0.04] dark:text-gray-300 dark:hover:bg-white/[0.06]"
                       >
-                        {syncing ? 'Syncing…' : 'Sync All Projects'}
+                        {syncing ? 'Syncing…' : 'Sync Team Projects'}
                       </button>
+                      <button type="button" onClick={() => void handleOneDriveSync()} disabled={syncing}
+                        className="inline-flex h-11 items-center justify-center rounded-full px-5 text-sm font-medium text-gray-600 transition hover:bg-black/[0.04] dark:text-gray-300 dark:hover:bg-white/[0.06]">
+                        OneDrive Sync / Backup
+                      </button>
+                      </>
                     )}
                     {collaborationAuth.errorMessage && (
                       <p role="alert" className="text-sm text-red-600 dark:text-red-300">

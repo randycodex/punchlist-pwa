@@ -119,7 +119,7 @@ describe('manual OneDrive backup coordinator', () => {
     });
 
     expect(backupProjects).toHaveBeenCalledWith('token', ['project-1']);
-    expect(result).toMatchObject({ status: 'conflict', message: expect.stringContaining('Tap Sync This Project again') });
+    expect(result).toMatchObject({ status: 'conflict', message: expect.stringContaining('Tap OneDrive Sync / Backup again') });
     expect(loadPendingSyncState().projectIds).toEqual(['project-2', 'project-1']);
   });
 
@@ -226,7 +226,7 @@ describe('manual OneDrive backup coordinator', () => {
     expect(backupProjects).toHaveBeenCalledTimes(2);
     expect(result).toEqual({
       status: 'retry',
-      message: 'Saved locally. OneDrive is temporarily unavailable. Tap Sync Projects again in about 15 seconds.',
+      message: 'Saved locally. OneDrive is temporarily unavailable. Tap OneDrive Sync / Backup again in about 15 seconds.',
     });
     expect(hasPendingSyncState()).toBe(true);
   });
@@ -294,7 +294,7 @@ describe('manual OneDrive backup coordinator', () => {
     expect(restoreProjects).toHaveBeenCalledTimes(2);
     expect(result).toEqual({
       status: 'retry',
-      message: 'Could not reach OneDrive. Your projects are still saved on this device. Check your connection, then tap Sync Projects again.',
+      message: 'Could not reach OneDrive. Your projects are still saved on this device. Check your connection, then tap OneDrive Sync / Backup again.',
       retryAfterMs: 15_000,
     });
   });
@@ -312,7 +312,7 @@ describe('manual OneDrive backup coordinator', () => {
     expect(result).toEqual({ status: 'success', restoredProjectCount: 1, restoredProjectIds: ['project-2'] });
   });
 
-  it('preserves the OneDrive throttle delay for the Sync Projects countdown', async () => {
+  it('preserves the OneDrive throttle delay for the OneDrive Sync / Backup countdown', async () => {
     const throttled = Object.assign(new Error('The request has been throttled'), { retryAfterMs: 32_000 });
     const result = await runManualOneDriveRestore({
       ensureAccessToken: async () => 'token',
@@ -321,7 +321,7 @@ describe('manual OneDrive backup coordinator', () => {
 
     expect(result).toEqual({
       status: 'retry',
-      message: 'Microsoft is limiting OneDrive requests. Your projects are still saved on this device. Sync Projects will be available again in about 32 seconds.',
+      message: 'Microsoft is limiting OneDrive requests. Your projects are still saved on this device. OneDrive Sync / Backup will be available again in about 32 seconds.',
       retryAfterMs: 32_000,
     });
   });

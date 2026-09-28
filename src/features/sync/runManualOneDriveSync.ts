@@ -39,7 +39,7 @@ export type ManualOneDriveRestoreResult =
   | { status: 'retry'; message: string; retryAfterMs: number }
   | { status: 'error'; message: string };
 
-function formatBackupConflictReviewMessage(conflicts: SyncConflict[], actionLabel = 'Sync Projects') {
+function formatBackupConflictReviewMessage(conflicts: SyncConflict[], actionLabel = 'OneDrive Sync / Backup') {
   if (conflicts.length === 1) {
     return `OneDrive changed while syncing ${conflicts[0].name}. Your work is safe on this device. Tap ${actionLabel} again to get the latest backup.`;
   }
@@ -62,9 +62,9 @@ export async function runManualOneDriveSync(options: {
   const queueSelectedProjects = () => {
     selectedProjectIds?.forEach((projectId) => queuePendingSync(projectId));
   };
-  const actionLabel = selectedProjectIds ? 'Sync This Project' : 'Sync Projects';
+  const actionLabel = 'OneDrive Sync / Backup';
   const manualRetryMessage = (seconds?: number) =>
-    formatMicrosoftManualRetryMessage(seconds).replace('Sync Projects', actionLabel);
+    formatMicrosoftManualRetryMessage(seconds);
 
   try {
     const token = await options.ensureAccessToken();
