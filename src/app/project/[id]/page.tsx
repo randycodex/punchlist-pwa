@@ -1551,8 +1551,7 @@ export default function ProjectDetailPage() {
               <ArrowLeft className="w-5 h-5" />
             </Link>
             <div className="min-w-0 flex-1">
-              <div className="section-eyebrow">Project</div>
-              <div className="mt-1 flex min-w-0 items-center gap-2">
+              <div className="flex min-w-0 items-center gap-2">
                 <h1 className="min-w-0 truncate text-[1.2rem] font-semibold tracking-[-0.02em] text-gray-900 dark:text-white">
                   {project.projectName}
                 </h1>
