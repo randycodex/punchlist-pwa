@@ -825,8 +825,11 @@ async function backupProjectPhotosToOneDrive(
 
   await runWithConcurrency(localPhotos.map((photo, index) => ({ photo, index })), 3, async ({ photo, index }) => {
     const filename = projectPhotoFilename(project, photo, index);
-    if (remoteNames.has(filename) || remotePhotoIds.has(photo.id) || !photo.imageData) {
+    if (remoteNames.has(filename) || remotePhotoIds.has(photo.id)) {
       return;
+    }
+    if (!photo.imageData) {
+      throw new Error('A photo is unavailable on this device and in OneDrive. The project backup was not updated. Recover the missing photo, then retry sync.');
     }
     const blob = await dataUrlToBlob(photo.imageData);
     await uploadProjectPhotoFile(token, targetFolderName, filename, blob, false);
@@ -1791,6 +1794,12 @@ export async function backupProjectsToOneDrive(
               token, projectForBackup, migrationSourceFolder, targetFolderName, remoteIndex
             );
           }
+          // Photo backups are append-only. Deleting a photo on the device does not
+          // remove the computer-accessible JPEG from OneDrive.
+          if (!migrationSourceFolder) {
+            await backupProjectPhotosToOneDrive(token, projectForBackup, targetFolderName, remoteIndex);
+          }
+          // Publish references only after every required photo is available.
           if (freshnessComparison > 0 || !canonicalRemote || forceIds.has(localProject.id)) {
             await uploadProjectFileRecoveringMissingRemote(
               token,
@@ -1802,11 +1811,6 @@ export async function backupProjectsToOneDrive(
             );
           }
 
-          // Photo backups are append-only. Deleting a photo on the device does not
-          // remove the computer-accessible JPEG from OneDrive.
-          if (!migrationSourceFolder) {
-            await backupProjectPhotosToOneDrive(token, projectForBackup, targetFolderName, remoteIndex);
-          }
           if (migrationSourceFolder && migrationSource) {
             await removeSeparatedPersonalProjectPhotosFromOldFolder(
               token, projectForBackup, migrationSourceFolder, targetFolderName, remoteFiles

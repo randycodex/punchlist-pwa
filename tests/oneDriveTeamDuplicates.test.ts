@@ -489,6 +489,38 @@ describe('OneDrive and team project identity', () => {
     expect(uploadProjectFileMock).not.toHaveBeenCalled();
   });
 
+  it.each(['missing', 'upload-failed', 'available'] as const)(
+    'publishes project references only after photos are available: %s', async (state) => {
+      const project = createProject('Photo safety');
+      const area = createArea(project.id, 'Room', 0);
+      const location = createLocation(area.id, 'Kitchen', 0);
+      const item = createItem(location.id, 'Window', 0);
+      const checkpoint = createCheckpoint(item.id, 'Finish', 0);
+      checkpoint.photos.push(createPhotoAttachment(checkpoint.id,
+        state === 'missing' ? '' : 'data:image/jpeg;base64,cGhvdG8='));
+      item.checkpoints.push(checkpoint);
+      location.items.push(item);
+      area.locations.push(location);
+      project.areas.push(area);
+      await saveProjectPreserveTimestamps(project);
+      uploadProjectFileMock.mockResolvedValue({ id: 'project-upload' });
+      if (state === 'upload-failed') uploadProjectPhotoFileMock.mockRejectedValue(new Error('Upload failed'));
+
+      const result = await backupProjectsToOneDrive('test-token', [project.id]);
+
+      if (state === 'available') {
+        expect(result.backedUpProjectIds).toEqual([project.id]);
+        expect(uploadProjectPhotoFileMock.mock.invocationCallOrder[0])
+          .toBeLessThan(uploadProjectFileMock.mock.invocationCallOrder[0]);
+      } else {
+        expect(result.backedUpProjectIds).toEqual([]);
+        expect(result.failedProjects).toEqual([expect.objectContaining({ id: project.id })]);
+        expect(uploadProjectFileMock).not.toHaveBeenCalled();
+        expect((await getProject(project.id))?.oneDriveFolderName).toBe(project.oneDriveFolderName);
+      }
+    }
+  );
+
   it('keeps local photo records intact while saving personal backup folder metadata', async () => {
     const project = createProject('Photo project');
     const area = createArea(project.id, 'Unit 1', 0);
