@@ -19,7 +19,6 @@ import { getCheckpointIssueState } from '@/types';
 import PhotoDropTarget, { type DroppedPhoto } from '@/components/inspection/PhotoDropTarget';
 import PhotoCapture from '@/components/PhotoCapture';
 import MetadataLine from '@/components/MetadataLine';
-import OfflineVoiceNoteButton from '@/features/inspection/OfflineVoiceNoteButton';
 
 type CheckpointReviewState = 'pending' | 'ok' | Exclude<IssueState, 'none'>;
 
@@ -31,7 +30,6 @@ type Metrics = {
 };
 
 type InspectionLocationCardProps = {
-  projectId: string;
   location: Area['locations'][number];
   locationMetric?: Metrics;
   itemMetrics: Map<string, Metrics>;
@@ -119,7 +117,6 @@ function checkpointHasFacadeListContent(checkpoint: Checkpoint) {
 }
 
 export default function InspectionLocationCard({
-  projectId,
   location,
   areaLabel,
   onReviewLocation,
@@ -564,8 +561,6 @@ export default function InspectionLocationCard({
                   />
                   {isExpandedCustomCheckpoint && (
                     <InlineCheckpointEditor
-                      projectId={projectId}
-                      areaId={location.areaId}
                       key={customCheckpoint.id}
                       checkpoint={customCheckpoint}
                       locationId={location.id}
@@ -682,8 +677,6 @@ export default function InspectionLocationCard({
                         />
                         {isExpandedCheckpoint && (
                           <InlineCheckpointEditor
-                            projectId={projectId}
-                            areaId={location.areaId}
                             key={checkpoint.id}
                             checkpoint={checkpoint}
                             locationId={location.id}
@@ -956,8 +949,6 @@ export default function InspectionLocationCard({
                           />
                           {isExpandedCheckpoint && (
                             <InlineCheckpointEditor
-                              projectId={projectId}
-                              areaId={location.areaId}
                               key={checkpoint.id}
                               checkpoint={checkpoint}
                               locationId={location.id}
@@ -1147,7 +1138,6 @@ function CheckpointRow({
 }
 
 function InlineCheckpointEditor({
-  projectId, areaId,
   checkpoint,
   locationId,
   itemId,
@@ -1167,7 +1157,6 @@ function InlineCheckpointEditor({
   onCloseEditor,
   openCameraSignal,
 }: {
-  projectId: string; areaId: string;
   checkpoint: Checkpoint;
   locationId: string;
   itemId: string;
@@ -1189,7 +1178,6 @@ function InlineCheckpointEditor({
 }) {
   const editorRef = useRef<HTMLDivElement | null>(null);
   const commentInputRef = useRef<HTMLTextAreaElement | null>(null);
-  const voiceNoteActiveRef = useRef(false);
   const [draft, setDraft] = useState(commentText);
   const [photoLibrarySignal, setPhotoLibrarySignal] = useState(0);
   const [previousDraft, setPreviousDraft] = useState<string | null>(null);
@@ -1216,7 +1204,6 @@ function InlineCheckpointEditor({
     if (!onCloseEditor) return;
     function handleDocumentClick(event: MouseEvent) {
       if (!editorRef.current) return;
-      if (voiceNoteActiveRef.current) return;
       const target = event.target as Node;
       if (editorRef.current.contains(target)) return;
       const isInlineAction = event.composedPath().some(
@@ -1275,26 +1262,10 @@ function InlineCheckpointEditor({
               value={draft}
               onChange={(e) => updateDraft(e.target.value)}
               onBlur={(e) => void Promise.resolve(onCommentBlur(locationId, itemId, checkpoint.id, e.target.value)).catch(() => {})}
-              className="field-shell field-shell-with-two-actions min-h-[112px] resize-none text-base"
+              className="field-shell field-shell-with-action min-h-[112px] resize-none text-base"
               placeholder="Add inspection note"
             />
             <div className="absolute right-3 top-3 flex gap-2">
-              <OfflineVoiceNoteButton
-                projectId={projectId} areaId={areaId} checkpointId={checkpoint.id}
-                onActivityChange={(active) => {
-                  voiceNoteActiveRef.current = active;
-                }}
-                onTranscript={async (transcript) => {
-                  const separator = draft.trim() ? ' ' : '';
-                  const nextComment = draft.trimEnd().endsWith(transcript) ? draft : `${draft.trimEnd()}${separator}${transcript}`;
-                  updateDraft(nextComment);
-                  await onCommentBlur(locationId, itemId, checkpoint.id, nextComment);
-                  window.requestAnimationFrame(() => {
-                    commentInputRef.current?.focus();
-                    commentInputRef.current?.setSelectionRange(nextComment.length, nextComment.length);
-                  });
-                }}
-              />
               <button
                 type="button"
                 data-inspection-inline-action="true"

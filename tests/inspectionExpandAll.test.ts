@@ -21,7 +21,6 @@ function renderCard(
   overrides: Partial<ComponentProps<typeof InspectionLocationCard>> = {}
 ) {
   const props: ComponentProps<typeof InspectionLocationCard> = {
-    projectId: source.project.id,
     location: source.location,
     itemMetrics: new Map(),
     expandedItems: new Set([source.item.id]),

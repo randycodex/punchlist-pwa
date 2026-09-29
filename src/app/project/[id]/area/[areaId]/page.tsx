@@ -2373,7 +2373,6 @@ export default function AreaDetailPage() {
                 onCreatePhotoCheckpoint={handleCreatePhotoCheckpoint}
                 onDropPhotos={handleAddPhotos}
                 onUndoDroppedPhotos={handleUndoDroppedPhotos}
-                projectId={project.id}
                 areaLabel={areaTitle}
                 onReviewLocation={reviewLocation}
                 location={location}
@@ -2532,7 +2531,6 @@ export default function AreaDetailPage() {
                 onCreatePhotoCheckpoint={handleCreatePhotoCheckpoint}
                 onDropPhotos={handleAddPhotos}
                 onUndoDroppedPhotos={handleUndoDroppedPhotos}
-                projectId={project.id}
               key={filteredCustomItemsLocation.id}
               location={filteredCustomItemsLocation}
               locationMetric={areaDerived?.locationMetrics.get(filteredCustomItemsLocation.id)}
