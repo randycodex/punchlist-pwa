@@ -120,7 +120,7 @@ export async function runManualOneDriveSync(options: {
         backedUpProjectIds: result.backedUpProjectIds,
         message: [
           ...(result.failedProjects ?? []).map((project) => `${project.name}: ${project.message}`),
-          `These personal backups stayed queued. Tap ${actionLabel} again to retry them.`,
+          `These backups stayed queued. Tap ${actionLabel} again to retry them.`,
         ].join('\n'),
       };
     }

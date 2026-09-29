@@ -276,6 +276,7 @@ export default function PersistentTopBar() {
     setHomeMenuOpen(false);
     setInfoDialog(null);
     setSyncStatus('syncing');
+    let teamSyncMessage = '';
     try {
       const project = await getProject(syncProjectId);
       if (!project || project.deletedAt) throw new Error('This project is no longer available on this device.');
@@ -297,22 +298,19 @@ export default function PersistentTopBar() {
           return;
         }
         clearSharedUpdateAvailable(syncProjectId);
-        setSyncStatus(hasPendingSyncState() ? 'pending' : 'idle');
         window.dispatchEvent(new CustomEvent('punchlist-project-synced', { detail: { projectId: syncProjectId } }));
-        setInfoDialog({
-          title: 'Sync This Project',
-          message: `${project.projectName}: team changes synced to Team Projects${result.releasedAreaCount ? `; ${result.releasedAreaCount} area${result.releasedAreaCount === 1 ? '' : 's'} released` : ''}. Team project data is not backed up to OneDrive.`,
-        });
-        return;
+        teamSyncMessage = `${project.projectName}: team changes synced${result.releasedAreaCount ? `; ${result.releasedAreaCount} area${result.releasedAreaCount === 1 ? '' : 's'} released` : ''}. `;
       }
 
       const token = await ensureAccessToken({ interactive: true });
       if (!token) {
         setSyncStatus('needs-auth');
-        setInfoDialog({ title: 'Sync This Project', message: 'Sign in to Microsoft to sync this personal project.' });
+        setInfoDialog({ title: 'Sync This Project', message: `${teamSyncMessage}Sign in to Microsoft to back up this project's JSON and photos to OneDrive.` });
         return;
       }
-      const merged = await mergePersonalProjectsFromOneDrive(token, [syncProjectId]);
+      const merged = project.sharedProjectId
+        ? { forceBackupProjectIds: [], archivedLocalProjectIds: [], updatedLocalProjectIds: [] }
+        : await mergePersonalProjectsFromOneDrive(token, [syncProjectId]);
       const result = await runManualOneDriveSync({
         ensureAccessToken: async () => token,
         projectIds: [syncProjectId],
@@ -327,21 +325,21 @@ export default function PersistentTopBar() {
           title: 'Sync This Project',
           message: merged.archivedLocalProjectIds.includes(syncProjectId)
             ? `${project.projectName}: the newer OneDrive copy shows this project was archived. This device moved it to Trash.`
-            : `${project.projectName}: personal backup saved in OneDrive/PunchList${merged.updatedLocalProjectIds.includes(syncProjectId) ? '; newer changes from OneDrive added' : ''}.`,
+            : `${teamSyncMessage}${project.projectName}: JSON and photos backed up in OneDrive/PunchList${merged.updatedLocalProjectIds.includes(syncProjectId) ? '; newer changes from OneDrive added' : ''}.`,
         });
       } else {
         if (result.status === 'conflict') setSyncConflicts(result.conflicts);
         setSyncStatus(result.status === 'needs-auth' ? 'needs-auth' : result.status === 'error' || result.status === 'conflict' ? 'error' : 'pending');
         setInfoDialog({
           title: 'Sync This Project',
-          message: 'message' in result ? result.message : 'Sign in to Microsoft to sync this personal project.',
+          message: `${teamSyncMessage}${'message' in result ? result.message : 'Sign in to Microsoft to back up this project.'}`,
         });
       }
     } catch (error) {
       setSyncStatus('error');
       setInfoDialog({
         title: 'Sync This Project',
-        message: error instanceof Error ? error.message : 'Could not sync this project. Please try again.',
+        message: `${teamSyncMessage}${error instanceof Error ? error.message : 'Could not sync this project. Please try again.'}`,
       });
     } finally {
       projectSyncingRef.current = false;
@@ -639,7 +637,7 @@ export default function PersistentTopBar() {
       : displayRetryInSeconds > 0 && !syncProjectId
       ? `Sync team projects now. OneDrive available in ${displayRetryInSeconds} seconds`
       : syncProjectId && displayStatus !== 'syncing'
-        ? homeMenuState.sharedProjectId ? 'Sync this team project and release its areas when sent' : 'Sync and back up this personal project with OneDrive'
+        ? homeMenuState.sharedProjectId ? 'Sync this team project, release sent areas, and back up to OneDrive' : 'Sync and back up this personal project with OneDrive'
         : syncButtonLabel[displayStatus];
     const shortLabel = localSaveStatus === 'error'
       ? 'Save error'
@@ -1010,7 +1008,7 @@ export default function PersistentTopBar() {
                             <button type="button" onClick={() => startHomeSync('onedrive-sync')}
                               disabled={homeMenuState.syncing || projectSyncing || displayStatus === 'syncing' || sharedTransferStatus !== null}
                               className={syncMenuRowBaseClass}
-                              title="Restore and back up personal projects with OneDrive">
+                              title="Back up all projects to OneDrive and restore personal projects">
                               <CloudUpload className="h-4 w-4 shrink-0" />
                               OneDrive Sync / Backup
                             </button>

@@ -770,13 +770,13 @@ export default function ProjectsPage() {
         if (autoArchivedRecoveryIds.length > 0) await loadProjects();
       }
       const currentProjects = await getAllProjects();
-      const personalBackupIds = [
-        ...currentProjects.filter((project) => !project.deletedAt && !project.sharedProjectId).map((project) => project.id),
+      const backupProjectIds = [
+        ...currentProjects.filter((project) => !project.deletedAt).map((project) => project.id),
         ...autoArchivedRecoveryIds,
       ];
       let result = await runManualOneDriveSync({
         ensureAccessToken: () => ensureAccessToken({ interactive: true }),
-        projectIds: personalBackupIds,
+        projectIds: backupProjectIds,
         forceProjectIds: mergedPersonalProjectIds,
       });
       if (result.status === 'needs-auth') {
@@ -786,7 +786,7 @@ export default function ProjectsPage() {
           await signIn({ selectAccount: true });
           result = await runManualOneDriveSync({
             ensureAccessToken: () => ensureAccessToken({ interactive: true }),
-            projectIds: personalBackupIds,
+            projectIds: backupProjectIds,
             forceProjectIds: mergedPersonalProjectIds,
           });
         } catch (error) {
@@ -800,7 +800,7 @@ export default function ProjectsPage() {
       if (result.status === 'success' || result.status === 'conflict' || result.status === 'partial') {
         const namesById = new Map(currentProjects.map((project) => [project.id, project.projectName]));
         for (const projectId of result.backedUpProjectIds) {
-          completed.push(`${namesById.get(projectId) ?? 'Personal project'}: personal backup saved in OneDrive/PunchList`);
+          completed.push(`${namesById.get(projectId) ?? 'Project'}: JSON and photos backed up in OneDrive/PunchList`);
         }
       }
       if (result.status === 'conflict') {

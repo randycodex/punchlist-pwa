@@ -1241,7 +1241,7 @@ function syncStateMapsEqual(left: ProjectSyncStateMap, right: ProjectSyncStateMa
 }
 
 export function markProjectDeleted(project: Pick<Project, 'id' | 'sharedProjectId'>, deletedAt = new Date()) {
-  // Team membership and team data do not live in personal OneDrive backups.
+  // Removing a team copy from this device must not delete its OneDrive backup.
   if (project.sharedProjectId) return;
   const syncStates = getLocalSyncStates();
   syncStates[project.id] = {
@@ -1673,7 +1673,7 @@ export async function pushProjectsToOneDrive(token: OneDriveToken, projectIds: s
   }
 }
 
-/** Creates personal OneDrive backups; Team Projects use Supabase instead. */
+/** Backs up device copies to OneDrive; the team server remains authoritative for collaboration. */
 export async function backupProjectsToOneDrive(
   token: OneDriveToken,
   projectIds?: string[],
@@ -1691,7 +1691,7 @@ export async function backupProjectsToOneDrive(
       downloadDeletionLog(token),
     ]);
     const localProjects = allLocalProjects.filter((project) =>
-      !project.sharedProjectId && (!requestedIds || requestedIds.has(project.id))
+      (!project.sharedProjectId || !project.deletedAt) && (!requestedIds || requestedIds.has(project.id))
     );
     const allRemoteFilesById = buildRemoteProjectFileIndex(remoteFiles);
     const remoteFilesById = new Map([...allRemoteFilesById].map(([id, entries]) =>
@@ -1718,10 +1718,9 @@ export async function backupProjectsToOneDrive(
           });
           return;
         }
-        // Load media only for the personal project being backed up. Team photo
-        // payloads can be large and are handled by the separate team sync.
+        // Load full local media only for projects being backed up, including team photos.
         const localProject = await getProject(localProjectMetadata.id);
-        if (!localProject || localProject.sharedProjectId) return;
+        if (!localProject || (localProject.sharedProjectId && localProject.deletedAt)) return;
         if (localProject.deletedAt) {
           const remoteEntries = allRemoteFilesById.get(localProject.id) ?? [];
           const targetFolderName = resolveRemoteProjectFolderName(localProject, remoteEntries);
@@ -1800,7 +1799,7 @@ export async function backupProjectsToOneDrive(
             await backupProjectPhotosToOneDrive(token, projectForBackup, targetFolderName, remoteIndex);
           }
           // Publish references only after every required photo is available.
-          if (freshnessComparison > 0 || !canonicalRemote || forceIds.has(localProject.id)) {
+          if (freshnessComparison > 0 || !canonicalRemote || localProject.sharedProjectId || forceIds.has(localProject.id)) {
             await uploadProjectFileRecoveringMissingRemote(
               token,
               targetFolderName,

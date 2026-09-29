@@ -479,19 +479,59 @@ describe('OneDrive and team project identity', () => {
     expect((await getProject(activeTeam.id))?.sharedProjectId).toBe(activeTeam.sharedProjectId);
   });
 
-  it('backs up personal projects without creating another OneDrive copy of a team project', async () => {
-    const team = createProject('Team site');
+  it('backs up a team project without making its OneDrive copy eligible for personal restore', async () => {
+    const team = createProject('Alafia');
     team.sharedProjectId = crypto.randomUUID();
     await saveProjectPreserveTimestamps(team);
+    uploadProjectFileMock.mockResolvedValue({ id: 'team-backup' });
 
     const result = await backupProjectsToOneDrive('test-token', [team.id]);
 
-    expect(result.backedUpProjectIds).toEqual([]);
-    expect(uploadProjectFileMock).not.toHaveBeenCalled();
+    expect(result.backedUpProjectIds).toEqual([team.id]);
+    const payload = uploadProjectFileMock.mock.calls[0][3];
+    expect(payload).toContain(team.sharedProjectId);
+    await deleteProject(team.id);
+    listProjectFilesMock.mockResolvedValue([{ id: 'team-backup', name: `Alafia_${team.id}.json` }]);
+    downloadProjectFileMock.mockResolvedValue(payload);
+    const restored = await restoreMissingProjectsFromOneDrive('test-token');
+    expect(restored.restoredProjectIds).toEqual([]);
+    expect(restored.skippedProjectIds).toContain(team.id);
+    expect(await getProject(team.id)).toBeUndefined();
   });
 
-  it.each([false, true])('backs up Alafia before any inspection (has area: %s)', async (hasArea) => {
+  it('preserves a newer team backup and never merges it into the active local team project', async () => {
+    const team = createProject('Alafia');
+    team.sharedProjectId = crypto.randomUUID();
+    await saveProjectPreserveTimestamps(team);
+    const remote = { ...team, projectName: 'Newer team backup', updatedAt: new Date(team.updatedAt.getTime() + 60_000) };
+    listProjectFilesMock.mockResolvedValue([{ id: 'team-backup', name: `Alafia_${team.id}.json` }]);
+    downloadProjectFileMock.mockResolvedValue(serializeProjectPayload(remote));
+
+    const result = await backupProjectsToOneDrive('test-token', [team.id]);
+    expect(result.conflicts).toEqual([{ id: team.id, name: 'Alafia' }]);
+    expect(uploadProjectFileMock).not.toHaveBeenCalled();
+    await mergePersonalProjectsFromOneDrive('test-token', [team.id]);
+    await restoreMissingProjectsFromOneDrive('test-token');
+    expect((await getProject(team.id))?.projectName).toBe('Alafia');
+    expect(deleteDriveItemMock).not.toHaveBeenCalled();
+  });
+
+  it('retains the OneDrive backup when a team copy is archived on this device', async () => {
+    const team = createProject('Alafia');
+    team.sharedProjectId = crypto.randomUUID();
+    team.deletedAt = new Date();
+    await saveProjectPreserveTimestamps(team);
+    listProjectFilesMock.mockResolvedValue([{ id: 'team-backup', name: `Alafia_${team.id}.json` }]);
+    const result = await backupProjectsToOneDrive('test-token', [team.id]);
+    expect(result.backedUpProjectIds).toEqual([]);
+    expect(uploadProjectFileMock).not.toHaveBeenCalled();
+    expect(deleteDriveItemMock).not.toHaveBeenCalled();
+    expect(deleteProjectFolderFromStateMock).not.toHaveBeenCalled();
+  });
+
+  it.each([{ hasArea: false, team: false }, { hasArea: true, team: false }, { hasArea: false, team: true }, { hasArea: true, team: true }])('backs up Alafia before any inspection: %j', async ({ hasArea, team }) => {
     const project = createProject('Alafia');
+    if (team) project.sharedProjectId = crypto.randomUUID();
     if (hasArea) project.areas.push(createArea(project.id, 'Uninspected area', 0));
     await saveProjectMetadataOnly(project);
     uploadProjectFileMock.mockResolvedValue({ id: 'alafia-backup' });
@@ -507,9 +547,13 @@ describe('OneDrive and team project identity', () => {
     expect(uploadProjectPhotoFileMock).not.toHaveBeenCalled();
   });
 
-  it.each(['missing', 'upload-failed', 'available'] as const)(
-    'publishes project references only after photos are available: %s', async (state) => {
+  it.each([
+    { state: 'missing', team: false }, { state: 'upload-failed', team: false }, { state: 'available', team: false },
+    { state: 'missing', team: true }, { state: 'upload-failed', team: true }, { state: 'available', team: true },
+  ])(
+    'publishes project references only after photos are available: %j', async ({ state, team }) => {
       const project = createProject('Photo safety');
+      if (team) project.sharedProjectId = crypto.randomUUID();
       const area = createArea(project.id, 'Room', 0);
       const location = createLocation(area.id, 'Kitchen', 0);
       const item = createItem(location.id, 'Window', 0);
