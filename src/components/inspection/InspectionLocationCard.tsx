@@ -62,7 +62,7 @@ type InspectionLocationCardProps = {
   expandAllCheckpoints?: boolean;
   collapsedCheckpointIds?: Set<string>;
   commentText: string;
-  recentComments: string[];
+  getRecentComments: (checkpoint: Checkpoint) => string[];
   onCreatePhotoCheckpoint: (locationId: string, itemId: string, name: string, allUnits: boolean) => Promise<{ id: string; name: string }>;
   onDropPhotos: (locationId: string, itemId: string, checkpointId: string, photos: DroppedPhoto[]) => Promise<void>;
   onUndoDroppedPhotos: (locationId: string, itemId: string, checkpointId: string, ids: string[]) => Promise<void>;
@@ -144,7 +144,7 @@ export default function InspectionLocationCard({
   expandAllCheckpoints = false,
   collapsedCheckpointIds,
   commentText,
-  recentComments,
+  getRecentComments,
   onAddPhoto,
   onAddPhotos,
   onDropPhotos,
@@ -565,7 +565,7 @@ export default function InspectionLocationCard({
                       checkpoint={customCheckpoint}
                       locationId={location.id}
                       itemId={item.id}
-                      recentComments={recentComments}
+                      recentComments={getRecentComments(customCheckpoint)}
                       contextLabel={`${areaLabel ? `${areaLabel} › ` : ''}${location.name} › ${item.name}`}
                       onReviewStateChange={onUpdateCheckpointStatus}
                       onCommentBlur={onCommentBlur}
@@ -681,7 +681,7 @@ export default function InspectionLocationCard({
                             checkpoint={checkpoint}
                             locationId={location.id}
                             itemId={item.id}
-                            recentComments={recentComments}
+                            recentComments={getRecentComments(checkpoint)}
                             contextLabel={`${areaLabel ? `${areaLabel} › ` : ''}${location.name} › ${item.name}`}
                             onReviewStateChange={onUpdateCheckpointStatus}
                             onCommentBlur={onCommentBlur}
@@ -953,7 +953,7 @@ export default function InspectionLocationCard({
                               checkpoint={checkpoint}
                               locationId={location.id}
                               itemId={item.id}
-                              recentComments={recentComments}
+                              recentComments={getRecentComments(checkpoint)}
                               contextLabel={`${areaLabel ? `${areaLabel} › ` : ''}${location.name} › ${item.name}`}
                               onReviewStateChange={onUpdateCheckpointStatus}
                               onCommentBlur={onCommentBlur}
@@ -1179,8 +1179,10 @@ function InlineCheckpointEditor({
   const editorRef = useRef<HTMLDivElement | null>(null);
   const commentInputRef = useRef<HTMLTextAreaElement | null>(null);
   const [draft, setDraft] = useState(commentText);
+  const [initialComment] = useState(() => checkpoint.comments.trim());
   const [photoLibrarySignal, setPhotoLibrarySignal] = useState(0);
   const [previousDraft, setPreviousDraft] = useState<string | null>(null);
+  const suggestedComments = [...new Set([...recentComments, initialComment].filter(Boolean))].slice(0, 5);
 
   function updateDraft(value: string) {
     setDraft(value);
@@ -1281,11 +1283,11 @@ function InlineCheckpointEditor({
               </button>
             </div>
           </div>
-          {recentComments.length > 0 && (
+          {suggestedComments.length > 0 && (
             <div className="-mx-1 mt-3 overflow-x-auto pb-1">
               {previousDraft !== null && <button type="button" className="min-h-11 px-3 text-xs font-semibold accent-text" onClick={() => { updateDraft(previousDraft); setPreviousDraft(null); }}>Undo inserted note</button>}
               <div className="flex w-max min-w-full gap-2 px-1">
-                {recentComments.map((comment) => (
+                {suggestedComments.map((comment) => (
                   <button
                     key={comment}
                     onClick={() => {

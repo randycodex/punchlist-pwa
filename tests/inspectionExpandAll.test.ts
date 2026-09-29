@@ -33,7 +33,7 @@ function renderCard(
     onUpdateCheckpointStatus: () => {},
     expandedCheckpointId: null,
     commentText: '',
-    recentComments: [],
+    getRecentComments: () => [],
     onCreatePhotoCheckpoint: async () => ({ id: 'new', name: 'New' }),
     onDropPhotos: async () => {},
     onUndoDroppedPhotos: async () => {},
@@ -70,5 +70,28 @@ describe('inspection Expand all', () => {
       alwaysExpanded: true,
       hideHeader: true,
     }))).toBe(1);
+  });
+
+  it('shows only the opened checkpoint’s saved suggestions', () => {
+    const source = fixture('Entry / Foyer', 'Entry Door');
+    const [door, finish] = source.item.checkpoints;
+    door.comments = 'Scratch on door';
+    const getRecentComments = (checkpoint: typeof door) =>
+      checkpoint.id === door.id ? ['Door-only suggestion'] : ['Finish-only suggestion'];
+
+    const doorMarkup = renderCard(source, {
+      expandedCheckpointId: door.id,
+      getRecentComments,
+    });
+    expect(doorMarkup).toContain('Door-only suggestion');
+    expect(doorMarkup).toMatch(/segmented-chip[^>]*>Scratch on door<\/button>/);
+    expect(doorMarkup).not.toContain('Finish-only suggestion');
+
+    const finishMarkup = renderCard(source, {
+      expandedCheckpointId: finish.id,
+      getRecentComments,
+    });
+    expect(finishMarkup).toContain('Finish-only suggestion');
+    expect(finishMarkup).not.toContain('Door-only suggestion');
   });
 });

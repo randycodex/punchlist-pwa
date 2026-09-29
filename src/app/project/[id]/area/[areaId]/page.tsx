@@ -2,6 +2,13 @@
 
 import { getCollaborationDeviceId } from '@/lib/collaboration/deviceIdentity';
 import { saveRecoverableAreaNote } from '@/features/inspection/captureRecovery';
+import {
+  CHECKPOINT_COMMENT_HISTORY_STORAGE_KEY,
+  getCheckpointRecentComments,
+  parseCheckpointCommentHistory,
+  rememberCheckpointComment,
+  type CheckpointCommentHistory,
+} from '@/features/inspection/checkpointCommentHistory';
 import { clearAreaReturnTarget, rememberAreaReturnTarget } from '@/lib/areaReturnPosition';
 import { getProjectFloorLevels, normalizeFloorLabel } from '@/lib/unitFloors';
 
@@ -112,9 +119,7 @@ import {
   Trash2,
 } from 'lucide-react';
 
-const RECENT_COMMENTS_STORAGE_KEY = 'punchlist-recent-comments';
 const RECENT_AREA_TYPES_STORAGE_KEY = 'punchlist-recent-area-types';
-const MAX_RECENT_COMMENTS = 5;
 
 function inspectionNamesMatch(left: string, right: string) {
   const normalize = (value: string) => value.trim().replace(/\s+/g, ' ').toLocaleLowerCase();
@@ -172,7 +177,7 @@ export default function AreaDetailPage() {
     checkpointId: string;
   } | null>(null);
   const [commentText, setCommentText] = useState('');
-  const [recentComments, setRecentComments] = useState<string[]>([]);
+  const [commentHistory, setCommentHistory] = useState<CheckpointCommentHistory>({});
   const [showEditArea, setShowEditArea] = useState(false);
   const [showHeaderMenu, setShowHeaderMenu] = useState(false);
   const [deleteMode, setDeleteMode] = useState(false);
@@ -200,6 +205,7 @@ export default function AreaDetailPage() {
   const [syncError, setSyncError] = useState<string | null>(null);
   const [noteSaveError, setNoteSaveError] = useState<string | null>(null);
   const pendingNotesRef = useRef(new Map<string, { locationId: string; itemId: string; checkpointId: string; value: string }>());
+  const commentHistoryRef = useRef<CheckpointCommentHistory>({});
   const [inspectionNotice, setInspectionNotice] = useState<string | null>(null);
   const [areaClaimError, setAreaClaimError] = useState<string | null>(null);
   const [claimingArea, setClaimingArea] = useState(false);
@@ -366,16 +372,11 @@ export default function AreaDetailPage() {
       return;
     }
     void loadDataRef.current();
-    const savedRecentComments = readLocalStorage(RECENT_COMMENTS_STORAGE_KEY);
-    if (savedRecentComments) {
-      try {
-        const nextRecentComments = (JSON.parse(savedRecentComments) as string[]).slice(0, MAX_RECENT_COMMENTS);
-        setRecentComments(nextRecentComments);
-        writeLocalStorage(RECENT_COMMENTS_STORAGE_KEY, JSON.stringify(nextRecentComments));
-      } catch (error) {
-        console.error('Failed to parse recent comments:', error);
-      }
-    }
+    const savedCommentHistory = parseCheckpointCommentHistory(
+      readLocalStorage(CHECKPOINT_COMMENT_HISTORY_STORAGE_KEY)
+    );
+    commentHistoryRef.current = savedCommentHistory;
+    setCommentHistory(savedCommentHistory);
     const savedRecentAreaTypes = readLocalStorage(RECENT_AREA_TYPES_STORAGE_KEY);
     if (savedRecentAreaTypes) {
       try {
@@ -830,10 +831,16 @@ export default function AreaDetailPage() {
     const checkpoint = findCheckpoint(locationId, itemId, checkpointId);
     if (!checkpoint) return;
     if (rememberRecent && value.trim()) {
-      const trimmedComment = value.trim();
-      const nextRecentComments = [trimmedComment, ...recentComments.filter((comment) => comment !== trimmedComment)].slice(0, MAX_RECENT_COMMENTS);
-      setRecentComments(nextRecentComments);
-      writeLocalStorage(RECENT_COMMENTS_STORAGE_KEY, JSON.stringify(nextRecentComments));
+      const storedHistory = readLocalStorage(CHECKPOINT_COMMENT_HISTORY_STORAGE_KEY);
+      const nextHistory = rememberCheckpointComment(
+        storedHistory === null ? commentHistoryRef.current : parseCheckpointCommentHistory(storedHistory),
+        project.id,
+        checkpointId,
+        value
+      );
+      commentHistoryRef.current = nextHistory;
+      setCommentHistory(nextHistory);
+      writeLocalStorage(CHECKPOINT_COMMENT_HISTORY_STORAGE_KEY, JSON.stringify(nextHistory));
     }
     if (checkpoint.comments === value && !pendingNotesRef.current.has(checkpointId)) return;
     pendingNotesRef.current.set(checkpointId, { locationId, itemId, checkpointId, value });
@@ -2405,7 +2412,9 @@ export default function AreaDetailPage() {
                 expandAllCheckpoints={bulkExpansionMode === 'expanded'}
                 collapsedCheckpointIds={collapsedCheckpointIds}
                 commentText={commentText}
-                recentComments={recentComments}
+                getRecentComments={(checkpoint) =>
+                  getCheckpointRecentComments(commentHistory, project.id, checkpoint.id)
+                }
                 onCommentChange={handleCheckpointCommentChange}
                 onAddPhoto={handleAddPhoto}
                 onAddPhotos={handleAddPhotos}
@@ -2557,7 +2566,9 @@ export default function AreaDetailPage() {
               expandAllCheckpoints={bulkExpansionMode === 'expanded'}
               collapsedCheckpointIds={collapsedCheckpointIds}
               commentText={commentText}
-              recentComments={recentComments}
+              getRecentComments={(checkpoint) =>
+                getCheckpointRecentComments(commentHistory, project.id, checkpoint.id)
+              }
               onCommentChange={handleCheckpointCommentChange}
               onAddPhoto={handleAddPhoto}
               onAddPhotos={handleAddPhotos}
