@@ -9,6 +9,7 @@ import {
   getProject,
   deleteProject,
   saveProjectPreserveTimestamps,
+  saveProjectMetadataOnly,
   saveAreaNotes,
 } from '@/lib/db';
 import { serializeProjectPayload } from '@/lib/projectPayload';
@@ -487,6 +488,23 @@ describe('OneDrive and team project identity', () => {
 
     expect(result.backedUpProjectIds).toEqual([]);
     expect(uploadProjectFileMock).not.toHaveBeenCalled();
+  });
+
+  it.each([false, true])('backs up Alafia before any inspection (has area: %s)', async (hasArea) => {
+    const project = createProject('Alafia');
+    if (hasArea) project.areas.push(createArea(project.id, 'Uninspected area', 0));
+    await saveProjectMetadataOnly(project);
+    uploadProjectFileMock.mockResolvedValue({ id: 'alafia-backup' });
+
+    const result = await backupProjectsToOneDrive('test-token', [project.id]);
+
+    expect(result.failedProjects).toEqual([]);
+    expect(result.backedUpProjectIds).toEqual([project.id]);
+    expect(uploadProjectFileMock).toHaveBeenCalledWith(
+      'test-token', expect.stringContaining('Alafia'), expect.stringContaining(project.id),
+      expect.stringContaining('Alafia'), false, undefined
+    );
+    expect(uploadProjectPhotoFileMock).not.toHaveBeenCalled();
   });
 
   it.each(['missing', 'upload-failed', 'available'] as const)(
