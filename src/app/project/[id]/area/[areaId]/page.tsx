@@ -163,6 +163,7 @@ export default function AreaDetailPage() {
   const [expandedLocations, setExpandedLocations] = useState<Set<string>>(new Set());
   const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set());
   const [bulkExpansionMode, setBulkExpansionMode] = useState<'collapsed' | 'expanded'>('collapsed');
+  const [collapsedCheckpointIds, setCollapsedCheckpointIds] = useState<Set<string>>(new Set());
   const [generalNotesExpanded, setGeneralNotesExpanded] = useState(false);
   const [showToInspect, setShowToInspect] = useState(false);
   const [expandedCheckpoint, setExpandedCheckpoint] = useState<{
@@ -314,6 +315,16 @@ export default function AreaDetailPage() {
     if (expandedCheckpoint) {
       void persistCheckpointComment(expandedCheckpoint.locationId, expandedCheckpoint.itemId, expandedCheckpoint.checkpointId, value, false).catch(() => {});
     }
+  }
+
+  function handleCheckpointCommentChange(locationId: string, itemId: string, checkpointId: string, value: string) {
+    if (bulkExpansionMode === 'expanded') {
+      if (canEditSharedArea()) {
+        void persistCheckpointComment(locationId, itemId, checkpointId, value, false).catch(() => {});
+      }
+      return;
+    }
+    trackCheckpointCommentDraft(value);
   }
 
   function retrySharedAreaClaim() {
@@ -1863,6 +1874,7 @@ export default function AreaDetailPage() {
     if (bulkExpansionMode === 'expanded') {
       setExpandedLocations(new Set());
       setExpandedItems(new Set());
+      setCollapsedCheckpointIds(new Set());
       setGeneralNotesExpanded(false);
       setBulkExpansionMode('collapsed');
       return;
@@ -1881,6 +1893,7 @@ export default function AreaDetailPage() {
       )
     );
     setGeneralNotesExpanded(true);
+    setCollapsedCheckpointIds(new Set());
     setBulkExpansionMode('expanded');
   }
 
@@ -1981,6 +1994,15 @@ export default function AreaDetailPage() {
     checkpointId: string,
     comments: string
   ) {
+    if (bulkExpansionMode === 'expanded') {
+      setCollapsedCheckpointIds((current) => {
+        const next = new Set(current);
+        if (next.has(checkpointId)) next.delete(checkpointId);
+        else next.add(checkpointId);
+        return next;
+      });
+      return;
+    }
     const isSameCheckpoint =
       expandedCheckpoint?.locationId === locationId &&
       expandedCheckpoint?.itemId === itemId &&
@@ -2381,60 +2403,16 @@ export default function AreaDetailPage() {
                   updateCheckpointReviewState(locationId, itemId, checkpointId, nextState)
                 }
                 expandedCheckpointId={expandedCheckpoint?.checkpointId ?? null}
+                expandAllCheckpoints={bulkExpansionMode === 'expanded'}
+                collapsedCheckpointIds={collapsedCheckpointIds}
                 commentText={commentText}
                 recentComments={recentComments}
-                onCommentChange={trackCheckpointCommentDraft}
-                onAddPhoto={(imageData, thumbnail) =>
-                  expandedCheckpoint
-                    ? handleAddPhoto(
-                        expandedCheckpoint.locationId,
-                        expandedCheckpoint.itemId,
-                        expandedCheckpoint.checkpointId,
-                        imageData,
-                        thumbnail
-                      )
-                    : Promise.resolve()
-                }
-                onAddPhotos={(photos) =>
-                  expandedCheckpoint
-                    ? handleAddPhotos(
-                        expandedCheckpoint.locationId,
-                        expandedCheckpoint.itemId,
-                        expandedCheckpoint.checkpointId,
-                        photos
-                      )
-                    : Promise.resolve()
-                }
-                onAddFiles={(files) =>
-                  expandedCheckpoint
-                    ? handleAddFiles(
-                        expandedCheckpoint.locationId,
-                        expandedCheckpoint.itemId,
-                        expandedCheckpoint.checkpointId,
-                        files
-                      )
-                    : Promise.resolve()
-                }
-                onDeletePhoto={(photoId) =>
-                  expandedCheckpoint
-                    ? handleDeletePhoto(
-                        expandedCheckpoint.locationId,
-                        expandedCheckpoint.itemId,
-                        expandedCheckpoint.checkpointId,
-                        photoId
-                      )
-                    : Promise.resolve()
-                }
-                onDeleteFile={(fileId) =>
-                  expandedCheckpoint
-                    ? handleDeleteFile(
-                        expandedCheckpoint.locationId,
-                        expandedCheckpoint.itemId,
-                        expandedCheckpoint.checkpointId,
-                        fileId
-                      )
-                    : Promise.resolve()
-                }
+                onCommentChange={handleCheckpointCommentChange}
+                onAddPhoto={handleAddPhoto}
+                onAddPhotos={handleAddPhotos}
+                onAddFiles={handleAddFiles}
+                onDeletePhoto={handleDeletePhoto}
+                onDeleteFile={handleDeleteFile}
                 registerItemRef={(itemId, node) => {
                   itemRefs.current.set(itemId, node);
                 }}
@@ -2578,60 +2556,16 @@ export default function AreaDetailPage() {
                 updateCheckpointReviewState(locationId, itemId, checkpointId, nextState)
               }
               expandedCheckpointId={expandedCheckpoint?.checkpointId ?? null}
+              expandAllCheckpoints={bulkExpansionMode === 'expanded'}
+              collapsedCheckpointIds={collapsedCheckpointIds}
               commentText={commentText}
               recentComments={recentComments}
-              onCommentChange={trackCheckpointCommentDraft}
-              onAddPhoto={(imageData, thumbnail) =>
-                expandedCheckpoint
-                  ? handleAddPhoto(
-                      expandedCheckpoint.locationId,
-                      expandedCheckpoint.itemId,
-                      expandedCheckpoint.checkpointId,
-                      imageData,
-                      thumbnail
-                    )
-                  : Promise.resolve()
-              }
-              onAddPhotos={(photos) =>
-                expandedCheckpoint
-                  ? handleAddPhotos(
-                      expandedCheckpoint.locationId,
-                      expandedCheckpoint.itemId,
-                      expandedCheckpoint.checkpointId,
-                      photos
-                    )
-                  : Promise.resolve()
-              }
-              onAddFiles={(files) =>
-                expandedCheckpoint
-                  ? handleAddFiles(
-                      expandedCheckpoint.locationId,
-                      expandedCheckpoint.itemId,
-                      expandedCheckpoint.checkpointId,
-                      files
-                    )
-                  : Promise.resolve()
-              }
-              onDeletePhoto={(photoId) =>
-                expandedCheckpoint
-                  ? handleDeletePhoto(
-                      expandedCheckpoint.locationId,
-                      expandedCheckpoint.itemId,
-                      expandedCheckpoint.checkpointId,
-                      photoId
-                    )
-                  : Promise.resolve()
-              }
-              onDeleteFile={(fileId) =>
-                expandedCheckpoint
-                  ? handleDeleteFile(
-                      expandedCheckpoint.locationId,
-                      expandedCheckpoint.itemId,
-                      expandedCheckpoint.checkpointId,
-                      fileId
-                    )
-                  : Promise.resolve()
-              }
+              onCommentChange={handleCheckpointCommentChange}
+              onAddPhoto={handleAddPhoto}
+              onAddPhotos={handleAddPhotos}
+              onAddFiles={handleAddFiles}
+              onDeletePhoto={handleDeletePhoto}
+              onDeleteFile={handleDeleteFile}
               registerItemRef={(itemId, node) => {
                 itemRefs.current.set(itemId, node);
               }}
