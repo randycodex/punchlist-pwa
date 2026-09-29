@@ -1513,6 +1513,7 @@ export default function ProjectDetailPage() {
           hasAreaGroups: hasRepeatedAreaGroups(visibleAreas) || hasFloorGroupedAreas(visibleAreas) || hasProjectFloorLevels(project),
           showOnlyAreaIssues,
           isSingleProject: true,
+          singleProjectId: project.id,
           singleProjectName: project.projectName,
           selectionMode: deleteMode,
           isSharedProject: !!project.sharedProjectId,

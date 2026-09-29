@@ -60,6 +60,7 @@ import {
   Loader2,
   FileDown,
   KeyRound,
+  ListChecks,
   LogIn,
   LogOut,
   PanelRightClose,
@@ -220,6 +221,10 @@ export default function PersistentTopBar() {
   const isAreaRoute = useMemo(() => {
     const segments = pathname.split('/').filter(Boolean);
     return segments[0] === 'project' && segments[2] === 'area';
+  }, [pathname]);
+  const isReviewRoute = useMemo(() => {
+    const segments = pathname.split('/').filter(Boolean);
+    return segments[0] === 'project' && segments[2] === 'review';
   }, [pathname]);
   const showAppMenuControl = showAuth || Boolean(projectId) || showHomeMenu;
   const cachedProjectTitle = projectId
@@ -762,7 +767,7 @@ export default function PersistentTopBar() {
                 Syncing…
               </div>
             ) : renderSharedSyncIndicator()}
-            {!isAreaRoute && (
+            {!isAreaRoute && !isReviewRoute && (
               <div className="relative h-10 w-10">
                 <button
                   type="button"
@@ -887,6 +892,12 @@ export default function PersistentTopBar() {
                     <div className={menuCardClass}>
                       <div className={menuGroupLabelClass}>Team</div>
                       <div className={menuListGridClass}>
+                        {homeMenuState.isSharedProject && homeMenuState.singleProjectId && (
+                          <Link href={`/project/${homeMenuState.singleProjectId}/review`} onClick={() => setHomeMenuOpen(false)} className={menuRowClass}>
+                            <ListChecks className="h-4 w-4 shrink-0" />
+                            Review activity
+                          </Link>
+                        )}
                         {!homeMenuState.isSharedProject && (
                           <button
                             onClick={() => dispatchHomeAction('share-project')}
