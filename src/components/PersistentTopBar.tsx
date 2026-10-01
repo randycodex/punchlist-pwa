@@ -283,6 +283,7 @@ export default function PersistentTopBar() {
     setInfoDialog(null);
     setSyncStatus('syncing');
     let teamSyncMessage = '';
+    let syncStage = 'loading the saved project';
     try {
       const project = await getProject(syncProjectId);
       if (!project || project.deletedAt) throw new Error('This project is no longer available on this device.');
@@ -291,6 +292,7 @@ export default function PersistentTopBar() {
         if (!collaborationAuth.isSignedIn || !collaborationAuth.user) {
           throw new Error('Enable Team Projects before syncing this shared project.');
         }
+        syncStage = 'syncing team changes';
         const result = await syncSharedProject(syncProjectId, collaborationAuth.user.id);
         if (result.status === 'review') {
           setPendingProjectPull(result.pull);
@@ -308,15 +310,18 @@ export default function PersistentTopBar() {
         teamSyncMessage = `${project.projectName}: team changes synced${result.releasedAreaCount ? `; ${result.releasedAreaCount} area${result.releasedAreaCount === 1 ? '' : 's'} released` : ''}. `;
       }
 
+      syncStage = 'signing in to Microsoft';
       const token = await ensureAccessToken({ interactive: true });
       if (!token) {
         setSyncStatus('needs-auth');
         setInfoDialog({ title: 'Sync This Project', message: `${teamSyncMessage}Sign in to Microsoft to back up this project's JSON and photos to OneDrive.` });
         return;
       }
+      syncStage = 'checking the OneDrive copy';
       const merged = project.sharedProjectId
         ? { forceBackupProjectIds: [], archivedLocalProjectIds: [], updatedLocalProjectIds: [] }
         : await mergePersonalProjectsFromOneDrive(token, [syncProjectId]);
+      syncStage = 'backing up to OneDrive';
       const result = await runManualOneDriveSync({
         ensureAccessToken: async () => token,
         projectIds: [syncProjectId],
@@ -345,7 +350,7 @@ export default function PersistentTopBar() {
       setSyncStatus('error');
       setInfoDialog({
         title: 'Sync This Project',
-        message: `${teamSyncMessage}${error instanceof Error ? error.message : 'Could not sync this project. Please try again.'}`,
+        message: `${teamSyncMessage}Sync stopped while ${syncStage}. ${getCollaborationErrorMessage(error, 'Could not sync this project. Please try again.')}`,
       });
     } finally {
       projectSyncingRef.current = false;
