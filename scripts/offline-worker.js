@@ -39,6 +39,11 @@ self.addEventListener('activate', (event) => {
   })());
 });
 self.addEventListener('message', (event) => {
+  if (event.data?.type === 'ACTIVATE_UPDATE') {
+    // Only an explicit user action asks a waiting worker to take over.
+    event.waitUntil(self.skipWaiting());
+    return;
+  }
   const port = event.ports[0];
   if (!port) return;
   event.waitUntil((async () => {

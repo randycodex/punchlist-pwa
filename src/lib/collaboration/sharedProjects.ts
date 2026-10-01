@@ -3,6 +3,7 @@ import type { Json } from './database';
 import type { CollaborationProjectMember, CollaborationSharedProjectDirectoryEntry } from './types';
 import { getCollaborationSupabaseClient } from './supabaseClient';
 import { collaborationEmailsMatch, normalizeCollaborationEmail } from './config';
+import { retryCollaborationOperation } from './request';
 
 type JoinCodeResult = {
   joinCode: string;
@@ -85,7 +86,7 @@ export function getCollaborationErrorMessage(error: unknown, fallback = 'Could n
 
   if (error instanceof Error) {
     if (error.name === 'CollaborationRequestTimeoutError') {
-      return 'The team service is taking too long to respond. Check your connection and try again.';
+      return `${error.message} Your work remains saved on this device.`;
     }
     return error.message;
   }
@@ -203,11 +204,11 @@ export async function listMySharedProjects(): Promise<CollaborationSharedProject
     throw new Error('Collaboration is not configured.');
   }
 
-  const { data, error } = await supabase.rpc('list_my_shared_projects');
-
-  if (error) {
-    throw error;
-  }
+  const data = await retryCollaborationOperation(async () => {
+    const result = await supabase.rpc('list_my_shared_projects');
+    if (result.error) throw result.error;
+    return result.data;
+  });
 
   return (data ?? []).map((row) => ({
     projectId: row.project_id,

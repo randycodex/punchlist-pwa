@@ -14,7 +14,8 @@ const projectPage = readFileSync(
 
 describe('project Issues filter', () => {
   it('places an Issues toggle beside the project area-group control', () => {
-    expect(persistentTopBar).toContain("dispatchHomeAction('toggle-area-issues')");
+    expect(persistentTopBar).toContain('setProjectShowOnlyIssues(!projectShowOnlyIssues)');
+    expect(persistentTopBar).toContain('setHomeShowOnlyIssues(!homeShowOnlyIssues)');
     expect(persistentTopBar).toContain("'right-12'");
     expect(persistentTopBar).toContain('Show only areas with issues');
     expect(persistentTopBar).toContain('Show all areas');

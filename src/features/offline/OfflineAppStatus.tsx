@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { usePathname } from 'next/navigation';
 import { getAllProjects } from '@/lib/db';
-import { AppUpdateWaitingError, isOfflinePage, offlineBuild, prepareSavedProjectPages } from './sitePreparation';
+import { useSyncStatus } from '@/contexts/SyncStatusContext';
+import { AppUpdateWaitingError, isOfflinePage, offlineBuild, prepareSavedProjectPages, registerInspectionWorker } from './sitePreparation';
 
 type StatusNotice = { message: string; kind: 'offline' | 'preparation'; error?: boolean };
 
@@ -16,6 +17,10 @@ export default function OfflineAppStatus() {
   const activeNotice = useRef<StatusNotice | null>(null);
   const noticeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const [retry, setRetry] = useState(0);
+  const { localSaveStatus } = useSyncStatus();
+  const [updateRegistration, setUpdateRegistration] = useState<ServiceWorkerRegistration | null>(null);
+  const [updating, setUpdating] = useState(false);
+  const reloadForUpdate = useRef(false);
   const clearNotice = useCallback(() => {
     clearTimeout(noticeTimer.current);
     noticeTimer.current = undefined;
@@ -39,6 +44,46 @@ export default function OfflineAppStatus() {
     clearTimeout(noticeTimer.current);
     noticeTimer.current = undefined;
     activeNotice.current = null;
+  }, []);
+  useEffect(() => {
+    if (offlineBuild === 'development' || !('serviceWorker' in navigator)) return;
+    let disposed = false;
+    let registration: ServiceWorkerRegistration | undefined;
+    let installing: ServiceWorker | null = null;
+    const showWaiting = () => {
+      if (!disposed && registration?.waiting) setUpdateRegistration(registration);
+    };
+    const onStateChange = () => showWaiting();
+    const onUpdateFound = () => {
+      installing?.removeEventListener('statechange', onStateChange);
+      installing = registration?.installing ?? null;
+      installing?.addEventListener('statechange', onStateChange);
+      showWaiting();
+    };
+    const checkForUpdate = () => {
+      if (navigator.onLine) void registration?.update().then(showWaiting).catch(() => {});
+    };
+    const onControllerChange = () => {
+      if (reloadForUpdate.current) window.location.reload();
+    };
+    void registerInspectionWorker().then((value) => {
+      if (disposed) return;
+      registration = value;
+      registration.addEventListener('updatefound', onUpdateFound);
+      showWaiting();
+      checkForUpdate();
+    }).catch(() => {});
+    window.addEventListener('focus', checkForUpdate);
+    window.addEventListener('online', checkForUpdate);
+    navigator.serviceWorker.addEventListener('controllerchange', onControllerChange);
+    return () => {
+      disposed = true;
+      registration?.removeEventListener('updatefound', onUpdateFound);
+      installing?.removeEventListener('statechange', onStateChange);
+      window.removeEventListener('focus', checkForUpdate);
+      window.removeEventListener('online', checkForUpdate);
+      navigator.serviceWorker.removeEventListener('controllerchange', onControllerChange);
+    };
   }, []);
   useEffect(() => {
     if (offlineBuild === 'development') return;
@@ -118,6 +163,16 @@ export default function OfflineAppStatus() {
   }, [clearNotice, showNotice]);
   if (notice?.kind === 'offline') return <div role="status" className="shrink-0 bg-amber-100 px-4 py-2 text-xs text-amber-950 dark:bg-amber-950 dark:text-amber-100">{notice.message}</div>;
   if (offlineBuild === 'development') return null;
+  if (updateRegistration) return <div role="status" className={`${floatingStatusClass} bottom-[calc(env(safe-area-inset-bottom)+5.5rem)] rounded-xl bg-amber-100 py-2 text-amber-950 shadow-lg dark:bg-amber-950 dark:text-amber-100`}>
+    <span>A new PunchList version is ready.</span>{' '}
+    <button type="button" className="ml-2 font-semibold underline disabled:opacity-50" disabled={updating || localSaveStatus !== 'saved'} onClick={() => {
+      const waiting = updateRegistration.waiting;
+      if (!waiting) { setUpdateRegistration(null); return; }
+      reloadForUpdate.current = true;
+      setUpdating(true);
+      waiting.postMessage({ type: 'ACTIVATE_UPDATE' });
+    }}>{updating ? 'Updating…' : localSaveStatus === 'saved' ? 'Update now' : 'Save your changes first'}</button>
+  </div>;
   if (!notice) return null;
   return <div
     role="status"

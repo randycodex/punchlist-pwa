@@ -1141,6 +1141,7 @@ export default function ProjectDetailPage() {
     const pullState = pendingPull;
     setPendingPull(null);
     setSharedTransferStatus('pulling');
+    let mergeStage = 'backing up this device';
     try {
       await captureSharedProjectBackup(
         pullState.localProject,
@@ -1148,6 +1149,7 @@ export default function ProjectDetailPage() {
         'Local data before pulling shared data.'
       );
 
+      mergeStage = 'saving the reviewed merge';
       if (!await saveReviewedSharedProject(pullState.resolutionProject, pullState.localProject, pullState.preservedLocalAreaIds, pullState.preservedLocalProjectMetadata)) {
         throw new Error('Local work changed after this merge was prepared. Your current project was kept. Get team updates again to review a fresh merge.');
       }
@@ -1156,7 +1158,7 @@ export default function ProjectDetailPage() {
       showMessage(formatPendingSharedPullSuccessMessage(pullState));
     } catch (error) {
       console.error('Failed to pull shared project:', error);
-      showMessage(getCollaborationErrorMessage(error, 'Failed to pull shared data. Please try again.'));
+      showMessage(`Back Up + Merge stopped while ${mergeStage}. ${getCollaborationErrorMessage(error, 'Failed to pull shared data. Please try again.')}`);
     } finally {
       setSharedTransferStatus(null);
     }

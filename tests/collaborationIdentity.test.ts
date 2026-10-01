@@ -4,6 +4,7 @@ import {
   getCollaborationErrorMessage,
   normalizeCollaborationEmail,
 } from '@/lib/collaboration';
+import { CollaborationRequestTimeoutError } from '@/lib/collaboration/request';
 
 describe('collaboration identity helpers', () => {
   it('normalizes email case and surrounding whitespace', () => {
@@ -38,6 +39,11 @@ describe('collaboration identity helpers', () => {
       message: 'CollaborationRequestTimeoutError: Publishing shared data timed out after 90 seconds. Check your connection and try again.',
       details: 'fetchWithCollaborationTimeout@https://example.test/chunk.js:1:1',
     })).toBe('The team service is taking too long to respond. Check your connection and try again.');
+  });
+
+  it('identifies the timed-out team operation without exposing internals', () => {
+    expect(getCollaborationErrorMessage(new CollaborationRequestTimeoutError('Pulling shared area updates', 90_000)))
+      .toBe('Pulling shared area updates timed out after 90 seconds. Check your connection and try again. Your work remains saved on this device.');
   });
 
   it('replaces raw database statement timeout errors', () => {

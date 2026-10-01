@@ -9,13 +9,14 @@ import { createPortal } from 'react-dom';
 import { useMicrosoftAuth } from '@/contexts/MicrosoftAuthContext';
 import { useCollaborationAuth } from '@/contexts/CollaborationAuthContext';
 import { useSyncStatus } from '@/contexts/SyncStatusContext';
+import { useAppSettings } from '@/contexts/AppSettingsContext';
 import {
   getAllProjects,
   getPendingSharedAreaSyncsForProject,
   getPendingSharedProjectMetadataSyncForProject,
   getProject,
   getProjectMetadata,
-  saveProjectPreserveTimestamps,
+  saveReviewedSharedProject,
   SHARED_SYNC_QUEUE_CHANGED_EVENT,
   summarizePendingSharedSyncs,
   type SharedSyncQueueSummary,
@@ -35,12 +36,11 @@ import {
   getCollaborationProfileInitials,
   getActiveSharedProjectAreaClaimSummaries,
   getSharedProjectAccess,
+  getCollaborationErrorMessage,
   captureSharedProjectBackup,
-  rebaseSharedProjectAreaSyncsAfterPull,
   releaseAbandonedSharedProjectArea,
   resumePendingSharedAreaSyncs,
   resumePendingSharedProjectMetadataSyncs,
-  saveAndQueueSharedProjectMetadataSync,
 } from '@/lib/collaboration';
 import type { CollaborationAreaClaimSummary } from '@/lib/collaboration';
 import CollaborationAvatar from '@/components/CollaborationAvatar';
@@ -124,6 +124,12 @@ export default function PersistentTopBar() {
     signOut: signOutOfMicrosoft,
   } = useMicrosoftAuth();
   const collaborationAuth = useCollaborationAuth();
+  const {
+    homeShowOnlyIssues,
+    projectShowOnlyIssues,
+    setHomeShowOnlyIssues,
+    setProjectShowOnlyIssues,
+  } = useAppSettings();
   const {
     clearSharedUpdateAvailable,
     localSaveError,
@@ -365,12 +371,12 @@ export default function PersistentTopBar() {
     projectSyncingRef.current = true;
     setProjectSyncing(true);
     setSyncStatus('syncing');
+    let mergeStage = 'backing up this device';
     try {
       await captureSharedProjectBackup(pull.localProject, 'before_pull', 'Local data before pulling shared data.');
-      await saveProjectPreserveTimestamps(pull.resolutionProject);
-      await rebaseSharedProjectAreaSyncsAfterPull(pull.resolutionProject, pull.preservedLocalAreaIds);
-      if (pull.preservedLocalProjectMetadata) {
-        await saveAndQueueSharedProjectMetadataSync(pull.resolutionProject);
+      mergeStage = 'saving the reviewed merge';
+      if (!await saveReviewedSharedProject(pull.resolutionProject, pull.localProject, pull.preservedLocalAreaIds, pull.preservedLocalProjectMetadata)) {
+        throw new Error('Local work changed after this merge was prepared. Your current project was kept. Get team updates again to review a fresh merge.');
       }
       clearSharedUpdateAvailable(pull.localProject.id);
       window.dispatchEvent(new CustomEvent('punchlist-project-synced', { detail: { projectId: pull.localProject.id } }));
@@ -380,7 +386,7 @@ export default function PersistentTopBar() {
       setSyncStatus('error');
       setInfoDialog({
         title: 'Sync This Project',
-        message: error instanceof Error ? error.message : 'Could not merge team data. Your project remains on this device.',
+        message: `Back Up + Merge stopped while ${mergeStage}. ${getCollaborationErrorMessage(error, 'Could not merge team data. Your project remains on this device.')}`,
       });
     } finally {
       projectSyncingRef.current = false;
@@ -782,8 +788,11 @@ export default function PersistentTopBar() {
                   !homeMenuState.selectionMode && (
                   <button
                     type="button"
-                    onClick={() => dispatchHomeAction('toggle-area-issues')}
-                    className={`absolute top-[4.5rem] flex h-10 items-center rounded-full px-3 text-sm font-medium transition ${
+                    onClick={() => {
+                      if (projectId) setProjectShowOnlyIssues(!projectShowOnlyIssues);
+                      else setHomeShowOnlyIssues(!homeShowOnlyIssues);
+                    }}
+                    className={`absolute top-[4.5rem] flex h-10 touch-manipulation items-center rounded-full px-3 text-sm font-medium transition ${
                       homeMenuState.areaViewMode === 'grouped' && homeMenuState.hasAreaGroups
                         ? 'right-12'
                         : 'right-0'
