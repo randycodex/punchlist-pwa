@@ -323,15 +323,63 @@ function serializeProjectForStorage(project: Project): {
   return { storedProject, mediaRecords, elevationDrawingRecords };
 }
 
-async function storedPayloadToDataUrl(payload: string | Blob | undefined) {
-  if (payload === undefined || typeof payload === 'string') return payload;
-  const bytes = new Uint8Array(await payload.arrayBuffer());
+function bytesToDataUrl(bytes: Uint8Array, mimeType: string) {
   let binary = '';
   const chunkSize = 0x8000;
   for (let offset = 0; offset < bytes.length; offset += chunkSize) {
     binary += String.fromCharCode(...bytes.subarray(offset, offset + chunkSize));
   }
-  return `data:${payload.type || 'application/octet-stream'};base64,${btoa(binary)}`;
+  return `data:${mimeType || 'application/octet-stream'};base64,${btoa(binary)}`;
+}
+
+function readBlobWithFileReader(payload: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result;
+      if (typeof result !== 'string') {
+        reject(new Error('Safari returned no saved attachment data.'));
+        return;
+      }
+      const encoded = result.split(',')[1] ?? '';
+      const padding = encoded.endsWith('==') ? 2 : encoded.endsWith('=') ? 1 : 0;
+      const byteLength = Math.floor(encoded.length * 3 / 4) - padding;
+      if (byteLength !== payload.size) {
+        reject(new Error('Safari returned an incomplete saved attachment.'));
+        return;
+      }
+      resolve(result);
+    };
+    reader.onerror = () => reject(reader.error ?? new Error('Safari could not read the saved attachment.'));
+    reader.onabort = () => reject(new Error('Safari stopped reading the saved attachment.'));
+    reader.readAsDataURL(payload);
+  });
+}
+
+async function storedPayloadToDataUrl(payload: string | Blob | undefined) {
+  if (payload === undefined || typeof payload === 'string') return payload;
+  try {
+    return bytesToDataUrl(new Uint8Array(await payload.arrayBuffer()), payload.type);
+  } catch (originalError) {
+    // Safari may fail one Blob reading API while another can still access the
+    // IndexedDB bytes. Never substitute empty data for an unreadable attachment.
+    if (typeof FileReader !== 'undefined') {
+      try { return await readBlobWithFileReader(payload); } catch { /* Try the Blob URL path. */ }
+    }
+    if (typeof URL.createObjectURL === 'function') {
+      let url: string | undefined;
+      try {
+        url = URL.createObjectURL(payload);
+        const response = await fetch(url);
+        if (!response.ok) throw new Error('The saved attachment could not be read.');
+        const bytes = new Uint8Array(await response.arrayBuffer());
+        if (bytes.length !== payload.size) throw new Error('The saved attachment is incomplete.');
+        return bytesToDataUrl(bytes, payload.type);
+      } catch { /* Keep the original local storage error. */ }
+      finally { if (url) URL.revokeObjectURL(url); }
+    }
+    throw originalError;
+  }
 }
 
 function dataUrlToStoredPayload(payload: string) {

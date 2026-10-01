@@ -42,6 +42,7 @@ it('reads saved media without indexes and leaves queued team changes intact', as
     request.onerror = () => reject(request.error);
   });
 
+  const blobUrl = vi.spyOn(URL, 'createObjectURL').mockImplementation(() => { throw new Error('Blob URL unavailable'); });
   const blobRead = vi.spyOn(Blob.prototype, 'arrayBuffer').mockRejectedValueOnce(
     new DOMException('The object can not be found here.', 'NotFoundError')
   );
@@ -51,11 +52,48 @@ it('reads saved media without indexes and leaves queued team changes intact', as
   expect(full?.areas[0].locations[0].items[0].checkpoints[0].photos[0].imageData).toBe(photo.imageData);
   expect(selectedArea?.areas[0].locations[0].items[0].checkpoints[0].photos[0].imageData).toBe(photo.imageData);
 
+  class RecoveringFileReader {
+    result: string | null = null;
+    error: DOMException | null = null;
+    onload: (() => void) | null = null;
+    onerror: (() => void) | null = null;
+    onabort: (() => void) | null = null;
+    readAsDataURL() {
+      this.result = photo.imageData;
+      queueMicrotask(() => this.onload?.());
+    }
+  }
+  vi.stubGlobal('FileReader', RecoveringFileReader);
+  const unavailableArrayBuffer = vi.spyOn(Blob.prototype, 'arrayBuffer').mockRejectedValue(
+    new DOMException('The object can not be found here.', 'NotFoundError')
+  );
+  const recovered = await getProject(project.id);
+  expect(recovered?.areas[0].locations[0].items[0].checkpoints[0].photos[0].imageData).toBe(photo.imageData);
+  unavailableArrayBuffer.mockRestore();
+  vi.unstubAllGlobals();
+  blobUrl.mockRestore();
+
+  const objectUrl = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:recover-saved-photo');
+  const revokeObjectUrl = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
+  vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, arrayBuffer: async () => Uint8Array.of(97).buffer })));
+  const failedArrayBuffer = vi.spyOn(Blob.prototype, 'arrayBuffer').mockRejectedValue(
+    new DOMException('The object can not be found here.', 'NotFoundError')
+  );
+  const recoveredFromUrl = await getProject(project.id);
+  expect(recoveredFromUrl?.areas[0].locations[0].items[0].checkpoints[0].photos[0].imageData).toBe(photo.imageData);
+  expect(revokeObjectUrl).toHaveBeenCalledWith('blob:recover-saved-photo');
+  failedArrayBuffer.mockRestore();
+  objectUrl.mockRestore();
+  revokeObjectUrl.mockRestore();
+  vi.unstubAllGlobals();
+
+  const unusableUrl = vi.spyOn(URL, 'createObjectURL').mockImplementation(() => { throw new Error('Blob URL unavailable'); });
   const unreadableBlob = vi.spyOn(Blob.prototype, 'arrayBuffer').mockRejectedValue(
     new DOMException('The object can not be found here.', 'NotFoundError')
   );
   await expect(getProject(project.id)).rejects.toThrow('Could not finish opening saved photos and files');
   unreadableBlob.mockRestore();
+  unusableUrl.mockRestore();
 
   const verify = await new Promise<IDBDatabase>((resolve, reject) => {
     const open = indexedDB.open('punchlist-db');
