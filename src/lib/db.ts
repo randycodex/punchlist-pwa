@@ -617,30 +617,97 @@ export async function getAllProjects(): Promise<Project[]> {
   return projects.map((project) => applyCheckpointRules(stripProjectMediaPayloadsIfNeeded(project)));
 }
 
+function isMissingLocalObjectError(error: unknown) {
+  if (!error || typeof error !== 'object') return false;
+  const candidate = error as { name?: unknown; message?: unknown };
+  const message = typeof candidate.message === 'string' ? candidate.message.toLowerCase() : '';
+  return candidate.name === 'NotFoundError'
+    || message.includes('object can not be found here')
+    || message.includes('object cannot be found here');
+}
+
+async function readProjectMediaRecords(db: IDBPDatabase<PunchListDB>, projectId: string, areaId?: string) {
+  try {
+    return areaId
+      ? await db.getAllFromIndex('checkpointMedia', 'by-project-area', [projectId, areaId])
+      : await db.getAllFromIndex('checkpointMedia', 'by-project', projectId);
+  } catch (error) {
+    if (!isMissingLocalObjectError(error) || !db.objectStoreNames.contains('checkpointMedia')) throw error;
+    // A Safari database can retain its records after losing an index. Scan the
+    // store instead of discarding locally saved attachments.
+    const transaction = db.transaction('checkpointMedia');
+    const records: CheckpointMediaRecord[] = [];
+    let cursor = await transaction.store.openCursor();
+    while (cursor) {
+      if (cursor.value.projectId === projectId && (!areaId || cursor.value.areaId === areaId)) {
+        records.push(cursor.value);
+      }
+      cursor = await cursor.continue();
+    }
+    await transaction.done;
+    return records;
+  }
+}
+
+async function readProjectDrawingRecords(db: IDBPDatabase<PunchListDB>, projectId: string) {
+  try {
+    return await db.getAllFromIndex('elevationDrawings', 'by-project', projectId);
+  } catch (error) {
+    if (!isMissingLocalObjectError(error) || !db.objectStoreNames.contains('elevationDrawings')) throw error;
+    const transaction = db.transaction('elevationDrawings');
+    const records: ElevationDrawingRecord[] = [];
+    let cursor = await transaction.store.openCursor();
+    while (cursor) {
+      if (cursor.value.projectId === projectId) records.push(cursor.value);
+      cursor = await cursor.continue();
+    }
+    await transaction.done;
+    return records;
+  }
+}
+
+async function readProjectOnce(id: string, areaId?: string): Promise<Project | undefined> {
+  let stage = 'opening Safari storage';
+  try {
+    const db = await getDB();
+    stage = 'reading the project record';
+    const project = await db.get('projects', id);
+    if (!project) return undefined;
+    applyCheckpointRules(project);
+    stage = 'reading saved photos and files';
+    const mediaRecords = await readProjectMediaRecords(db, id, areaId);
+    stage = 'reading saved drawings';
+    const drawingRecords = await readProjectDrawingRecords(db, id);
+    stage = 'opening saved photos and files';
+    const projectWithMedia = await hydrateProjectMedia(project, mediaRecords, areaId);
+    return hydrateProjectElevationDrawings(projectWithMedia, drawingRecords);
+  } catch (error) {
+    const detail = error && typeof error === 'object' && 'message' in error && typeof error.message === 'string'
+      ? error.message
+      : 'Unknown local storage error';
+    throw new Error(`Could not finish ${stage} on this device. ${detail}`, { cause: error });
+  }
+}
+
+async function readProjectWithRetry(id: string, areaId?: string): Promise<Project | undefined> {
+  try {
+    return await readProjectOnce(id, areaId);
+  } catch (error) {
+    const cause = error instanceof Error ? error.cause : error;
+    if (!isMissingLocalObjectError(cause)) throw error;
+    // WebKit can fail an individual IndexedDB read while other reads still work.
+    // Retrying this read never changes the project or its pending sync queue.
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    return readProjectOnce(id, areaId);
+  }
+}
+
 export async function getProject(id: string): Promise<Project | undefined> {
-  const db = await getDB();
-  const project = await db.get('projects', id);
-  if (!project) return undefined;
-  applyCheckpointRules(project);
-  const [mediaRecords, drawingRecords] = await Promise.all([
-    db.getAllFromIndex('checkpointMedia', 'by-project', id),
-    db.getAllFromIndex('elevationDrawings', 'by-project', id),
-  ]);
-  const projectWithMedia = await hydrateProjectMedia(project, mediaRecords);
-  return hydrateProjectElevationDrawings(projectWithMedia, drawingRecords);
+  return readProjectWithRetry(id);
 }
 
 export async function getProjectForArea(id: string, areaId: string): Promise<Project | undefined> {
-  const db = await getDB();
-  const project = await db.get('projects', id);
-  if (!project) return undefined;
-  applyCheckpointRules(project);
-  const [mediaRecords, drawingRecords] = await Promise.all([
-    db.getAllFromIndex('checkpointMedia', 'by-project-area', [id, areaId]),
-    db.getAllFromIndex('elevationDrawings', 'by-project', id),
-  ]);
-  const projectWithAreaMedia = await hydrateProjectMedia(project, mediaRecords, areaId);
-  return hydrateProjectElevationDrawings(projectWithAreaMedia, drawingRecords);
+  return readProjectWithRetry(id, areaId);
 }
 
 export async function getProjectMetadata(id: string): Promise<Project | undefined> {
