@@ -11,6 +11,7 @@ import {
 } from '@/lib/db';
 import {
   getSharedProjectSnapshotMetadata,
+  getCollaborationErrorMessage,
   hasNewerLocalChangesThanSharedSnapshot,
   isSharedSnapshotNewer,
   publishSharedProjectSnapshot,
@@ -35,11 +36,13 @@ export async function syncSharedProject(
   try {
     return await syncSharedProjectOnce(localProjectId, userId, options, (value) => { stage = value; });
   } catch (error) {
-    if (!isCollaborationCapacityError(error)) throw error;
-    return {
-      status: 'pending',
-      message: `Sync paused while ${stage}: the team service rejected a connection. Your local changes remain saved. Any locks not yet released are still held.`,
-    };
+    if (isCollaborationCapacityError(error)) {
+      return {
+        status: 'pending',
+        message: `Sync paused while ${stage}: the team service rejected a connection. Your local changes remain saved. Any locks not yet released are still held.`,
+      };
+    }
+    throw new Error(`Team sync stopped while ${stage}. ${getCollaborationErrorMessage(error)}`, { cause: error });
   }
 }
 
