@@ -1141,15 +1141,8 @@ export default function ProjectDetailPage() {
     const pullState = pendingPull;
     setPendingPull(null);
     setSharedTransferStatus('pulling');
-    let mergeStage = 'saving a recovery copy';
+    const mergeStage = 'saving your copy and applying team updates';
     try {
-      await captureSharedProjectBackup(
-        pullState.localProject,
-        'before_pull',
-        'Local data before pulling shared data.'
-      );
-
-      mergeStage = 'applying team updates';
       if (!await saveReviewedSharedProject(pullState.resolutionProject, pullState.localProject, pullState.preservedLocalAreaIds, pullState.preservedLocalProjectMetadata)) {
         throw new Error('Local work changed after this merge was prepared. Your current project was kept. Get team updates again to review a fresh merge.');
       }
@@ -1214,14 +1207,12 @@ export default function ProjectDetailPage() {
 
       fullProject.sharedProjectId = backupProject.sharedProjectId;
       fullProject.sharedProjectLinkedAt = backupProject.sharedProjectLinkedAt;
-      await captureSharedProjectBackup(
-        fullProject,
-        'restore',
-        'Local data before restoring a shared backup.'
-      );
+      if (backup.storageLocation !== 'device') {
+        await captureSharedProjectBackup(fullProject, 'restore', 'Local data before restoring a shared backup.');
+      }
 
       const result = await getSharedProjectBackupSnapshot(fullProject, backup.id);
-      if (!await saveDownloadedProjectIfUnchanged(result.project, sourceToken, { resetSharedQueues: true })) {
+      if (!await saveDownloadedProjectIfUnchanged(result.project, sourceToken, { resetSharedQueues: true, captureRecovery: backup.storageLocation === 'device' })) {
         throw new Error('Local work changed while the backup was loading. Your current project and pending changes were kept. Review them before restoring again.');
       }
       let publishedAt: string | null = null;
@@ -1834,7 +1825,7 @@ export default function ProjectDetailPage() {
           title={backupRestoreConfirm.publishAfterRestore ? 'Restore + Publish Backup' : 'Restore Backup'}
           message={`${backupRestoreConfirm.publishAfterRestore
             ? 'This replaces the project and any unsent edits on this device, then publishes the backup as the team version.'
-            : 'This replaces the project and any unsent edits on this device only; the team version stays as it is.'}\n\nCompared with this device (not the current team version):\n${formatTeamBackupImpact(backupRestoreConfirm.impact).join('\n')}\n\nBefore restoring, we’ll save this device’s current version as a Team Backup. Project details and inspection data are restored too, including changes not listed here.`}
+            : 'This replaces the project and any unsent edits on this device only; the team version stays as it is.'}\n\nCompared with this device (not the current team version):\n${formatTeamBackupImpact(backupRestoreConfirm.impact).join('\n')}\n\nBefore restoring, we’ll save this device’s current version ${backupRestoreConfirm.backup.storageLocation === 'device' ? 'on this device' : 'as a Team Backup'}. Project details and inspection data are restored too, including changes not listed here.`}
           confirmLabel={backupRestoreConfirm.publishAfterRestore ? 'Restore + Publish' : 'Restore'}
           danger={backupRestoreConfirm.publishAfterRestore}
           onCancel={() => setBackupRestoreConfirm(null)}

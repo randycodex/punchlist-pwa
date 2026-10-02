@@ -5,6 +5,10 @@ import type { CollaborationSnapshotBackup, CollaborationSnapshotBackupReason } f
 import {
   clearPendingSharedAreaSyncsForProject,
   getPendingSharedAreaSyncsForProject,
+  listSharedProjectRecoveries,
+  getSharedProjectRecoveryMetadata,
+  getSharedProjectRecoveryPreview,
+  getSharedProjectRecoveryProject,
   type PendingSharedAreaSyncRecord,
 } from '@/lib/db';
 import { getCollaborationSupabaseClient } from './supabaseClient';
@@ -269,7 +273,8 @@ export async function publishSharedProjectSnapshot(project: Project, publishedBy
 export async function captureSharedProjectBackup(
   project: Project,
   reason: CollaborationSnapshotBackupReason,
-  note?: string
+  note?: string,
+  deviceRecoveryId?: string
 ) {
   if (!project.sharedProjectId) {
     throw new Error('Share this project before backing up shared data.');
@@ -289,13 +294,16 @@ export async function captureSharedProjectBackup(
 
   const transfer = await prepareSnapshotTransfer(project, userId);
   const data = await retryCollaborationOperation(async () => {
-    const result = await supabase.rpc('capture_shared_project_backup', {
+    const args = {
       p_project_id: project.sharedProjectId!,
       p_project_payload: transfer.payload,
       p_payload_version: transfer.payloadVersion,
       p_reason: reason,
       p_note: note ?? null,
-    });
+    };
+    const result = deviceRecoveryId !== undefined
+      ? await supabase.rpc('capture_shared_project_device_backup', { ...args, p_device_recovery_id: deviceRecoveryId })
+      : await supabase.rpc('capture_shared_project_backup', args);
     if (result.error) throw result.error;
     return result.data;
   });
@@ -442,7 +450,7 @@ function reviveBackup(row: {
   };
 }
 
-export async function listSharedProjectBackups(sharedProjectId: string): Promise<CollaborationSnapshotBackup[]> {
+async function listCloudSharedProjectBackups(sharedProjectId: string): Promise<CollaborationSnapshotBackup[]> {
   const supabase = getCollaborationSupabaseClient();
   if (!supabase) {
     throw new Error('Collaboration is not configured.');
@@ -476,6 +484,42 @@ export async function listSharedProjectBackups(sharedProjectId: string): Promise
   return (legacyResult.data ?? []).map((row) => reviveBackup(row));
 }
 
+export async function listSharedProjectBackups(sharedProjectId: string): Promise<CollaborationSnapshotBackup[]> {
+  const recoveries = await listSharedProjectRecoveries(sharedProjectId);
+  let cloud: CollaborationSnapshotBackup[];
+  try {
+    cloud = await listCloudSharedProjectBackups(sharedProjectId);
+  } catch (error) {
+    if (recoveries.length === 0) throw error;
+    // These device copies remain available even when the team service cannot
+    // return its history. Loading this list never needs attachment binaries.
+    cloud = [];
+  }
+  const cloudIds = new Set(cloud.map((backup) => backup.id));
+  const device: CollaborationSnapshotBackup[] = recoveries
+    .filter((backup) => !backup.cloudBackupId || !cloudIds.has(backup.cloudBackupId))
+    .map((backup) => ({
+      id: `device:${backup.id}`,
+      projectId: backup.sharedProjectId,
+      projectName: backup.projectName,
+      capturedByUserId: '',
+      capturedAt: backup.capturedAt,
+      reason: backup.reason,
+      storageLocation: 'device',
+      uploadPending: backup.uploadStatus === 'pending',
+    }));
+  return [...device, ...cloud].sort((left, right) => right.capturedAt.getTime() - left.capturedAt.getTime()).slice(0, 50);
+}
+
+async function getDeviceBackupMetadata(localProject: Project, backupId: string) {
+  const id = backupId.slice('device:'.length);
+  const backup = await getSharedProjectRecoveryMetadata(id);
+  if (!backup || !localProject.sharedProjectId || backup.sharedProjectId !== localProject.sharedProjectId) {
+    throw new Error('Could not find this project recovery copy on this device.');
+  }
+  return backup;
+}
+
 async function loadSharedProjectBackup(localProject: Project, backupId: string) {
   if (!localProject.sharedProjectId) {
     throw new Error('This project is not linked to a shared project.');
@@ -506,11 +550,23 @@ async function loadSharedProjectBackup(localProject: Project, backupId: string) 
 
 /** Read backup contents for a comparison without downloading attachment binaries. */
 export async function getSharedProjectBackupPreview(localProject: Project, backupId: string): Promise<Project> {
+  if (backupId.startsWith('device:')) {
+    const backup = await getDeviceBackupMetadata(localProject, backupId);
+    const project = await getSharedProjectRecoveryPreview(backup.id);
+    if (!project) throw new Error('Could not load this recovery copy on this device.');
+    return retargetProject(project, localProject);
+  }
   const data = await loadSharedProjectBackup(localProject, backupId);
   return parseSharedSnapshotPayload(data.project_payload, data.payload_version).project;
 }
 
 export async function getSharedProjectBackupSnapshot(localProject: Project, backupId: string): Promise<SnapshotResult> {
+  if (backupId.startsWith('device:')) {
+    const backup = await getDeviceBackupMetadata(localProject, backupId);
+    const project = await getSharedProjectRecoveryProject(backup.id);
+    if (!project) throw new Error('Could not load this recovery copy on this device.');
+    return { project: retargetProject(project, localProject), publishedAt: backup.capturedAt.toISOString() };
+  }
   const data = await loadSharedProjectBackup(localProject, backupId);
 
   const parsed = parseSharedSnapshotPayload(data.project_payload, data.payload_version);

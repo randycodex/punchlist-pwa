@@ -355,18 +355,32 @@ export async function prepareCompactSharedSnapshotPayload(
     throw new Error('Collaboration is not configured.');
   }
 
-  const data = await retryCollaborationOperation(async () => {
-    let metadataQuery = supabase
-      .from('shared_attachments')
-      .select('storage_bucket, storage_path, file_name, mime_type, size_bytes, deleted_at, updated_at')
-      .eq('project_id', project.sharedProjectId!);
-    if (options.areaId) {
-      metadataQuery = metadataQuery.or(`area_id.eq.${options.areaId},area_id.is.null`);
-    }
-    const result = await metadataQuery.is('deleted_at', null);
-    if (result.error) throw result.error;
-    return result.data ?? [];
-  });
+  // PostgREST caps an unpaginated response. Large projects must see every saved
+  // object before deciding which attachments still need an upload.
+  const metadataPageSize = 500;
+  const data: SharedAttachmentMetadataRow[] = [];
+  for (let offset = 0; ; offset += metadataPageSize) {
+    const page = await retryCollaborationOperation(async () => {
+      let metadataQuery = supabase
+        .from('shared_attachments')
+        .select('storage_bucket, storage_path, file_name, mime_type, size_bytes, deleted_at, updated_at')
+        .eq('project_id', project.sharedProjectId!);
+      if (options.areaId) {
+        metadataQuery = metadataQuery.or(`area_id.eq.${options.areaId},area_id.is.null`);
+      }
+      const result = await metadataQuery
+        .is('deleted_at', null)
+        .order('storage_bucket', { ascending: true })
+        .order('storage_path', { ascending: true })
+        .range(offset, offset + metadataPageSize - 1)
+        // Keep the explicit per-page policy from multiplying SDK retries.
+        .retry(false);
+      if (result.error) throw result.error;
+      return result.data ?? [];
+    });
+    data.push(...page);
+    if (page.length < metadataPageSize) break;
+  }
 
   const plan = await buildSharedSnapshotAssetPlan(project, data);
   const uploadConcurrency = plan.uploads.some((upload) => upload.reference.sizeBytes > 5 * 1024 * 1024)

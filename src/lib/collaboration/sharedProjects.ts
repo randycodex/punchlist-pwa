@@ -81,12 +81,12 @@ export function getCollaborationErrorMessage(error: unknown, fallback = 'Could n
     || normalizedErrorText.includes('networkerror')
     || normalizedErrorText.includes('network error')
   ) {
-    return 'The phone lost its connection to the team service. Your work is still saved on this device. Use a stable connection and try again.';
+    return 'The request to the team service did not complete. Your work is still saved on this device. Please try again.';
   }
 
   if (error instanceof Error) {
     if (error.name === 'CollaborationRequestTimeoutError') {
-      return `${error.message} Your work remains saved on this device.`;
+      return `${error.message.replace('Check your connection and try again.', 'Please try again.')} Your work remains saved on this device.`;
     }
     return error.message;
   }
@@ -103,7 +103,7 @@ export function getCollaborationErrorMessage(error: unknown, fallback = 'Could n
       typeof maybeError.message === 'string'
       && maybeError.message.startsWith('CollaborationRequestTimeoutError:')
     ) {
-      return 'The team service is taking too long to respond. Check your connection and try again.';
+      return 'The team service did not respond in time. Your work is still saved on this device. Please try again.';
     }
     if (typeof maybeError.code === 'string' && maybeError.code.startsWith('23')) {
       return fallback;

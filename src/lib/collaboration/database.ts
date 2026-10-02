@@ -395,6 +395,17 @@ export interface CollaborationDatabase {
         };
         Returns: string;
       };
+      capture_shared_project_device_backup: {
+        Args: {
+          p_project_id: string;
+          p_project_payload: Json;
+          p_device_recovery_id: string;
+          p_payload_version?: number;
+          p_reason?: 'publish' | 'before_publish' | 'before_pull' | 'manual' | 'restore';
+          p_note?: string | null;
+        };
+        Returns: string;
+      };
       list_my_shared_projects: {
         Args: Record<string, never>;
         Returns: {

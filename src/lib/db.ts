@@ -99,6 +99,30 @@ export type SharedSyncQueueSummary = {
 
 export type SharedAreaSyncQueueSummary = SharedSyncQueueSummary;
 
+export interface SharedProjectRecoveryMetadata {
+  id: string;
+  localProjectId: string;
+  sharedProjectId: string;
+  projectName: string;
+  capturedAt: Date;
+  reason: 'before_pull' | 'restore';
+  uploadStatus: 'pending' | 'uploaded';
+  cloudBackupId: string | null;
+  attemptCount: number;
+  nextAttemptAt: Date;
+  lastError: string | null;
+}
+
+interface SharedProjectRecoveryRecord {
+  id: string;
+  localProjectId: string;
+  project: Project;
+  mediaRecords: CheckpointMediaRecord[];
+  elevationDrawingRecords: ElevationDrawingRecord[];
+  areaSyncRecords: PendingSharedAreaSyncRecord[];
+  metadataSyncRecords: PendingSharedProjectMetadataSyncRecord[];
+}
+
 export const SHARED_SYNC_QUEUE_CHANGED_EVENT = 'punchlist-shared-sync-queue-changed';
 export const SHARED_AREA_SYNC_QUEUE_CHANGED_EVENT = SHARED_SYNC_QUEUE_CHANGED_EVENT;
 
@@ -141,6 +165,16 @@ interface PunchListDB extends DBSchema {
     key: string;
     value: PendingSharedProjectMetadataSyncRecord;
     indexes: { 'by-local-project': string; 'by-queued-at': Date };
+  };
+  sharedProjectRecovery: {
+    key: string;
+    value: SharedProjectRecoveryRecord;
+    indexes: { 'by-local-project': string };
+  };
+  sharedProjectRecoveryMetadata: {
+    key: string;
+    value: SharedProjectRecoveryMetadata;
+    indexes: { 'by-local-project': string; 'by-shared-project': string; 'by-captured-at': Date };
   };
 }
 
@@ -534,7 +568,7 @@ function preserveExistingMediaPayloads(
 
 function getDB() {
   if (!dbPromise) {
-    dbPromise = openDB<PunchListDB>(localAccountKey('punchlist-db'), 9, {
+    dbPromise = openDB<PunchListDB>(localAccountKey('punchlist-db'), 10, {
       blocked() { reportLocalSaveStatus({ status: 'error', message: 'Close other PunchList tabs to finish upgrading local storage. Your existing data is retained.' }); },
       terminated() { dbPromise = null; },
       blocking() {
@@ -573,6 +607,16 @@ function getDB() {
           const metadataSyncStore = db.createObjectStore('sharedProjectMetadataSyncQueue', { keyPath: 'key' });
           metadataSyncStore.createIndex('by-local-project', 'localProjectId');
           metadataSyncStore.createIndex('by-queued-at', 'queuedAt');
+        }
+
+        if (!db.objectStoreNames.contains('sharedProjectRecovery')) {
+          db.createObjectStore('sharedProjectRecovery', { keyPath: 'id' }).createIndex('by-local-project', 'localProjectId');
+        }
+        if (!db.objectStoreNames.contains('sharedProjectRecoveryMetadata')) {
+          const store = db.createObjectStore('sharedProjectRecoveryMetadata', { keyPath: 'id' });
+          store.createIndex('by-local-project', 'localProjectId');
+          store.createIndex('by-shared-project', 'sharedProjectId');
+          store.createIndex('by-captured-at', 'capturedAt');
         }
 
         if (oldVersion > 0 && oldVersion < 9) {
@@ -1136,8 +1180,8 @@ export async function captureLocalProjectSaveToken(projectId: string): Promise<s
 }
 
 /** Apply downloaded data only if no local project write changed its source. */
-export async function saveDownloadedProjectIfUnchanged(project: Project, expectedToken: string | null, options: { resetSharedQueues?: boolean } = {}): Promise<boolean> {
-  const saved = await runLocalPersistence(() => saveProjectInternal(project, { touch: false, expectedToken, resetSharedQueues: options.resetSharedQueues }));
+export async function saveDownloadedProjectIfUnchanged(project: Project, expectedToken: string | null, options: { resetSharedQueues?: boolean; captureRecovery?: boolean } = {}): Promise<boolean> {
+  const saved = await runLocalPersistence(() => saveProjectInternal(project, { touch: false, expectedToken, resetSharedQueues: options.resetSharedQueues, captureRecovery: options.captureRecovery }));
   if (saved && options.resetSharedQueues) reportSharedSyncQueueChanged();
   return saved;
 }
@@ -1151,6 +1195,99 @@ export async function saveReviewedSharedProject(project: Project, reviewedSource
   }));
   if (saved) reportSharedSyncQueueChanged();
   return saved;
+}
+
+/** List only small metadata records; attachment bytes remain in the snapshot store. */
+export async function listSharedProjectRecoveries(sharedProjectId: string): Promise<SharedProjectRecoveryMetadata[]> {
+  const db = await getDB();
+  const records = await db.getAllFromIndex('sharedProjectRecoveryMetadata', 'by-shared-project', sharedProjectId);
+  return records.sort((left, right) => right.capturedAt.getTime() - left.capturedAt.getTime());
+}
+
+export async function getSharedProjectRecoveryMetadata(id: string): Promise<SharedProjectRecoveryMetadata | undefined> {
+  return (await getDB()).get('sharedProjectRecoveryMetadata', id);
+}
+
+export async function getSharedProjectRecoveryPreview(id: string): Promise<Project | undefined> {
+  const db = await getDB();
+  const record = await db.get('sharedProjectRecovery', id);
+  return record ? applyCheckpointRules(cloneProjectWithoutMediaPayload(record.project)) : undefined;
+}
+
+export async function getSharedProjectRecoveryProject(id: string): Promise<Project | undefined> {
+  const db = await getDB();
+  const record = await db.get('sharedProjectRecovery', id);
+  if (!record) return undefined;
+  assertRecoveryMediaPresent(record.project, record.mediaRecords, record.elevationDrawingRecords);
+  return hydrateProjectElevationDrawings(
+    await hydrateProjectMedia(applyCheckpointRules(record.project), record.mediaRecords),
+    record.elevationDrawingRecords
+  );
+}
+
+/** Ready records are drained serially, oldest first, without loading photo bytes. */
+export async function getPendingSharedProjectRecoveryIds(now = new Date()): Promise<string[]> {
+  const db = await getDB();
+  const records = await db.getAllFromIndex('sharedProjectRecoveryMetadata', 'by-captured-at');
+  return records.filter((record) => record.uploadStatus === 'pending' && record.nextAttemptAt <= now).map((record) => record.id);
+}
+
+export async function acknowledgeSharedProjectRecoveryBackup(id: string, cloudBackupId: string): Promise<void> {
+  if (!cloudBackupId.trim()) throw new Error('The team backup did not return a confirmed backup ID.');
+  await withBrowserLock('local-persistence', async () => {
+    const db = await getDB();
+    const tx = db.transaction('sharedProjectRecoveryMetadata', 'readwrite');
+    const record = await tx.store.get(id);
+    if (record && record.uploadStatus !== 'uploaded') {
+      await tx.store.put({ ...record, uploadStatus: 'uploaded', cloudBackupId, lastError: null });
+    }
+    await tx.done;
+  });
+}
+
+export async function recordSharedProjectRecoveryBackupFailure(id: string, lastError: string, nextAttemptAt: Date): Promise<void> {
+  if (!Number.isFinite(nextAttemptAt.getTime())) throw new Error('The backup retry time is invalid.');
+  await withBrowserLock('local-persistence', async () => {
+    const db = await getDB();
+    const tx = db.transaction('sharedProjectRecoveryMetadata', 'readwrite');
+    const record = await tx.store.get(id);
+    if (record && record.uploadStatus === 'pending') {
+      await tx.store.put({ ...record, attemptCount: record.attemptCount + 1, lastError, nextAttemptAt });
+    }
+    await tx.done;
+  });
+}
+
+function assertRecoveryMediaPresent(project: Project, mediaRecords: CheckpointMediaRecord[], drawings: ElevationDrawingRecord[]) {
+  const hasBytes = (payload: string | Blob | undefined) => typeof payload === 'string' ? payload.length > 0 : Boolean(payload?.size);
+  const mediaByCheckpoint = new Map(mediaRecords.map((record) => [record.checkpointId, record]));
+  for (const area of project.areas) {
+    for (const location of area.locations) {
+      for (const item of location.items) {
+        for (const checkpoint of item.checkpoints) {
+          const saved = mediaByCheckpoint.get(checkpoint.id);
+          for (const photo of checkpoint.photos) {
+            const retained = saved?.photos.find((entry) => entry.id === photo.id);
+            if (!hasBytes(retained?.imageData) && !hasBytes(photo.imageData)) {
+              throw new Error('A saved photo is unavailable on this device. Your current project was kept.');
+            }
+          }
+          for (const file of checkpoint.files ?? []) {
+            const retained = saved?.files.find((entry) => entry.id === file.id);
+            if (!hasBytes(retained?.data) && !hasBytes(file.data)) {
+              throw new Error('A saved file is unavailable on this device. Your current project was kept.');
+            }
+          }
+        }
+      }
+    }
+  }
+  const drawingsById = new Map(drawings.map((record) => [record.id, record]));
+  for (const drawing of project.facadeElevationDrawings ?? []) {
+    if (!hasBytes(drawingsById.get(drawing.id)?.dataUrl) && !hasBytes(drawing.dataUrl)) {
+      throw new Error('A saved drawing is unavailable on this device. Your current project was kept.');
+    }
+  }
 }
 
 function projectMetadataSignature(project: Project) {
@@ -1234,14 +1371,14 @@ export async function saveCheckpointInspectionChange(
   }, `checkpoint:${projectId}:${checkpointId}`);
 }
 
-async function saveProjectInternal(project: Project, options: { touch: boolean; expectedToken?: string | null; resetSharedQueues?: boolean; reviewedSource?: Project; reviewedAreaIds?: string[]; reviewedMetadata?: boolean }): Promise<boolean> {
+async function saveProjectInternal(project: Project, options: { touch: boolean; expectedToken?: string | null; resetSharedQueues?: boolean; reviewedSource?: Project; reviewedAreaIds?: string[]; reviewedMetadata?: boolean; captureRecovery?: boolean }): Promise<boolean> {
   const db = await getDB();
   if (options.touch) {
     project.updatedAt = new Date();
   }
   const { storedProject, mediaRecords, elevationDrawingRecords } = serializeProjectForStorage(project);
   const compactMediaRecords = mediaRecords.map(compactMediaRecord);
-  const tx = db.transaction(['projects', 'checkpointMedia', 'elevationDrawings', 'syncMetadata', 'sharedAreaSyncQueue', 'sharedProjectMetadataSyncQueue'], 'readwrite');
+  const tx = db.transaction(['projects', 'checkpointMedia', 'elevationDrawings', 'syncMetadata', 'sharedAreaSyncQueue', 'sharedProjectMetadataSyncQueue', 'sharedProjectRecovery', 'sharedProjectRecoveryMetadata'], 'readwrite');
   const projectStore = tx.objectStore('projects');
   const mediaStore = tx.objectStore('checkpointMedia');
   const drawingStore = tx.objectStore('elevationDrawings');
@@ -1260,6 +1397,33 @@ async function saveProjectInternal(project: Project, options: { touch: boolean; 
         await tx.done;
         return false;
       }
+    }
+
+    if (options.reviewedSource || options.captureRecovery) {
+      const source = await projectStore.get(project.id);
+      if (!source?.sharedProjectId || source.sharedProjectId !== project.sharedProjectId) {
+        throw new Error('The local project no longer matches the team link. Your current project was kept.');
+      }
+      const sourceMedia = await mediaStore.index('by-project').getAll(project.id);
+      const sourceDrawings = await drawingStore.index('by-project').getAll(project.id);
+      assertRecoveryMediaPresent(source, sourceMedia, sourceDrawings);
+      const capturedAt = new Date();
+      const recoveryId = uuidv4();
+      // Copy exact stored bytes before any replacement, within this transaction.
+      // A quota error rolls back both the recovery and the applied team updates.
+      await tx.objectStore('sharedProjectRecovery').add({
+        id: recoveryId, localProjectId: source.id, project: source,
+        mediaRecords: sourceMedia, elevationDrawingRecords: sourceDrawings,
+        areaSyncRecords: await tx.objectStore('sharedAreaSyncQueue').index('by-local-project').getAll(source.id),
+        metadataSyncRecords: await tx.objectStore('sharedProjectMetadataSyncQueue').index('by-local-project').getAll(source.id),
+      });
+      await tx.objectStore('sharedProjectRecoveryMetadata').add({
+        id: recoveryId, localProjectId: source.id, sharedProjectId: source.sharedProjectId,
+        projectName: source.projectName, capturedAt,
+        reason: options.reviewedSource ? 'before_pull' : 'restore',
+        uploadStatus: 'pending', cloudBackupId: null, attemptCount: 0,
+        nextAttemptAt: capturedAt, lastError: null,
+      });
     }
 
     await projectStore.put(storedProject);
@@ -1371,9 +1535,16 @@ async function deleteProjectInternal(id: string, reviewedProject?: Project | nul
       'syncMetadata',
       'sharedAreaSyncQueue',
       'sharedProjectMetadataSyncQueue',
+      'sharedProjectRecovery',
+      'sharedProjectRecoveryMetadata',
     ], 'readwrite');
     try {
       if (reviewedProject !== undefined) {
+        const recoveries = await tx.objectStore('sharedProjectRecoveryMetadata').index('by-local-project').getAll(id);
+        if (recoveries.some((record) => record.uploadStatus === 'pending')) {
+          await tx.done;
+          return false;
+        }
         const current = await tx.objectStore('projects').get(id);
         if (reviewedProject ? !current || projectMetadataSignature(current) !== projectMetadataSignature(reviewedProject) : Boolean(current)) {
           await tx.done;
@@ -1397,6 +1568,14 @@ async function deleteProjectInternal(id: string, reviewedProject?: Project | nul
       const metadataSyncStore = tx.objectStore('sharedProjectMetadataSyncQueue');
       const metadataSyncKeys = await metadataSyncStore.index('by-local-project').getAllKeys(id);
       await Promise.all(metadataSyncKeys.map((key) => metadataSyncStore.delete(key)));
+      // Permanent deletion removes device recovery copies with the source. An
+      // automatic cleanup was gated above so it cannot discard an unuploaded copy.
+      const recoveryStore = tx.objectStore('sharedProjectRecovery');
+      const recoveryMetadataStore = tx.objectStore('sharedProjectRecoveryMetadata');
+      const recoveryKeys = await recoveryStore.index('by-local-project').getAllKeys(id);
+      const recoveryMetadataKeys = await recoveryMetadataStore.index('by-local-project').getAllKeys(id);
+      await Promise.all(recoveryKeys.map((key) => recoveryStore.delete(key)));
+      await Promise.all(recoveryMetadataKeys.map((key) => recoveryMetadataStore.delete(key)));
       await markFullSyncNeededInStore(tx.objectStore('syncMetadata'));
       await tx.done;
     } catch (error) {
@@ -1538,7 +1717,7 @@ export async function getPendingSharedProjectMetadataSyncs() {
   return db.getAllFromIndex('sharedProjectMetadataSyncQueue', 'by-queued-at');
 }
 
-export async function getPendingSharedProjectMetadataSyncForProject(localProjectId: string) {
+export async function getPendingSharedProjectMetadataSyncForProject(localProjectId: string): Promise<PendingSharedProjectMetadataSyncRecord | undefined> {
   const db = await getDB();
   const records = await db.getAllFromIndex(
     'sharedProjectMetadataSyncQueue',

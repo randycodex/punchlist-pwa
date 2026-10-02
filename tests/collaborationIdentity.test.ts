@@ -38,12 +38,12 @@ describe('collaboration identity helpers', () => {
     expect(getCollaborationErrorMessage({
       message: 'CollaborationRequestTimeoutError: Publishing shared data timed out after 90 seconds. Check your connection and try again.',
       details: 'fetchWithCollaborationTimeout@https://example.test/chunk.js:1:1',
-    })).toBe('The team service is taking too long to respond. Check your connection and try again.');
+    })).toBe('The team service did not respond in time. Your work is still saved on this device. Please try again.');
   });
 
   it('identifies the timed-out team operation without exposing internals', () => {
     expect(getCollaborationErrorMessage(new CollaborationRequestTimeoutError('Pulling shared area updates', 90_000)))
-      .toBe('Pulling shared area updates timed out after 90 seconds. Check your connection and try again. Your work remains saved on this device.');
+      .toBe('Pulling shared area updates timed out after 90 seconds. Please try again. Your work remains saved on this device.');
   });
 
   it('replaces raw database statement timeout errors', () => {
@@ -58,7 +58,25 @@ describe('collaboration identity helpers', () => {
       message: 'TypeError: Failed to fetch',
       details: 'at r2 (https://punchlist-pwa.vercel.app/_next/static/chunks/app.js:1:1)',
     })).toBe(
-      'The phone lost its connection to the team service. Your work is still saved on this device. Use a stable connection and try again.'
+      'The request to the team service did not complete. Your work is still saved on this device. Please try again.'
     );
+  });
+
+  it.each([
+    new TypeError('Failed to fetch'),
+    new TypeError('Load failed'),
+    { message: 'Network request failed' },
+    { message: 'NetworkError when attempting to fetch resource.' },
+  ])('describes a failed request without diagnosing the internet connection', (error) => {
+    expect(getCollaborationErrorMessage(error)).toBe(
+      'The request to the team service did not complete. Your work is still saved on this device. Please try again.'
+    );
+  });
+
+  it('preserves a server permission error rather than treating it as connectivity', () => {
+    expect(getCollaborationErrorMessage({
+      message: 'You do not have access to back up this shared project.',
+      code: '42501',
+    })).toBe('You do not have access to back up this shared project.');
   });
 });

@@ -5,6 +5,7 @@ export * from './diagnostics';
 export * from './profiles';
 export * from './profileAvatars';
 export * from './sharedProjectSnapshots';
+export * from './sharedProjectRecoveryBackups';
 export * from './sharedProjectMetadata';
 export * from './sharedProjectMetadataSyncQueue';
 export * from './sharedProjectAreas';

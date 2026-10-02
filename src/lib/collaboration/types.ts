@@ -100,6 +100,8 @@ export interface CollaborationSnapshotBackup {
   capturedAt: Date;
   reason: CollaborationSnapshotBackupReason;
   note?: string;
+  storageLocation?: 'device';
+  uploadPending?: boolean;
 }
 
 export interface CollaborationOwnershipTransfer {

@@ -239,7 +239,7 @@ export function formatPendingSharedPullMessage(pendingPull: PendingSharedPullSta
       + (pendingPull.conflictingAreaNames.length > 5 ? `, and ${pendingPull.conflictingAreaNames.length - 5} more` : '');
     parts.push(`Review: ${names}. Both versions changed; your complete versions will be kept. Team room and item edits in these areas are not combined.`);
   }
-  parts.push('Your current copy is saved first. Sync afterward to send your work and release your areas.');
+  parts.push('Your current copy is saved on this device first. Sync afterward to send your work and release your areas.');
   return parts.join('\n\n');
 }
 

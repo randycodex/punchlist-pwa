@@ -4,25 +4,37 @@ import type { Project } from '@/types';
 const {
   attachmentIsMock,
   attachmentOrMock,
+  attachmentOrderMock,
+  attachmentRangeMock,
+  attachmentRetryMock,
   attachmentUpsertMock,
   fromMock,
   storageFromMock,
   storageUploadMock,
 } = vi.hoisted(() => {
   const query: Record<string, ReturnType<typeof vi.fn>> = {};
-  const attachmentIsMock = vi.fn();
+  const attachmentIsMock = vi.fn(() => query);
   const attachmentOrMock = vi.fn(() => query);
+  const attachmentOrderMock = vi.fn(() => query);
+  const attachmentRangeMock = vi.fn<(from: number, to: number) => typeof query>(() => query);
+  const attachmentRetryMock = vi.fn();
   const attachmentUpsertMock = vi.fn();
   query.select = vi.fn(() => query);
   query.eq = vi.fn(() => query);
   query.is = attachmentIsMock;
   query.or = attachmentOrMock;
+  query.order = attachmentOrderMock;
+  query.range = attachmentRangeMock;
+  query.retry = attachmentRetryMock;
   query.upsert = attachmentUpsertMock;
 
   const storageUploadMock = vi.fn();
   return {
     attachmentIsMock,
     attachmentOrMock,
+    attachmentOrderMock,
+    attachmentRangeMock,
+    attachmentRetryMock,
     attachmentUpsertMock,
     fromMock: vi.fn(() => query),
     storageFromMock: vi.fn(() => ({ upload: storageUploadMock })),
@@ -37,7 +49,7 @@ vi.mock('@/lib/collaboration/supabaseClient', () => ({
   }),
 }));
 
-import { prepareCompactSharedSnapshotPayload } from '@/lib/collaboration/sharedSnapshotAssets';
+import { buildSharedSnapshotAssetPlan, prepareCompactSharedSnapshotPayload } from '@/lib/collaboration/sharedSnapshotAssets';
 
 const timestamp = new Date('2026-07-17T12:00:00.000Z');
 
@@ -105,11 +117,14 @@ describe('shared snapshot attachment transfer', () => {
   beforeEach(() => {
     fromMock.mockClear();
     storageFromMock.mockClear();
-    attachmentIsMock.mockReset();
+    attachmentIsMock.mockClear();
     attachmentOrMock.mockClear();
+    attachmentOrderMock.mockClear();
+    attachmentRangeMock.mockClear();
+    attachmentRetryMock.mockReset();
     attachmentUpsertMock.mockReset();
     storageUploadMock.mockReset();
-    attachmentIsMock.mockResolvedValue({ data: [], error: null });
+    attachmentRetryMock.mockResolvedValue({ data: [], error: null });
     attachmentUpsertMock.mockResolvedValue({ error: null });
     storageUploadMock.mockResolvedValue({ error: null });
   });
@@ -156,13 +171,103 @@ describe('shared snapshot attachment transfer', () => {
     expect(storageUploadMock).toHaveBeenCalledTimes(2);
     expect(attachmentUpsertMock).toHaveBeenCalledTimes(1);
   });
+
+  it('reads all 1,518 metadata rows before deciding a saved attachment needs uploading', async () => {
+    const input = project();
+    const plan = await buildSharedSnapshotAssetPlan(input);
+    const saved = plan.uploads[0];
+    const rows = Array.from({ length: 1_518 }, (_, index) => ({
+      storage_bucket: 'punchlist-attachments',
+      storage_path: `shared-project-1/other-${index}/photo.jpg`,
+      file_name: 'photo.jpg',
+      mime_type: 'image/jpeg',
+      size_bytes: 5,
+      deleted_at: null,
+      updated_at: timestamp.toISOString(),
+    }));
+    rows[1_517] = {
+      ...rows[1_517],
+      storage_path: saved.reference.path,
+      file_name: saved.fileName,
+      size_bytes: saved.reference.sizeBytes,
+    };
+    attachmentRetryMock.mockImplementation(async () => {
+      const [from, to] = attachmentRangeMock.mock.lastCall!;
+      return { data: rows.slice(from, to + 1), error: null };
+    });
+
+    const prepared = await prepareCompactSharedSnapshotPayload(input, 'user-1', { areaId: 'area-1' });
+
+    expect(attachmentRangeMock.mock.calls).toEqual([[0, 499], [500, 999], [1_000, 1_499], [1_500, 1_999]]);
+    expect(attachmentOrMock).toHaveBeenCalledTimes(4);
+    expect(attachmentIsMock).toHaveBeenCalledTimes(4);
+    expect(attachmentRetryMock.mock.calls).toEqual([[false], [false], [false], [false]]);
+    expect(attachmentOrderMock.mock.calls).toEqual(Array.from({ length: 4 }, () => [
+      ['storage_bucket', { ascending: true }], ['storage_path', { ascending: true }],
+    ]).flat());
+    expect(prepared.uploadedAssetCount).toBe(0);
+    expect(storageUploadMock).not.toHaveBeenCalled();
+    expect(attachmentUpsertMock).not.toHaveBeenCalled();
+  });
+
+  it('fails before uploading when an intermediate metadata page cannot be read', async () => {
+    const rows = Array.from({ length: 500 }, (_, index) => ({
+      storage_bucket: 'punchlist-attachments',
+      storage_path: `shared-project-1/other-${index}/photo.jpg`,
+      file_name: 'photo.jpg',
+      mime_type: 'image/jpeg',
+      size_bytes: 5,
+      deleted_at: null,
+      updated_at: timestamp.toISOString(),
+    }));
+    const error = { code: '42501', message: 'Attachment metadata access was denied.' };
+    attachmentRetryMock
+      .mockResolvedValueOnce({ data: rows, error: null })
+      .mockResolvedValueOnce({ data: null, error });
+
+    await expect(prepareCompactSharedSnapshotPayload(project(), 'user-1')).rejects.toBe(error);
+
+    expect(attachmentRangeMock.mock.calls).toEqual([[0, 499], [500, 999]]);
+    expect(storageUploadMock).not.toHaveBeenCalled();
+    expect(attachmentUpsertMock).not.toHaveBeenCalled();
+  });
+
+  it('retries a failed metadata page without restarting earlier pages', async () => {
+    const input = project();
+    const saved = (await buildSharedSnapshotAssetPlan(input)).uploads[0];
+    const firstPage = Array.from({ length: 500 }, (_, index) => ({
+      storage_bucket: 'punchlist-attachments',
+      storage_path: `shared-project-1/other-${index}/photo.jpg`,
+      file_name: 'photo.jpg',
+      mime_type: 'image/jpeg',
+      size_bytes: 5,
+      deleted_at: null,
+      updated_at: timestamp.toISOString(),
+    }));
+    attachmentRetryMock
+      .mockResolvedValueOnce({ data: firstPage, error: null })
+      .mockResolvedValueOnce({ data: null, error: { message: 'TypeError: Failed to fetch' } })
+      .mockResolvedValueOnce({ data: [{
+        ...firstPage[0],
+        storage_path: saved.reference.path,
+        file_name: saved.fileName,
+        size_bytes: saved.reference.sizeBytes,
+      }], error: null });
+
+    const prepared = await prepareCompactSharedSnapshotPayload(input, 'user-1');
+
+    expect(attachmentRangeMock.mock.calls).toEqual([[0, 499], [500, 999], [500, 999]]);
+    expect(attachmentRetryMock.mock.calls).toEqual([[false], [false], [false]]);
+    expect(prepared.uploadedAssetCount).toBe(0);
+    expect(storageUploadMock).not.toHaveBeenCalled();
+  });
 });
 
 it('stops starting attachments after capacity rejection and drains the in-flight upload', async () => {
   const input = project();
   const checkpoint = input.areas[0].locations[0].items[0].checkpoints[0];
   checkpoint.photos = Array.from({ length: 8 }, (_, index) => ({ ...checkpoint.photos[0], id: `photo-${index}` }));
-  attachmentIsMock.mockResolvedValue({ data: [], error: null });
+  attachmentRetryMock.mockResolvedValue({ data: [], error: null });
   attachmentUpsertMock.mockResolvedValue({ error: null });
   let finishSecond!: () => void;
   const capacity = { status: 500, message: 'Too many connections issued to the database' };

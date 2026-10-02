@@ -55,6 +55,11 @@ describe('collaboration request timeout', () => {
   });
 
   it('allows full shared snapshot transfers more time than lightweight requests', () => {
+    for (const rpc of ['capture_shared_project_backup', 'capture_shared_project_device_backup']) {
+      expect(getCollaborationRequestPolicy(
+        `https://example.supabase.co/rest/v1/rpc/${rpc}`, { method: 'POST' }
+      )).toEqual({ operation: 'Saving shared backup', timeoutMs: COLLABORATION_TRANSFER_TIMEOUT_MS });
+    }
     expect(getCollaborationRequestPolicy(
       'https://example.supabase.co/rest/v1/rpc/publish_shared_project_snapshot',
       { method: 'POST' }

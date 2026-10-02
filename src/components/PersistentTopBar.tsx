@@ -36,7 +36,7 @@ import {
   getActiveSharedProjectAreaClaimSummaries,
   getSharedProjectAccess,
   getCollaborationErrorMessage,
-  captureSharedProjectBackup,
+  startSharedProjectRecoveryBackupSync,
   releaseAbandonedSharedProjectArea,
   resumePendingSharedAreaSyncs,
   resumePendingSharedProjectMetadataSyncs,
@@ -248,6 +248,7 @@ export default function PersistentTopBar() {
     if (collaborationAuth.isSignedIn) {
       resumePendingSharedAreaSyncs();
       resumePendingSharedProjectMetadataSyncs();
+      return startSharedProjectRecoveryBackupSync();
     }
   }, [collaborationAuth.isSignedIn]);
 
@@ -378,10 +379,8 @@ export default function PersistentTopBar() {
     projectSyncingRef.current = true;
     setProjectSyncing(true);
     setSyncStatus('syncing');
-    let mergeStage = 'saving a recovery copy';
+    const mergeStage = 'saving your copy and applying team updates';
     try {
-      await captureSharedProjectBackup(pull.localProject, 'before_pull', 'Local data before pulling shared data.');
-      mergeStage = 'applying team updates';
       if (!await saveReviewedSharedProject(pull.resolutionProject, pull.localProject, pull.preservedLocalAreaIds, pull.preservedLocalProjectMetadata)) {
         throw new Error('Local work changed after this merge was prepared. Your current project was kept. Get team updates again to review a fresh merge.');
       }

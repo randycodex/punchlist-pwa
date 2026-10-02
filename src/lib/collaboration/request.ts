@@ -41,7 +41,7 @@ export function getCollaborationRequestPolicy(
     };
   }
 
-  if (url.includes('/rpc/capture_shared_project_backup')) {
+  if (url.includes('/rpc/capture_shared_project_backup') || url.includes('/rpc/capture_shared_project_device_backup')) {
     return {
       operation: 'Saving shared backup',
       timeoutMs: COLLABORATION_TRANSFER_TIMEOUT_MS,

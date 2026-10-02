@@ -61,6 +61,11 @@ export default function TeamBackupCard({ backup, label, project, restoreBusy, is
     <div className="rounded-[1.25rem] soft-control p-4 dark:bg-white/[0.04]">
       <div className="text-sm font-semibold text-gray-900 dark:text-white">{label}</div>
       <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">{backup.capturedAt.toLocaleString()}</div>
+      {backup.storageLocation === 'device' && (
+        <div className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+          {backup.uploadPending ? 'Saved on this device. Team backup upload pending.' : 'Saved on this device and uploaded to the team.'}
+        </div>
+      )}
       {backup.note && <div className="mt-2 text-xs text-gray-500 dark:text-gray-400">{backup.note}</div>}
       <div className="mt-3 flex flex-wrap gap-3 text-xs">
         <button type="button" className="font-medium underline underline-offset-2 text-gray-700 dark:text-gray-200"
