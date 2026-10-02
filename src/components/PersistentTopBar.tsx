@@ -14,7 +14,6 @@ import {
   getAllProjects,
   getPendingSharedAreaSyncsForProject,
   getPendingSharedProjectMetadataSyncForProject,
-  getProject,
   getProjectMetadata,
   saveReviewedSharedProject,
   SHARED_SYNC_QUEUE_CHANGED_EVENT,
