@@ -65,7 +65,7 @@ describe('manual shared project area merge', () => {
       publishedAt: '2026-01-01T12:12:00.000Z', hasNewerLocalChanges: true, reason: 'manual-pull',
     });
     expect(message).toContain('Project: team updates');
-    expect(message).toContain('Your local areas: Unit 3Z');
+    expect(message).toContain('Your work will stay in: Unit 3Z');
   });
 
   it('preserves local and remote work made in different areas', () => {

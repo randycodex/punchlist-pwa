@@ -57,6 +57,7 @@ import {
   ChevronDown,
   ChevronUp,
   CloudUpload,
+  CloudDownload,
   Loader2,
   FileDown,
   KeyRound,
@@ -132,6 +133,7 @@ export default function PersistentTopBar() {
   } = useAppSettings();
   const {
     clearSharedUpdateAvailable,
+    markSharedUpdateAvailable,
     localSaveError,
     localSaveStatus,
     retryInSeconds,
@@ -285,7 +287,7 @@ export default function PersistentTopBar() {
     let teamSyncMessage = '';
     let syncStage = 'loading the saved project';
     try {
-      const project = await getProject(syncProjectId);
+      const project = await getProjectMetadata(syncProjectId);
       if (!project || project.deletedAt) throw new Error('This project is no longer available on this device.');
 
       if (project.sharedProjectId) {
@@ -305,9 +307,10 @@ export default function PersistentTopBar() {
           setInfoDialog({ title: 'Sync This Project', message: `${project.projectName}: ${result.message}` });
           return;
         }
-        clearSharedUpdateAvailable(syncProjectId);
+        if (result.sharedUpdatesAvailable) markSharedUpdateAvailable(syncProjectId);
+        // Sending our areas does not mean other team updates were downloaded.
         window.dispatchEvent(new CustomEvent('punchlist-project-synced', { detail: { projectId: syncProjectId } }));
-        teamSyncMessage = `${project.projectName}: team changes synced${result.releasedAreaCount ? `; ${result.releasedAreaCount} area${result.releasedAreaCount === 1 ? '' : 's'} released` : ''}. `;
+        teamSyncMessage = `${project.projectName}: team changes synced${result.releasedAreaCount ? `; ${result.releasedAreaCount} area${result.releasedAreaCount === 1 ? '' : 's'} released` : ''}. ${result.sharedUpdatesAvailable ? 'Other team updates are available; use Get Team Updates to load them. ' : ''}`;
       }
 
       syncStage = 'signing in to Microsoft';
@@ -350,7 +353,7 @@ export default function PersistentTopBar() {
       setSyncStatus('error');
       setInfoDialog({
         title: 'Sync This Project',
-        message: `${teamSyncMessage}Sync stopped while ${syncStage}. ${getCollaborationErrorMessage(error, 'Could not sync this project. Please try again.')}`,
+        message: `${teamSyncMessage}${syncStage === 'syncing team changes' ? '' : `Could not finish sync while ${syncStage}. `}${getCollaborationErrorMessage(error, 'Your work is saved on this device. Try sync again.')}`,
       });
     } finally {
       projectSyncingRef.current = false;
@@ -376,10 +379,10 @@ export default function PersistentTopBar() {
     projectSyncingRef.current = true;
     setProjectSyncing(true);
     setSyncStatus('syncing');
-    let mergeStage = 'backing up this device';
+    let mergeStage = 'saving a recovery copy';
     try {
       await captureSharedProjectBackup(pull.localProject, 'before_pull', 'Local data before pulling shared data.');
-      mergeStage = 'saving the reviewed merge';
+      mergeStage = 'applying team updates';
       if (!await saveReviewedSharedProject(pull.resolutionProject, pull.localProject, pull.preservedLocalAreaIds, pull.preservedLocalProjectMetadata)) {
         throw new Error('Local work changed after this merge was prepared. Your current project was kept. Get team updates again to review a fresh merge.');
       }
@@ -391,7 +394,7 @@ export default function PersistentTopBar() {
       setSyncStatus('error');
       setInfoDialog({
         title: 'Sync This Project',
-        message: `Back Up + Merge stopped while ${mergeStage}. ${getCollaborationErrorMessage(error, 'Could not merge team data. Your project remains on this device.')}`,
+        message: `Could not finish updating while ${mergeStage}. ${getCollaborationErrorMessage(error, 'Could not merge team data. Your project remains on this device.')}`,
       });
     } finally {
       projectSyncingRef.current = false;
@@ -922,6 +925,14 @@ export default function PersistentTopBar() {
                         {homeMenuState.isSingleProject && homeMenuState.isSharedProject && (!sharedProjectAccess.isReady || sharedProjectAccess.isActiveMember || sharedProjectAccess.hasError) && (
                           <>
                             <button
+                              onClick={() => dispatchHomeAction('pull-shared-project')}
+                              disabled={homeMenuState.syncing || projectSyncing || sharedTransferStatus !== null}
+                              className={disabledMenuRowClass}
+                            >
+                              <CloudDownload className="h-4 w-4 shrink-0" />
+                              Get Team Updates
+                            </button>
+                            <button
                               onClick={() => dispatchHomeAction('invite-people')}
                               disabled={!!homeMenuState.isCreatingJoinCode}
                               className={disabledMenuRowClass}
@@ -1148,10 +1159,9 @@ export default function PersistentTopBar() {
       )}
       {pendingProjectPull && (
         <AppConfirmDialog
-          title={pendingProjectPull.reason === 'manual-pull' ? 'Pull Shared Data' : 'Review Shared Changes'}
+          title="Review Team Updates"
           message={formatPendingSharedPullMessage(pendingProjectPull)}
-          confirmLabel="Back Up + Merge"
-          danger={pendingProjectPull.hasNewerLocalChanges || pendingProjectPull.reason !== 'manual-pull'}
+          confirmLabel="Apply Team Updates"
           onCancel={() => setPendingProjectPull(null)}
           onConfirm={() => void confirmProjectPull()}
         />

@@ -235,3 +235,61 @@ it('rejects corrupt downloaded content even if its length matches the manifest',
   values.set(plan.assets.photos[photo.id].image.path, 'data:image/jpeg;base64,Yg==');
   await expect(hydrateSharedSnapshotAssetsWithResolver(project, plan.assets, project.sharedProjectId!, async (ref) => values.get(ref.path)!)).rejects.toThrow('failed verification');
 });
+
+it('reuses matching saved photos, files and drawings without network downloads', async () => {
+  const local = projectWithAssets();
+  const plan = await buildSharedSnapshotAssetPlan(local);
+  const parsed = parseSharedSnapshotPayload(
+    JSON.parse(JSON.stringify(createCompactSharedSnapshotPayload(local, plan.assets))),
+    COMPACT_SHARED_SNAPSHOT_PAYLOAD_VERSION
+  );
+  const resolve = vi.fn().mockRejectedValue(new Error('Network is unavailable'));
+  await hydrateSharedSnapshotAssetsWithResolver(parsed.project, parsed.assets, local.sharedProjectId!, resolve, local);
+  expect(resolve).not.toHaveBeenCalled();
+  expect(parsed.project.facadeElevationDrawings?.[0].dataUrl).toBe(drawingData);
+  const checkpoint = parsed.project.areas[0].locations[0].items[0].checkpoints[0];
+  expect(checkpoint.photos[0].imageData).toBe(photoData);
+  expect(checkpoint.photos[0].thumbnail).toBe(thumbnailData);
+  expect(checkpoint.files[0].data).toBe(fileData);
+});
+
+it('downloads changed bytes even when the photo ID and size match the saved copy', async () => {
+  const remote = projectWithAssets();
+  remote.areas[0].locations[0].items[0].checkpoints[0].photos[0].imageData = 'data:image/jpeg;base64,YQ==';
+  const plan = await buildSharedSnapshotAssetPlan(remote);
+  const local = projectWithAssets();
+  local.areas[0].locations[0].items[0].checkpoints[0].photos[0].imageData = 'data:image/jpeg;base64,Yg==';
+  const parsed = parseSharedSnapshotPayload(
+    JSON.parse(JSON.stringify(createCompactSharedSnapshotPayload(remote, plan.assets))),
+    COMPACT_SHARED_SNAPSHOT_PAYLOAD_VERSION
+  );
+  const values = new Map(plan.uploads.map((upload) => [upload.reference.path, upload.dataUrl]));
+  const resolve = vi.fn(async (reference: { path: string }) => values.get(reference.path)!);
+  await hydrateSharedSnapshotAssetsWithResolver(parsed.project, parsed.assets, local.sharedProjectId!, resolve, local);
+  expect(resolve).toHaveBeenCalledOnce();
+  expect(resolve.mock.calls[0][0].path).toBe(plan.assets.photos['photo-1'].image.path);
+  expect(parsed.project.areas[0].locations[0].items[0].checkpoints[0].photos[0].imageData).toBe('data:image/jpeg;base64,YQ==');
+  expect(local.areas[0].locations[0].items[0].checkpoints[0].photos[0].imageData).toBe('data:image/jpeg;base64,Yg==');
+});
+
+it.each(['different-project', 'legacy-manifest'])('does not trust cached bytes from %s', async (scenario) => {
+  const local = projectWithAssets();
+  const plan = await buildSharedSnapshotAssetPlan(local);
+  const parsed = parseSharedSnapshotPayload(
+    JSON.parse(JSON.stringify(createCompactSharedSnapshotPayload(local, plan.assets))),
+    COMPACT_SHARED_SNAPSHOT_PAYLOAD_VERSION
+  );
+  if (scenario === 'different-project') local.sharedProjectId = 'another-project';
+  else {
+    for (const asset of plan.uploads) {
+      if (asset.reference.path === parsed.assets.photos['photo-1'].image.path) delete parsed.assets.photos['photo-1'].image.sha256;
+      else if (asset.reference.path === parsed.assets.photos['photo-1'].thumbnail?.path) delete parsed.assets.photos['photo-1'].thumbnail!.sha256;
+      else if (asset.reference.path === parsed.assets.files['file-1'].path) delete parsed.assets.files['file-1'].sha256;
+      else delete parsed.assets.drawings['drawing-1'].sha256;
+    }
+  }
+  const values = new Map(plan.uploads.map((upload) => [upload.reference.path, upload.dataUrl]));
+  const resolve = vi.fn(async (reference: { path: string }) => values.get(reference.path)!);
+  await hydrateSharedSnapshotAssetsWithResolver(parsed.project, parsed.assets, 'shared-project-1', resolve, local);
+  expect(resolve).toHaveBeenCalledTimes(4);
+});

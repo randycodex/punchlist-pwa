@@ -3,6 +3,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
   getAllProjects: vi.fn(),
   getProject: vi.fn(),
+  getProjectMetadata: vi.fn(),
+  publishSnapshot: vi.fn(),
   getPendingAreas: vi.fn(),
   getPendingMetadata: vi.fn(),
   getMetadata: vi.fn(),
@@ -15,6 +17,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock('@/lib/db', () => ({
   getAllProjects: mocks.getAllProjects,
   getProject: mocks.getProject,
+  getProjectMetadata: mocks.getProjectMetadata,
   getPendingSharedAreaSyncsForProject: mocks.getPendingAreas,
   getPendingSharedProjectMetadataSyncForProject: mocks.getPendingMetadata,
   acknowledgePublishedSharedProject: vi.fn(),
@@ -25,7 +28,7 @@ vi.mock('@/lib/collaboration', () => ({
   getSharedProjectSnapshotMetadata: mocks.getMetadata,
   hasNewerLocalChangesThanSharedSnapshot: () => false,
   isSharedSnapshotNewer: (_project: unknown, publishedAt: string) => publishedAt.endsWith('01.000Z'),
-  publishSharedProjectSnapshot: vi.fn(),
+  publishSharedProjectSnapshot: mocks.publishSnapshot,
   releaseAllMySharedProjectAreaClaims: mocks.releaseClaims,
 }));
 vi.mock('@/features/collaboration/manualSharedPull', () => ({
@@ -49,6 +52,7 @@ describe('selected shared project sync', () => {
   beforeEach(() => {
     Object.values(mocks).forEach((mock) => mock.mockReset());
     mocks.getProject.mockResolvedValue(project);
+    mocks.getProjectMetadata.mockResolvedValue(project);
     mocks.getAllProjects.mockResolvedValue([project]);
     mocks.getPendingAreas.mockResolvedValue([]);
     mocks.getPendingMetadata.mockResolvedValue(undefined);
@@ -67,20 +71,81 @@ describe('selected shared project sync', () => {
 
   it('pushes and releases only the selected team project', async () => {
     await expect(syncSharedProject(project.id, 'user-1')).resolves.toEqual({ status: 'synced', releasedAreaCount: 2 });
-    expect(mocks.getProject).toHaveBeenCalledWith('selected-project');
+    expect(mocks.getProjectMetadata).toHaveBeenCalledWith('selected-project');
+    expect(mocks.getProject).not.toHaveBeenCalled();
     expect(mocks.pushChanges).toHaveBeenCalledOnce();
     expect(mocks.pushChanges).toHaveBeenCalledWith('selected-project');
     expect(mocks.releaseClaims).toHaveBeenCalledWith('selected-team', 'selected-project');
   });
 
+  it('sends and releases two owned areas in a 193-area project without downloading or merging the other areas', async () => {
+    const largeProject = { ...project, areas: Array.from({ length: 193 }, (_, i) => ({
+      id: `area-${i}`, name: `Unit ${i}`, locations: [], sharedVersion: 1,
+    })) };
+    mocks.getProjectMetadata.mockResolvedValue(largeProject);
+    mocks.getAllProjects.mockResolvedValue([largeProject]);
+    mocks.getMetadata.mockResolvedValue({ publishedAt: '2026-01-01T12:00:01.000Z' });
+    mocks.getPendingAreas.mockResolvedValue([{ areaId: 'area-2' }, { areaId: 'area-7' }]);
+    mocks.pushChanges.mockImplementation(async () => {
+      mocks.getPendingAreas.mockResolvedValue([]);
+      return { remainingAreaCount: 0, metadataRemaining: false };
+    });
+    mocks.getPendingPull.mockRejectedValue(new Error('Full-project download timed out'));
+    await expect(syncSharedProject(project.id, 'user-1')).resolves.toEqual({
+      status: 'synced', releasedAreaCount: 2, sharedUpdatesAvailable: true,
+    });
+    expect(mocks.pushChanges).toHaveBeenCalledWith(project.id);
+    expect(mocks.releaseClaims).toHaveBeenCalledWith('selected-team', project.id);
+    expect(mocks.getPendingPull).not.toHaveBeenCalled();
+    expect(mocks.saveDownloaded).not.toHaveBeenCalled();
+  });
+
+  it('loads the complete project including photos before publishing its first baseline', async () => {
+    const initial = { ...project, sharedSnapshotPublishedAt: undefined };
+    const full = { ...initial, projectName: 'Full media copy' };
+    mocks.getProjectMetadata.mockResolvedValue(initial);
+    mocks.getProject.mockResolvedValue(full);
+    mocks.getMetadata.mockResolvedValue(null);
+    await syncSharedProject(project.id, 'user-1');
+    expect(mocks.publishSnapshot).toHaveBeenCalledWith(full, 'user-1');
+    expect(mocks.pushChanges).not.toHaveBeenCalled();
+  });
+
+  it('does not let a concurrent update in another area prevent verified releases', async () => {
+    mocks.getMetadata.mockResolvedValueOnce({ publishedAt: '2026-01-01T12:00:00.000Z' })
+      .mockResolvedValueOnce({ publishedAt: '2026-01-01T12:00:01.000Z' });
+    await expect(syncSharedProject(project.id, 'user-1')).resolves.toMatchObject({
+      status: 'synced', sharedUpdatesAvailable: true,
+    });
+    expect(mocks.getPendingPull).not.toHaveBeenCalled();
+    expect(mocks.releaseClaims).toHaveBeenCalledOnce();
+  });
+
   it('keeps its locks when the selected project needs a team merge', async () => {
     mocks.getMetadata.mockResolvedValue({ publishedAt: '2026-01-01T12:00:01.000Z' });
     mocks.getPendingAreas.mockResolvedValue([{ areaId: 'local-area' }]);
+    mocks.pushChanges.mockResolvedValue({ remainingAreaCount: 1, conflictedAreaCount: 1, metadataRemaining: false });
     const pull = { preservedLocalAreaCount: 1, preservedLocalProjectMetadata: false, hasNewerLocalChanges: true };
     mocks.getPendingPull.mockResolvedValue(pull);
 
     await expect(syncSharedProject(project.id, 'user-1')).resolves.toEqual({ status: 'review', pull });
-    expect(mocks.pushChanges).not.toHaveBeenCalled();
+    expect(mocks.pushChanges).toHaveBeenCalledWith(project.id);
+    expect(mocks.releaseClaims).not.toHaveBeenCalled();
+  });
+
+  it('requires review when the versioned project details were rejected', async () => {
+    mocks.pushChanges.mockResolvedValue({ remainingAreaCount: 0, metadataRemaining: true, metadataConflicted: true });
+    const pull = { preservedLocalProjectMetadata: true };
+    mocks.getPendingPull.mockResolvedValue(pull);
+    await expect(syncSharedProject(project.id, 'user-1')).resolves.toEqual({ status: 'review', pull });
+    expect(mocks.getPendingPull).toHaveBeenCalledWith(project, 'publish-conflict');
+    expect(mocks.releaseClaims).not.toHaveBeenCalled();
+  });
+
+  it('keeps an unfinished upload pending without forcing another merge or releasing locks', async () => {
+    mocks.pushChanges.mockResolvedValue({ remainingAreaCount: 1, metadataRemaining: false, conflictedAreaCount: 0 });
+    await expect(syncSharedProject(project.id, 'user-1')).resolves.toMatchObject({ status: 'pending' });
+    expect(mocks.getPendingPull).not.toHaveBeenCalled();
     expect(mocks.releaseClaims).not.toHaveBeenCalled();
   });
 
@@ -91,6 +156,8 @@ describe('selected shared project sync', () => {
   });
 
   it('keeps local work when it changes during an otherwise clean team download', async () => {
+    mocks.getProjectMetadata.mockResolvedValue({ ...project, sharedSnapshotPublishedAt: undefined });
+    mocks.getProject.mockResolvedValue({ ...project, sharedSnapshotPublishedAt: undefined });
     mocks.getMetadata.mockResolvedValue({ publishedAt: '2026-01-01T12:00:01.000Z' });
     mocks.getPendingPull.mockResolvedValue({ resolutionProject: project, preservedLocalAreaCount: 0, preservedLocalProjectMetadata: false, hasNewerLocalChanges: false });
     mocks.saveDownloaded.mockResolvedValue(false);
@@ -101,7 +168,7 @@ describe('selected shared project sync', () => {
   });
 
   it('does not release locks after the local project disappears during sync', async () => {
-    mocks.getProject.mockResolvedValueOnce(project).mockResolvedValueOnce(undefined);
+    mocks.getProjectMetadata.mockResolvedValueOnce(project).mockResolvedValueOnce(undefined);
     await expect(syncSharedProject(project.id, 'user-1')).resolves.toMatchObject({ status: 'pending', message: expect.stringContaining('team link changed') });
     expect(mocks.releaseClaims).not.toHaveBeenCalled();
   });
@@ -149,6 +216,7 @@ it('identifies whether capacity failure happened before publication or during re
   mocks.getMetadata.mockRejectedValueOnce(capacity);
   await expect(syncSharedProject(project.id, 'user-1')).resolves.toMatchObject({status: 'pending', message: expect.stringContaining('checking for team updates')});
   mocks.getProject.mockResolvedValue(project);
+  mocks.getProjectMetadata.mockResolvedValue(project);
   mocks.getAllProjects.mockResolvedValue([project]);
   mocks.getMetadata.mockResolvedValue({publishedAt:'2026-01-01T12:00:00.000Z'});
   mocks.getPendingAreas.mockResolvedValue([]);

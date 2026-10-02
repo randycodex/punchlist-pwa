@@ -336,7 +336,8 @@ export async function getSharedProjectSnapshot(localProject: Project): Promise<S
   let hydratedProject = await hydrateSharedSnapshotAssets(
     parsed.project,
     omitChangedAreaAssets(parsed.project, parsed.assets, changedAreaIds),
-    localProject.sharedProjectId
+    localProject.sharedProjectId,
+    localProject
   );
   let latestPublishedAt = data.published_at;
   const drawingsById = new Map(
@@ -346,7 +347,8 @@ export async function getSharedProjectSnapshot(localProject: Project): Promise<S
     const parsedArea = await parseSharedProjectAreaSnapshot(
       row,
       localProject.id,
-      localProject.sharedProjectId
+      localProject.sharedProjectId,
+      localProject
     );
     const existingIndex = hydratedProject.areas.findIndex((area) => area.id === parsedArea.area.id);
     if (existingIndex === -1) hydratedProject.areas.push(parsedArea.area);

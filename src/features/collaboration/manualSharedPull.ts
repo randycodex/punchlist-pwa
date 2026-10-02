@@ -220,38 +220,35 @@ export async function getPendingSharedPullState(
 }
 
 export function formatPendingSharedPullMessage(pendingPull: PendingSharedPullState) {
-  const sourceTime = new Date(pendingPull.publishedAt).toLocaleString();
   const projectName = pendingPull.localProject.projectName || 'This project';
-  const preservedAreaNames = pendingPull.localProject.areas
+  const areaNames = pendingPull.localProject.areas
     .filter((area) => pendingPull.preservedLocalAreaIds.includes(area.id))
-    .map((area) => `${area.name}${area.purgedAt || area.deletedAt ? " (pending deletion)" : ""}`);
-  const preservedAreaSummary = preservedAreaNames.length > 0
-    ? `\n\nYour local areas: ${preservedAreaNames.slice(0, 5).join(', ')}${preservedAreaNames.length > 5 ? `, and ${preservedAreaNames.length - 5} more` : ''}.`
-    : '';
-  const mergeSummary = `Next step: back up this device's project, keep your version of ${pendingPull.preservedLocalAreaCount} area${pendingPull.preservedLocalAreaCount === 1 ? '' : 's'}, and load the team's versions of the other ${pendingPull.appliedRemoteAreaCount} area${pendingPull.appliedRemoteAreaCount === 1 ? '' : 's'}.`;
-  const metadataSummary = pendingPull.preservedLocalProjectMetadata
-    ? '\n\nYour edited project name/details on this device will stay and be re-sent to the team afterward.'
-    : '';
-  const conflictSummary = pendingPull.conflictingAreaNames.length > 0
-    ? `\n\nChanged on both sides: ${pendingPull.conflictingAreaNames.join(', ')}. Your device's complete version of each named area will be kept. Individual room and item edits from the team in those areas are not combined. Review them before syncing again; their locks stay with you until your changes are sent.`
-    : '';
-
-  if (pendingPull.reason === 'publish-conflict') {
-    return `${projectName}: the team has newer work from ${sourceTime}. Get those updates before sending yours.\n\n${mergeSummary}${preservedAreaSummary}${metadataSummary}${conflictSummary}`;
+    .map((area) => `${area.name}${area.purgedAt || area.deletedAt ? ' (pending deletion)' : ''}`);
+  const namedAreas = areaNames.slice(0, 5).join(', ')
+    + (areaNames.length > 5 ? `, and ${areaNames.length - 5} more` : '');
+  const parts = [`${projectName}: team updates are ready.`];
+  const changes: string[] = [];
+  if (namedAreas) changes.push(`Your work will stay in: ${namedAreas}.`);
+  if (pendingPull.appliedRemoteAreaCount > 0) {
+    changes.push(`Load team updates for ${namedAreas ? 'the other ' : ''}${pendingPull.appliedRemoteAreaCount} area${pendingPull.appliedRemoteAreaCount === 1 ? '' : 's'}.`);
   }
-  return `${projectName}: team updates from ${sourceTime} are ready.\n\n${mergeSummary}${preservedAreaSummary}${metadataSummary}${conflictSummary}`;
+  if (pendingPull.preservedLocalProjectMetadata) changes.push('Your edited project details will stay.');
+  if (changes.length) parts.push(changes.join('\n'));
+  if (pendingPull.conflictingAreaNames.length > 0) {
+    const names = pendingPull.conflictingAreaNames.slice(0, 5).join(', ')
+      + (pendingPull.conflictingAreaNames.length > 5 ? `, and ${pendingPull.conflictingAreaNames.length - 5} more` : '');
+    parts.push(`Review: ${names}. Both versions changed; your complete versions will be kept. Team room and item edits in these areas are not combined.`);
+  }
+  parts.push('Your current copy is saved first. Sync afterward to send your work and release your areas.');
+  return parts.join('\n\n');
 }
 
 export function formatPendingSharedPullSuccessMessage(pendingPull: PendingSharedPullState) {
-  const preserved: string[] = [];
   if (pendingPull.conflictingAreaNames.length > 0) {
-    const count = pendingPull.conflictingAreaNames.length;
-    preserved.push(`${count} area${count === 1 ? '' : 's'} had changes on both sides. Your device's versions were kept; review them before sending to the team.`);
+    return `Team updates loaded. Your versions of ${pendingPull.conflictingAreaNames.slice(0, 5).join(', ')}${pendingPull.conflictingAreaNames.length > 5 ? `, and ${pendingPull.conflictingAreaNames.length - 5} more` : ''} were kept. Review those areas, then tap Sync This Team Project to send your work and release your locks.`;
   }
-  if (pendingPull.preservedLocalProjectMetadata) {
-    preserved.push('Your project details on this device were kept and will re-send to the team.');
+  if (pendingPull.preservedLocalAreaCount > 0 || pendingPull.preservedLocalProjectMetadata) {
+    return 'Team updates loaded. Your local work was kept. Tap Sync This Team Project to send it and release your locks.';
   }
-  return preserved.length > 0
-    ? `Team copies for the other areas were loaded. ${preserved.join(' ')} After review, tap Sync Team Projects again to send your changes and release their locks.`
-    : `Team updates applied from ${new Date(pendingPull.publishedAt).toLocaleString()}.`;
+  return 'Team updates loaded.';
 }

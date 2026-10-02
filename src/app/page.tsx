@@ -607,7 +607,7 @@ export default function ProjectsPage() {
                 problems.push(`${entry.projectName}: ${result.message}`);
                 continue;
               }
-              clearSharedUpdateAvailable(project.id);
+              if (result.sharedUpdatesAvailable) markSharedUpdateAvailable(project.id);
               if (result.releasedAreaCount > 0 && singleProject?.id === project.id) {
                 setSharedAreaClaims((current) => {
                   const next = new Map(current);
@@ -617,7 +617,7 @@ export default function ProjectsPage() {
                   return next;
                 });
               }
-              completed.push(`${entry.projectName}: team changes synced to Team Projects${result.releasedAreaCount ? `; ${result.releasedAreaCount} area${result.releasedAreaCount === 1 ? '' : 's'} released` : ''}`);
+              completed.push(`${entry.projectName}: team changes synced to Team Projects${result.releasedAreaCount ? `; ${result.releasedAreaCount} area${result.releasedAreaCount === 1 ? '' : 's'} released` : ''}${result.sharedUpdatesAvailable ? '; other team updates are available from Get Team Updates in the project menu' : ''}`);
             } catch (error) {
               console.error(`Team sync failed for ${entry.projectName}:`, error);
               problems.push(`${entry.projectName}: ${getCollaborationErrorMessage(error, 'Team sync failed. Please try again.')}`);
@@ -2388,7 +2388,7 @@ export default function ProjectsPage() {
     const pullState = pendingPull;
     setPendingPull(null);
     setSharedTransferStatus('pulling');
-    let mergeStage = 'backing up this device';
+    let mergeStage = 'saving a recovery copy';
     try {
       await captureSharedProjectBackup(
         pullState.localProject,
@@ -2396,7 +2396,7 @@ export default function ProjectsPage() {
         'Local data before pulling shared data.'
       );
 
-      mergeStage = 'saving the reviewed merge';
+      mergeStage = 'applying team updates';
       if (!await saveReviewedSharedProject(pullState.resolutionProject, pullState.localProject, pullState.preservedLocalAreaIds, pullState.preservedLocalProjectMetadata)) {
         throw new Error('Local work changed after this merge was prepared. Your current project was kept. Get team updates again to review a fresh merge.');
       }
@@ -2412,7 +2412,7 @@ export default function ProjectsPage() {
       setPendingPullSyncSummary(null);
     } catch (error) {
       console.error('Failed to pull shared project:', error);
-      showMessage(`Back Up + Merge stopped while ${mergeStage}. ${getCollaborationErrorMessage(error, 'Failed to pull shared data. Please try again.')}`);
+      showMessage(`Could not finish updating while ${mergeStage}. ${getCollaborationErrorMessage(error, 'Failed to pull shared data. Please try again.')}`);
     } finally {
       setPendingPullSyncSummary(null);
       setSharedTransferStatus(null);
@@ -3565,10 +3565,9 @@ export default function ProjectsPage() {
 
       {pendingPull && (
         <AppConfirmDialog
-          title={pendingPull.reason === 'manual-pull' ? 'Pull Shared Data' : 'Review Shared Changes'}
+          title="Review Team Updates"
           message={[formatPendingSharedPullMessage(pendingPull), pendingPullSyncSummary && `Sync results so far:\n${pendingPullSyncSummary}`].filter(Boolean).join('\n\n')}
-          confirmLabel="Back Up + Merge"
-          danger={pendingPull.hasNewerLocalChanges || pendingPull.reason !== 'manual-pull'}
+          confirmLabel="Apply Team Updates"
           onCancel={() => { setPendingPull(null); setPendingPullSyncSummary(null); }}
           onConfirm={() => void confirmPullSharedProject()}
         />

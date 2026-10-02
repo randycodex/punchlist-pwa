@@ -20,7 +20,8 @@ describe('new device project restoration menu', () => {
     expect(persistentTopBar).toContain('Sync This Team Project');
     expect(persistentTopBar).not.toContain("dispatchHomeAction('restore-onedrive-backup')");
     expect(persistentTopBar).not.toContain("dispatchHomeAction('publish-shared-project')");
-    expect(persistentTopBar).not.toContain("dispatchHomeAction('pull-shared-project')");
+    expect(persistentTopBar).toContain("dispatchHomeAction('pull-shared-project')");
+    expect(persistentTopBar).toContain('Get Team Updates');
     expect(persistentTopBar).not.toContain("dispatchHomeAction('release-my-area-locks')");
   });
 

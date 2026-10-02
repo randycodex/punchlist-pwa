@@ -432,7 +432,8 @@ export async function hydrateSharedSnapshotAssetsWithResolver(
   project: Project,
   assets: SharedSnapshotAssetManifest,
   sharedProjectId: string,
-  resolve: (reference: SharedSnapshotAssetReference) => Promise<string>
+  resolve: (reference: SharedSnapshotAssetReference) => Promise<string>,
+  localProject?: Project
 ) {
   const references = new Map<string, {
     reference: SharedSnapshotAssetReference;
@@ -452,8 +453,44 @@ export async function hydrateSharedSnapshotAssetsWithResolver(
   Object.values(assets.files).forEach((reference) => addReference(reference, true));
   Object.values(assets.drawings).forEach((reference) => addReference(reference, true));
 
+  // Reuse saved bytes only when they match the server's content hash. An
+  // attachment ID alone cannot prove that the team still has the same image.
+  const localCandidates = new Map<string, string>();
+  function addLocalCandidate(reference: SharedSnapshotAssetReference | undefined, value: string | undefined) {
+    if (reference?.sha256 && value) localCandidates.set(`${reference.bucket}:${reference.path}`, value);
+  }
+  if (localProject?.sharedProjectId === sharedProjectId) {
+    for (const drawing of localProject.facadeElevationDrawings ?? []) {
+      addLocalCandidate(assets.drawings[drawing.id], drawing.dataUrl);
+    }
+    for (const area of localProject.areas) {
+      for (const location of area.locations) {
+        for (const item of location.items) {
+          for (const checkpoint of item.checkpoints) {
+            for (const photo of checkpoint.photos) {
+              const reference = assets.photos[photo.id];
+              addLocalCandidate(reference?.image, photo.imageData);
+              addLocalCandidate(reference?.thumbnail, photo.thumbnail);
+            }
+            for (const file of checkpoint.files ?? []) addLocalCandidate(assets.files[file.id], file.data);
+          }
+        }
+      }
+    }
+  }
+
   const downloaded = new Map<string, string>();
   await runWithConcurrency([...references.entries()], 3, async ([key, entry]) => {
+    const candidate = localCandidates.get(key);
+    if (candidate) {
+      try {
+        await verifyAssetContent(entry.reference, dataUrlToBlob(candidate));
+        downloaded.set(key, candidate);
+        return;
+      } catch {
+        // A changed or damaged local copy needs the server's verified bytes.
+      }
+    }
     try {
       const value = await retryCollaborationOperation(() => resolve(entry.reference), { attempts: 2 });
       await verifyAssetContent(entry.reference, dataUrlToBlob(value));
@@ -543,7 +580,8 @@ async function downloadVerifiedAsset(reference: SharedSnapshotAssetReference, do
 export async function hydrateSharedSnapshotAssets(
   project: Project,
   assets: SharedSnapshotAssetManifest,
-  sharedProjectId: string
+  sharedProjectId: string,
+  localProject?: Project
 ) {
   const supabase = getCollaborationSupabaseClient();
   if (!supabase) {
@@ -561,6 +599,7 @@ export async function hydrateSharedSnapshotAssets(
         return data;
       });
       return blobToDataUrl(blob);
-    }
+    },
+    localProject
   );
 }

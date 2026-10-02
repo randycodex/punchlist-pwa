@@ -154,7 +154,8 @@ export async function publishSharedProjectAreaSnapshot(input: {
 export async function parseSharedProjectAreaSnapshot(
   row: SharedProjectAreaSnapshotRow,
   localProjectId: string,
-  sharedProjectId: string
+  sharedProjectId: string,
+  localProject?: Project
 ): Promise<{ area: Area; drawings: FacadeElevationDrawing[] }> {
   if (row.project_id !== sharedProjectId || row.area_id.length === 0) {
     throw new Error('Shared area snapshot does not belong to this project.');
@@ -163,7 +164,8 @@ export async function parseSharedProjectAreaSnapshot(
   const hydrated = await hydrateSharedSnapshotAssets(
     parsed.project,
     parsed.assets,
-    sharedProjectId
+    sharedProjectId,
+    localProject ? { ...localProject, areas: localProject.areas.filter((area) => area.id === row.area_id) } : undefined
   );
   const area = hydrated.areas.find((entry) => entry.id === row.area_id);
   if (!area) {
