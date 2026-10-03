@@ -372,3 +372,26 @@ it('stops starting attachments after capacity rejection and drains the in-flight
   await rejected;
   expect(storageUploadMock).toHaveBeenCalledTimes(2);
 });
+
+
+it('rejects invalid new photo MIME before any storage mutation', async () => {
+  const input = project();
+  input.areas[0].locations[0].items[0].checkpoints[0].photos[0].imageData = 'data:text/html;base64,cGhvdG8=';
+  storageUploadMock.mockClear();
+  attachmentUpsertMock.mockClear();
+  await expect(prepareCompactSharedSnapshotPayload(input, 'user-1')).rejects.toThrow('Unsupported photo');
+  expect(storageUploadMock).not.toHaveBeenCalled();
+  expect(attachmentUpsertMock).not.toHaveBeenCalled();
+});
+
+it('reuses historical out-of-policy metadata without uploading or rejecting it', async () => {
+  const input = project();
+  input.areas[0].locations[0].items[0].checkpoints[0].photos[0].imageData = '';
+  const result = await buildSharedSnapshotAssetPlan(input, [{
+    storage_bucket: 'punchlist-attachments', storage_path: 'shared-project-1/photo-1/photo.bin',
+    file_name: 'photo.bin', mime_type: 'application/octet-stream', size_bytes: 30 * 1024 * 1024,
+    deleted_at: null, updated_at: timestamp.toISOString(),
+  }]);
+  expect(result.uploads).toEqual([]);
+  expect(result.assets.photos['photo-1'].image.sizeBytes).toBe(30 * 1024 * 1024);
+});

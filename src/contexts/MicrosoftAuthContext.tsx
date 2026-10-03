@@ -1,5 +1,6 @@
 'use client';
 
+import { clearOneDriveTokenRefresh, registerOneDriveTokenRefresh } from '@/lib/oneDriveTransport';
 import { configureLocalAccount } from '@/lib/localAccount';
 import { createContext, ReactNode, useContext, useEffect, useMemo, useState } from 'react';
 import {
@@ -271,6 +272,7 @@ export function MicrosoftAuthProvider({ children }: { children: ReactNode }) {
   }
 
   async function signOut() {
+    clearOneDriveTokenRefresh();
     if (!pca) return;
     await pca.initialize();
     const account = getResolvedAccount(pca);
@@ -294,11 +296,22 @@ export function MicrosoftAuthProvider({ children }: { children: ReactNode }) {
       setIsSignedIn(false);
       return null;
     }
+    const rememberTransferToken = (token: string) => {
+      registerOneDriveTokenRefresh(token, async () => {
+        // Never silently resume an old operation under a switched account.
+        if (getResolvedAccount(pca)?.homeAccountId !== account.homeAccountId) return null;
+        const refreshed = await pca.acquireTokenSilent({ scopes: SCOPES, account, forceRefresh: true });
+        if (getResolvedAccount(pca)?.homeAccountId !== account.homeAccountId) return null;
+        setAccessToken(refreshed.accessToken);
+        return refreshed.accessToken;
+      }, () => getResolvedAccount(pca)?.homeAccountId === account.homeAccountId);
+    };
     setCurrentAccount(account);
     try {
       const tokenResult = await pca.acquireTokenSilent({ scopes: SCOPES, account });
       setAccessToken(tokenResult.accessToken);
       setIsSignedIn(true);
+      rememberTransferToken(tokenResult.accessToken);
       return tokenResult.accessToken;
     } catch (error) {
       if (error instanceof InteractionRequiredAuthError) {
@@ -316,6 +329,7 @@ export function MicrosoftAuthProvider({ children }: { children: ReactNode }) {
           }
           setAccessToken(tokenResult.accessToken);
           setIsSignedIn(true);
+          rememberTransferToken(tokenResult.accessToken);
           return tokenResult.accessToken;
         } catch {}
 
@@ -327,6 +341,7 @@ export function MicrosoftAuthProvider({ children }: { children: ReactNode }) {
           }
           setAccessToken(tokenResult.accessToken);
           setIsSignedIn(true);
+          rememberTransferToken(tokenResult.accessToken);
           return tokenResult.accessToken;
         } catch (interactiveError) {
           console.warn('Microsoft interactive token refresh failed:', interactiveError);

@@ -670,7 +670,7 @@ export default function ProjectsPage() {
       if (restore.status === 'needs-auth') {
         setSyncStatus('needs-auth');
         try {
-          await signIn({ selectAccount: true });
+          await signIn();
           restore = await runManualOneDriveRestore({
             ensureAccessToken: () => ensureAccessToken({ interactive: true }),
           });
@@ -783,7 +783,7 @@ export default function ProjectsPage() {
         setSyncError('Please sign in to back up to OneDrive.');
         setSyncStatus('needs-auth');
         try {
-          await signIn({ selectAccount: true });
+          await signIn();
           result = await runManualOneDriveSync({
             ensureAccessToken: () => ensureAccessToken({ interactive: true }),
             projectIds: backupProjectIds,
@@ -1680,7 +1680,7 @@ export default function ProjectsPage() {
         .filter((area) => selectedIds.has(area.id))
         .map((area) => area.id);
       const shouldSaveToDrive = destination === 'onedrive';
-      const token = shouldSaveToDrive ? await ensureAccessToken() : null;
+      const token = shouldSaveToDrive ? await ensureAccessToken({ interactive: true }) : null;
       if (shouldSaveToDrive && !token) {
         signIn();
         return;
@@ -1785,7 +1785,7 @@ export default function ProjectsPage() {
     setExportingSelectedToDrive(shouldSaveToDrive);
     try {
       const token = shouldSaveToDrive
-        ? await ensureAccessToken()
+        ? await ensureAccessToken({ interactive: true })
         : isSignedIn
           ? await ensureAccessToken().catch(() => null)
           : null;

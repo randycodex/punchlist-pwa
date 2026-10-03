@@ -1,3 +1,4 @@
+import { getPendingSharedAreaSyncs, getPendingSharedProjectMetadataSyncs, getPendingSharedProjectRecoveryIds, getSharedProjectRecoveryMetadata } from '@/lib/db';
 import type { Json } from './database';
 import { getAllowedCollaborationEmailDescription, getCollaborationRuntimeConfig } from './config';
 import { COLLABORATION_AVATAR_BUCKET } from './profileAvatars';
@@ -55,6 +56,56 @@ function error(key: string, label: string, message: string): CollaborationHealth
   return { key, label, status: 'error', message };
 }
 
+// Match the exact application guard, never SQLSTATE 42501 alone: missing
+// EXECUTE grants and database permission failures use the same SQLSTATE.
+const expectedProbeDenials: Record<string, string[]> = {
+  generate_join_code: ['Shared projects require an authenticated user.', 'You do not have access to invite users to this project.'],
+  join_by_code: ['Shared projects require an authenticated user.', 'Your signed-in account does not match the shared-project email.', 'Shared projects require an allowed email address.', 'This shared project code is invalid or expired.'],
+  publish_snapshot: ['Shared project publishing requires an authenticated user.', 'You do not have access to publish this shared project.'],
+  publish_metadata_snapshot: ['Shared project metadata syncing requires an authenticated user.', 'You do not have access to sync this shared project metadata.'],
+  publish_area_snapshot: ['Update and sign in on this device before syncing team areas.'],
+  backup_snapshot: ['Shared project backups require an authenticated user.', 'You do not have access to back up this shared project.'],
+  claim_area: ['Sign in on this device before claiming an area.'],
+  release_area: ['Sign in on the claiming device before releasing an area.'],
+  transfer_ownership: ['Shared projects require an authenticated user.', 'Ownership transfer requires an allowed email address.', 'Shared project was not found.'],
+};
+
+function isExpectedProbeDenial(key: string, value: unknown) {
+  if (!value || typeof value !== 'object') return false;
+  const input = value as { code?: unknown; message?: unknown };
+  return (input.code === '42501' || input.code === '22023')
+    && typeof input.message === 'string'
+    && (expectedProbeDenials[key] ?? []).includes(input.message);
+}
+
+export function summarizeDiagnosticQueue(key: string, label: string, records: { lastError: string | null; blockedByConflict?: boolean }[]) {
+  const failed = records.filter((record) => record.lastError || record.blockedByConflict);
+  if (failed.length) return warning(key, label, `${records.length} pending; ${failed.length} need attention. ${failed[0].lastError ?? 'Review conflicting team updates.'} Work remains saved on this device. Review team sync or sign in and retry; do not clear local data.`);
+  if (records.length) return warning(key, label, `${records.length} pending. Keep this device online and signed in until uploads are confirmed.`);
+  return ok(key, label, 'No pending work on this device.');
+}
+
+async function checkLocalQueues(): Promise<CollaborationHealthCheck[]> {
+  try {
+    const [areas, metadata, recoveryIds] = await Promise.all([
+      getPendingSharedAreaSyncs(), getPendingSharedProjectMetadataSyncs(),
+      // Include deferred retries, not just uploads due this instant.
+      getPendingSharedProjectRecoveryIds(new Date(8640000000000000)),
+    ]);
+    const recoveries = await Promise.all(recoveryIds.map(getSharedProjectRecoveryMetadata));
+    return [summarizeDiagnosticQueue('sync_queue', 'Device team sync queue', [...areas, ...metadata]),
+      summarizeDiagnosticQueue('recovery_queue', 'Device recovery backup queue', recoveries.filter((record) => record !== undefined))];
+  } catch (caughtError) {
+    return [error('local_queues', 'Device queues', `Cannot inspect saved work: ${getErrorText(caughtError)}. Do not clear local data.`)];
+  }
+}
+
+export function summarizeDiagnosticRealtime(states: string[]): CollaborationHealthCheck {
+  if (!states.length) return warning('realtime', 'Team realtime', 'No active subscriptions to inspect. Open a team project; delivery remains unverified.');
+  if (states.some((state) => state !== 'joined')) return warning('realtime', 'Team realtime', `Channel states: ${states.join(', ')}. Team updates may be delayed; check connection and use Sync Team Projects.`);
+  return ok('realtime', 'Team realtime', `${states.length} channels joined. Cross-device event delivery remains unverified.`);
+}
+
 async function checkTable(
   key: string,
   label: string,
@@ -70,13 +121,13 @@ async function checkTable(
       return error(key, label, getErrorText(probeError) || 'Table is missing or not visible in the schema cache.');
     }
 
-    return warning(key, label, getErrorText(probeError) || 'Table exists, but access was blocked by current permissions.');
+    return error(key, label, `Table check failed: ${getErrorText(probeError)}. Check session, table grants and service availability.`);
   } catch (caughtError) {
-    return warning(key, label, getErrorText(caughtError) || 'Table check did not finish.');
+    return error(key, label, getErrorText(caughtError) || 'Table check did not finish; check connectivity.');
   }
 }
 
-async function checkRpc(
+export async function checkRpc(
   key: string,
   label: string,
   probe: () => PromiseLike<{ error: unknown }>
@@ -84,16 +135,21 @@ async function checkRpc(
   try {
     const { error: probeError } = await probe();
     if (!probeError) {
-      return ok(key, label, 'Function responded.');
+      return key === 'list_my_shared_projects'
+        ? ok(key, label, 'Read-only function responded.')
+        : warning(key, label, 'Invalid diagnostic input unexpectedly succeeded. Inspect the function guards before relying on this operation.');
     }
 
     if (isMissingSchemaObject(probeError)) {
       return error(key, label, getErrorText(probeError) || 'Function is missing or not visible in the schema cache.');
     }
 
-    return ok(key, label, 'Function exists. Probe stopped before changing data.');
+    if (isExpectedProbeDenial(key, probeError)) {
+      return ok(key, label, 'Expected diagnostic guard responded; no write path was exercised. Successful authorized use remains unverified.');
+    }
+    return error(key, label, `Function check failed: ${getErrorText(probeError) || 'Unknown service error'}. Check connectivity, session and server permissions.`);
   } catch (caughtError) {
-    return warning(key, label, getErrorText(caughtError) || 'Function check did not finish.');
+    return error(key, label, `Function check did not finish: ${getErrorText(caughtError)}. Check connectivity and retry.`);
   }
 }
 
@@ -113,9 +169,9 @@ async function checkStorageBucket(
     if (normalized.includes('bucket') && normalized.includes('not found')) {
       return error(key, label, message || 'Storage bucket is missing.');
     }
-    return warning(key, label, message || 'Storage exists, but access was blocked.');
+    return error(key, label, message || 'Storage access failed; check session, bucket policy and service availability.');
   } catch (caughtError) {
-    return warning(key, label, getErrorText(caughtError) || 'Storage check did not finish.');
+    return error(key, label, getErrorText(caughtError) || 'Storage check did not finish; check connectivity.');
   }
 }
 
@@ -136,13 +192,17 @@ export async function runCollaborationHealthCheck(): Promise<CollaborationHealth
       : warning('email-access', 'Allowed email access', 'No allowed email domain or test email is configured.')
   );
 
-  const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
-  if (sessionError) {
-    checks.push(error('auth', 'Shared auth session', sessionError.message));
-  } else if (sessionData.session) {
-    checks.push(ok('auth', 'Shared auth session', sessionData.session.user.email ?? 'Signed in.'));
-  } else {
-    checks.push(warning('auth', 'Shared auth session', 'Not signed into shared projects in this browser.'));
+  try {
+    const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+    if (sessionError) {
+      checks.push(error('auth', 'Shared auth session', sessionError.message));
+    } else if (sessionData.session) {
+      checks.push(ok('auth', 'Shared auth session', sessionData.session.user.email ?? 'Signed in.'));
+    } else {
+      checks.push(warning('auth', 'Shared auth session', 'Not signed into shared projects in this browser.'));
+    }
+  } catch (caughtError) {
+    checks.push(error('auth', 'Shared auth session', `${getErrorText(caughtError)}. Sign in again or check connectivity.`));
   }
 
   const probeChecks = await Promise.all([
@@ -171,7 +231,7 @@ export async function runCollaborationHealthCheck(): Promise<CollaborationHealth
       p_project_id: ZERO_UUID,
     })),
     checkRpc('join_by_code', 'Join by code function', () => supabase.rpc('join_shared_project_by_code', {
-      p_join_code: '0000000000',
+      p_join_code: '',
       p_member_email: 'diagnostic@uai-ny.com',
       p_member_display_name: 'Diagnostic',
     })),
@@ -199,7 +259,8 @@ export async function runCollaborationHealthCheck(): Promise<CollaborationHealth
       p_client_id: ZERO_UUID,
       p_device_id: ZERO_UUID,
     })),
-    checkRpc('backup_snapshot', 'Backup function', () => supabase.rpc('capture_shared_project_backup', {
+    checkRpc('backup_snapshot', 'Idempotent backup function', () => supabase.rpc('capture_shared_project_device_backup', {
+      p_device_recovery_id: ZERO_UUID,
       p_project_id: ZERO_UUID,
       p_project_payload: {} as Json,
       p_payload_version: 1,
@@ -223,7 +284,12 @@ export async function runCollaborationHealthCheck(): Promise<CollaborationHealth
       p_new_owner_email: 'diagnostic@uai-ny.com',
     })),
   ]);
-  checks.push(...probeChecks);
+  checks.push(...probeChecks, ...await checkLocalQueues());
+  try {
+    checks.push(summarizeDiagnosticRealtime(supabase.getChannels().map((channel) => channel.state)));
+  } catch (caughtError) {
+    checks.push(error('realtime', 'Team realtime', `Cannot inspect subscriptions: ${getErrorText(caughtError)}. Check connection and use Sync Team Projects.`));
+  }
 
   return { checkedAt: new Date(), checks };
 }

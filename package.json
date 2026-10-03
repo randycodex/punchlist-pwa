@@ -12,7 +12,11 @@
     "typecheck": "tsc --noEmit",
     "verify": "npm test && npm run lint && npm run typecheck && npm run build",
     "thread:new": "bash ./scripts/new-thread.sh",
-    "thread:list": "git worktree list"
+    "thread:list": "git worktree list",
+    "audit:production": "npm audit --omit=dev --audit-level=high",
+    "audit:all": "npm audit --audit-level=high",
+    "verify:release": "npm run verify && npm run audit:production && npm run audit:all",
+    "recovery:rehearse": "vitest run tests/recoveryRehearsal.test.ts"
   },
   "dependencies": {
     "@azure/msal-browser": "^3.28.0",

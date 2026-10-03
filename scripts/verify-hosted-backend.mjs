@@ -1,24 +1,20 @@
 import fs from 'node:fs';
 import assert from 'node:assert/strict';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, createHash } from 'node:crypto';
 // Destructive disposable-project acceptance harness. Never target live data.
-const ref=process.env.PUNCHLIST_TEST_PROJECT_REF;
-assert(ref && /^[a-z]{20}$/.test(ref), 'Set an explicit disposable Supabase project ref.');
-assert.equal(process.env.PUNCHLIST_DISPOSABLE_TEST_PROJECT, 'yes', 'Confirm disposable test data.');
-assert.notEqual(ref,'wwutemmdbimzucrijckg');
-const keysFile=process.env.PUNCHLIST_TEST_KEYS_FILE;
-assert(keysFile, 'Provide a private JSON file from supabase projects api-keys.');
+import { validateHostedAcceptanceTarget, boundedAcceptanceFetch } from './lib/hostedAcceptance.mjs';
+const {base,keysFile}=validateHostedAcceptanceTarget(process.env);
 const keys=JSON.parse(fs.readFileSync(keysFile));
-const anon=keys.find(x=>x.name==='anon').api_key, service=keys.find(x=>x.name==='service_role').api_key;
-const base=`https://${ref}.supabase.co`;
+const anon=keys.find(x=>x.name==='anon')?.api_key, service=keys.find(x=>x.name==='service_role')?.api_key;
+assert(anon && service, 'Existing private keys file must contain anon and service_role entries.');
 const results=[];
 async function req(path,token,body,method='POST',headers={}) {
- const r=await fetch(base+path,{method,headers:{apikey:anon,Authorization:`Bearer ${token}`,'Content-Type':'application/json',...headers},body:body===undefined?undefined:JSON.stringify(body)});
- const text=await r.text();let data;try{data=JSON.parse(text)}catch{data=text};return {status:r.status,data};
+ const r=await boundedAcceptanceFetch(base+path,{method,headers:{apikey:anon,Authorization:`Bearer ${token}`,'Content-Type':'application/json',...headers},body:body===undefined?undefined:JSON.stringify(body)});
+ const text=r.text;let data;try{data=JSON.parse(text)}catch{data=text};return {status:r.status,data};
 }
 function pass(name){results.push(name);console.log('PASS',name);}
-function ok(r){assert(r.status>=200&&r.status<300,JSON.stringify(r));return r.data;}
-function deny(r){assert(r.status>=400,JSON.stringify(r));}
+function ok(r){assert(r.status>=200&&r.status<300,`Hosted acceptance failed: HTTP ${r.status}, code ${r.data?.code ?? 'unknown'}`);return r.data;}
+function deny(r){assert(r.status>=400&&r.status<500,`Expected deliberate denial, got HTTP ${r.status}`);}
 const rpc=(name,token,args)=>req('/rest/v1/rpc/'+name,token,args);
 async function user(label){const email=`staging-${label}-${randomUUID()}@uai-ny.com`,password=randomUUID()+'Aa!';ok(await req('/auth/v1/admin/users',service,{email,password,email_confirm:true}));const login=ok(await req('/auth/v1/token?grant_type=password',anon,{email,password}));return {email,token:login.access_token,id:login.user.id};}
 const owner=await user('owner'), member=await user('member'), outsider=await user('outsider');pass('Disposable confirmed accounts authenticate without sending email');
@@ -26,6 +22,11 @@ const local=randomUUID(),area=randomUUID(),phone=randomUUID(),computer=randomUUI
 const project=ok(await rpc('create_shared_project',owner.token,{p_local_project_id:local,p_project_name:'Staging verification',p_owner_email:owner.email}));
 const payload={id:local,projectName:'Staging verification',areas:[{id:area,locations:[]}]};
 let r=await rpc('publish_shared_project_snapshot_v2',owner.token,{p_project_id:project,p_project_payload:payload,p_payload_version:1,p_base_metadata_version:0,p_base_published_at:null});ok(r);pass('Create project and publish initial snapshot through PostgREST');
+const backupArgs={p_project_id:project,p_device_recovery_id:randomUUID(),p_project_payload:payload,p_payload_version:1,p_reason:'manual',p_note:'Synthetic acceptance retry'};
+const backupId=ok(await rpc('capture_shared_project_device_backup',owner.token,backupArgs));
+assert.equal(ok(await rpc('capture_shared_project_device_backup',owner.token,backupArgs)),backupId);
+const backupRows=ok(await req(`/rest/v1/shared_project_snapshot_history?project_id=eq.${project}&device_recovery_id=eq.${backupArgs.p_device_recovery_id}&select=id`,owner.token,undefined,'GET'));
+assert.deepEqual(backupRows,[{id:backupId}]);pass('Idempotent backup retry returns exactly one history ID');
 const join=ok(await rpc('generate_shared_project_join_code',owner.token,{p_project_id:project}));ok(await rpc('join_shared_project_by_code',member.token,{p_join_code:join.join_code,p_member_email:member.email}));pass('Second account joins disposable project');
 const claimArgs={p_project_id:project,p_area_id:area,p_device_id:phone};const claim=ok(await rpc('claim_shared_project_area_v2',member.token,claimArgs));assert.equal(ok(await rpc('claim_shared_project_area_v2',member.token,claimArgs)).id,claim.id);pass('Phone claim retries retain claim identity');
 deny(await rpc('claim_shared_project_area_v2',member.token,{...claimArgs,p_device_id:computer}));pass('Same-account computer cannot take phone lock');
@@ -40,9 +41,13 @@ const nextClaim=ok(await rpc('claim_shared_project_area_v2',member.token,{...cla
 for(const [table,body] of Object.entries({shared_projects:{owner_user_id:member.id},project_members:{access_state:'removed'},area_claims:{status:'released'},shared_project_snapshots:{payload_version:99}})) { const attempt=await req(`/rest/v1/${table}?${table==='shared_projects'?'id':'project_id'}=eq.${project}`,member.token,body,'PATCH'); assert.equal(attempt.data.code,'42501',JSON.stringify(attempt)); }pass('Direct collaboration table mutations denied');
 assert.deepEqual(ok(await req('/rest/v1/shared_projects?select=id',outsider.token,undefined,'GET')),[]);deny(await rpc('claim_shared_project_area_v2',outsider.token,claimArgs));deny(await rpc('claim_shared_project_area_v2',anon,claimArgs));pass('Outsider and anonymous requests cannot access project');
 ok(await rpc('release_abandoned_shared_project_area',owner.token,{p_project_id:project,p_area_id:area,p_claim_id:nextClaim.id}));pass('Owner recovers abandoned device claim');
-const path=`${project}/photo/${randomUUID()}.jpg`,url=base+'/storage/v1/object/punchlist-attachments/'+path;
-async function object(method,token,bytes='test-photo',extra={}){const r=await fetch(url,{method,headers:{apikey:anon,Authorization:`Bearer ${token}`,'Content-Type':'image/jpeg',...extra},body:method==='GET'?undefined:bytes});return {status:r.status,data:await r.text()};}
+const photoBytes='test-photo';
+const photoHash=createHash('sha256').update(photoBytes).digest('hex');
+const path=`${project}/${randomUUID()}/${photoHash}-photo.jpg`,url=base+'/storage/v1/object/punchlist-attachments/'+path;
+async function object(method,token,bytes='test-photo',extra={}){const r=await boundedAcceptanceFetch(url,{method,headers:{apikey:anon,Authorization:`Bearer ${token}`,'Content-Type':'image/jpeg',...extra},body:method==='GET'?undefined:bytes});return {status:r.status,data:r.text};}
 ok(await object('POST',member.token));pass('Member uploads storage object');
+const duplicate=await object('POST',member.token);assert([400,409].includes(duplicate.status));
+assert.equal(createHash('sha256').update(ok(await object('GET',member.token))).digest('hex'),photoHash);pass('Duplicate immutable upload preserves verified bytes');
 deny(await object('POST',member.token,'replacement',{'x-upsert':'true'}));deny(await object('PUT',member.token,'replacement'));pass('Storage overwrite and upsert denied');
 deny(await object('GET',outsider.token));pass('Outsider cannot read stored attachment');
 const read=ok(await object('GET',member.token));assert.equal(read,'test-photo');pass('Original attachment content remains readable');

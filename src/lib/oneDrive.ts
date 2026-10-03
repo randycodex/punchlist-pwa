@@ -1,5 +1,6 @@
 import { formatDateForExport, sanitizeExportNamePart } from '@/lib/projectNaming';
 import { isMicrosoftMissingObjectError } from '@/lib/microsoftErrors';
+import { fetchOneDriveRequest } from '@/lib/oneDriveTransport';
 
 const GRAPH_API = 'https://graph.microsoft.com/v1.0';
 const PUNCHLIST_ROOT = 'PunchList';
@@ -17,7 +18,7 @@ const ensuredFolderCache = new Map<string, number>();
 
 // Scoped credentials carry the lease through every nested Graph request and
 // throttle retry, without affecting unrelated exports or another operation.
-export type OneDriveToken = string | { accessToken: string; assertActive: () => void };
+export type OneDriveToken = string | { accessToken: string; assertActive: () => void; signal?: AbortSignal };
 type SyncLeaseHandle = (() => Promise<void>) & { token: OneDriveToken };
 
 function accessToken(token: OneDriveToken) {
@@ -123,18 +124,10 @@ function buildGraphError(response: Response, message: string) {
 }
 
 async function fetchGraphWithThrottleRetry(token: OneDriveToken, url: string, options: RequestInit): Promise<Response> {
-  assertOneDriveLeaseActive(token);
-  const response = await fetch(url, options);
-  assertOneDriveLeaseActive(token);
-  if (response.status !== 429) {
-    return response;
-  }
-
-  await wait(getRetryAfterMs(response) ?? 60_000);
-  assertOneDriveLeaseActive(token);
-  const retried = await fetch(url, options);
-  assertOneDriveLeaseActive(token);
-  return retried;
+  return fetchOneDriveRequest(accessToken(token), url, options, {
+    assertActive: () => assertOneDriveLeaseActive(token),
+    signal: typeof token === 'string' ? options.signal ?? undefined : token.signal ?? options.signal ?? undefined,
+  });
 }
 
 async function graphFetch<T>(token: OneDriveToken, path: string, options?: RequestInit): Promise<T> {
@@ -911,7 +904,7 @@ export async function acquireSyncLease(token: OneDriveToken): Promise<SyncLeaseH
       const renewedLease = createSyncLease(ownerId, leaseId);
       renewedUntil = syncLeaseExpiresAtMs(renewedLease);
       return uploadTextFileByPath(
-        { accessToken: accessToken(token), assertActive },
+        { accessToken: accessToken(token), assertActive, signal: typeof token === 'string' ? undefined : token.signal },
         SYNC_LOCK_PATH,
         JSON.stringify(renewedLease),
         { 'If-Match': renewalEtag }
@@ -945,7 +938,7 @@ export async function acquireSyncLease(token: OneDriveToken): Promise<SyncLeaseH
       console.info('OneDrive sync lease release skipped:', error);
     }
   };
-  return Object.assign(release, { token: { accessToken: accessToken(token), assertActive } });
+  return Object.assign(release, { token: { accessToken: accessToken(token), assertActive, signal: typeof token === 'string' ? undefined : token.signal } });
 }
 
 export async function cleanupLegacyPunchListFolders(token: OneDriveToken): Promise<void> {

@@ -1,3 +1,4 @@
+import { validateSharedAttachmentUpload, type SharedAttachmentKind } from './attachmentLimits';
 import { localAccountKey } from '@/lib/localAccount';
 import { withBrowserLock } from '@/lib/browserLocks';
 import type { Project } from '@/types';
@@ -216,6 +217,7 @@ export async function buildSharedSnapshotAssetPlan(
   let attachmentCount = 0;
 
   async function planReference(input: {
+    kind: SharedAttachmentKind;
     attachmentId: string;
     areaId: string | null;
     checkpointId: string | null;
@@ -256,6 +258,7 @@ export async function buildSharedSnapshotAssetPlan(
       || existing.mime_type !== reference.mimeType
       || Number(existing.size_bytes) !== reference.sizeBytes
     )) {
+      validateSharedAttachmentUpload({ kind: input.kind, ...info });
       plannedPaths.add(key);
       uploads.push({
         attachmentId: input.attachmentId,
@@ -272,6 +275,7 @@ export async function buildSharedSnapshotAssetPlan(
   for (const drawing of project.facadeElevationDrawings ?? []) {
     attachmentCount += 1;
     const reference = await planReference({
+      kind: 'drawing',
       attachmentId: drawing.id,
       areaId: null,
       checkpointId: null,
@@ -293,6 +297,7 @@ export async function buildSharedSnapshotAssetPlan(
           for (const photo of checkpoint.photos) {
             attachmentCount += 1;
             const image = await planReference({
+              kind: 'photo',
               attachmentId: photo.id,
               areaId: area.id,
               checkpointId: checkpoint.id,
@@ -302,6 +307,7 @@ export async function buildSharedSnapshotAssetPlan(
               existingPredicate: (row) => !/(^|-)thumbnail\./i.test(row.file_name),
             });
             const thumbnail = await planReference({
+              kind: 'photo',
               attachmentId: photo.id,
               areaId: area.id,
               checkpointId: checkpoint.id,
@@ -323,6 +329,7 @@ export async function buildSharedSnapshotAssetPlan(
           for (const file of checkpoint.files ?? []) {
             attachmentCount += 1;
             const reference = await planReference({
+              kind: 'file',
               attachmentId: file.id,
               areaId: area.id,
               checkpointId: checkpoint.id,
