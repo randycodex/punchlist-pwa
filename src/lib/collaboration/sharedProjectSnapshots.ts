@@ -292,6 +292,9 @@ export async function captureSharedProjectBackup(
     throw new Error('Enable shared projects before backing up shared data.');
   }
 
+  // Keep one action identity across transport retries. Device recoveries
+  // continue supplying their persisted identity across reloads.
+  const backupOperationId = deviceRecoveryId ?? crypto.randomUUID();
   const transfer = await prepareSnapshotTransfer(project, userId);
   const data = await retryCollaborationOperation(async () => {
     const args = {
@@ -301,9 +304,9 @@ export async function captureSharedProjectBackup(
       p_reason: reason,
       p_note: note ?? null,
     };
-    const result = deviceRecoveryId !== undefined
-      ? await supabase.rpc('capture_shared_project_device_backup', { ...args, p_device_recovery_id: deviceRecoveryId })
-      : await supabase.rpc('capture_shared_project_backup', args);
+    const result = await supabase.rpc('capture_shared_project_device_backup', {
+      ...args, p_device_recovery_id: backupOperationId,
+    });
     if (result.error) throw result.error;
     return result.data;
   });

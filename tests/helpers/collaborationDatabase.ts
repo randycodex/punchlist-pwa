@@ -21,7 +21,8 @@ export async function createCollaborationTestDatabase() {
     alter table storage.objects enable row level security;
     create function storage.foldername(name text) returns text[] language sql immutable as $$ select string_to_array(name, '/') $$;
   `);
-  for (const name of (await readdir('supabase/migrations')).filter((name) => name.endsWith('.sql')).sort()) {
+  // Local conflict copies (for example '* 2.sql') are not migration inputs.
+  for (const name of (await readdir('supabase/migrations')).filter((name) => /^\d{14}_[a-z0-9_]+\.sql$/.test(name)).sort()) {
     try { await db.exec(await readFile(`supabase/migrations/${name}`, 'utf8')); }
     catch (error) { await db.close(); throw new Error(`Migration ${name} failed`, { cause: error }); }
   }

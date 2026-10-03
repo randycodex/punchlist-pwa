@@ -10,6 +10,7 @@ const {
   attachmentUpsertMock,
   fromMock,
   storageFromMock,
+  storageDownloadMock,
   storageUploadMock,
 } = vi.hoisted(() => {
   const query: Record<string, ReturnType<typeof vi.fn>> = {};
@@ -29,6 +30,7 @@ const {
   query.upsert = attachmentUpsertMock;
 
   const storageUploadMock = vi.fn();
+  const storageDownloadMock = vi.fn();
   return {
     attachmentIsMock,
     attachmentOrMock,
@@ -37,7 +39,8 @@ const {
     attachmentRetryMock,
     attachmentUpsertMock,
     fromMock: vi.fn(() => query),
-    storageFromMock: vi.fn(() => ({ upload: storageUploadMock })),
+    storageFromMock: vi.fn(() => ({ upload: storageUploadMock, download: storageDownloadMock })),
+    storageDownloadMock,
     storageUploadMock,
   };
 });
@@ -124,6 +127,8 @@ describe('shared snapshot attachment transfer', () => {
     attachmentRetryMock.mockReset();
     attachmentUpsertMock.mockReset();
     storageUploadMock.mockReset();
+    storageDownloadMock.mockReset();
+    storageDownloadMock.mockResolvedValue({ data: new Blob([atob("cGhvdG8=")]), error: null });
     attachmentRetryMock.mockResolvedValue({ data: [], error: null });
     attachmentUpsertMock.mockResolvedValue({ error: null });
     storageUploadMock.mockResolvedValue({ error: null });
@@ -152,6 +157,90 @@ describe('shared snapshot attachment transfer', () => {
 
     const compactPhoto = prepared.payload.project.areas[0].locations[0].items[0].checkpoints[0].photos[0];
     expect(compactPhoto.imageData).toBe('');
+  });
+
+  it.each([
+    { status: 409, statusCode: 'ResourceAlreadyExists' },
+    { status: 409, statusCode: 'KeyAlreadyExists' },
+    { status: 409, statusCode: '409' },
+    { status: 400, statusCode: 'Duplicate' },
+    { status: 400, statusCode: '400', message: 'The resource already exists' },
+  ])('verifies existing bytes before registering a duplicate response %j', async (error) => {
+    storageUploadMock.mockResolvedValue({ error });
+    await prepareCompactSharedSnapshotPayload(project(), 'user-1');
+    expect(storageDownloadMock).toHaveBeenCalledTimes(1);
+    expect(attachmentUpsertMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('reconciles an upload committed before its response was lost', async () => {
+    storageUploadMock.mockRejectedValueOnce(new TypeError('Failed to fetch'))
+      .mockResolvedValueOnce({ error: { status: 409, statusCode: 'ResourceAlreadyExists' } });
+    await prepareCompactSharedSnapshotPayload(project(), 'user-1');
+    expect(storageUploadMock).toHaveBeenCalledTimes(2);
+    expect(storageDownloadMock).toHaveBeenCalledTimes(1);
+    expect(attachmentUpsertMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('repairs missing metadata on a later transfer without overwriting bytes', async () => {
+    attachmentUpsertMock.mockResolvedValueOnce({ error: { code: '42501', message: 'Denied' } });
+    await expect(prepareCompactSharedSnapshotPayload(project(), 'user-1')).rejects.toMatchObject({ code: '42501' });
+    storageUploadMock.mockResolvedValue({ error: { status: 409, statusCode: 'ResourceAlreadyExists' } });
+    await prepareCompactSharedSnapshotPayload(project(), 'user-1');
+    expect(storageDownloadMock).toHaveBeenCalledTimes(1);
+    expect(attachmentUpsertMock).toHaveBeenCalledTimes(2);
+    for (const call of storageUploadMock.mock.calls) expect(call[2].upsert).toBe(false);
+  });
+
+  it('rejects mismatched bytes and unrelated errors without registering metadata', async () => {
+    storageUploadMock.mockResolvedValue({ error: { status: 409, statusCode: 'ResourceAlreadyExists' } });
+    storageDownloadMock.mockResolvedValue({ data: new Blob(['wrong']), error: null });
+    await expect(prepareCompactSharedSnapshotPayload(project(), 'user-1')).rejects.toThrow('verification');
+    expect(attachmentUpsertMock).not.toHaveBeenCalled();
+    storageUploadMock.mockResolvedValue({ error: { status: 400, statusCode: '400', message: 'Invalid request' } });
+    await expect(prepareCompactSharedSnapshotPayload(project(), 'user-1')).rejects.toMatchObject({ message: 'Invalid request' });
+    expect(storageDownloadMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('retries duplicate verification without issuing another upload', async () => {
+    storageUploadMock.mockResolvedValue({ error: { status: 409, statusCode: 'ResourceAlreadyExists' } });
+    storageDownloadMock.mockRejectedValueOnce(new TypeError('Failed to fetch'))
+      .mockResolvedValueOnce({ data: new Blob([atob('cGhvdG8=')]), error: null });
+    await prepareCompactSharedSnapshotPayload(project(), 'user-1');
+    expect(storageUploadMock).toHaveBeenCalledTimes(1);
+    expect(storageDownloadMock).toHaveBeenCalledTimes(2);
+    expect(attachmentUpsertMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('deduplicates identical bucket/path entries within one attachment plan', async () => {
+    const input = project();
+    const checkpoint = input.areas[0].locations[0].items[0].checkpoints[0];
+    checkpoint.photos.push(structuredClone(checkpoint.photos[0]));
+    const plan = await buildSharedSnapshotAssetPlan(input);
+    expect(plan.attachmentCount).toBe(2);
+    expect(plan.uploads).toHaveLength(1);
+  });
+
+  it('serializes overlapping area publish and full backup preparation and rereads metadata', async () => {
+    const plan = await buildSharedSnapshotAssetPlan(project());
+    const upload = plan.uploads[0];
+    let saved = false;
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    storageUploadMock.mockImplementation(async () => { await gate; return { error: null }; });
+    attachmentUpsertMock.mockImplementation(async () => { saved = true; return { error: null }; });
+    attachmentRetryMock.mockImplementation(async () => ({ data: saved ? [{
+      storage_bucket: upload.reference.bucket, storage_path: upload.reference.path,
+      file_name: upload.fileName, mime_type: upload.reference.mimeType,
+      size_bytes: upload.reference.sizeBytes, deleted_at: null, updated_at: timestamp.toISOString(),
+    }] : [], error: null }));
+    const area = prepareCompactSharedSnapshotPayload(project(), 'user-1', { areaId: 'area-1' });
+    const backup = prepareCompactSharedSnapshotPayload(project(), 'user-1');
+    await vi.waitFor(() => expect(storageUploadMock).toHaveBeenCalledTimes(1));
+    expect(attachmentRetryMock).toHaveBeenCalledTimes(1);
+    release();
+    await Promise.all([area, backup]);
+    expect(storageUploadMock).toHaveBeenCalledTimes(1);
+    expect(attachmentRetryMock).toHaveBeenCalledTimes(2);
   });
 
   it('limits area publishes to the selected area and project-level attachment metadata', async () => {

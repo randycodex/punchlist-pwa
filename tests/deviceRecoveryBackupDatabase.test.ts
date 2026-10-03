@@ -34,10 +34,10 @@ beforeEach(async () => { await signIn(owner, 'recovery-owner@uai-ny.com'); });
 afterAll(async () => { await db?.close(); });
 
 describe('immutable idempotent device backup capture', () => {
-  it('returns the committed ID after a lost response and creates exactly one history row', async () => {
+  it.each(['before_pull', 'manual', 'restore'])('returns one committed history ID after a lost %s response', async (reason) => {
     const recoveryId = crypto.randomUUID();
-    const committedId = await capture(recoveryId);
-    const replies = await Promise.all([capture(recoveryId), capture(recoveryId)]);
+    const committedId = await capture(recoveryId, project, payload, 1, reason);
+    const replies = await Promise.all([capture(recoveryId, project, payload, 1, reason), capture(recoveryId, project, payload, 1, reason)]);
     expect(replies).toEqual([committedId, committedId]);
     const rows = (await db.query<{ id: string; project_payload: unknown; captured_by_user_id: string }>('select id,project_payload,captured_by_user_id from public.shared_project_snapshot_history where project_id=$1 and device_recovery_id=$2', [project, recoveryId])).rows;
     expect(rows).toEqual([{ id: committedId, project_payload: payload, captured_by_user_id: owner }]);

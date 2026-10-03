@@ -187,6 +187,7 @@ export async function buildSharedSnapshotAssetPlan(
 
   const assets = createEmptySharedSnapshotAssetManifest();
   const uploads: SharedSnapshotAssetUpload[] = [];
+  const plannedPaths = new Set<string>();
   const activeMetadata = existingMetadata.filter((row) => !row.deleted_at);
   const metadataByPath = new Map(
     activeMetadata.map((row) => [`${row.storage_bucket}:${row.storage_path}`, row])
@@ -248,12 +249,14 @@ export async function buildSharedSnapshotAssetPlan(
       sha256,
     };
     const existing = metadataByPath.get(`${reference.bucket}:${path}`);
-    if (
+    const key = `${reference.bucket}:${path}`;
+    if (!plannedPaths.has(key) && (
       !existing
       || existing.storage_bucket !== reference.bucket
       || existing.mime_type !== reference.mimeType
       || Number(existing.size_bytes) !== reference.sizeBytes
-    ) {
+    )) {
+      plannedPaths.add(key);
       uploads.push({
         attachmentId: input.attachmentId,
         areaId: input.areaId,
@@ -350,6 +353,15 @@ export async function prepareCompactSharedSnapshotPayload(
     throw new Error('Share this project before publishing shared data.');
   }
 
+  return withBrowserLock(localAccountKey(`shared-attachment-transfer:${project.sharedProjectId}`), () =>
+    prepareCompactSharedSnapshotPayloadUnderLock(project, uploadedByUserId, options));
+}
+
+async function prepareCompactSharedSnapshotPayloadUnderLock(
+  project: Project,
+  uploadedByUserId: string,
+  options: { areaId?: string }
+) {
   const supabase = getCollaborationSupabaseClient();
   if (!supabase) {
     throw new Error('Collaboration is not configured.');
@@ -388,7 +400,7 @@ export async function prepareCompactSharedSnapshotPayload(
     : 2;
   await runWithConcurrency(plan.uploads, uploadConcurrency, async (upload) => {
     const blob = dataUrlToBlob(upload.dataUrl);
-    await retryCollaborationOperation(async () => {
+    const alreadyExists = await retryCollaborationOperation(async () => {
       const { error: uploadError } = await supabase.storage
         .from(upload.reference.bucket)
         .upload(upload.reference.path, blob, {
@@ -396,7 +408,22 @@ export async function prepareCompactSharedSnapshotPayload(
           contentType: upload.reference.mimeType,
           upsert: false,
         });
-      if (uploadError && !['409', 'Duplicate'].includes(String(uploadError.statusCode))) throw uploadError;
+      if (!uploadError) return false;
+      const code = String(uploadError.statusCode);
+      // Recognize symbolic Storage codes as well as legacy responses.
+      const duplicate = ['409', 'Duplicate', 'ResourceAlreadyExists', 'KeyAlreadyExists', 'already_exists'].includes(code)
+        || (uploadError.status === 400 && code === '400' && uploadError.message === 'The resource already exists');
+      if (!duplicate) throw uploadError;
+      return true;
+    });
+    if (alreadyExists) await retryCollaborationOperation(async () => {
+      // A lost reply or missing metadata may leave the immutable object present.
+      // Verify bytes before registering it; never overwrite historical assets.
+      const { data: existingBlob, error: downloadError } = await supabase.storage
+        .from(upload.reference.bucket).download(upload.reference.path);
+      if (downloadError) throw downloadError;
+      if (!existingBlob) throw new SharedAttachmentIntegrityError('The existing shared attachment is unavailable.');
+      await verifyAssetContent(upload.reference, existingBlob);
     });
 
     await retryCollaborationOperation(async () => {
