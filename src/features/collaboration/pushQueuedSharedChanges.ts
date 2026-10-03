@@ -1,8 +1,9 @@
-import { isAreaLockError } from '@/lib/collaboration/areaLockError';
+import { isPendingSharedSyncLock, isPendingSharedSyncVersionConflict } from '@/lib/collaboration/sharedSyncFailure';
 import {
   getPendingSharedAreaSyncsForProject,
   getPendingSharedProjectMetadataSyncForProject,
   resumeReviewedPendingSharedAreaSyncs,
+  resumePausedPendingSharedProjectMetadataSync,
   type PendingSharedAreaSyncRecord,
   type PendingSharedProjectMetadataSyncRecord,
 } from '@/lib/db';
@@ -11,6 +12,8 @@ import { flushPendingSharedProjectMetadataSyncs } from '@/lib/collaboration/shar
 
 export type QueuedSharedPushResult = {
   lockedAreaIds?: string[];
+  blockedAreaErrors?: Array<{ areaId: string; message: string }>;
+  blockedMetadataError?: string;
   attemptedAreaCount: number;
   pushedAreaCount: number;
   remainingAreaCount: number;
@@ -29,6 +32,7 @@ type QueuedSharedPushDependencies = {
   flushAreaSyncs(localProjectId: string): Promise<unknown>;
   flushMetadataSyncs(localProjectId: string): Promise<unknown>;
   resumeReviewedAreaSyncs?(localProjectId: string): Promise<unknown>;
+  resumePausedMetadataSyncs?(localProjectId: string): Promise<unknown>;
 };
 
 const defaultDependencies: QueuedSharedPushDependencies = {
@@ -37,6 +41,7 @@ const defaultDependencies: QueuedSharedPushDependencies = {
   flushAreaSyncs: flushPendingSharedAreaSyncs,
   flushMetadataSyncs: flushPendingSharedProjectMetadataSyncs,
   resumeReviewedAreaSyncs: resumeReviewedPendingSharedAreaSyncs,
+  resumePausedMetadataSyncs: resumePausedPendingSharedProjectMetadataSync,
 };
 
 /**
@@ -48,6 +53,7 @@ export async function pushQueuedSharedChanges(
   dependencies: QueuedSharedPushDependencies = defaultDependencies
 ): Promise<QueuedSharedPushResult> {
   await dependencies.resumeReviewedAreaSyncs?.(localProjectId);
+  await dependencies.resumePausedMetadataSyncs?.(localProjectId);
   const [areaSyncsBefore, metadataSyncBefore] = await Promise.all([
     dependencies.getPendingAreaSyncs(localProjectId),
     dependencies.getPendingMetadataSync(localProjectId),
@@ -62,31 +68,47 @@ export async function pushQueuedSharedChanges(
     dependencies.getPendingAreaSyncs(localProjectId),
     dependencies.getPendingMetadataSync(localProjectId),
   ]);
-  const lockedAreaIds = areaSyncsAfter.filter((record) => isAreaLockError(record.lastError)).map((record) => record.areaId);
+  const lockedAreaIds = areaSyncsAfter.filter(isPendingSharedSyncLock).map((record) => record.areaId);
+  const blockedAreaErrors = areaSyncsAfter
+    .filter((record) => record.blockedByConflict && !isPendingSharedSyncVersionConflict(record) && !isPendingSharedSyncLock(record))
+    .map((record) => ({ areaId: record.areaId, message: record.lastError || 'This area could not be sent to the team.' }));
+  const metadataConflicted = Boolean(metadataSyncAfter && isPendingSharedSyncVersionConflict(metadataSyncAfter));
+  const blockedMetadataError = metadataSyncAfter?.blockedByConflict && !metadataConflicted
+    ? metadataSyncAfter.lastError || 'Project details could not be sent to the team.'
+    : undefined;
   const remainingAreaKeys = new Set(areaSyncsAfter.map((record) => record.key));
 
   return {
     ...(lockedAreaIds.length ? { lockedAreaIds } : {}),
+    ...(blockedAreaErrors.length ? { blockedAreaErrors } : {}),
+    ...(blockedMetadataError ? { blockedMetadataError } : {}),
     attemptedAreaCount: areaSyncsBefore.length,
     pushedAreaCount: areaSyncsBefore.filter((record) => !remainingAreaKeys.has(record.key)).length,
     remainingAreaCount: areaSyncsAfter.length,
-    conflictedAreaCount: areaSyncsAfter.filter((record) => record.blockedByConflict && !isAreaLockError(record.lastError)).length,
+    conflictedAreaCount: areaSyncsAfter.filter(isPendingSharedSyncVersionConflict).length,
     attemptedMetadata: Boolean(metadataSyncBefore),
     pushedMetadata: Boolean(metadataSyncBefore && !metadataSyncAfter),
     metadataRemaining: Boolean(metadataSyncAfter),
-    metadataConflicted: Boolean(metadataSyncAfter?.blockedByConflict),
+    metadataConflicted,
   };
 }
 
 export function formatQueuedSharedPushMessage(result: QueuedSharedPushResult) {
   if (result.lockedAreaIds?.length) return `${result.lockedAreaIds.length} area(s) are waiting for another user or device to sync and release them. Your pending work is kept. Merging again will not release these locks.`;
+  if (result.blockedAreaErrors?.length || result.blockedMetadataError) {
+    const messages = [...new Set([
+      ...(result.blockedAreaErrors ?? []).map((error) => error.message),
+      ...(result.blockedMetadataError ? [result.blockedMetadataError] : []),
+    ])];
+    return `${messages.join(' ')} Your work is saved on this device. No area locks were released.`;
+  }
   const conflictCount = result.conflictedAreaCount + (result.metadataConflicted ? 1 : 0);
   if (conflictCount > 0) {
     return `${conflictCount} change${conflictCount === 1 ? '' : 's'} need review before the team can take them. Tap Sync Team Projects, review the project, then sync again.`;
   }
 
   if (result.remainingAreaCount > 0 || result.metadataRemaining) {
-    return 'Some of your work is still waiting to reach the team. Check your connection — the app will retry automatically.';
+    return 'Some of your work is still waiting to reach the team. Your work is saved on this device. The app will retry while it is open.';
   }
 
   if (result.attemptedAreaCount === 0 && !result.attemptedMetadata) {

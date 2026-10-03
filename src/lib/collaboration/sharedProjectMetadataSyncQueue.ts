@@ -6,12 +6,14 @@ import {
   getPendingSharedProjectMetadataSyncs,
   getProjectMetadata,
   recordPendingSharedProjectMetadataSyncFailure,
+  resumePausedPendingSharedProjectMetadataSync,
   saveProjectMetadataWithSharedSync,
   type PendingSharedProjectMetadataSyncRecord,
 } from '@/lib/db';
 import type { Project } from '@/types';
 import { ProjectPayloadValidationError } from '@/lib/projectPayload';
 import { getCollaborationSupabaseClient } from './supabaseClient';
+import { getSharedSyncFailureCode, isPendingSharedSyncVersionConflict } from './sharedSyncFailure';
 import {
   SharedProjectMetadataConflictError,
   isSharedProjectMetadataConflictError,
@@ -104,7 +106,7 @@ export async function saveAndQueueSharedProjectMetadataSync(project: Project) {
 async function syncRecord(
   record: PendingSharedProjectMetadataSyncRecord
 ): Promise<'synced' | 'pending' | 'conflict'> {
-  if (record.blockedByConflict) return 'conflict';
+  if (record.blockedByConflict) return isPendingSharedSyncVersionConflict(record) ? 'conflict' : 'pending';
   const project = await getProjectMetadata(record.localProjectId);
   if (!project || project.sharedProjectId !== record.sharedProjectId) {
     await discardPendingSharedProjectMetadataSync(record.key);
@@ -138,12 +140,16 @@ async function syncRecord(
     return 'synced';
   } catch (error) {
     const message = getErrorMessage(error);
-    const conflicted = shouldPauseAutomaticRetry(error);
+    const conflicted = isSharedProjectMetadataConflictError(error);
+    const errorCode = conflicted ? '40001' : getSharedSyncFailureCode(error);
+    const pauseRetry = shouldPauseAutomaticRetry(error)
+      || ['55000', 'PGRST202', 'PGRST204', '42P01', '42883'].includes(errorCode ?? '');
     await recordPendingSharedProjectMetadataSyncFailure(
       record.key,
       record.clientId,
       message,
-      conflicted
+      pauseRetry,
+      errorCode
     );
     dispatchSharedProjectMetadataSync({
       status: conflicted ? 'conflict' : 'error',
@@ -151,7 +157,7 @@ async function syncRecord(
       sharedProjectId: record.sharedProjectId,
       message,
     });
-    if (!conflicted) {
+    if (!pauseRetry) {
       const retryDelay = Math.min(30_000, 2_000 * (2 ** Math.min(record.attemptCount, 4)));
       schedulePendingSharedProjectMetadataSyncFlush(retryDelay);
     }
@@ -202,16 +208,17 @@ export async function flushPendingSharedProjectMetadataSyncs(localProjectId?: st
 }
 
 export async function settlePendingSharedProjectMetadataSync(project: Project) {
-  await flushPendingSharedProjectMetadataSyncs();
+  await resumePausedPendingSharedProjectMetadataSync(project.id);
+  await flushPendingSharedProjectMetadataSyncs(project.id);
   const pending = await getPendingSharedProjectMetadataSyncForProject(project.id);
   if (pending) {
-    if (pending.blockedByConflict) {
+    if (isPendingSharedSyncVersionConflict(pending)) {
       throw new SharedProjectMetadataConflictError();
     }
-    throw new Error(
+    throw Object.assign(new Error(
       pending.lastError
         || 'Shared project details are still queued. Check your connection and try again.'
-    );
+    ), pending.lastErrorCode ? { code: pending.lastErrorCode } : {});
   }
 
   const refreshedProject = await getProjectMetadata(project.id);

@@ -30,6 +30,7 @@ vi.mock('@/lib/collaboration', () => ({
   isSharedSnapshotNewer: (_project: unknown, publishedAt: string) => publishedAt.endsWith('01.000Z'),
   publishSharedProjectSnapshot: mocks.publishSnapshot,
   releaseAllMySharedProjectAreaClaims: mocks.releaseClaims,
+  getCollaborationErrorMessage: (error: { message?: string }) => error.message ?? 'Could not complete this team action.',
 }));
 vi.mock('@/features/collaboration/manualSharedPull', () => ({
   getPendingSharedPullState: mocks.getPendingPull,
@@ -145,6 +146,39 @@ describe('selected shared project sync', () => {
   it('keeps an unfinished upload pending without forcing another merge or releasing locks', async () => {
     mocks.pushChanges.mockResolvedValue({ remainingAreaCount: 1, metadataRemaining: false, conflictedAreaCount: 0 });
     await expect(syncSharedProject(project.id, 'user-1')).resolves.toMatchObject({ status: 'pending' });
+    expect(mocks.getPendingPull).not.toHaveBeenCalled();
+    expect(mocks.releaseClaims).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    'Your account does not have permission to update this area.',
+    'The area payload has an invalid checkpoint identity.',
+  ])('shows an area rejection without asking for team review again: %s', async (message) => {
+    mocks.getProjectMetadata.mockResolvedValue({
+      ...project, areas: [{ id: 'unit-203', name: 'Unit 203', locations: [] }],
+    });
+    mocks.pushChanges.mockResolvedValue({
+      remainingAreaCount: 1, metadataRemaining: false, conflictedAreaCount: 0,
+      blockedAreaErrors: [{ areaId: 'unit-203', message }],
+    });
+
+    await expect(syncSharedProject(project.id, 'user-1')).resolves.toEqual({
+      status: 'pending',
+      message: `Unit 203: ${message} Your work is saved on this device. Its areas stayed locked.`,
+    });
+    expect(mocks.getPendingPull).not.toHaveBeenCalled();
+    expect(mocks.releaseClaims).not.toHaveBeenCalled();
+  });
+
+  it('shows rejected project details without treating them as competing team edits', async () => {
+    mocks.pushChanges.mockResolvedValue({
+      remainingAreaCount: 0, metadataRemaining: true, metadataConflicted: false,
+      blockedMetadataError: 'Project details are missing a required value.',
+    });
+
+    await expect(syncSharedProject(project.id, 'user-1')).resolves.toMatchObject({
+      status: 'pending', message: expect.stringContaining('Project details are missing a required value.'),
+    });
     expect(mocks.getPendingPull).not.toHaveBeenCalled();
     expect(mocks.releaseClaims).not.toHaveBeenCalled();
   });

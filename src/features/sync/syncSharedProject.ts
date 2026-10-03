@@ -119,6 +119,21 @@ async function syncSharedProjectOnce(
         const names = pushed.lockedAreaIds.map((id) => project!.areas.find((area) => area.id === id)?.name ?? id);
         return { status: 'pending', message: `These areas are held on another device: ${names.join(', ')}. Your work is saved here. Sync and release them on that device, then try again here.` };
       }
+      if (pushed.blockedAreaErrors?.length || pushed.blockedMetadataError) {
+        const details = [
+          ...(pushed.blockedAreaErrors ?? []).map(({ areaId, message }) => {
+            const name = project!.areas.find((area) => area.id === areaId)?.name ?? areaId;
+            return `${name}: ${getCollaborationErrorMessage({ message })}`;
+          }),
+          ...(pushed.blockedMetadataError
+            ? [`Project details: ${getCollaborationErrorMessage({ message: pushed.blockedMetadataError })}`]
+            : []),
+        ];
+        return {
+          status: 'pending',
+          message: `${details.join(' ')} Your work is saved on this device. Its areas stayed locked.`,
+        };
+      }
       if (pushed.conflictedAreaCount > 0 || pushed.metadataConflicted) {
         setStage('loading conflicting team changes for review');
         const currentProject = await getProject(localProjectId);

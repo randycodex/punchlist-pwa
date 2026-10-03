@@ -1,4 +1,4 @@
-import { isAreaLockError } from '@/lib/collaboration/areaLockError';
+import { isPendingSharedSyncVersionConflict } from '@/lib/collaboration/sharedSyncFailure';
 import { withBrowserLock } from '@/lib/browserLocks';
 import { localAccountKey } from '@/lib/localAccount';
 import { applyCheckpointRules, mergeCheckpointRules } from '@/lib/checkpointRules';
@@ -62,6 +62,7 @@ export interface PendingSharedAreaSyncRecord {
   readyAfterConflictReview?: boolean;
   queuedAt: Date;
   lastError: string | null;
+  lastErrorCode?: string | null;
 }
 
 export type PendingSharedAreaSyncInput = {
@@ -83,6 +84,7 @@ export interface PendingSharedProjectMetadataSyncRecord {
   blockedByConflict: boolean;
   queuedAt: Date;
   lastError: string | null;
+  lastErrorCode?: string | null;
 }
 
 export type PendingSharedProjectMetadataSyncInput = {
@@ -1750,6 +1752,7 @@ export async function completePendingSharedProjectMetadataSync(input: {
         attemptCount: 0,
         blockedByConflict: false,
         lastError: null,
+        lastErrorCode: null,
       });
     }
 
@@ -1785,7 +1788,8 @@ export async function recordPendingSharedProjectMetadataSyncFailure(
   key: string,
   clientId: string,
   message: string,
-  blockedByConflict = false
+  blockedByConflict = false,
+  lastErrorCode: string | null = null
 ) {
   const db = await getDB();
   const tx = db.transaction('sharedProjectMetadataSyncQueue', 'readwrite');
@@ -1797,10 +1801,28 @@ export async function recordPendingSharedProjectMetadataSyncFailure(
       attemptCount: current.attemptCount + 1,
       blockedByConflict,
       lastError: message,
+      lastErrorCode,
     });
   }
   await tx.done;
   reportSharedSyncQueueChanged();
+}
+
+/** An explicit project action can retry a paused rejection without rebasing it. */
+export async function resumePausedPendingSharedProjectMetadataSync(localProjectId: string): Promise<number> {
+  const db = await getDB();
+  const tx = db.transaction('sharedProjectMetadataSyncQueue', 'readwrite');
+  const store = tx.objectStore('sharedProjectMetadataSyncQueue');
+  const records = await store.index('by-local-project').getAll(localProjectId);
+  let resumed = 0;
+  for (const record of records) {
+    if (!record.blockedByConflict || isPendingSharedSyncVersionConflict(record)) continue;
+    await store.put({ ...record, attemptCount: 0, blockedByConflict: false, lastError: null, lastErrorCode: null });
+    resumed += 1;
+  }
+  await tx.done;
+  if (resumed) reportSharedSyncQueueChanged();
+  return resumed;
 }
 
 export async function discardPendingSharedProjectMetadataSync(key: string) {
@@ -1822,14 +1844,16 @@ export async function clearPendingSharedProjectMetadataSyncForProject(localProje
 export function summarizePendingSharedSyncs(
   records: ReadonlyArray<Pick<
     PendingSharedAreaSyncRecord | PendingSharedProjectMetadataSyncRecord,
-    'localProjectId' | 'blockedByConflict' | 'lastError'
-  >>,
+    'localProjectId' | 'blockedByConflict' | 'lastError' | 'lastErrorCode'
+  > & { readyAfterConflictReview?: boolean }>,
   activeProjectIds?: ReadonlySet<string>
 ): SharedSyncQueueSummary {
   const visibleRecords = activeProjectIds
     ? records.filter((record) => activeProjectIds.has(record.localProjectId))
     : records;
-  const conflicts = visibleRecords.filter((record) => record.blockedByConflict);
+  const conflicts = visibleRecords.filter((record) =>
+    isPendingSharedSyncVersionConflict(record) && !record.readyAfterConflictReview
+  );
   return {
     pendingCount: visibleRecords.length,
     conflictCount: conflicts.length,
@@ -1966,6 +1990,7 @@ export async function completePendingSharedAreaSync(input: {
         attemptCount: 0,
         blockedByConflict: false,
         lastError: null,
+        lastErrorCode: null,
       });
     }
 
@@ -2004,7 +2029,8 @@ export async function recordPendingSharedAreaSyncFailure(
   key: string,
   clientId: string,
   message: string,
-  blockedByConflict = false
+  blockedByConflict = false,
+  lastErrorCode: string | null = null
 ) {
   const db = await getDB();
   const tx = db.transaction('sharedAreaSyncQueue', 'readwrite');
@@ -2017,6 +2043,7 @@ export async function recordPendingSharedAreaSyncFailure(
       blockedByConflict,
       readyAfterConflictReview: false,
       lastError: message,
+      lastErrorCode,
     });
   }
   await tx.done;
@@ -2065,7 +2092,8 @@ export async function rebasePendingSharedAreaSyncsForReview(
   return records;
 }
 
-export async function resumeReviewedPendingSharedAreaSyncs(localProjectId: string) {
+/** Explicit user retry: keep unreviewed version conflicts paused and preserve each write's identity/base. */
+export async function resumeReviewedPendingSharedAreaSyncs(localProjectId: string, areaId?: string) {
   const db = await getDB();
   const tx = db.transaction('sharedAreaSyncQueue', 'readwrite');
   const store = tx.objectStore('sharedAreaSyncQueue');
@@ -2073,13 +2101,15 @@ export async function resumeReviewedPendingSharedAreaSyncs(localProjectId: strin
   let resumed = 0;
 
   for (const record of records) {
-    if (!record.blockedByConflict || (!record.readyAfterConflictReview && !isAreaLockError(record.lastError))) continue;
+    if (areaId && record.areaId !== areaId) continue;
+    if (!record.blockedByConflict || (!record.readyAfterConflictReview && isPendingSharedSyncVersionConflict(record))) continue;
     await store.put({
       ...record,
       attemptCount: 0,
       blockedByConflict: false,
       readyAfterConflictReview: false,
       lastError: null,
+      lastErrorCode: null,
     });
     resumed += 1;
   }

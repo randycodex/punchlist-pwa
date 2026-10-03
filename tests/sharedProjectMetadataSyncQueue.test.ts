@@ -9,9 +9,24 @@ import {
   getProjectMetadata,
   saveProjectMetadataWithSharedSync,
   saveProjectPreserveTimestamps,
+  recordPendingSharedProjectMetadataSyncFailure,
 } from '@/lib/db';
 
 describe('durable shared project metadata sync queue', () => {
+  it('keeps a rejected metadata send paused with its error code and original revision', async () => {
+    const project = createProject('Rejected details'); project.sharedProjectId = 'team'; project.sharedSnapshotPublishedAt = new Date();
+    await saveProjectPreserveTimestamps(project);
+    const queued = (await saveProjectMetadataWithSharedSync(project))!;
+    await recordPendingSharedProjectMetadataSyncFailure(queued.key, queued.clientId, 'Team access is required', true, '42501');
+    expect(await getPendingSharedProjectMetadataSyncForProject(project.id)).toMatchObject({
+      clientId: queued.clientId, revision: queued.revision, baseVersion: queued.baseVersion,
+      blockedByConflict: true, lastErrorCode: '42501', lastError: 'Team access is required',
+    });
+    await recordPendingSharedProjectMetadataSyncFailure(queued.key, 'older-client', 'Stale error', true, '40001');
+    expect((await getPendingSharedProjectMetadataSyncForProject(project.id))?.lastErrorCode).toBe('42501');
+    await clearPendingSharedProjectMetadataSyncForProject(project.id);
+  });
+
   it('coalesces rapid edits and advances a newer queued edit after an older request completes', async () => {
     const project = createProject('Original project details');
     project.sharedProjectId = 'shared-project-metadata-queue';
@@ -30,6 +45,7 @@ describe('durable shared project metadata sync queue', () => {
     expect(await getPendingSharedProjectMetadataSyncs()).toContainEqual(second);
     expect(second!.revision).toBe(first!.revision + 1);
     expect(second!.clientId).not.toBe(first!.clientId);
+    await recordPendingSharedProjectMetadataSyncFailure(second!.key, second!.clientId, 'Team access is required', true, '42501');
 
     const firstCompletion = await completePendingSharedProjectMetadataSync({
       key: first!.key,
@@ -42,6 +58,7 @@ describe('durable shared project metadata sync queue', () => {
     expect(await getPendingSharedProjectMetadataSyncForProject(project.id)).toMatchObject({
       clientId: second!.clientId,
       baseVersion: 1,
+      lastErrorCode: null,
     });
 
     const secondCompletion = await completePendingSharedProjectMetadataSync({

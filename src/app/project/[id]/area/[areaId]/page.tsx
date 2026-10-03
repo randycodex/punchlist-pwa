@@ -2,6 +2,7 @@
 
 import { getCollaborationDeviceId } from '@/lib/collaboration/deviceIdentity';
 import { saveRecoverableAreaNote } from '@/features/inspection/captureRecovery';
+import { releaseSharedArea } from '@/features/collaboration/releaseSharedArea';
 import {
   CHECKPOINT_COMMENT_HISTORY_STORAGE_KEY,
   getCheckpointRecentComments,
@@ -1669,12 +1670,7 @@ export default function AreaDetailPage() {
         notesTimerRef.current = null;
         await persistGeneralNotes(notesDraftRef.current);
       }
-      await flushPendingSharedAreaSyncs(project.id);
-      const remaining = await getPendingSharedAreaSyncsForProject(project.id);
-      if (remaining.some((record) => record.areaId === area.id)) {
-        throw new Error('This area still has changes waiting to reach the team. Its lock is staying with you. Sync Team Projects and review any conflicts, then release it.');
-      }
-      await releaseSharedProjectArea(project.sharedProjectId, area.id, project.id);
+      await releaseSharedArea({ localProjectId: project.id, sharedProjectId: project.sharedProjectId, areaId: area.id });
       setHasAreaClaim(false);
       setAreaClaimError(null);
       router.push(getAreaReturnPath(project.id, returnToHome));

@@ -18,6 +18,20 @@ import {
 import { queueSharedProjectAreaSyncs } from '@/lib/collaboration/sharedAreaSyncQueue';
 
 describe('durable shared area sync queue', () => {
+  it('retains the exact failure code and queued revision when pausing a rejected send', async () => {
+    const project = createProject('Rejected send');
+    const area = createArea(project.id, 'Unit 203', 0);
+    const queued = await queuePendingSharedAreaSync({ localProjectId: project.id, sharedProjectId: 'team', areaId: area.id, baseVersion: 2, basePublishedAt: new Date().toISOString() });
+    await recordPendingSharedAreaSyncFailure(queued.key, queued.clientId, 'Invalid area payload', true, '22023');
+    expect((await getPendingSharedAreaSyncsForProject(project.id))[0]).toMatchObject({
+      clientId: queued.clientId, revision: queued.revision, baseVersion: 2,
+      blockedByConflict: true, lastErrorCode: '22023', lastError: 'Invalid area payload',
+    });
+    await recordPendingSharedAreaSyncFailure(queued.key, 'older-client', 'Stale error', true, '40001');
+    expect((await getPendingSharedAreaSyncsForProject(project.id))[0].lastErrorCode).toBe('22023');
+    await clearPendingSharedAreaSyncsForProject(project.id);
+  });
+
   it('acknowledges a confirmed purge but preserves a concurrently restored area', async () => {
     const project = createProject('Purge queue'); project.sharedProjectId = 'team';
     const area = createArea(project.id, '3Z', 0); area.deletedAt = new Date(); area.purgedAt = area.deletedAt;
@@ -73,6 +87,7 @@ describe('durable shared area sync queue', () => {
     expect(await getPendingSharedAreaSyncs()).toHaveLength(1);
     expect(second.revision).toBe(first.revision + 1);
     expect(second.clientId).not.toBe(first.clientId);
+    await recordPendingSharedAreaSyncFailure(second.key, second.clientId, 'Another device owns this area', true, '55P03');
 
     const firstCompletion = await completePendingSharedAreaSync({
       key: first.key,
@@ -86,6 +101,7 @@ describe('durable shared area sync queue', () => {
       clientId: second.clientId,
       revision: second.revision,
       baseVersion: 1,
+      lastErrorCode: null,
     });
 
     const secondCompletion = await completePendingSharedAreaSync({

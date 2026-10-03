@@ -10,6 +10,8 @@ import {
   type PendingSharedAreaSyncRecord,
 } from '@/lib/db';
 import type { Project } from '@/types';
+import { ProjectPayloadValidationError } from '@/lib/projectPayload';
+import { getSharedSyncFailureCode, isPendingSharedSyncVersionConflict } from './sharedSyncFailure';
 import { getCollaborationSupabaseClient } from './supabaseClient';
 import {
   isSharedProjectAreaConflictError,
@@ -56,12 +58,12 @@ function getErrorMessage(error: unknown) {
 }
 
 function shouldPauseAutomaticRetry(error: unknown) {
-  if (isSharedProjectAreaConflictError(error)) return true;
+  if (isSharedProjectAreaConflictError(error) || error instanceof ProjectPayloadValidationError) return true;
   if (!error || typeof error !== 'object') return false;
   const input = error as { code?: unknown; message?: unknown };
   const code = typeof input.code === 'string' ? input.code : '';
   const message = typeof input.message === 'string' ? input.message.toLowerCase() : '';
-  return code === '42501' || code === '55P03' || code === '22023'
+  return ['42501', '55P03', '22023', '55000', 'PGRST202', 'PGRST204', '42P01', '42883'].includes(code)
     || message.includes('publish the shared project once');
 }
 
@@ -179,7 +181,7 @@ async function syncRecord(
   record: PendingSharedAreaSyncRecord,
   publishedByUserId: string
 ): Promise<'synced' | 'pending' | 'conflict'> {
-  if (record.blockedByConflict) return 'conflict';
+  if (record.blockedByConflict) return isPendingSharedSyncVersionConflict(record) ? 'conflict' : 'pending';
   const project = await getProjectForArea(record.localProjectId, record.areaId);
   if (!project || project.sharedProjectId !== record.sharedProjectId) {
     await discardPendingSharedAreaSync(record.key);
@@ -224,8 +226,10 @@ async function syncRecord(
     return 'synced';
   } catch (error) {
     const message = getErrorMessage(error);
-    const conflicted = shouldPauseAutomaticRetry(error);
-    await recordPendingSharedAreaSyncFailure(record.key, record.clientId, message, conflicted);
+    const conflicted = isSharedProjectAreaConflictError(error);
+    const pauseRetry = shouldPauseAutomaticRetry(error);
+    const errorCode = conflicted ? '40001' : getSharedSyncFailureCode(error);
+    await recordPendingSharedAreaSyncFailure(record.key, record.clientId, message, pauseRetry, errorCode);
     dispatchSharedAreaSync({
       status: conflicted ? 'conflict' : 'error',
       localProjectId: record.localProjectId,
@@ -233,7 +237,7 @@ async function syncRecord(
       areaId: record.areaId,
       message,
     });
-    if (!conflicted) {
+    if (!pauseRetry) {
       const retryDelay = Math.min(30_000, 2_000 * (2 ** Math.min(record.attemptCount, 4)));
       schedulePendingSharedAreaSyncFlush(retryDelay);
     }
@@ -241,15 +245,19 @@ async function syncRecord(
   }
 }
 
-export async function flushPendingSharedAreaSyncs(localProjectId?: string): Promise<FlushSummary> {
+export async function flushPendingSharedAreaSyncs(localProjectId?: string, areaId?: string): Promise<FlushSummary> {
+  if (areaId && !localProjectId) throw new Error('Choose a project before syncing one area.');
   if (flushPromise) {
     await flushPromise;
-    return flushPendingSharedAreaSyncs(localProjectId);
+    return flushPendingSharedAreaSyncs(localProjectId, areaId);
   }
 
   flushPromise = withBrowserLock('sharedAreaSyncQueue', async () => {
     ensureBrowserListeners();
-    const records = (await getPendingSharedAreaSyncs()).filter((record) => !localProjectId || record.localProjectId === localProjectId);
+    const records = (await getPendingSharedAreaSyncs()).filter((record) =>
+      (!localProjectId || record.localProjectId === localProjectId)
+      && (!areaId || record.areaId === areaId)
+    );
     if (records.length === 0) return { synced: 0, pending: 0, conflicted: 0 };
     if (typeof navigator !== 'undefined' && navigator.onLine === false) {
       return { synced: 0, pending: records.length, conflicted: 0 };

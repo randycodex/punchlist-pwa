@@ -8,20 +8,18 @@ import { useCollaborationAuth } from '@/contexts/CollaborationAuthContext';
 import { useSyncStatus } from '@/contexts/SyncStatusContext';
 import { saveRecoverableAreaNote, saveRecoverableNote, saveRecoverablePhotos } from '@/features/inspection/captureRecovery';
 import { buildProjectReviewList, type ProjectReviewEntry } from '@/features/projects/reviewList';
+import { releaseSharedArea } from '@/features/collaboration/releaseSharedArea';
 import { queuePendingSync } from '@/lib/pendingSync';
 import {
   createPhotoAttachment,
-  getPendingSharedAreaSyncsForProject,
   getProjectForArea,
   getProjectMetadata,
   saveCheckpointInspectionChange,
 } from '@/lib/db';
 import {
   claimSharedProjectArea,
-  flushPendingSharedAreaSyncs,
   getActiveSharedProjectAreaClaims,
   getCollaborationErrorMessage,
-  releaseSharedProjectArea,
   resumePendingSharedAreaSyncs,
   subscribeToSharedProjectAreaClaimChanges,
 } from '@/lib/collaboration';
@@ -191,12 +189,11 @@ export default function ProjectReviewPage() {
     setError('');
     releasingAreaId.current = entry.areaId;
     try {
-      await flushPendingSharedAreaSyncs(project.id);
-      const pending = await getPendingSharedAreaSyncsForProject(project.id);
-      if (pending.some((record) => record.areaId === entry.areaId)) {
-        throw new Error('This area still has changes waiting to reach the team. Sync those changes, then release its lock.');
-      }
-      await releaseSharedProjectArea(project.sharedProjectId, entry.areaId, project.id);
+      await releaseSharedArea({
+        localProjectId: project.id,
+        sharedProjectId: project.sharedProjectId,
+        areaId: entry.areaId,
+      });
       setClaimedAreaIds((current) => {
         const next = new Set(current);
         next.delete(entry.areaId);
