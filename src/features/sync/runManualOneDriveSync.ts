@@ -40,10 +40,10 @@ export type ManualOneDriveRestoreResult =
   | { status: 'error'; message: string };
 
 function formatBackupConflictReviewMessage(conflicts: SyncConflict[], actionLabel = 'OneDrive Sync / Backup') {
-  if (conflicts.length === 1) {
-    return `OneDrive changed while syncing ${conflicts[0].name}. Your work is safe on this device. Tap ${actionLabel} again to get the latest backup.`;
-  }
-  return `OneDrive changed while syncing ${conflicts.length} projects. Your work is safe on this device. Tap ${actionLabel} again to get the latest backups.`;
+  return conflicts.map((conflict) => conflict.reason === 'newer-backup'
+    ? `${conflict.name}: OneDrive already has a newer personal backup. Your local work was kept. Use Sync This Project to load and merge the newer copy before backing up again.`
+    : `${conflict.name}: the OneDrive copy changed during upload. The backup did not finish. Your local work was kept; retry ${actionLabel}.`
+  ).join('\n');
 }
 
 export async function runManualOneDriveSync(options: {

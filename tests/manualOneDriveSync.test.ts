@@ -119,7 +119,7 @@ describe('manual OneDrive backup coordinator', () => {
     });
 
     expect(backupProjects).toHaveBeenCalledWith('token', ['project-1']);
-    expect(result).toMatchObject({ status: 'conflict', message: expect.stringContaining('Tap OneDrive Sync / Backup again') });
+    expect(result).toMatchObject({ status: 'conflict', message: expect.stringContaining('changed during upload') });
     expect(loadPendingSyncState().projectIds).toEqual(['project-2', 'project-1']);
   });
 
@@ -144,13 +144,15 @@ describe('manual OneDrive backup coordinator', () => {
     const result = await runManualOneDriveSync({
       ensureAccessToken: async () => 'token',
       backupProjects: async () => ({
-        conflicts: [{ id: 'project-1', name: 'Project 1' }],
+        conflicts: [{ id: 'project-1', name: 'Project 1', reason: 'newer-backup' as const }],
         backedUpProjectIds: [],
         syncedAt: '2026-01-01T12:00:00.000Z',
       }),
     });
 
     expect(result.status).toBe('conflict');
+    expect(result).toMatchObject({ message: expect.stringContaining('already has a newer personal backup') });
+    expect(result).toMatchObject({ message: expect.stringContaining('load and merge') });
     expect(hasPendingSyncState()).toBe(true);
   });
 

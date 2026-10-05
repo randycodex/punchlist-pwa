@@ -409,7 +409,9 @@ export async function listProjectFiles(token: OneDriveToken) {
       );
     }
   }));
-  return [...legacyFiles, ...nestedFiles.flat()].filter((item) => item.name.endsWith('.json'));
+  return [...legacyFiles, ...nestedFiles.flat()].filter((item) =>
+    item.name.endsWith('.json') && !item.punchlistPath?.startsWith(`${PUNCHLIST_ROOT}/Team Backups/`)
+  );
 }
 
 export async function getProjectFileMetadata(token: OneDriveToken, filename: string): Promise<DriveItem | null> {
@@ -426,6 +428,13 @@ export async function getProjectFileMetadata(token: OneDriveToken, filename: str
     if (match) return match;
   }
   return getItemByPath(token, `${LEGACY_PROJECTS_PATH}/${filename}`);
+}
+
+/** Reads one exact backup path without including it in personal restore listings. */
+export async function getProjectFileMetadataInFolder(
+  token: OneDriveToken, projectFolderName: string, filename: string
+): Promise<DriveItem | null> {
+  return getItemByPath(token, getProjectFilePath(projectFolderName, filename));
 }
 
 export async function downloadProjectFile(token: OneDriveToken, id: string): Promise<string> {
@@ -471,7 +480,8 @@ export async function uploadProjectFile(
   filename: string,
   content: string,
   trashed = false,
-  etag?: string
+  etag?: string,
+  conflictBehavior?: 'fail'
 ) {
   await ensurePunchListFolders(token);
   await ensureFolder(token, getProjectRootPath(projectFolderName, trashed));
@@ -481,7 +491,8 @@ export async function uploadProjectFile(
   if (etag) {
     headers['If-Match'] = etag;
   }
-  return graphFetch<DriveItem>(token, `/me/drive/root:/${encodeURI(getProjectFilePath(projectFolderName, filename, trashed))}:/content`, {
+  const conflictQuery = conflictBehavior ? `?@microsoft.graph.conflictBehavior=${conflictBehavior}` : '';
+  return graphFetch<DriveItem>(token, `/me/drive/root:/${encodeURI(getProjectFilePath(projectFolderName, filename, trashed))}:/content${conflictQuery}`, {
     method: 'PUT',
     headers,
     body: content,

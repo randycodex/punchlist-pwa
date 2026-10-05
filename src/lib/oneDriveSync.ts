@@ -13,12 +13,14 @@ import {
 } from '@/lib/db';
 import { recoverInactiveTeamCopy } from '@/features/projects/recoverInactiveTeamCopy';
 import { compareProjectCopies } from '@/features/projects/compareProjectCopies';
+import { getCollaborationDeviceId } from '@/lib/collaboration/deviceIdentity';
 import {
   ensurePunchListFolders,
   listProjectFiles,
   downloadProjectFile,
   downloadDriveItemAsDataUrl,
   uploadProjectFile,
+  getProjectFileMetadataInFolder,
   listPhotoProjectFolders,
   listProjectPhotoFiles,
   listProjectExportFiles,
@@ -37,9 +39,9 @@ import {
   type OneDriveToken,
   assertOneDriveLeaseActive,
 } from '@/lib/oneDrive';
-import { isMicrosoftMissingObjectError } from '@/lib/microsoftErrors';
+import { isMicrosoftConnectionError, isMicrosoftMissingObjectError } from '@/lib/microsoftErrors';
 
-export type SyncConflict = { id: string; name: string };
+export type SyncConflict = { id: string; name: string; reason?: 'newer-backup' | 'changed-during-upload' };
 
 export type SyncResult = {
   conflicts: SyncConflict[];
@@ -806,16 +808,17 @@ async function backupProjectPhotosToOneDrive(
   token: OneDriveToken,
   project: Project,
   targetFolderName = projectFolderName(project),
-  remoteIndex?: OneDriveSyncRemoteIndex
+  remoteIndex?: OneDriveSyncRemoteIndex,
+  knownRemotePhotos?: DriveItem[]
 ): Promise<void> {
   const localPhotos = getProjectPhotos(project);
-  const remoteFolders = await getPhotoProjectFoldersForSync(token, remoteIndex);
+  const remoteFolders = knownRemotePhotos ? [] : await getPhotoProjectFoldersForSync(token, remoteIndex);
   const matchingFolder = remoteFolders.find(
     (folder) => folder.name === targetFolderName && !isRemoteProjectFolderInTrash(folder)
   );
-  const remotePhotos = matchingFolder
+  const remotePhotos = knownRemotePhotos ?? (matchingFolder
     ? await listProjectPhotoFiles(token, matchingFolder.name, false, false)
-    : [];
+    : []);
   const remoteNames = new Set(remotePhotos.map((photo) => photo.name));
   const remotePhotoIds = new Set(
     remotePhotos
@@ -917,6 +920,7 @@ async function syncProjectStorageToOneDriveState(
 
 function isConflictError(error: unknown) {
   if (!(error instanceof Error)) return false;
+  if ([409, 412].includes((error as Error & { status?: number }).status ?? 0)) return true;
   const message = error.message.toLowerCase();
   return (
     message.includes('precondition failed') ||
@@ -926,6 +930,55 @@ function isConflictError(error: unknown) {
     message.includes('name already exists') ||
     message.includes('already exists')
   );
+}
+
+async function backupTeamProjectSnapshot(token: OneDriveToken, project: Project) {
+  const deviceId = getCollaborationDeviceId();
+  // A dedicated top-level container also protects team history from a personal
+  // copy with the same local project ID being archived or permanently deleted.
+  const teamFolderName = sanitizeNamePart(project.sharedProjectId, 'team', 90);
+  const backupFolder = `Team Backups/${teamFolderName}/${deviceId}/${uniqueProjectFolderName(project)}`;
+  const remotePhotos = await listProjectPhotoFiles(token, backupFolder, false, false);
+  await backupProjectPhotosToOneDrive(token, project, backupFolder, undefined, remotePhotos);
+
+  // Keep the ordinary project payload readable, with an explicit photo location
+  // for this device snapshot. Nested backups never enter personal restore/merge.
+  const content = JSON.stringify({
+    ...JSON.parse(serializeProjectPayload(stripProjectMediaPayload(project))),
+    oneDriveBackup: { kind: 'team-device-snapshot', deviceId, photosPath: `PunchList/${backupFolder}/photos` },
+  });
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(content));
+  const hash = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
+  const changedAt = new Date(getProjectUpdatedAt(project)).toISOString().replace(/[:.]/g, '-');
+  const filename = `${project.id}_${changedAt}_${hash}.json`;
+
+  const alreadySaved = async () => {
+    const remote = await getProjectFileMetadataInFolder(token, backupFolder, filename);
+    if (!remote) return false;
+    if (await downloadProjectFile(token, remote.id) !== content) {
+      throw new Error('The saved Team Project snapshot has different contents. It was preserved; the new backup remains queued.');
+    }
+    return true;
+  };
+  if (await alreadySaved()) return;
+  // A create-only, content-addressed write is safe to repeat even if the response
+  // was lost after commit. Reconcile before retrying; never replace a snapshot.
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    assertOneDriveLeaseActive(token);
+    try {
+      await uploadProjectFile(token, backupFolder, filename, content, false, undefined, 'fail');
+      return;
+    } catch (error) {
+      const status = error instanceof Error ? (error as Error & { status?: number }).status : undefined;
+      if (!isConflictError(error) && !isMicrosoftConnectionError(error)
+        && !isMicrosoftMissingObjectError(error) && !(error instanceof Error && error.name === 'TimeoutError')
+        && !(status && (status === 408 || status >= 500))) throw error;
+      if (await alreadySaved()) return;
+      if (attempt === 2) {
+        throw new Error('The Team Project backup could not finish after three attempts. Your work is saved on this device; retry OneDrive Sync / Backup.', { cause: error });
+      }
+    }
+  }
 }
 
 async function uploadProjectFileRecoveringMissingRemote(
@@ -1685,14 +1738,13 @@ export async function backupProjectsToOneDrive(
   try {
     await ensurePunchListFolders(token);
     const requestedIds = projectIds?.length ? new Set(projectIds) : null;
-    const [allLocalProjects, remoteFiles, remoteDeletionLog] = await Promise.all([
-      getAllProjects(),
-      listProjectFiles(token),
-      downloadDeletionLog(token),
-    ]);
+    const allLocalProjects = await getAllProjects();
     const localProjects = allLocalProjects.filter((project) =>
       (!project.sharedProjectId || !project.deletedAt) && (!requestedIds || requestedIds.has(project.id))
     );
+    const [remoteFiles, remoteDeletionLog] = localProjects.some((project) => !project.sharedProjectId)
+      ? await Promise.all([listProjectFiles(token), downloadDeletionLog(token)])
+      : [[], {}];
     const allRemoteFilesById = buildRemoteProjectFileIndex(remoteFiles);
     const remoteFilesById = new Map([...allRemoteFilesById].map(([id, entries]) =>
       [id, entries.filter((entry) => !isRemoteProjectFileInTrash(entry))] as const
@@ -1710,7 +1762,7 @@ export async function backupProjectsToOneDrive(
 
     await runWithConcurrency(localProjects, 2, async (localProjectMetadata) => {
       try {
-        if (permanentDeletions[localProjectMetadata.id]?.scope === 'personal') {
+        if (!localProjectMetadata.sharedProjectId && permanentDeletions[localProjectMetadata.id]?.scope === 'personal') {
           failedProjects.push({
             id: localProjectMetadata.id,
             name: localProjectMetadata.projectName,
@@ -1721,6 +1773,16 @@ export async function backupProjectsToOneDrive(
         // Load full local media only for projects being backed up, including team photos.
         const localProject = await getProject(localProjectMetadata.id);
         if (!localProject || (localProject.sharedProjectId && localProject.deletedAt)) return;
+        if (localProject.sharedProjectId !== localProjectMetadata.sharedProjectId) {
+          throw new Error('The team link changed while preparing this backup. Your work was kept; retry backup for the current project.');
+        }
+        if (localProject.sharedProjectId) {
+          // Each team device owns its own append-only backup. A newer legacy or
+          // other-device JSON must neither block this copy nor be overwritten.
+          await backupTeamProjectSnapshot(token, localProject);
+          backedUpProjectIds.push(localProject.id);
+          return;
+        }
         if (localProject.deletedAt) {
           const remoteEntries = allRemoteFilesById.get(localProject.id) ?? [];
           const targetFolderName = resolveRemoteProjectFolderName(localProject, remoteEntries);
@@ -1730,7 +1792,7 @@ export async function backupProjectsToOneDrive(
           const remote = canonicalRemote ?? pickPrimaryRemoteProjectFile(remoteEntries);
           const remoteUpdatedAt = await getRemoteProjectPayloadUpdatedAt(token, localProject.id, remote);
           if (compareTimestampsWithTolerance(getProjectUpdatedAt(localProject), remoteUpdatedAt) < 0) {
-            conflictsById.set(localProject.id, { id: localProject.id, name: localProject.projectName });
+            conflictsById.set(localProject.id, { id: localProject.id, name: localProject.projectName, reason: 'newer-backup' });
             return;
           }
           const projectForBackup = withProjectFolderName(localProject, targetFolderName);
@@ -1781,6 +1843,7 @@ export async function backupProjectsToOneDrive(
           conflictsById.set(localProject.id, {
             id: localProject.id,
             name: localProject.projectName,
+            reason: 'newer-backup',
           });
           return;
         }
@@ -1799,7 +1862,7 @@ export async function backupProjectsToOneDrive(
             await backupProjectPhotosToOneDrive(token, projectForBackup, targetFolderName, remoteIndex);
           }
           // Publish references only after every required photo is available.
-          if (freshnessComparison > 0 || !canonicalRemote || localProject.sharedProjectId || forceIds.has(localProject.id)) {
+          if (freshnessComparison > 0 || !canonicalRemote || forceIds.has(localProject.id)) {
             await uploadProjectFileRecoveringMissingRemote(
               token,
               targetFolderName,
@@ -1826,6 +1889,7 @@ export async function backupProjectsToOneDrive(
             conflictsById.set(projectForBackup.id, {
               id: projectForBackup.id,
               name: projectForBackup.projectName,
+              reason: 'changed-during-upload',
             });
             return;
           }

@@ -14,7 +14,8 @@ import {
 } from '@/lib/db';
 import { serializeProjectPayload } from '@/lib/projectPayload';
 
-const { listProjectFilesMock, listPhotoProjectFoldersMock, listProjectPhotoFilesMock, downloadProjectFileMock, downloadDriveItemAsDataUrlMock, uploadProjectFileMock, uploadProjectPhotoFileMock, deleteDriveItemMock, moveDriveItemToFolderMock, downloadDeletionLogMock, uploadDeletionLogMock, deleteProjectFolderFromStateMock, deleteProjectPhotoFolderMock } = vi.hoisted(() => ({
+const { getProjectFileMetadataInFolderMock, listProjectFilesMock, listPhotoProjectFoldersMock, listProjectPhotoFilesMock, downloadProjectFileMock, downloadDriveItemAsDataUrlMock, uploadProjectFileMock, uploadProjectPhotoFileMock, deleteDriveItemMock, moveDriveItemToFolderMock, downloadDeletionLogMock, uploadDeletionLogMock, deleteProjectFolderFromStateMock, deleteProjectPhotoFolderMock } = vi.hoisted(() => ({
+  getProjectFileMetadataInFolderMock: vi.fn(),
   listProjectFilesMock: vi.fn(),
   listPhotoProjectFoldersMock: vi.fn(),
   listProjectPhotoFilesMock: vi.fn(),
@@ -40,6 +41,7 @@ vi.mock('@/lib/oneDrive', async (importOriginal) => ({
   listPhotoProjectFolders: listPhotoProjectFoldersMock,
   listProjectPhotoFiles: listProjectPhotoFilesMock,
   uploadProjectFile: uploadProjectFileMock,
+  getProjectFileMetadataInFolder: getProjectFileMetadataInFolderMock,
   uploadProjectPhotoFile: uploadProjectPhotoFileMock,
   deleteDriveItem: deleteDriveItemMock,
   moveDriveItemToFolder: moveDriveItemToFolderMock,
@@ -121,6 +123,7 @@ describe('OneDrive and team project identity', () => {
   });
 
   beforeEach(() => {
+    getProjectFileMetadataInFolderMock.mockReset().mockResolvedValue(null);
     listProjectFilesMock.mockReset().mockResolvedValue([]);
     listPhotoProjectFoldersMock.mockReset().mockResolvedValue([]);
     listProjectPhotoFilesMock.mockReset().mockResolvedValue([]);
@@ -499,17 +502,23 @@ describe('OneDrive and team project identity', () => {
     expect(await getProject(team.id)).toBeUndefined();
   });
 
-  it('preserves a newer team backup and never merges it into the active local team project', async () => {
+  it('preserves a newer team backup while saving an independent device snapshot', async () => {
     const team = createProject('Alafia');
     team.sharedProjectId = crypto.randomUUID();
     await saveProjectPreserveTimestamps(team);
     const remote = { ...team, projectName: 'Newer team backup', updatedAt: new Date(team.updatedAt.getTime() + 60_000) };
     listProjectFilesMock.mockResolvedValue([{ id: 'team-backup', name: `Alafia_${team.id}.json` }]);
     downloadProjectFileMock.mockResolvedValue(serializeProjectPayload(remote));
+    uploadProjectFileMock.mockResolvedValue({ id: 'device-snapshot' });
 
     const result = await backupProjectsToOneDrive('test-token', [team.id]);
-    expect(result.conflicts).toEqual([{ id: team.id, name: 'Alafia' }]);
-    expect(uploadProjectFileMock).not.toHaveBeenCalled();
+    expect(result.conflicts).toEqual([]);
+    expect(result.failedProjects).toEqual([]);
+    expect(result.backedUpProjectIds).toEqual([team.id]);
+    expect(uploadProjectFileMock).toHaveBeenCalledWith(
+      'test-token', expect.stringMatching(/^Team Backups\//), expect.stringContaining(team.id),
+      expect.stringContaining(team.sharedProjectId), false, undefined, 'fail'
+    );
     await mergePersonalProjectsFromOneDrive('test-token', [team.id]);
     await restoreMissingProjectsFromOneDrive('test-token');
     expect((await getProject(team.id))?.projectName).toBe('Alafia');
@@ -529,6 +538,180 @@ describe('OneDrive and team project identity', () => {
     expect(deleteProjectFolderFromStateMock).not.toHaveBeenCalled();
   });
 
+  it('keeps both devices and earlier snapshots, and reuses an unchanged snapshot', async () => {
+    const team = createProject('Alafia');
+    team.sharedProjectId = crypto.randomUUID();
+    await saveProjectPreserveTimestamps(team);
+    const snapshots = new Map<string, string>();
+    getProjectFileMetadataInFolderMock.mockImplementation(async (_token: string, folder: string, name: string) => {
+      const path = `${folder}/${name}`;
+      return snapshots.has(path) ? { id: path } : null;
+    });
+    downloadProjectFileMock.mockImplementation(async (_token: string, id: string) => snapshots.get(id));
+    uploadProjectFileMock.mockImplementation(async (_token: string, folder: string, name: string, content: string, _trash: boolean, _etag: undefined, behavior: string) => {
+      expect(behavior).toBe('fail');
+      const path = `${folder}/${name}`;
+      expect(snapshots.has(path)).toBe(false);
+      snapshots.set(path, content);
+      return { id: path };
+    });
+
+    for (let repeat = 0; repeat < 2; repeat += 1) {
+      expect((await backupProjectsToOneDrive('test-token', [team.id])).backedUpProjectIds).toEqual([team.id]);
+    }
+    expect(uploadProjectFileMock).toHaveBeenCalledTimes(1);
+    const firstPath = [...snapshots.keys()][0];
+    const firstContent = snapshots.get(firstPath);
+    const updatedTeam = { ...team, address: 'Updated address', updatedAt: new Date(team.updatedAt.getTime() + 10000) };
+    await saveProjectPreserveTimestamps(updatedTeam);
+    await backupProjectsToOneDrive('test-token', [team.id]);
+    const deviceOneFolder = uploadProjectFileMock.mock.calls[0][1];
+    expect(uploadProjectFileMock.mock.calls[1][1]).toBe(deviceOneFolder);
+
+    localStorage.setItem('punchlist:collaboration-device-id', crypto.randomUUID());
+    await backupProjectsToOneDrive('test-token', [team.id]);
+    expect(uploadProjectFileMock.mock.calls[2][1]).not.toBe(deviceOneFolder);
+    expect(snapshots.size).toBe(3);
+    expect(snapshots.get(firstPath)).toBe(firstContent);
+    for (const [path, content] of snapshots) {
+      const payload = JSON.parse(content);
+      expect(path).toContain(payload.oneDriveBackup.deviceId);
+      expect(payload.oneDriveBackup.photosPath).toBe(`PunchList/${path.slice(0, path.lastIndexOf('/'))}/photos`);
+      expect(payload.project.sharedProjectId).toBe(team.sharedProjectId);
+    }
+    expect((await getProject(team.id))?.oneDriveFolderName).toBe(team.oneDriveFolderName);
+    expect(listProjectFilesMock).not.toHaveBeenCalled();
+    expect(deleteDriveItemMock).not.toHaveBeenCalled();
+  });
+
+  it.each(['network', 'timeout'])('recognizes a saved snapshot after losing the upload response: %s', async (failure) => {
+    const team = createProject('Lost response');
+    team.sharedProjectId = crypto.randomUUID();
+    await saveProjectPreserveTimestamps(team);
+    let savedContent: string | undefined;
+    getProjectFileMetadataInFolderMock.mockImplementation(async () => savedContent ? { id: 'saved-snapshot' } : null);
+    downloadProjectFileMock.mockImplementation(async () => savedContent);
+    uploadProjectFileMock.mockImplementationOnce(async (_token: string, _folder: string, _name: string, content: string) => {
+      savedContent = content;
+      throw failure === 'timeout' ? new DOMException('Request timed out', 'TimeoutError') : new TypeError('Failed to fetch');
+    });
+    const result = await backupProjectsToOneDrive('test-token', [team.id]);
+    expect(result.backedUpProjectIds).toEqual([team.id]);
+    expect(result.failedProjects).toEqual([]);
+    expect(uploadProjectFileMock).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([409, 412])('retries a rejected snapshot upload safely: HTTP %i', async (status) => {
+    const team = createProject('Upload race');
+    team.sharedProjectId = crypto.randomUUID();
+    await saveProjectPreserveTimestamps(team);
+    uploadProjectFileMock.mockRejectedValueOnce(Object.assign(new Error('Upload conflict'), { status }))
+      .mockResolvedValue({ id: 'snapshot' });
+    const result = await backupProjectsToOneDrive('test-token', [team.id]);
+    expect(result.backedUpProjectIds).toEqual([team.id]);
+    expect(result.conflicts).toEqual([]);
+    expect(uploadProjectFileMock).toHaveBeenCalledTimes(2);
+    expect(uploadProjectFileMock.mock.calls[0]).toEqual(uploadProjectFileMock.mock.calls[1]);
+    expect(uploadProjectFileMock.mock.calls[1][6]).toBe('fail');
+  });
+
+  it('bounds repeated snapshot rejections and leaves the backup incomplete', async () => {
+    const team = createProject('Persistent rejection');
+    team.sharedProjectId = crypto.randomUUID();
+    await saveProjectPreserveTimestamps(team);
+    uploadProjectFileMock.mockRejectedValue(Object.assign(new Error('Upload conflict'), { status: 409 }));
+    const result = await backupProjectsToOneDrive('test-token', [team.id]);
+    expect(uploadProjectFileMock).toHaveBeenCalledTimes(3);
+    expect(result.backedUpProjectIds).toEqual([]);
+    expect(result.failedProjects).toEqual([expect.objectContaining({ id: team.id, message: expect.stringContaining('three attempts') })]);
+  });
+
+  it('preserves a modified snapshot instead of overwriting it', async () => {
+    const team = createProject('Modified snapshot');
+    team.sharedProjectId = crypto.randomUUID();
+    await saveProjectPreserveTimestamps(team);
+    getProjectFileMetadataInFolderMock.mockResolvedValue({ id: 'modified-snapshot' });
+    downloadProjectFileMock.mockResolvedValue('Externally modified contents');
+    const result = await backupProjectsToOneDrive('test-token', [team.id]);
+    expect(uploadProjectFileMock).not.toHaveBeenCalled();
+    expect(result.backedUpProjectIds).toEqual([]);
+    expect(result.failedProjects).toEqual([expect.objectContaining({ message: expect.stringContaining('preserved') })]);
+  });
+
+  it('does not retry a permission rejection as an upload race', async () => {
+    const team = createProject('Permission rejection');
+    team.sharedProjectId = crypto.randomUUID();
+    await saveProjectPreserveTimestamps(team);
+    uploadProjectFileMock.mockRejectedValue(Object.assign(new Error('Access denied'), { status: 403 }));
+    const result = await backupProjectsToOneDrive('test-token', [team.id]);
+    expect(uploadProjectFileMock).toHaveBeenCalledTimes(1);
+    expect(result.failedProjects).toEqual([expect.objectContaining({ message: 'Access denied' })]);
+  });
+
+  it('does not write a personal file if the team link changes after backup selection', async () => {
+    const team = createProject('Team link race');
+    team.sharedProjectId = crypto.randomUUID();
+    await saveProjectPreserveTimestamps(team);
+    const database = await import('@/lib/db');
+    const originalGetProject = database.getProject;
+    const read = vi.spyOn(database, 'getProject').mockImplementationOnce(async (id) => {
+      const project = await originalGetProject(id);
+      return project ? { ...project, sharedProjectId: undefined } : project;
+    });
+    try {
+      const result = await backupProjectsToOneDrive('test-token', [team.id]);
+      expect(result.backedUpProjectIds).toEqual([]);
+      expect(result.failedProjects).toEqual([expect.objectContaining({ message: expect.stringContaining('team link changed') })]);
+      expect(uploadProjectFileMock).not.toHaveBeenCalled();
+    } finally {
+      read.mockRestore();
+    }
+  });
+
+  it('keeps each device photo folder independent and publishes JSON after its photos', async () => {
+    const team = createProject('Alafia photos');
+    team.sharedProjectId = crypto.randomUUID();
+    const area = createArea(team.id, 'Room', 0);
+    const location = createLocation(area.id, 'Kitchen', 0);
+    const item = createItem(location.id, 'Window', 0);
+    const checkpoint = createCheckpoint(item.id, 'Finish', 0);
+    checkpoint.photos.push(createPhotoAttachment(checkpoint.id, 'data:image/jpeg;base64,cGhvdG8='));
+    item.checkpoints.push(checkpoint);
+    location.items.push(item);
+    area.locations.push(location);
+    team.areas.push(area);
+    await saveProjectPreserveTimestamps(team);
+    const photoFolders = new Map<string, Array<{ id: string; name: string }>>();
+    listProjectPhotoFilesMock.mockImplementation(async (_token: string, folder: string) => photoFolders.get(folder) ?? []);
+    uploadProjectPhotoFileMock.mockImplementation(async (_token: string, folder: string, name: string, bytes: Blob) => {
+      expect(await bytes.text()).toBe('photo');
+      photoFolders.set(folder, [{ id: `photo-${folder}`, name }]);
+    });
+    uploadProjectFileMock.mockImplementation(async (_token: string, folder: string, _name: string, content: string) => {
+      const payload = JSON.parse(content);
+      expect(photoFolders.get(folder)?.[0].name).toContain(payload.project.areas[0].locations[0].items[0].checkpoints[0].photos[0].id);
+      return { id: 'snapshot' };
+    });
+    await backupProjectsToOneDrive('test-token', [team.id]);
+    await backupProjectsToOneDrive('test-token', [team.id]);
+    expect(uploadProjectPhotoFileMock).toHaveBeenCalledTimes(1);
+    localStorage.setItem('punchlist:collaboration-device-id', crypto.randomUUID());
+    await backupProjectsToOneDrive('test-token', [team.id]);
+    expect(uploadProjectPhotoFileMock).toHaveBeenCalledTimes(2);
+    expect(photoFolders.size).toBe(2);
+    expect(deleteDriveItemMock).not.toHaveBeenCalled();
+  });
+
+  it('still protects a newer personal backup and identifies that cause', async () => {
+    const personal = createProject('Personal project');
+    await saveProjectPreserveTimestamps(personal);
+    listProjectFilesMock.mockResolvedValue([{ id: 'newer-personal', name: `Personal-project_${personal.id}.json` }]);
+    downloadProjectFileMock.mockResolvedValue(serializeProjectPayload({ ...personal, updatedAt: new Date(personal.updatedAt.getTime() + 60000) }));
+    const result = await backupProjectsToOneDrive('test-token', [personal.id]);
+    expect(result.conflicts).toEqual([{ id: personal.id, name: personal.projectName, reason: 'newer-backup' }]);
+    expect(uploadProjectFileMock).not.toHaveBeenCalled();
+  });
+
   it.each([{ hasArea: false, team: false }, { hasArea: true, team: false }, { hasArea: false, team: true }, { hasArea: true, team: true }])('backs up Alafia before any inspection: %j', async ({ hasArea, team }) => {
     const project = createProject('Alafia');
     if (team) project.sharedProjectId = crypto.randomUUID();
@@ -542,7 +725,7 @@ describe('OneDrive and team project identity', () => {
     expect(result.backedUpProjectIds).toEqual([project.id]);
     expect(uploadProjectFileMock).toHaveBeenCalledWith(
       'test-token', expect.stringContaining('Alafia'), expect.stringContaining(project.id),
-      expect.stringContaining('Alafia'), false, undefined
+      expect.stringContaining('Alafia'), false, undefined, ...(team ? ['fail'] : [])
     );
     expect(uploadProjectPhotoFileMock).not.toHaveBeenCalled();
   });

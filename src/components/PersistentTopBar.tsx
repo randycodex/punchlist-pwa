@@ -310,7 +310,7 @@ export default function PersistentTopBar() {
         if (result.sharedUpdatesAvailable) markSharedUpdateAvailable(syncProjectId);
         // Sending our areas does not mean other team updates were downloaded.
         window.dispatchEvent(new CustomEvent('punchlist-project-synced', { detail: { projectId: syncProjectId } }));
-        teamSyncMessage = `${project.projectName}: team changes synced${result.releasedAreaCount ? `; ${result.releasedAreaCount} area${result.releasedAreaCount === 1 ? '' : 's'} released` : ''}. ${result.sharedUpdatesAvailable ? 'Other team updates are available; use Get Team Updates to load them. ' : ''}`;
+        teamSyncMessage = `${project.projectName}: your team changes were sent${result.releasedAreaCount ? `; ${result.releasedAreaCount} area${result.releasedAreaCount === 1 ? '' : 's'} released` : ''}. ${result.sharedUpdatesAvailable ? 'Team updates are waiting to download. Use Get Team Updates to load the latest changes and photos onto this device.' : ''}\n\n`;
       }
 
       syncStage = 'signing in to Microsoft';
@@ -339,7 +339,7 @@ export default function PersistentTopBar() {
           title: 'Sync This Project',
           message: merged.archivedLocalProjectIds.includes(syncProjectId)
             ? `${project.projectName}: the newer OneDrive copy shows this project was archived. This device moved it to Trash.`
-            : `${teamSyncMessage}${project.projectName}: JSON and photos backed up in OneDrive/PunchList${merged.updatedLocalProjectIds.includes(syncProjectId) ? '; newer changes from OneDrive added' : ''}.`,
+            : `${teamSyncMessage}${project.projectName}: ${project.sharedProjectId ? "this device's JSON and photos backed up in OneDrive/PunchList/Team Backups" : 'JSON and photos backed up in OneDrive/PunchList'}${merged.updatedLocalProjectIds.includes(syncProjectId) ? '; newer changes from OneDrive added' : ''}.`,
         });
       } else {
         if (result.status === 'conflict') setSyncConflicts(result.conflicts);
@@ -924,6 +924,7 @@ export default function PersistentTopBar() {
                           <>
                             <button
                               onClick={() => dispatchHomeAction('pull-shared-project')}
+                              title="Download the team's latest changes and photos onto this device"
                               disabled={homeMenuState.syncing || projectSyncing || sharedTransferStatus !== null}
                               className={disabledMenuRowClass}
                             >

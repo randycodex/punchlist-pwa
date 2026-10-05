@@ -617,7 +617,7 @@ export default function ProjectsPage() {
                   return next;
                 });
               }
-              completed.push(`${entry.projectName}: team changes synced to Team Projects${result.releasedAreaCount ? `; ${result.releasedAreaCount} area${result.releasedAreaCount === 1 ? '' : 's'} released` : ''}${result.sharedUpdatesAvailable ? '; other team updates are available from Get Team Updates in the project menu' : ''}`);
+              completed.push(`${entry.projectName}: your team changes were sent${result.releasedAreaCount ? `; ${result.releasedAreaCount} area${result.releasedAreaCount === 1 ? '' : 's'} released` : ''}${result.sharedUpdatesAvailable ? '; Get Team Updates in the project menu downloads the latest team changes and photos onto this device' : ''}`);
             } catch (error) {
               console.error(`Team sync failed for ${entry.projectName}:`, error);
               problems.push(`${entry.projectName}: ${getCollaborationErrorMessage(error, 'Team sync failed. Please try again.')}`);
@@ -798,9 +798,10 @@ export default function ProjectsPage() {
         }
       }
       if (result.status === 'success' || result.status === 'conflict' || result.status === 'partial') {
-        const namesById = new Map(currentProjects.map((project) => [project.id, project.projectName]));
+        const projectsById = new Map(currentProjects.map((project) => [project.id, project]));
         for (const projectId of result.backedUpProjectIds) {
-          completed.push(`${namesById.get(projectId) ?? 'Project'}: JSON and photos backed up in OneDrive/PunchList`);
+          const project = projectsById.get(projectId);
+          completed.push(`${project?.projectName ?? 'Project'}: ${project?.sharedProjectId ? "this device's JSON and photos backed up in OneDrive/PunchList/Team Backups" : 'JSON and photos backed up in OneDrive/PunchList'}`);
         }
       }
       if (result.status === 'conflict') {
