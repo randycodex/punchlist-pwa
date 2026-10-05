@@ -3,7 +3,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createScaledImageData, fileToPhotoPayload } from '@/lib/photoPayload';
-import { flushSync } from 'react-dom';
+import { createPortal, flushSync } from 'react-dom';
 import { Camera, ChevronLeft, ChevronRight, Paperclip, X, Zap, ZapOff } from 'lucide-react';
 import { PhotoAttachment, FileAttachment } from '@/types';
 
@@ -122,6 +122,7 @@ export default function PhotoCapture({
   openLibrarySignal,
 }: PhotoCaptureProps) {
   const [selectedPhoto, setSelectedPhoto] = useState<string | null>(null);
+  const photoViewerCloseRef = useRef<HTMLButtonElement | null>(null);
   const [viewerScale, setViewerScale] = useState(1);
   const [cameraOpen, setCameraOpen] = useState(false);
   const [cameraStreamToken, setCameraStreamToken] = useState(0);
@@ -366,13 +367,33 @@ export default function PhotoCapture({
     }
   }
 
-  function resetViewer() {
+  const resetViewer = useCallback(() => {
     setSelectedPhoto(null);
     setViewerScale(1);
     pinchDistanceRef.current = null;
     pinchScaleRef.current = 1;
     swipeStartRef.current = null;
-  }
+  }, []);
+
+  const photoViewerOpen = Boolean(selectedPhoto);
+  useEffect(() => {
+    if (!photoViewerOpen) return;
+    const previousFocus = document.activeElement;
+    photoViewerCloseRef.current?.focus({ preventScroll: true });
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        resetViewer();
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      if (previousFocus instanceof HTMLElement && previousFocus.isConnected) {
+        previousFocus.focus({ preventScroll: true });
+      }
+    };
+  }, [photoViewerOpen, resetViewer]);
 
   const selectedPhotoIndex = selectedPhoto
     ? photos.findIndex((photo) => photo.imageData === selectedPhoto)
@@ -813,25 +834,31 @@ export default function PhotoCapture({
       )}
 
       {/* Full photo viewer */}
-      {selectedPhoto && (
+      {selectedPhoto && typeof document !== 'undefined' && createPortal(
         <div
           data-inspection-inline-action="true"
-          className="fixed inset-0 z-50 bg-black/95"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Photo viewer"
+          className="fixed inset-0 z-[150] flex h-[100dvh] flex-col overflow-hidden bg-black/95"
           onClick={(event) => {
             event.stopPropagation();
             resetViewer();
           }}
         >
-          <div className="absolute right-4 top-4 z-10 flex items-center gap-2">
+          <div className="relative z-20 flex shrink-0 justify-end pb-3 pl-[calc(env(safe-area-inset-left)+0.75rem)] pr-[calc(env(safe-area-inset-right)+0.75rem)] pt-[calc(env(safe-area-inset-top)+0.75rem)]">
             <button
+              ref={photoViewerCloseRef}
+              type="button"
               onClick={(event) => {
                 event.stopPropagation();
                 resetViewer();
               }}
-              className="flex h-10 w-10 items-center justify-center rounded-full bg-black/55 text-white"
+              className="flex min-h-12 items-center justify-center gap-2 rounded-full bg-white/15 px-4 text-base font-medium text-white"
               aria-label="Close photo viewer"
             >
               <X className="w-5 h-5" />
+              Close
             </button>
           </div>
           {selectedPhotoIndex >= 0 && photos.length > 1 && (
@@ -842,7 +869,7 @@ export default function PhotoCapture({
                   event.stopPropagation();
                   showAdjacentPhoto(-1);
                 }}
-                className="absolute left-3 top-1/2 z-10 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full bg-black/55 text-white backdrop-blur-sm"
+                className="absolute left-[calc(env(safe-area-inset-left)+0.75rem)] top-1/2 z-10 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full bg-black/55 text-white backdrop-blur-sm"
                 aria-label="Previous photo"
               >
                 <ChevronLeft className="h-6 w-6" />
@@ -853,7 +880,7 @@ export default function PhotoCapture({
                   event.stopPropagation();
                   showAdjacentPhoto(1);
                 }}
-                className="absolute right-3 top-1/2 z-10 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full bg-black/55 text-white backdrop-blur-sm"
+                className="absolute right-[calc(env(safe-area-inset-right)+0.75rem)] top-1/2 z-10 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full bg-black/55 text-white backdrop-blur-sm"
                 aria-label="Next photo"
               >
                 <ChevronRight className="h-6 w-6" />
@@ -864,7 +891,7 @@ export default function PhotoCapture({
             </>
           )}
           <div
-            className="h-full overflow-auto p-6"
+            className="min-h-0 flex-1 overflow-auto overscroll-contain px-3 pt-3 pb-[calc(env(safe-area-inset-bottom)+3rem)]"
             onClick={(event) => event.stopPropagation()}
             onTouchStart={handleViewerTouchStart}
             onTouchMove={handleViewerTouchMove}
@@ -879,13 +906,14 @@ export default function PhotoCapture({
                 style={{
                   width: viewerScale === 1 ? 'auto' : `${viewerScale * 100}vw`,
                   maxWidth: viewerScale === 1 ? '100%' : 'none',
-                  maxHeight: viewerScale === 1 ? '88vh' : 'none',
+                  maxHeight: viewerScale === 1 ? 'calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 7rem)' : 'none',
                   touchAction: 'none',
                 }}
               />
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );
