@@ -8,7 +8,6 @@ import {
   ChevronRight,
   MessageSquare,
   MoreVertical,
-  Paperclip,
   Pencil,
   Trash2,
   X,
@@ -18,6 +17,7 @@ import type { Area, Checkpoint, IssueState, Item } from '@/types';
 import { getCheckpointIssueState } from '@/types';
 import PhotoDropTarget, { type DroppedPhoto } from '@/components/inspection/PhotoDropTarget';
 import PhotoCapture from '@/components/PhotoCapture';
+import CheckpointCommentInput from '@/components/inspection/CheckpointCommentInput';
 import MetadataLine from '@/components/MetadataLine';
 
 type CheckpointReviewState = 'pending' | 'ok' | Exclude<IssueState, 'none'>;
@@ -1177,38 +1177,18 @@ function InlineCheckpointEditor({
   openCameraSignal?: number;
 }) {
   const editorRef = useRef<HTMLDivElement | null>(null);
-  const commentInputRef = useRef<HTMLTextAreaElement | null>(null);
-  const [draft, setDraft] = useState(commentText);
-  const [initialComment] = useState(() => checkpoint.comments.trim());
   const [photoLibrarySignal, setPhotoLibrarySignal] = useState(0);
-  const [previousDraft, setPreviousDraft] = useState<string | null>(null);
-  const suggestedComments = [...new Set([...recentComments, initialComment].filter(Boolean))].slice(0, 5);
-
-  function updateDraft(value: string) {
-    setDraft(value);
-    onCommentChange(value);
-  }
-
-  useEffect(() => {
-    if (!showCommentEditor || !autoFocusComment) return;
-
-    const focusFrame = window.requestAnimationFrame(() => {
-      const input = commentInputRef.current;
-      if (!input) return;
-      input.focus();
-      input.setSelectionRange(input.value.length, input.value.length);
-    });
-
-    return () => window.cancelAnimationFrame(focusFrame);
-  }, [showCommentEditor, autoFocusComment]);
 
   useEffect(() => {
     if (!onCloseEditor) return;
     function handleDocumentClick(event: MouseEvent) {
       if (!editorRef.current) return;
       const target = event.target as Node;
-      if (editorRef.current.contains(target)) return;
-      const isInlineAction = event.composedPath().some(
+      const clickPath = event.composedPath();
+      // Undo removes its own button during this click. Its original event path
+      // still identifies an inside click after the target leaves the DOM.
+      if (editorRef.current.contains(target) || clickPath.includes(editorRef.current)) return;
+      const isInlineAction = clickPath.some(
         (node) => node instanceof Element && node.matches('[data-inspection-inline-action="true"]')
       );
       if (isInlineAction) {
@@ -1256,53 +1236,17 @@ function InlineCheckpointEditor({
         openLibrarySignal={photoLibrarySignal}
       />
       {showCommentEditor && (
-        <>
-          <div className="relative">
-            <textarea
-              id={`checkpoint-note-${checkpoint.id}`}
-              ref={commentInputRef}
-              value={draft}
-              onChange={(e) => updateDraft(e.target.value)}
-              onBlur={(e) => void Promise.resolve(onCommentBlur(locationId, itemId, checkpoint.id, e.target.value)).catch(() => {})}
-              className="field-shell field-shell-with-action min-h-[112px] resize-none text-base"
-              placeholder="Add inspection note"
-            />
-            <div className="absolute right-3 top-3 flex gap-2">
-              <button
-                type="button"
-                data-inspection-inline-action="true"
-                onClick={(event) => {
-                  event.stopPropagation();
-                  setPhotoLibrarySignal((token) => token + 1);
-                }}
-                className="flex h-10 w-10 items-center justify-center rounded-[1rem] bg-gray-100 text-gray-700 transition hover:bg-gray-200 dark:bg-zinc-800 dark:text-gray-100 dark:hover:bg-zinc-700"
-                aria-label="Open photo library"
-                title="Open photo library"
-              >
-                <Paperclip className="h-4.5 w-4.5" />
-              </button>
-            </div>
-          </div>
-          {suggestedComments.length > 0 && (
-            <div className="-mx-1 mt-3 overflow-x-auto pb-1">
-              {previousDraft !== null && <button type="button" className="min-h-11 px-3 text-xs font-semibold accent-text" onClick={() => { updateDraft(previousDraft); setPreviousDraft(null); }}>Undo inserted note</button>}
-              <div className="flex w-max min-w-full gap-2 px-1">
-                {suggestedComments.map((comment) => (
-                  <button
-                    key={comment}
-                    onClick={() => {
-                      setPreviousDraft(draft);
-                      updateDraft(draft.trim() ? `${draft.trimEnd()}\n${comment}` : comment);
-                    }}
-                    className="segmented-chip shrink-0 whitespace-nowrap px-3 py-1.5 text-left text-xs transition hover:bg-white hover:text-gray-900 dark:hover:bg-white/[0.1] dark:hover:text-white"
-                  >
-                    {comment.length > 48 ? `${comment.slice(0, 45)}…` : comment}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-        </>
+        <CheckpointCommentInput
+          key={checkpoint.id}
+          checkpointId={checkpoint.id}
+          initialValue={commentText}
+          savedComment={checkpoint.comments}
+          recentComments={recentComments}
+          autoFocus={autoFocusComment}
+          onChange={onCommentChange}
+          onBlur={(value) => onCommentBlur(locationId, itemId, checkpoint.id, value)}
+          onOpenPhotoLibrary={() => setPhotoLibrarySignal((token) => token + 1)}
+        />
       )}
     </div>
   );

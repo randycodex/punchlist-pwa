@@ -5,13 +5,15 @@ export { stageCaptureDraft, listCaptureDrafts, clearCaptureDraft, CAPTURE_RECOVE
 function notify() { if (typeof window !== 'undefined') window.dispatchEvent(new Event(CAPTURE_RECOVERY_EVENT)); }
 
 const latestNoteRevision = new Map<string, string>();
+const NOTE_COMMIT_IDLE_MS = 600;
 
-export async function saveRecoverableNote(projectId: string, areaId: string, checkpointId: string, value: string, baseValue: string) {
+export async function saveRecoverableNote(projectId: string, areaId: string, checkpointId: string, value: string, baseValue: string, options: { immediate?: boolean } = {}) {
   const draft: CaptureDraft = { key: `note:${projectId}:${checkpointId}`, revision: crypto.randomUUID(), projectId, areaId, checkpointId, kind: 'note', value, baseValue, savedAt: new Date() };
   latestNoteRevision.set(draft.key, draft.revision);
   await stageCaptureDraft(draft);
-  // Every input is journaled, but bursts do not rewrite the whole project for each key.
-  await new Promise((resolve) => setTimeout(resolve, 150));
+  // Journal every input immediately, then wait through ordinary pauses between
+  // keys before rewriting the project. Blur/navigation commits without waiting.
+  if (!options.immediate) await new Promise((resolve) => setTimeout(resolve, NOTE_COMMIT_IDLE_MS));
   if (latestNoteRevision.get(draft.key) !== draft.revision) return false;
   try {
     await saveCheckpointInspectionChange(projectId, areaId, checkpointId, { comments: value });

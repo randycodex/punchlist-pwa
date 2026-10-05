@@ -32,6 +32,35 @@ describe('interrupted capture recovery', () => {
     expect((await getProject(project.id))?.areas[0].locations[0].items[0].checkpoints[0].comments).toBe('Adjust hinge');
     expect(await listCaptureDrafts(project.id, area.id)).toHaveLength(0);
   });
+  it('keeps ordinary typing pauses in the journal without repeatedly rewriting the project', async () => {
+    const { project, area, checkpoint } = await fixture();
+    const original = IDBObjectStore.prototype.put;
+    let projectWrites = 0;
+    vi.spyOn(IDBObjectStore.prototype, 'put').mockImplementation(function (this: IDBObjectStore, ...args: Parameters<typeof original>) {
+      if (this.name === 'projects') projectWrites += 1;
+      return original.apply(this, args);
+    });
+    const saves: Array<Promise<boolean>> = [];
+    for (const value of ['A', 'Adjust', 'Adjust hinge']) {
+      saves.push(saveRecoverableNote(project.id, area.id, checkpoint.id, value, ''));
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      const drafts = await listCaptureDrafts(project.id, area.id);
+      expect(drafts).toEqual([expect.objectContaining({ kind: 'note', value })]);
+      expect(projectWrites).toBe(0);
+    }
+    expect(await Promise.all(saves)).toEqual([false, false, true]);
+    expect(projectWrites).toBe(1);
+    expect((await getProject(project.id))?.areas[0].locations[0].items[0].checkpoints[0].comments).toBe('Adjust hinge');
+  });
+  it('commits the latest note on blur before the idle wait ends', async () => {
+    const { project, area, checkpoint } = await fixture();
+    const typing = saveRecoverableNote(project.id, area.id, checkpoint.id, 'Adjust', '');
+    const blurred = saveRecoverableNote(project.id, area.id, checkpoint.id, 'Adjust hinge', '', { immediate: true });
+    expect(await blurred).toBe(true);
+    expect((await getProject(project.id))?.areas[0].locations[0].items[0].checkpoints[0].comments).toBe('Adjust hinge');
+    expect(await listCaptureDrafts(project.id, area.id)).toHaveLength(0);
+    expect(await typing).toBe(false);
+  });
   it('retains a note before a failed inspection commit and restores it from a new journal connection', async () => {
     const { project, area, checkpoint } = await fixture(); const failure = failQueue();
     await expect(saveRecoverableNote(project.id, area.id, checkpoint.id, 'Adjust hinge', '')).rejects.toThrow();

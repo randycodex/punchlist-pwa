@@ -846,7 +846,7 @@ export default function AreaDetailPage() {
     if (checkpoint.comments === value && !pendingNotesRef.current.has(checkpointId)) return;
     pendingNotesRef.current.set(checkpointId, { locationId, itemId, checkpointId, value });
     try {
-      const committed = await saveRecoverableNote(project.id, area.id, checkpointId, value, checkpoint.comments);
+      const committed = await saveRecoverableNote(project.id, area.id, checkpointId, value, checkpoint.comments, { immediate: rememberRecent });
       if (!committed) return;
       checkpoint.comments = value;
       checkpoint.updatedAt = new Date();
