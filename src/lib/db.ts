@@ -404,8 +404,13 @@ function readBlobWithFileReader(payload: Blob): Promise<string> {
 
 async function storedPayloadToDataUrl(payload: string | Blob | undefined) {
   if (payload === undefined || typeof payload === 'string') return payload;
+  const checked = (buffer: ArrayBuffer) => {
+    const bytes = new Uint8Array(buffer);
+    if (bytes.length !== payload.size) throw new Error('The saved attachment is incomplete.');
+    return bytesToDataUrl(bytes, payload.type);
+  };
   try {
-    return bytesToDataUrl(new Uint8Array(await payload.arrayBuffer()), payload.type);
+    return checked(await payload.arrayBuffer());
   } catch (originalError) {
     // Safari may fail one Blob reading API while another can still access the
     // IndexedDB bytes. Never substitute empty data for an unreadable attachment.
@@ -418,11 +423,25 @@ async function storedPayloadToDataUrl(payload: string | Blob | undefined) {
         url = URL.createObjectURL(payload);
         const response = await fetch(url);
         if (!response.ok) throw new Error('The saved attachment could not be read.');
-        const bytes = new Uint8Array(await response.arrayBuffer());
-        if (bytes.length !== payload.size) throw new Error('The saved attachment is incomplete.');
-        return bytesToDataUrl(bytes, payload.type);
+        return checked(await response.arrayBuffer());
       } catch { /* Keep the original local storage error. */ }
       finally { if (url) URL.revokeObjectURL(url); }
+    }
+    // Give WebKit a fresh Blob wrapper and a stream-based consumer. These
+    // remain reads of the original bytes; no image is reconstructed or saved.
+    try { return checked(await payload.slice(0, payload.size, payload.type).arrayBuffer()); }
+    catch { /* Try the streaming consumer. */ }
+    if (typeof Response !== 'undefined') {
+      let timeout: ReturnType<typeof setTimeout> | undefined;
+      try {
+        const read = new Response(payload).arrayBuffer();
+        const expired = new Promise<never>((_, reject) => {
+          timeout = setTimeout(() => reject(new Error('The saved attachment stream did not finish.')), 3_000);
+        });
+        return checked(await Promise.race([read, expired]));
+      }
+      catch { /* Preserve the original error if the backing file is missing. */ }
+      finally { if (timeout) clearTimeout(timeout); }
     }
     throw originalError;
   }
@@ -839,6 +858,50 @@ export async function getUnreadableAttachments(projectId: string, areaId?: strin
   return unreadable;
 }
 
+/** Extract exact surviving media copies without restoring old inspection results. */
+export async function getLocalAttachmentRecoveryCopies(projectId: string, canApply: () => boolean, areaId?: string, unreadable?: UnreadableAttachment[]): Promise<Project | undefined> {
+  const db = await getDB();
+  const source = await getSavedProjectMetadata(projectId);
+  if (!source?.sharedProjectId || !canApply()) return undefined;
+  const wanted = new Set((unreadable ?? await getUnreadableAttachments(projectId, areaId)).map((entry) => entry.id));
+  if (!wanted.size) return source;
+  const targets = new Map(source.areas.filter((area) => !areaId || area.id === areaId).flatMap((area) =>
+    area.locations.flatMap((room) => room.items.flatMap((item) => item.checkpoints.map((checkpoint) => [checkpoint.id, checkpoint] as const)))));
+  const recoveryIds = await db.getAllKeysFromIndex('sharedProjectRecovery', 'by-local-project', projectId);
+  for (const recoveryId of recoveryIds) {
+    if (!canApply()) return undefined;
+    const recovery = await db.get('sharedProjectRecovery', recoveryId);
+    if (!recovery || recovery.project.sharedProjectId !== source.sharedProjectId) continue;
+    const inline = recovery.project.areas.filter((area) => !areaId || area.id === areaId).flatMap((area) =>
+      area.locations.flatMap((room) => room.items.flatMap((item) => item.checkpoints.map((checkpoint) => ({
+        checkpointId: checkpoint.id, photos: checkpoint.photos, files: checkpoint.files ?? [],
+      })))));
+    for (const record of [...recovery.mediaRecords.filter((entry) => !areaId || entry.areaId === areaId), ...inline]) {
+      const target = targets.get(record.checkpointId);
+      if (!target) continue;
+      for (const photo of target.photos) {
+        if (!wanted.has(photo.id)) continue;
+        const candidate = record.photos.find((entry) => entry.id === photo.id && entry.checkpointId === photo.checkpointId
+          && new Date(entry.createdAt).getTime() === new Date(photo.createdAt).getTime());
+        if (!candidate) continue;
+        if (!canApply()) return undefined;
+        if (!photo.imageData) try { photo.imageData = await storedPayloadToDataUrl(candidate.imageData) ?? ''; } catch { /* Continue to other copies. */ }
+        if (!photo.thumbnail && candidate.thumbnail) try { photo.thumbnail = await storedPayloadToDataUrl(candidate.thumbnail); } catch { /* A recovered original can supply the preview. */ }
+      }
+      for (const file of target.files ?? []) {
+        if (!wanted.has(file.id)) continue;
+        const candidate = record.files.find((entry) => entry.id === file.id && entry.checkpointId === file.checkpointId
+          && entry.size === file.size && entry.mimeType === file.mimeType
+          && new Date(entry.createdAt).getTime() === new Date(file.createdAt).getTime());
+        if (!candidate || file.data) continue;
+        if (!canApply()) return undefined;
+        try { file.data = await storedPayloadToDataUrl(candidate.data) ?? ''; } catch { /* Continue to other copies. */ }
+      }
+    }
+  }
+  return canApply() ? source : undefined;
+}
+
 /** Restore only unreadable attachment bytes; inspection data and queues stay untouched. */
 export async function restoreUnreadableAttachments(
   projectId: string, copies: Project, canApply: () => boolean, areaId?: string
@@ -931,9 +994,15 @@ export async function getProjectForAreaPreview(id: string, areaId: string) {
 }
 
 export async function getProjectMetadata(id: string): Promise<Project | undefined> {
+  const project = await getSavedProjectMetadata(id);
+  return project ? applyCheckpointRules(project) : undefined;
+}
+
+/** Recovery reads retain the saved hierarchy and never materialize template changes. */
+export async function getSavedProjectMetadata(id: string): Promise<Project | undefined> {
   const db = await getDB();
   const project = await db.get('projects', id);
-  return project ? applyCheckpointRules(stripProjectMediaPayloadsIfNeeded(project)) : undefined;
+  return project ? stripProjectMediaPayloadsIfNeeded(project) : undefined;
 }
 
 export async function getActiveProjectCount(): Promise<number> {

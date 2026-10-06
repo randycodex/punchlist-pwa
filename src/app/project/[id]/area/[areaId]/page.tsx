@@ -5,6 +5,7 @@ import { releaseSharedArea } from '@/features/collaboration/releaseSharedArea';
 import { refreshSharedProject } from '@/features/sync/refreshSharedProject';
 import { AreaUnavailableError, loadInspectionArea } from '@/features/inspection/loadInspectionArea';
 import AppErrorFallback from '@/components/AppErrorFallback';
+import AttachmentRecoveryNotice from '@/components/inspection/AttachmentRecoveryNotice';
 import {
   CHECKPOINT_COMMENT_HISTORY_STORAGE_KEY,
   getCheckpointRecentComments,
@@ -2297,21 +2298,7 @@ export default function AreaDetailPage() {
       </header>
 
       {unreadableAttachments.length > 0 && (
-        <div className="shrink-0 border-b bg-amber-50 px-4 py-3 text-sm text-amber-950 dark:bg-amber-400/10 dark:text-amber-100" role="alert">
-          <div className="mx-auto w-full max-w-6xl space-y-2">
-            <p className="font-semibold">Saved inspection opened · Attachment recovery needed</p>
-            <p>{new Set(unreadableAttachments.map((entry) => entry.id)).size} saved attachment(s) could not be fully read. Your results, comments, and pending changes are kept. This unit is read-only until local recovery finishes. Check Sync This Project to confirm what reached the team.</p>
-            <p className="text-xs">Keep this browser’s saved data intact. Retry while online.</p>
-            <div className="flex flex-wrap gap-2">
-              <button type="button" disabled={retryingMedia} className="min-h-11 rounded-xl soft-control px-3 font-semibold disabled:opacity-50" onClick={() => { setRetryingMedia(true); void loadDataRef.current(); }}>{retryingMedia ? 'Checking attachments…' : 'Retry attachment recovery'}</button>
-              <button type="button" className="min-h-11 rounded-xl soft-control px-3 font-semibold" onClick={() => {
-                const details = ['Punchlist attachment recovery', `Page: ${window.location.pathname}`, `Message: ${mediaRecoveryError?.message ?? 'Saved attachment could not be read.'}`,
-                  ...unreadableAttachments.map((entry) => `${entry.kind}: ${entry.id}; checkpoint: ${entry.checkpointId}`)].join('\n');
-                void navigator.clipboard?.writeText(details);
-              }}>Copy recovery details</button>
-            </div>
-          </div>
-        </div>
+        <AttachmentRecoveryNotice key={project.id} projectId={project.id} attachments={unreadableAttachments} error={mediaRecoveryError} retrying={retryingMedia} onRetry={() => { setRetryingMedia(true); void loadDataRef.current(); }} />
       )}
 
       {areaClaimError && !visibleAreaClaimProblem && (

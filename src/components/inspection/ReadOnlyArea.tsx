@@ -27,10 +27,10 @@ export default function ReadOnlyArea({ area, unreadableAttachments = [] }: { are
                     <p className="text-sm text-gray-500 dark:text-gray-300">{getCheckpointIssueState(checkpoint) !== 'none' ? `Issue — ${getCheckpointIssueState(checkpoint)}` : checkpoint.status === 'ok' ? 'OK' : 'Not inspected'}</p>
                     {checkpoint.comments && <p className="whitespace-pre-wrap">{checkpoint.comments}</p>}
                     {checkpoint.photos.filter((photo) => unavailablePhotos.has(photo.id)).map((photo, index) => (
-                      <p key={photo.id} className="rounded-xl border border-amber-500/30 p-3 text-sm">Photo {index + 1}: saved record kept · image unavailable on this device</p>
+                      <p key={photo.id} className="rounded-xl border border-amber-500/30 p-3 text-sm">Photo {index + 1}: image unavailable on this device. The inspection still lists this photo.</p>
                     ))}
                     {(checkpoint.files ?? []).filter((file) => unavailableFiles.has(file.id)).map((file) => (
-                      <p key={file.id} className="rounded-xl border border-amber-500/30 p-3 text-sm">{file.name}: saved record kept · file unavailable on this device</p>
+                      <p key={file.id} className="rounded-xl border border-amber-500/30 p-3 text-sm">{file.name}: file unavailable on this device. The inspection still lists this file.</p>
                     ))}
                     {(checkpoint.photos.some((photo) => !unavailablePhotos.has(photo.id)) || checkpoint.files?.some((file) => !unavailableFiles.has(file.id))) && (
                       <PhotoCapture readOnly photos={checkpoint.photos.filter((photo) => !unavailablePhotos.has(photo.id))} files={(checkpoint.files ?? []).filter((file) => !unavailableFiles.has(file.id))} onAddPhoto={ignoreMutation} onDeletePhoto={ignoreMutation} onDeleteFile={ignoreMutation} />

@@ -178,6 +178,47 @@ async function graphFetchAbsolute<T>(token: OneDriveToken, url: string, options?
   return response.json() as Promise<T>;
 }
 
+export type OneDriveRecoveryPhoto = { photoId: string; id: string; name: string; folder: string; webUrl?: string };
+
+/** Read-only search for exact photo identities, including device backups and trash folders. */
+export async function findOneDriveRecoveryPhotos(token: OneDriveToken, photoIds: string[]): Promise<OneDriveRecoveryPhoto[]> {
+  const ids = [...new Set(photoIds.map((id) => id.toLowerCase()))];
+  if (ids.some((id) => !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(id))) {
+    throw new Error('A saved photo identity could not be checked in OneDrive.');
+  }
+  type SearchItem = { id: string; name: string; size?: number; file?: { mimeType?: string }; parentReference?: { path?: string }; webUrl?: string };
+  const matches: OneDriveRecoveryPhoto[] = [];
+  // Sequential requests avoid flooding Graph on phones with many attachments.
+  for (const photoId of ids) {
+    let url: string | undefined = `${GRAPH_API}/me/drive/root/search(q='${photoId}')?$select=id,name,size,file,parentReference,webUrl&$top=100`;
+    const visited = new Set<string>();
+    while (url) {
+      assertOneDriveLeaseActive(token);
+      const parsed = new URL(url);
+      if (parsed.origin !== 'https://graph.microsoft.com' || !parsed.pathname.startsWith('/v1.0/') || visited.has(url) || visited.size >= 20) {
+        throw new Error('OneDrive search could not be completed safely. No saved inspection was changed.');
+      }
+      visited.add(url);
+      const result: { value: SearchItem[]; '@odata.nextLink'?: string } = await graphFetchAbsolute(token, url);
+      assertOneDriveLeaseActive(token);
+      for (const item of result.value) {
+        const path = item.parentReference?.path ?? '';
+        const folder = path.split('root:/')[1] ?? '';
+        const exactFilename = new RegExp(`(?:^|_)${photoId}\\.(?:jpg|jpeg|png)$`, 'i');
+        if (!folder.toLowerCase().startsWith('punchlist/') || !item.file || !item.size || !exactFilename.test(item.name)) continue;
+        let webUrl: string | undefined;
+        try {
+          const link = new URL(item.webUrl ?? '');
+          if (link.protocol === 'https:' && (link.hostname === 'onedrive.live.com' || link.hostname.endsWith('.sharepoint.com'))) webUrl = link.href;
+        } catch { /* The filename and folder are still useful without a browser link. */ }
+        if (!matches.some((match) => match.id === item.id)) matches.push({ photoId, id: item.id, name: item.name, folder, webUrl });
+      }
+      url = result['@odata.nextLink'];
+    }
+  }
+  return matches;
+}
+
 function getGraphErrorStatus(error: unknown) {
   return error instanceof Error && 'status' in error && typeof error.status === 'number'
     ? error.status

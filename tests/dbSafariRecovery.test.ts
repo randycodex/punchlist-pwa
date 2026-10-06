@@ -46,7 +46,10 @@ it('reads saved media without indexes and leaves queued team changes intact', as
   const blobRead = vi.spyOn(Blob.prototype, 'arrayBuffer').mockRejectedValueOnce(
     new DOMException('The object can not be found here.', 'NotFoundError')
   );
+  const slicedRead = vi.spyOn(Blob.prototype, 'slice');
   const full = await getProject(project.id);
+  expect(slicedRead).toHaveBeenCalledWith(0, 1, 'image/png');
+  slicedRead.mockRestore();
   blobRead.mockRestore();
   const selectedArea = await getProjectForArea(project.id, area.id);
   expect(full?.areas[0].locations[0].items[0].checkpoints[0].photos[0].imageData).toBe(photo.imageData);
@@ -87,11 +90,23 @@ it('reads saved media without indexes and leaves queued team changes intact', as
   revokeObjectUrl.mockRestore();
   vi.unstubAllGlobals();
 
+  const missingDirectRead = vi.spyOn(Blob.prototype, 'arrayBuffer').mockRejectedValue(
+    new DOMException('The object can not be found here.', 'NotFoundError')
+  );
+  const missingBlobUrl = vi.spyOn(URL, 'createObjectURL').mockImplementation(() => { throw new Error('Blob URL unavailable'); });
+  const streamed = await getProject(project.id);
+  expect(streamed?.areas[0].locations[0].items[0].checkpoints[0].photos[0].imageData).toBe(photo.imageData);
+  missingDirectRead.mockRestore(); missingBlobUrl.mockRestore();
+
   const unusableUrl = vi.spyOn(URL, 'createObjectURL').mockImplementation(() => { throw new Error('Blob URL unavailable'); });
   const unreadableBlob = vi.spyOn(Blob.prototype, 'arrayBuffer').mockRejectedValue(
     new DOMException('The object can not be found here.', 'NotFoundError')
   );
+  const unreadableStream = vi.spyOn(Blob.prototype, 'stream').mockImplementation(() => {
+    throw new DOMException('The object can not be found here.', 'NotFoundError');
+  });
   await expect(getProject(project.id)).rejects.toThrow('Could not finish opening saved photos and files');
+  unreadableStream.mockRestore();
   unreadableBlob.mockRestore();
   unusableUrl.mockRestore();
 

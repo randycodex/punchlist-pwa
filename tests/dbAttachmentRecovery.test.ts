@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { openDB } from 'idb';
 const { copies, publish } = vi.hoisted(() => ({ copies: vi.fn(), publish: vi.fn() }));
 vi.mock('@/lib/collaboration/sharedProjectSnapshots', () => ({ getSharedAttachmentRecoveryCopies: copies }));
 vi.mock('@/lib/collaboration/supabaseClient', () => ({ getCollaborationSupabaseClient: () => ({
@@ -13,6 +14,7 @@ import {
   getProject, getProjectMetadata, saveProjectPreserveTimestamps, saveAreaNotes, deleteProject,
   getPendingSharedAreaSyncsForProject, getUnreadableAttachmentIds, restoreUnreadableAttachments,
   listSharedProjectRecoveries, createFileAttachment, resumeReviewedPendingSharedAreaSyncs, getProjectForAreaPreview,
+  getLocalAttachmentRecoveryCopies,
 } from '@/lib/db';
 import { flushPendingSharedAreaSyncs } from '@/lib/collaboration/sharedAreaSyncQueue';
 import { registerLocalMediaRecovery } from '@/lib/localMediaRecovery';
@@ -43,9 +45,50 @@ afterEach(async () => { unregister?.(); unregister = undefined; vi.restoreAllMoc
 
 function breakSavedBlobs() {
   vi.spyOn(Blob.prototype, 'arrayBuffer').mockRejectedValue(new DOMException('The object can not be found here.', 'NotFoundError'));
+  vi.spyOn(Blob.prototype, 'stream').mockImplementation(() => { throw new DOMException('Missing backing file', 'NotFoundError'); });
   vi.spyOn(URL, 'createObjectURL').mockImplementation(() => { throw new Error('Missing backing file'); });
 }
 describe('saved attachment recovery', () => {
+  async function seedOldRecovery(copy: Project) {
+    const db = await openDB('punchlist-db');
+    const id = crypto.randomUUID();
+    await db.put('sharedProjectRecovery', { id, localProjectId: project.id, project: copy, mediaRecords: [],
+      elevationDrawingRecords: [], areaSyncRecords: [], metadataSyncRecords: [] });
+    db.close();
+  }
+
+  it('recovers an exact readable copy from local history without restoring older inspection work or contacting Team storage', async () => {
+    const old = structuredClone(project);
+    old.areas[0].notes = 'Old note';
+    await seedOldRecovery(old);
+    await saveAreaNotes(project.id, project.areas[0].id, 'Current unsent note');
+    const queue = await getPendingSharedAreaSyncsForProject(project.id);
+    unregister = registerLocalMediaRecovery((id, areaId) => recoverLocalTeamAttachments(id, () => true, areaId));
+    breakSavedBlobs();
+    const recovered = await getProject(project.id);
+    expect(recovered!.areas[0].notes).toBe('Current unsent note');
+    expect(recovered!.areas[0].locations[0].items[0].checkpoints[0].photos[0].imageData).toBe('data:image/png;base64,YQ==');
+    expect(await getPendingSharedAreaSyncsForProject(project.id)).toEqual(queue);
+    expect(copies).not.toHaveBeenCalled();
+  });
+
+  it('refuses older photo copies with mismatched identity timestamps or a different Team project', async () => {
+    const old = structuredClone(project);
+    old.areas[0].locations[0].items[0].checkpoints[0].photos[0].createdAt = new Date('2000-01-01');
+    await seedOldRecovery(old);
+    const other = structuredClone(project); other.sharedProjectId = 'other-team';
+    await seedOldRecovery(other);
+    breakSavedBlobs();
+    const local = await getLocalAttachmentRecoveryCopies(project.id, () => true);
+    expect(local!.areas[0].locations[0].items[0].checkpoints[0].photos[0].imageData).toBe('');
+    expect(await restoreUnreadableAttachments(project.id, local!, () => true)).toBe(0);
+  });
+
+  it('stops reading local history after the account changes', async () => {
+    await seedOldRecovery(structuredClone(project));
+    expect(await getLocalAttachmentRecoveryCopies(project.id, () => false)).toBeUndefined();
+  });
+
   it('recovers server photo bytes automatically without replacing local notes, revisions, queues, or drafts', async () => {
     await saveAreaNotes(project.id, project.areas[0].id, 'My unsent inspection');
     const queue = await getPendingSharedAreaSyncsForProject(project.id);

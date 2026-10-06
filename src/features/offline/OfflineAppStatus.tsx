@@ -101,7 +101,7 @@ export default function OfflineAppStatus() {
       firstCheck = false;
       try {
         await prepareSavedProjectPages(await getAllProjects());
-        if (!disposed) showNotice({ kind: 'preparation', message: 'Saved pages ready offline' });
+        if (!disposed) showNotice({ kind: 'preparation', message: 'App pages ready offline' });
       } catch (reason) {
         if (!disposed) {
           const updateWaiting = reason instanceof AppUpdateWaitingError;
