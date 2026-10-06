@@ -1,7 +1,7 @@
 import { Area, Location, Item, Checkpoint } from '@/types';
 import { createLocation, createItem, createCheckpoint } from './db';
 import { getAreaTypeDefinition, resolveAreaTypeKey } from './areas';
-import { isApartmentClosetItem } from './apartmentClosets';
+import { bedroomClosetItems, isApartmentClosetItem } from './apartmentClosets';
 
 interface TemplateItem {
   name: string;
@@ -359,7 +359,7 @@ function getApartmentTemplate(unitType?: Area['unitType']): TemplateLocation[] {
   for (let index = 0; index < bedroomCount; index += 1) {
     template.push({
       name: bedroomCount === 1 ? 'Bedroom' : `Bedroom ${index + 1}`,
-      items: createLivingAreaItems(false),
+      items: [...createLivingAreaItems(false), ...bedroomClosetItems],
     });
   }
 

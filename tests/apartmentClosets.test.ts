@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ensureApartmentClosets, isApartmentClosetItem } from '@/lib/apartmentClosets';
+import { ensureApartmentClosets, isApartmentClosetItem, isBedroomRoom } from '@/lib/apartmentClosets';
 import { applyCheckpointRules } from '@/lib/checkpointRules';
 import { createArea, createProject, getProject, saveProjectPreserveTimestamps } from '@/lib/db';
 import { applyTemplateToArea } from '@/lib/template';
@@ -40,7 +40,7 @@ describe('apartment Closets room', () => {
       'Closet 1 Door', 'Closet 1 Interior', 'Verizon / Cable', 'Closet 2 Door', 'Closet 2 Interior',
       ...(['3BR', '4BR'].includes(unitType) ? ['Closet'] : []),
     ]);
-    expect(area.locations.filter((room) => room !== closets[0])
+    expect(area.locations.filter((room) => room !== closets[0] && !isBedroomRoom(room.name))
       .flatMap((room) => room.items).filter((item) => isApartmentClosetItem(item.name))).toEqual([]);
   });
 
@@ -94,5 +94,33 @@ describe('apartment Closets room', () => {
     const before = structuredClone(project);
     ensureApartmentClosets(project);
     expect(project).toEqual(before);
+  });
+
+  it.each(['1BR', '2BR', '3BR', '4BR'] as const)('adds closet items to every %s bedroom on new and existing units', async (unitType) => {
+    const { project, area } = unitProject(unitType);
+    const bedrooms = area.locations.filter((room) => isBedroomRoom(room.name));
+    expect(bedrooms).toHaveLength(Number(unitType[0]));
+    for (const room of bedrooms) {
+      expect(room.items.filter((item) => /^Closet (Door|Interior)$/.test(item.name))).toHaveLength(2);
+      room.items = room.items.filter((item) => !isApartmentClosetItem(item.name));
+      room.reviewedAt = '2026-10-06T12:00:00Z';
+    }
+    const independentCopy = structuredClone(project);
+    applyCheckpointRules(project);
+    applyCheckpointRules(independentCopy);
+    expect(project).toEqual(independentCopy);
+    const door = bedrooms[0].items.find((item) => item.name === 'Closet Door')!;
+    door.checkpoints[0].comments = 'Keep the recorded inspection';
+    project.checkpointRules = [{ room: bedrooms[0].name, item: 'Closet Door', name: 'Alignment' }];
+    applyCheckpointRules(project);
+    expect(door.checkpoints[0].comments).toBe('Keep the recorded inspection');
+    expect(door.checkpoints.filter((checkpoint) => checkpoint.name === 'Alignment')).toHaveLength(1);
+    expect(project.checkpointRules[0].room).toBe(bedrooms[0].name);
+    await saveProjectPreserveTimestamps(project);
+    const loaded = await getProject(project.id);
+    for (const room of loaded!.areas[0].locations.filter((room) => isBedroomRoom(room.name))) {
+      expect(room.items.filter((item) => /^Closet (Door|Interior)$/.test(item.name))).toHaveLength(2);
+      expect(room.reviewedAt).toBeUndefined();
+    }
   });
 });

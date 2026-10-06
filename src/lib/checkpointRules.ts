@@ -1,5 +1,5 @@
 import { ensureBedroomCeilings } from '@/lib/bedroomDefaults';
-import { ensureApartmentClosets, isApartmentClosetItem } from '@/lib/apartmentClosets';
+import { ensureApartmentClosets, ensureBedroomClosets, isApartmentClosetItem, isBedroomRoom } from '@/lib/apartmentClosets';
 import { isApartmentArea } from '@/lib/areas';
 import { v5 as uuidv5 } from 'uuid';
 import type { Project } from '@/types';
@@ -27,9 +27,10 @@ export function parseCheckpointRules(value: unknown): CheckpointRule[] {
 export function applyCheckpointRules(project: Project): Project {
   ensureBedroomCeilings(project);
   ensureApartmentClosets(project);
+  ensureBedroomClosets(project);
   if (project.checkpointRules) {
     project.checkpointRules = mergeCheckpointRules(project.checkpointRules.map((rule) =>
-      isApartmentClosetItem(rule.item) ? { ...rule, room: 'Closets' } : rule));
+      isApartmentClosetItem(rule.item) && !isBedroomRoom(rule.room) ? { ...rule, room: 'Closets' } : rule));
   }
   for (const area of project.areas) {
     if (area.deletedAt || !isApartmentArea(area)) continue;
