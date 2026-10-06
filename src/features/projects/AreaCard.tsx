@@ -131,7 +131,7 @@ export const AreaCard = memo(function AreaCard({
                 </span>
               )}
             </div>
-            <MetadataLine className="mt-2" issues={areaStats.issues} photos={photoCount} />
+            <MetadataLine className="mt-2" issues={areaStats.issues} photos={photoCount} notes={metric?.commentCount ?? 0} />
           </div>
         </Link>
         <div className="flex shrink-0 self-stretch flex-col items-center">

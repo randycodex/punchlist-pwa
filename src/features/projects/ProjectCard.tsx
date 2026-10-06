@@ -135,7 +135,7 @@ export const ProjectCard = memo(function ProjectCard({
                 {project.address}
               </p>
             ) : null}
-            <MetadataLine className="mt-3" issues={stats.issues} photos={photoCount} />
+            <MetadataLine className="mt-3" issues={stats.issues} photos={photoCount} notes={metric?.commentCount ?? 0} />
           </div>
         </Link>
         <div className="flex items-center gap-2">
