@@ -15,7 +15,7 @@ import { getProjectFloorLevels, normalizeFloorLabel } from '@/lib/unitFloors';
 
 import { addCheckpointRule } from '@/lib/checkpointRules';
 
-import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import { useState, useEffect, useLayoutEffect, useMemo, useRef, useCallback } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import {
   Project,
@@ -450,6 +450,29 @@ export default function AreaDetailPage() {
       window.removeEventListener('punchlist-home-menu-action', handleTopMenuAction as EventListener);
     };
   }, []);
+
+  useLayoutEffect(() => {
+    if (!project) return;
+    window.dispatchEvent(new CustomEvent('punchlist-home-menu-state', {
+      detail: {
+        context: 'area',
+        showTrash: false,
+        canAddArea: true,
+        hasProjects: true,
+        hasAreaGroups: false,
+        isSingleProject: true,
+        singleProjectId: project.id,
+        singleProjectName: project.projectName,
+        selectionMode: false,
+        isSharedProject: !!project.sharedProjectId,
+        sharedProjectId: project.sharedProjectId,
+        hasTeamUpdates: false,
+        isCreatingJoinCode: false,
+        isLoadingSharedMembers: false,
+        isDisconnectingSharedProject: false,
+      },
+    }));
+  }, [project]);
 
   useEffect(() => {
     setAreaForm(getAreaFormValue(area));
@@ -2102,7 +2125,7 @@ export default function AreaDetailPage() {
       : '';
 
   return (
-    <div className="app-page flex h-full flex-col overflow-hidden">
+    <div className="app-page flex h-full flex-col overflow-hidden" data-layout="list">
       <header className="header-stable shrink-0 border-b z-20">
         <div className="page-header-surface mx-auto flex min-h-[4.9rem] w-full max-w-6xl items-center px-4 py-3 sm:px-5">
           <div className="flex w-full items-center gap-3">

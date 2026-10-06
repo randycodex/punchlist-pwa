@@ -4,7 +4,7 @@ import { getCollaborationDeviceId } from '@/lib/collaboration/deviceIdentity';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { createPortal } from 'react-dom';
 import { useMicrosoftAuth } from '@/contexts/MicrosoftAuthContext';
 import { useCollaborationAuth } from '@/contexts/CollaborationAuthContext';
@@ -84,7 +84,7 @@ const sharedProjectAccessCache = new Map<
 type SortOption = ListSortOption;
 type HomeMenuState = {
   syncing?: boolean;
-  context?: 'home' | 'project';
+  context?: 'home' | 'project' | 'area';
   sortOption: SortOption;
   areaViewMode: AreaListViewMode;
   showTrash: boolean;
@@ -116,6 +116,7 @@ function setAppMenuOpenAttribute(open: boolean) {
 
 export default function PersistentTopBar() {
   const pathname = usePathname();
+  const router = useRouter();
   const {
     ensureAccessToken,
     isReady,
@@ -148,6 +149,12 @@ export default function PersistentTopBar() {
   const showAuth = pathname === '/';
   const [loadedProjectTitle, setLoadedProjectTitle] = useState({ projectId: '', title: '' });
   const [showHomeMenu, setShowHomeMenu] = useState(false);
+  const [isDesktop, setIsDesktop] = useState(false);
+  const pendingMenuActionRef = useRef<{
+    projectId: string;
+    ready: boolean;
+    detail: { action: string; sort?: SortOption; areaViewMode?: AreaListViewMode; isSharedProjectOwner?: boolean };
+  } | null>(null);
   const [accessRetry, setAccessRetry] = useState(0);
   const [checkingAccess, setCheckingAccess] = useState(false);
   const [areAreaGroupsCollapsed, setAreAreaGroupsCollapsed] = useState(false);
@@ -281,7 +288,7 @@ export default function PersistentTopBar() {
     if (!syncProjectId || projectSyncingRef.current) return;
     projectSyncingRef.current = true;
     setProjectSyncing(true);
-    setHomeMenuOpen(false);
+    closeHomeMenuOnMobile();
     setInfoDialog(null);
     setSyncStatus('syncing');
     let teamSyncMessage = '';
@@ -472,6 +479,26 @@ export default function PersistentTopBar() {
     setShowHomeMenu(open);
   }
 
+  function closeHomeMenuOnMobile() {
+    if (window.matchMedia('(max-width: 767px)').matches) {
+      setHomeMenuOpen(false);
+    }
+  }
+
+  useEffect(() => {
+    const media = window.matchMedia('(min-width: 768px)');
+    function updateDesktopMode() {
+      setIsDesktop(media.matches);
+      if (!media.matches && isAreaRoute) {
+        setAppMenuOpenAttribute(false);
+        setShowHomeMenu(false);
+      }
+    }
+    updateDesktopMode();
+    media.addEventListener('change', updateDesktopMode);
+    return () => media.removeEventListener('change', updateDesktopMode);
+  }, [isAreaRoute]);
+
   useEffect(() => {
     if (!showHomeMenu) return;
 
@@ -481,18 +508,9 @@ export default function PersistentTopBar() {
       }
     }
 
-    function handleDesktopMenuPointerDown(event: PointerEvent) {
-      if (!window.matchMedia('(min-width: 768px)').matches) return;
-      if (!(event.target instanceof Element)) return;
-      if (event.target.closest('.app-menu-drawer, [aria-label="Close app menu"], .modal-overlay')) return;
-      setHomeMenuOpen(false);
-    }
-
     document.addEventListener('keydown', handleDesktopMenuKeyDown);
-    document.addEventListener('pointerdown', handleDesktopMenuPointerDown);
     return () => {
       document.removeEventListener('keydown', handleDesktopMenuKeyDown);
-      document.removeEventListener('pointerdown', handleDesktopMenuPointerDown);
     };
   }, [showHomeMenu]);
 
@@ -569,9 +587,13 @@ export default function PersistentTopBar() {
 
   useEffect(() => {
     function handleHomeMenuState(event: Event) {
-      const customEvent = event as CustomEvent<HomeMenuState>;
+      const customEvent = event as CustomEvent<Partial<HomeMenuState>>;
       if (customEvent.detail) {
-        setHomeMenuState(customEvent.detail);
+        const pending = pendingMenuActionRef.current;
+        if (pending && customEvent.detail.context === 'project' && customEvent.detail.singleProjectId === pending.projectId) {
+          pending.ready = true;
+        }
+        setHomeMenuState((current) => ({ ...current, ...customEvent.detail }));
       }
     }
 
@@ -580,6 +602,13 @@ export default function PersistentTopBar() {
       window.removeEventListener('punchlist-home-menu-state', handleHomeMenuState as EventListener);
     };
   }, []);
+
+  useEffect(() => {
+    const pending = pendingMenuActionRef.current;
+    if (!pending?.ready) return;
+    pendingMenuActionRef.current = null;
+    window.dispatchEvent(new CustomEvent('punchlist-home-menu-action', { detail: pending.detail }));
+  }, [homeMenuState]);
 
   useEffect(() => {
     function handleAreaGroupsState(event: Event) {
@@ -607,22 +636,26 @@ export default function PersistentTopBar() {
   }, []);
 
   function dispatchHomeAction(action: string, sort?: SortOption, areaViewMode?: AreaListViewMode) {
-    window.dispatchEvent(new CustomEvent('punchlist-home-menu-action', {
-      detail: {
-        action,
-        sort,
-        areaViewMode,
-        isSharedProjectOwner: action === 'disconnect-shared-project'
-          ? sharedProjectAccess.isOwner
-          : undefined,
-      },
-    }));
+    const detail = {
+      action,
+      sort,
+      areaViewMode,
+      isSharedProjectOwner: action === 'disconnect-shared-project' ? sharedProjectAccess.isOwner : undefined,
+    };
+    // Area pages handle sync locally so pending notes finish saving first.
+    // Other project actions run once the project page has registered its menu.
+    if (projectId && (isAreaRoute || isReviewRoute) && action !== 'sync-now' && action !== 'clear-trash') {
+      pendingMenuActionRef.current = { projectId, detail, ready: false };
+      router.push(`/project/${projectId}`);
+      return;
+    }
+    window.dispatchEvent(new CustomEvent('punchlist-home-menu-action', { detail }));
   }
 
   async function openRecoverLocks() {
     const sharedProjectId = homeMenuState.sharedProjectId;
     if (!sharedProjectId || !sharedProjectAccess.isOwner) return;
-    setShowHomeMenu(false);
+    closeHomeMenuOnMobile();
     setShowRecoverLocks(true);
     setRecoverLoading(true);
     setRecoverError('');
@@ -739,7 +772,7 @@ export default function PersistentTopBar() {
       <button
         type="button"
         onClick={() => {
-          setHomeMenuOpen(false);
+          closeHomeMenuOnMobile();
           if (syncProjectId && !isAreaRoute) void handleProjectSync();
           else dispatchHomeAction('sync-now');
         }}
@@ -792,7 +825,7 @@ export default function PersistentTopBar() {
             </div>
           )}
         </div>
-        {showAppMenuControl && isReady && (!homeMenuState.showTrash || isAreaRoute) && (
+        {showAppMenuControl && isReady && (isDesktop || !homeMenuState.showTrash || isAreaRoute) && (
           <div ref={menuRef} className="app-menu-top-actions relative flex items-center gap-2">
             {projectSyncing || homeMenuState.syncing ? (
               <div role="status" aria-live="polite" aria-busy="true"
@@ -801,7 +834,7 @@ export default function PersistentTopBar() {
                 Syncing…
               </div>
             ) : renderSharedSyncIndicator()}
-            {!isAreaRoute && !isReviewRoute && (
+            {(isDesktop || (!isAreaRoute && !isReviewRoute)) && (
               <div className="relative h-10 w-10">
                 <button
                   type="button"
@@ -813,7 +846,7 @@ export default function PersistentTopBar() {
                 >
                   {showHomeMenu ? <PanelRightClose className="h-5 w-5" /> : <PanelRightOpen className="h-5 w-5" />}
                 </button>
-                {homeMenuState.isSingleProject &&
+                {!isAreaRoute && !isReviewRoute && homeMenuState.isSingleProject &&
                   !homeMenuState.showTrash &&
                   !homeMenuState.selectionMode && (
                   <button
@@ -837,7 +870,7 @@ export default function PersistentTopBar() {
                     <span className="text-[0.92rem] font-medium">Issues</span>
                   </button>
                 )}
-                {homeMenuState.areaViewMode === 'grouped' &&
+                {!isAreaRoute && !isReviewRoute && homeMenuState.areaViewMode === 'grouped' &&
                   homeMenuState.hasAreaGroups &&
                   !homeMenuState.showTrash &&
                   !homeMenuState.selectionMode && (
@@ -855,7 +888,7 @@ export default function PersistentTopBar() {
                 )}
               </div>
             )}
-            {!isAreaRoute && showHomeMenu && createPortal((
+            {(isDesktop || !isAreaRoute) && showHomeMenu && createPortal((
               <div
                 className="app-menu-drawer menu-surface fixed right-0 z-[120] flex flex-col overflow-hidden border-y-0 border-r-0 p-0 md:top-0 md:h-[100dvh]"
                 role="dialog"
@@ -941,7 +974,7 @@ export default function PersistentTopBar() {
                       <div className={menuGroupLabelClass}>Team</div>
                       <div className={menuListGridClass}>
                         {homeMenuState.isSharedProject && homeMenuState.singleProjectId && (
-                          <Link href={`/project/${homeMenuState.singleProjectId}/review`} onClick={() => setHomeMenuOpen(false)} className={menuRowClass}>
+                          <Link href={`/project/${homeMenuState.singleProjectId}/review`} onClick={closeHomeMenuOnMobile} className={menuRowClass}>
                             <ListChecks className="h-4 w-4 shrink-0" />
                             Review activity
                           </Link>
