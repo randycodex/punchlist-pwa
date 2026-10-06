@@ -1,6 +1,7 @@
 import { Area, Location, Item, Checkpoint } from '@/types';
 import { createLocation, createItem, createCheckpoint } from './db';
 import { getAreaTypeDefinition, resolveAreaTypeKey } from './areas';
+import { isApartmentClosetItem } from './apartmentClosets';
 
 interface TemplateItem {
   name: string;
@@ -272,17 +273,22 @@ const apartmentBaseTemplate: TemplateLocation[] = [
       { name: 'Paint', checkpoints: ['Walls', 'Ceiling'] },
       { name: 'Flooring', checkpoints: ['Adhesion', 'Edges', 'Joints', 'Finish'] },
       { name: 'Base', checkpoints: ['Paint', 'Flush', 'Corners', 'Caulk'] },
-      { name: 'Closet 1 Door', checkpoints: ['Finish', 'Magnetic Catch', 'Hardware', 'Stop', 'Frame Paint'] },
-      { name: 'Closet 1 Interior', checkpoints: ['Paint', 'Shelving', 'Rod', 'Ceiling'] },
-      { name: 'Verizon / Cable', checkpoints: ['Boxes in place', 'Door', 'Clean', 'Caulk'] },
-      { name: 'Closet 2 Door', checkpoints: ['Finish', 'Magnetic Catch', 'Hardware', 'Stop', 'Frame Paint'] },
-      { name: 'Closet 2 Interior', checkpoints: ['Paint', 'Shelving', 'Rod', 'Ceiling'] },
       { name: 'General Paint', checkpoints: ['Wall', 'Ceiling'] },
       { name: 'Light Fixture', checkpoints: ['Operational', 'Bulb', 'Clean', 'Square'] },
       { name: 'Sprinkler', checkpoints: ['Cover', 'Clean', 'Flush'] },
       { name: 'Overall Clean', checkpoints: ['Yes'] },
       { name: 'Elec. Panel', checkpoints: ['Door', 'Clean', 'Flush'] },
       { name: 'Outlets', checkpoints: ['Operational', 'Cover', 'Clean', 'Square'] },
+    ],
+  },
+  {
+    name: 'Closets',
+    items: [
+      { name: 'Closet 1 Door', checkpoints: ['Finish', 'Magnetic Catch', 'Hardware', 'Stop', 'Frame Paint'] },
+      { name: 'Closet 1 Interior', checkpoints: ['Paint', 'Shelving', 'Rod', 'Ceiling'] },
+      { name: 'Verizon / Cable', checkpoints: ['Boxes in place', 'Door', 'Clean', 'Caulk'] },
+      { name: 'Closet 2 Door', checkpoints: ['Finish', 'Magnetic Catch', 'Hardware', 'Stop', 'Frame Paint'] },
+      { name: 'Closet 2 Interior', checkpoints: ['Paint', 'Shelving', 'Rod', 'Ceiling'] },
     ],
   },
   {
@@ -314,18 +320,21 @@ const apartmentBaseTemplate: TemplateLocation[] = [
 
 function getApartmentTemplate(unitType?: Area['unitType']): TemplateLocation[] {
   const template: TemplateLocation[] =
-    unitType === 'Dorm'
-      ? apartmentBaseTemplate.filter((location) => location.name !== 'Bathroom' && location.name !== 'Kitchen')
-      : [...apartmentBaseTemplate];
+    apartmentBaseTemplate
+      .filter((location) => unitType !== 'Dorm' || (location.name !== 'Bathroom' && location.name !== 'Kitchen'))
+      .map((location) => ({ ...location, items: [...location.items] }));
 
   if (unitType === '3BR' || unitType === '4BR') {
+    template.find((location) => location.name === 'Closets')!.items.push(
+      ...corridorItems.filter((item) => isApartmentClosetItem(item.name))
+    );
     template.push({
       name: 'Half Bathroom',
       items: bathroomItems.filter((item) => item.name !== 'Tub / Shower'),
     });
     template.push({
       name: 'Corridor',
-      items: corridorItems,
+      items: corridorItems.filter((item) => !isApartmentClosetItem(item.name)),
     });
   }
 

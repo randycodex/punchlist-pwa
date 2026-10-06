@@ -86,6 +86,7 @@ describe('area list and checklist enhancements', () => {
 
     expect(area.locations.map((location) => location.name)).toEqual([
       'Entry / Foyer',
+      'Closets',
       'Living/Bedroom',
     ]);
   });

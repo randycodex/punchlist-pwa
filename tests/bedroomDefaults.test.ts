@@ -31,7 +31,7 @@ describe('bedroom ceiling defaults', () => {
     applyCheckpointRules(project); applyCheckpointRules(teammate);
     expect(project).toEqual(teammate);
     expect(area.locations[2].items).toEqual([]);
-    for (const room of area.locations.slice(3)) {
+    for (const room of area.locations.filter((room) => room.name.startsWith('Living'))) {
       expect(room.items.map((item) => item.name)).toEqual(['Ceiling']);
       expect(room.items[0].checkpoints.map((c) => c.issueState)).toEqual(['none', 'none']);
     }
