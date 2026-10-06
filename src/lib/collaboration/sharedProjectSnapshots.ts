@@ -10,6 +10,7 @@ import {
   getSharedProjectRecoveryPreview,
   getSharedProjectRecoveryProject,
   type PendingSharedAreaSyncRecord,
+  type UnreadableAttachment,
 } from '@/lib/db';
 import { getCollaborationSupabaseClient } from './supabaseClient';
 import { createCollaborationRealtimeChannel } from './realtimeChannel';
@@ -34,6 +35,7 @@ import {
 } from './sharedProjectMetadata';
 import { settlePendingSharedProjectMetadataSync } from './sharedProjectMetadataSyncQueue';
 import { retryCollaborationOperation } from './request';
+import { fillUploadedAttachmentRecoveryCopies } from './uploadedAttachmentRecovery';
 
 type SnapshotResult = {
   project: Project;
@@ -315,24 +317,23 @@ export async function captureSharedProjectBackup(
 }
 
 /** Fetch matching saved media without applying any remote inspection or revision. */
-export async function getSharedAttachmentRecoveryCopies(localProject: Project, attachmentIds: string[], areaId?: string): Promise<Project> {
+export async function getSharedAttachmentRecoveryCopies(localProject: Project, attachmentIds: string[], areaId?: string, unreadable: UnreadableAttachment[] = []): Promise<Project> {
   const supabase = getCollaborationSupabaseClient();
   if (!supabase || !localProject.sharedProjectId) throw new Error('Collaboration is not configured.');
   const wanted = new Set(attachmentIds);
   const baseline = await supabase.from('shared_project_snapshots')
     .select('project_payload, payload_version, published_at').eq('project_id', localProject.sharedProjectId).maybeSingle();
   if (baseline.error) throw baseline.error;
-  if (!baseline.data) throw new Error('No saved Team copy is available for attachment recovery.');
   let areaQuery = supabase.from('shared_project_area_snapshots')
-    .select('area_payload, payload_version').eq('project_id', localProject.sharedProjectId)
-    .gt('published_at', baseline.data.published_at);
+    .select('area_payload, payload_version').eq('project_id', localProject.sharedProjectId);
+  if (baseline.data) areaQuery = areaQuery.gt('published_at', baseline.data.published_at);
   if (areaId) areaQuery = areaQuery.eq('area_id', areaId);
   const changed = await areaQuery;
   if (changed.error) throw changed.error;
   const photos = new Map<string, PhotoAttachment>();
   const files = new Map<string, FileAttachment>();
   const assets: SharedSnapshotAssetManifest = { photos: {}, files: {}, drawings: {} };
-  const sources = [parseSharedSnapshotPayload(baseline.data.project_payload, baseline.data.payload_version),
+  const sources = [...(baseline.data ? [parseSharedSnapshotPayload(baseline.data.project_payload, baseline.data.payload_version)] : []),
     ...(changed.data ?? []).map((row) => parseSharedSnapshotPayload(row.area_payload, row.payload_version))];
   for (const source of sources) {
     for (const area of source.project.areas) {
@@ -356,15 +357,28 @@ export async function getSharedAttachmentRecoveryCopies(localProject: Project, a
       locations: area.locations.map((room) => ({ ...room, items: room.items.map((item) => ({ ...item,
         checkpoints: item.checkpoints.map((checkpoint) => ({ ...checkpoint,
           photos: checkpoint.photos.flatMap((photo) => {
-            const copy = photos.get(`${checkpoint.id}:${photo.id}`); return copy ? [{ ...copy }] : [];
+            if (!wanted.has(photo.id)) return [];
+            const copy = photos.get(`${checkpoint.id}:${photo.id}`); return [{ ...(copy ?? photo), imageData: copy?.imageData ?? '', thumbnail: copy?.thumbnail }];
           }),
           files: (checkpoint.files ?? []).flatMap((file) => {
-            const copy = files.get(`${checkpoint.id}:${file.id}`); return copy ? [{ ...copy }] : [];
+            if (!wanted.has(file.id)) return [];
+            const copy = files.get(`${checkpoint.id}:${file.id}`); return [{ ...(copy ?? file), data: copy?.data ?? '' }];
           }),
         })),
       })) })),
     })),
   };
+  await fillUploadedAttachmentRecoveryCopies(copies, assets, unreadable);
+  const photoIds = new Set<string>();
+  const fileIds = new Set<string>();
+  for (const area of copies.areas) for (const room of area.locations) for (const item of room.items) for (const checkpoint of item.checkpoints) {
+    checkpoint.photos = checkpoint.photos.filter((photo) => photo.imageData || assets.photos[photo.id]);
+    checkpoint.files = checkpoint.files.filter((file) => file.data || assets.files[file.id]);
+    checkpoint.photos.forEach((photo) => photoIds.add(photo.id));
+    checkpoint.files.forEach((file) => fileIds.add(file.id));
+  }
+  Object.keys(assets.photos).forEach((id) => { if (!photoIds.has(id)) delete assets.photos[id]; });
+  Object.keys(assets.files).forEach((id) => { if (!fileIds.has(id)) delete assets.files[id]; });
   return hydrateSharedSnapshotAssets(copies, assets, localProject.sharedProjectId);
 }
 

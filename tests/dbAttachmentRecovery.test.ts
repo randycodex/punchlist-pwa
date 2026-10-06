@@ -12,12 +12,13 @@ import {
   createProject, createArea, createLocation, createItem, createCheckpoint, createPhotoAttachment,
   getProject, getProjectMetadata, saveProjectPreserveTimestamps, saveAreaNotes, deleteProject,
   getPendingSharedAreaSyncsForProject, getUnreadableAttachmentIds, restoreUnreadableAttachments,
-  listSharedProjectRecoveries, createFileAttachment, resumeReviewedPendingSharedAreaSyncs,
+  listSharedProjectRecoveries, createFileAttachment, resumeReviewedPendingSharedAreaSyncs, getProjectForAreaPreview,
 } from '@/lib/db';
 import { flushPendingSharedAreaSyncs } from '@/lib/collaboration/sharedAreaSyncQueue';
 import { registerLocalMediaRecovery } from '@/lib/localMediaRecovery';
 import { recoverLocalTeamAttachments } from '@/features/sync/recoverLocalTeamAttachments';
 import { stageCaptureDraft, listCaptureDrafts } from '@/lib/captureJournal';
+import { loadProjectForExport } from '@/features/export/loadProjectForExport';
 import type { Project } from '@/types';
 
 let project: Project;
@@ -120,6 +121,102 @@ describe('saved attachment recovery', () => {
     expect(await getPendingSharedAreaSyncsForProject(project.id)).toEqual(queue);
     expect((await getProjectMetadata(project.id))!.areas[0].notes).toBe('Keep unsent work');
     expect(await getUnreadableAttachmentIds(project.id)).toEqual([project.areas[0].locations[0].items[0].checkpoints[0].photos[0].id]);
+  });
+
+  it('opens a read-only display preview with readable media and comments without changing the damaged record or queue', async () => {
+    const checkpoint = project.areas[0].locations[0].items[0].checkpoints[0];
+    checkpoint.comments = 'Keep checkpoint comment';
+    vi.stubGlobal('navigator', { userAgent: 'AppleWebKit Safari' });
+    const readable = createPhotoAttachment(checkpoint.id, 'data:image/png;base64,Yg==');
+    // Preserve the first existing Blob while adding a readable Safari string.
+    await saveAreaNotes(project.id, project.areas[0].id, 'Keep unsent area note');
+    const { saveCheckpointInspectionChange } = await import('@/lib/db');
+    await saveCheckpointInspectionChange(project.id, project.areas[0].id, checkpoint.id, { comments: checkpoint.comments }, [readable]);
+    const queue = await getPendingSharedAreaSyncsForProject(project.id);
+    breakSavedBlobs();
+    const preview = await getProjectForAreaPreview(project.id, project.areas[0].id);
+    const displayed = preview.project!.areas[0].locations[0].items[0].checkpoints[0];
+    expect(preview.unreadableAttachments).toEqual([{ id: checkpoint.photos[0].id, checkpointId: checkpoint.id,
+      areaId: project.areas[0].id, kind: 'photo', size: 1, mimeType: 'image/png' }]);
+    expect(displayed.comments).toBe('Keep checkpoint comment');
+    expect(preview.project!.areas[0].notes).toBe('Keep unsent area note');
+    expect(displayed.photos.map((photo) => photo.id)).toEqual([checkpoint.photos[0].id, readable.id]);
+    expect(displayed.photos[1].imageData).toBe(readable.imageData);
+    expect(await getPendingSharedAreaSyncsForProject(project.id)).toEqual(queue);
+    await expect(getProject(project.id)).rejects.toThrow('opening saved photos and files');
+    expect(await getUnreadableAttachmentIds(project.id)).toEqual([checkpoint.photos[0].id]);
+  });
+
+  it('sends current inspection work using Team bytes even when Safari cannot save the local repair, retaining the original device record', async () => {
+    await saveAreaNotes(project.id, project.areas[0].id, 'Current phone inspection');
+    const queued = (await getPendingSharedAreaSyncsForProject(project.id))[0];
+    copies.mockResolvedValue(structuredClone(project));
+    unregister = registerLocalMediaRecovery(async () => { throw new DOMException('Cannot clone original Safari file', 'NotFoundError'); });
+    breakSavedBlobs();
+    expect(await flushPendingSharedAreaSyncs(project.id)).toEqual({ synced: 1, pending: 0, conflicted: 0 });
+    expect(publish).toHaveBeenCalledOnce();
+    const sent = publish.mock.calls[0][0];
+    expect(sent.clientId).toBe(queued.clientId);
+    expect(sent.baseVersion).toBe(queued.baseVersion);
+    expect(sent.project.areas[0].notes).toBe('Current phone inspection');
+    expect(sent.project.areas[0].locations[0].items[0].checkpoints[0].photos[0].imageData).toBe('data:image/png;base64,YQ==');
+    expect(await getPendingSharedAreaSyncsForProject(project.id)).toEqual([]);
+    expect((await getProjectMetadata(project.id))!.areas[0].notes).toBe('Current phone inspection');
+    expect(await getUnreadableAttachmentIds(project.id)).toHaveLength(1);
+  });
+
+  it('exports selected areas without loading a damaged photo in another unit', async () => {
+    const selected = createArea(project.id, 'Unit 207', 1);
+    selected.notes = 'Selected unit note'; project.areas.push(selected);
+    await saveProjectPreserveTimestamps(project);
+    breakSavedBlobs();
+    const exported = await loadProjectForExport(project.id, 'full', [selected.id]);
+    expect(exported.areas.map((area) => area.id)).toEqual([selected.id]);
+    expect(exported.areas[0].notes).toBe('Selected unit note');
+    expect(copies).not.toHaveBeenCalled();
+    expect(await getUnreadableAttachmentIds(project.id)).toHaveLength(1);
+  });
+
+  it('exports issues without requiring media from a non-issue checkpoint in the selected unit', async () => {
+    const checkpoint = project.areas[0].locations[0].items[0].checkpoints[0];
+    const issue = createCheckpoint(checkpoint.itemId, 'Issue without photos', 1);
+    issue.status = 'needsReview'; issue.issueState = 'open'; issue.comments = 'Keep this issue';
+    project.areas[0].locations[0].items[0].checkpoints.push(issue);
+    await saveProjectPreserveTimestamps(project);
+    breakSavedBlobs();
+    const exported = await loadProjectForExport(project.id, 'issues', [project.areas[0].id]);
+    expect(exported.areas[0].locations[0].items[0].checkpoints[1].comments).toBe('Keep this issue');
+    expect(copies).not.toHaveBeenCalled();
+    expect(await getUnreadableAttachmentIds(project.id)).toHaveLength(1);
+  });
+
+  it('exports local issues with matching Team photos without rewriting the original local media or sync queue', async () => {
+    const checkpoint = project.areas[0].locations[0].items[0].checkpoints[0];
+    const { saveCheckpointInspectionChange } = await import('@/lib/db');
+    await saveCheckpointInspectionChange(project.id, project.areas[0].id, checkpoint.id,
+      { status: 'needsReview', issueState: 'open', comments: 'Unsent phone issue' });
+    const queued = await getPendingSharedAreaSyncsForProject(project.id);
+    copies.mockResolvedValue(structuredClone(project));
+    breakSavedBlobs();
+    const exported = await loadProjectForExport(project.id, 'issues', [project.areas[0].id]);
+    expect(exported.areas[0].locations[0].items[0].checkpoints[0]).toMatchObject({
+      comments: 'Unsent phone issue', status: 'needsReview', issueState: 'open', photos: checkpoint.photos,
+    });
+    expect(await getPendingSharedAreaSyncsForProject(project.id)).toEqual(queued);
+    expect(await getUnreadableAttachmentIds(project.id)).toHaveLength(1);
+  });
+
+  it('refuses an incomplete export when the required photo has no recoverable Team copy', async () => {
+    const checkpoint = project.areas[0].locations[0].items[0].checkpoints[0];
+    const { saveCheckpointInspectionChange } = await import('@/lib/db');
+    await saveCheckpointInspectionChange(project.id, project.areas[0].id, checkpoint.id, { status: 'needsReview', issueState: 'open' });
+    const queued = await getPendingSharedAreaSyncsForProject(project.id);
+    const remote = structuredClone(project); remote.areas[0].locations[0].items[0].checkpoints[0].photos = [];
+    copies.mockResolvedValue(remote);
+    breakSavedBlobs();
+    await expect(loadProjectForExport(project.id, 'issues', [project.areas[0].id])).rejects.toThrow('attachment(s) still need recovery');
+    expect(await getPendingSharedAreaSyncsForProject(project.id)).toEqual(queued);
+    expect(await getUnreadableAttachmentIds(project.id)).toHaveLength(1);
   });
 
   it('does not repair under an account that changed during download', async () => {

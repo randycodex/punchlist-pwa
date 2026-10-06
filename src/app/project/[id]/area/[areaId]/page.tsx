@@ -34,6 +34,7 @@ import {
   saveProjectArea,
   saveCheckpointInspectionChange,
   saveProjectAreaMetadataOnly,
+  type UnreadableAttachment,
   createPhotoAttachment,
   createFileAttachment,
   createLocation,
@@ -166,8 +167,12 @@ export default function AreaDetailPage() {
   const cachedArea = cachedProject?.areas.find((entry) => entry.id === areaId && !entry.deletedAt) ?? null;
   const [project, setProject] = useState<Project | null>(() => (cachedArea ? cachedProject : null));
   const [area, setArea] = useState<Area | null>(() => cachedArea);
-  const [loading, setLoading] = useState(() => !cachedArea);
+  const [loading, setLoading] = useState(true);
   const [areaLoadError, setAreaLoadError] = useState<Error | null>(null);
+  const [unreadableAttachments, setUnreadableAttachments] = useState<UnreadableAttachment[]>([]);
+  const [mediaRecoveryError, setMediaRecoveryError] = useState<Error | undefined>();
+  const [retryingMedia, setRetryingMedia] = useState(false);
+  const unreadableMediaRef = useRef(false);
   const loadRequestRef = useRef(0);
   const [expandedLocations, setExpandedLocations] = useState<Set<string>>(new Set());
   const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set());
@@ -304,7 +309,7 @@ export default function AreaDetailPage() {
   }, [markSharedUpdateAvailable]);
 
   function sharedAreaEditsAreBlocked() {
-    return Boolean(projectRef.current?.sharedProjectId && shouldBlockSharedAreaEdits(
+    return unreadableMediaRef.current || Boolean(projectRef.current?.sharedProjectId && shouldBlockSharedAreaEdits(
       hasAreaClaim,
       areaClaimProblemRef.current?.kind ?? null
     ));
@@ -536,6 +541,14 @@ export default function AreaDetailPage() {
       return;
     }
 
+    if (unreadableAttachments.length) {
+      setAreaClaimError(null);
+      setAreaClaimProblem(null);
+      setHasAreaClaim(false);
+      setClaimingArea(false);
+      return;
+    }
+
     if (!collaborationAuth.isSignedIn) {
       setAreaClaimError(TEAM_PROJECTS_SIGNIN_HINT);
       setAreaClaimProblem({ kind: 'lost', message: TEAM_PROJECTS_SIGNIN_HINT });
@@ -587,7 +600,7 @@ export default function AreaDetailPage() {
     return () => {
       cancelled = true;
     };
-  }, [area?.id, areaClaimRetryNonce, collaborationAuth.isSignedIn, project?.id, project?.sharedProjectId, markSharedUpdateAvailable]);
+  }, [area?.id, areaClaimRetryNonce, collaborationAuth.isSignedIn, project?.id, project?.sharedProjectId, markSharedUpdateAvailable, unreadableAttachments.length]);
 
   useEffect(() => {
     const sharedProjectId = project?.sharedProjectId;
@@ -662,8 +675,20 @@ export default function AreaDetailPage() {
     const request = ++loadRequestRef.current;
     const isCurrent = () => request === loadRequestRef.current;
     try {
-      const { project: nextProject, area: areaData, returnToHome: nextReturnToHome } = await loadInspectionArea(id, areaId);
+      const { project: nextProject, area: areaData, returnToHome: nextReturnToHome, unreadableAttachments: unreadable, mediaError } = await loadInspectionArea(id, areaId);
       if (!isCurrent()) return;
+      unreadableMediaRef.current = unreadable.length > 0;
+      setUnreadableAttachments(unreadable);
+      setMediaRecoveryError(mediaError);
+      if (unreadable.length) {
+        // A display preview must never run template migrations or save blank
+        // attachment payloads. All sync and export paths keep strict reads.
+        setReturnToHome(nextReturnToHome);
+        setAreaLoadError(null);
+        setProject(nextProject);
+        setArea(areaData);
+        return;
+      }
       let inspectionHierarchyChanged = dedupeInspectionHierarchy(areaData);
       const normalizedLocations = areaData.locations.filter(
         (location) => location.name.trim().toLowerCase() !== OTHER_LOCATION_NAME.toLowerCase()
@@ -703,7 +728,7 @@ export default function AreaDetailPage() {
       console.error('Failed to load data:', error);
       if (isCurrent()) setAreaLoadError(error instanceof Error ? error : new Error(String(error)));
     } finally {
-      if (isCurrent()) setLoading(false);
+      if (isCurrent()) { setLoading(false); setRetryingMedia(false); }
     }
   }
 
@@ -2104,7 +2129,7 @@ export default function AreaDetailPage() {
     : null;
 
   const visibleAreaClaimProblem = project.sharedProjectId ? areaClaimProblem : null;
-  const areaEditingLocked = Boolean(project.sharedProjectId && shouldBlockSharedAreaEdits(
+  const areaEditingLocked = unreadableAttachments.length > 0 || Boolean(project.sharedProjectId && shouldBlockSharedAreaEdits(
     hasAreaClaim,
     visibleAreaClaimProblem?.kind ?? null
   ));
@@ -2116,6 +2141,7 @@ export default function AreaDetailPage() {
   const canReleaseAreaClaim = Boolean(
     project.sharedProjectId &&
     hasAreaClaim &&
+    !unreadableAttachments.length &&
     !claimingArea &&
     !areaClaimError &&
     !areaClaimProblem
@@ -2270,6 +2296,24 @@ export default function AreaDetailPage() {
         </div>
       </header>
 
+      {unreadableAttachments.length > 0 && (
+        <div className="shrink-0 border-b bg-amber-50 px-4 py-3 text-sm text-amber-950 dark:bg-amber-400/10 dark:text-amber-100" role="alert">
+          <div className="mx-auto w-full max-w-6xl space-y-2">
+            <p className="font-semibold">Saved inspection opened · Attachment recovery needed</p>
+            <p>{new Set(unreadableAttachments.map((entry) => entry.id)).size} saved attachment(s) could not be fully read. Your results, comments, and pending changes are kept. This unit is read-only until local recovery finishes. Check Sync This Project to confirm what reached the team.</p>
+            <p className="text-xs">Keep this browser’s saved data intact. Retry while online.</p>
+            <div className="flex flex-wrap gap-2">
+              <button type="button" disabled={retryingMedia} className="min-h-11 rounded-xl soft-control px-3 font-semibold disabled:opacity-50" onClick={() => { setRetryingMedia(true); void loadDataRef.current(); }}>{retryingMedia ? 'Checking attachments…' : 'Retry attachment recovery'}</button>
+              <button type="button" className="min-h-11 rounded-xl soft-control px-3 font-semibold" onClick={() => {
+                const details = ['Punchlist attachment recovery', `Page: ${window.location.pathname}`, `Message: ${mediaRecoveryError?.message ?? 'Saved attachment could not be read.'}`,
+                  ...unreadableAttachments.map((entry) => `${entry.kind}: ${entry.id}; checkpoint: ${entry.checkpointId}`)].join('\n');
+                void navigator.clipboard?.writeText(details);
+              }}>Copy recovery details</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {areaClaimError && !visibleAreaClaimProblem && (
         <div className="shrink-0 border-b border-transparent bg-amber-50 px-4 py-2 text-sm text-amber-900 dark:border-amber-400/20 dark:bg-amber-400/10 dark:text-amber-100">
           {areaClaimError}
@@ -2345,7 +2389,7 @@ export default function AreaDetailPage() {
           const restored = await getProjectForArea(project.id, area.id);
           if (restored) { setProject(restored); setArea(restored.areas.find((entry) => entry.id === area.id) ?? null); scheduleSync(project.id); }
         }} />
-        {areaEditingLocked ? <ReadOnlyArea area={area} /> : <div className="list-stack mx-auto min-h-[calc(100%+1px)] w-full max-w-6xl">
+        {areaEditingLocked ? <ReadOnlyArea area={area} unreadableAttachments={unreadableAttachments} /> : <div className="list-stack mx-auto min-h-[calc(100%+1px)] w-full max-w-6xl">
           {!deleteMode && area.areaTypeKey === 'facade' && elevationDrawing && (
             <FacadeElevationViewer
               drawing={elevationDrawing}

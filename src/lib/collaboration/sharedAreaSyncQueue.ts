@@ -3,7 +3,6 @@ import {
   completePendingSharedAreaSync,
   discardPendingSharedAreaSync,
   getPendingSharedAreaSyncs,
-  getProjectForArea,
   queuePendingSharedAreaSyncs,
   rebasePendingSharedAreaSyncsForReview,
   recordPendingSharedAreaSyncFailure,
@@ -11,6 +10,8 @@ import {
 } from '@/lib/db';
 import type { Project } from '@/types';
 import { ProjectPayloadValidationError } from '@/lib/projectPayload';
+import { getLocalMediaRecoveryMessage } from '@/lib/localMediaRecovery';
+import { loadAreaWithRecoveredMedia } from '@/features/sync/loadAreaWithRecoveredMedia';
 import { getSharedSyncFailureCode, isPendingSharedSyncVersionConflict } from './sharedSyncFailure';
 import { getCollaborationSupabaseClient } from './supabaseClient';
 import {
@@ -184,7 +185,7 @@ async function syncRecord(
 ): Promise<'synced' | 'pending' | 'conflict'> {
   if (record.blockedByConflict) return isPendingSharedSyncVersionConflict(record) ? 'conflict' : 'pending';
   try {
-    const project = await getProjectForArea(record.localProjectId, record.areaId);
+    const project = await loadAreaWithRecoveredMedia(record.localProjectId, record.areaId);
     if (!project || project.sharedProjectId !== record.sharedProjectId) {
       await discardPendingSharedAreaSync(record.key);
       return 'synced';
@@ -225,7 +226,9 @@ async function syncRecord(
     }
     return 'synced';
   } catch (error) {
-    const message = getErrorMessage(error);
+    const recovery = error instanceof Error && error.message.includes('opening saved photos and files')
+      ? getLocalMediaRecoveryMessage(record.localProjectId, record.areaId) : undefined;
+    const message = `${getErrorMessage(error)}${recovery ? ` ${recovery}` : ''}`;
     const conflicted = isSharedProjectAreaConflictError(error);
     const pauseRetry = shouldPauseAutomaticRetry(error);
     const errorCode = conflicted ? '40001' : getSharedSyncFailureCode(error);

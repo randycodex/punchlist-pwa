@@ -36,6 +36,15 @@ interface CheckpointMediaRecord {
   files: StoredFileAttachment[];
 }
 
+export type UnreadableAttachment = {
+  id: string;
+  checkpointId: string;
+  areaId: string;
+  kind: 'photo' | 'thumbnail' | 'file';
+  size?: number;
+  mimeType?: string;
+};
+
 interface ElevationDrawingRecord extends FacadeElevationDrawing {
   projectId: string;
 }
@@ -454,16 +463,26 @@ function compactMediaRecord(record: CheckpointMediaRecord): CheckpointMediaRecor
   };
 }
 
-async function hydrateMediaRecord(record: CheckpointMediaRecord) {
+async function hydrateMediaRecord(record: CheckpointMediaRecord, unreadable?: UnreadableAttachment[]) {
+  async function read(payload: string | Blob | undefined, id: string, kind: UnreadableAttachment['kind']) {
+    try { return await storedPayloadToDataUrl(payload); }
+    catch (error) {
+      if (!unreadable) throw error;
+      unreadable.push({ id, checkpointId: record.checkpointId, areaId: record.areaId, kind,
+        ...(payload instanceof Blob ? { size: payload.size, mimeType: payload.type } : {}),
+      });
+      return undefined;
+    }
+  }
   return {
     photos: await Promise.all(record.photos.map(async (photo): Promise<PhotoAttachment> => ({
       ...photo,
-      imageData: (await storedPayloadToDataUrl(photo.imageData)) ?? '',
-      thumbnail: await storedPayloadToDataUrl(photo.thumbnail),
+      imageData: (await read(photo.imageData, photo.id, 'photo')) ?? '',
+      thumbnail: await read(photo.thumbnail, photo.id, 'thumbnail'),
     }))),
     files: await Promise.all(record.files.map(async (file): Promise<FileAttachment> => ({
       ...file,
-      data: (await storedPayloadToDataUrl(file.data)) ?? '',
+      data: (await read(file.data, file.id, 'file')) ?? '',
     }))),
   };
 }
@@ -471,14 +490,15 @@ async function hydrateMediaRecord(record: CheckpointMediaRecord) {
 async function hydrateProjectMedia(
   project: Project,
   mediaRecords: CheckpointMediaRecord[],
-  targetAreaId?: string
+  targetAreaId?: string,
+  unreadable?: UnreadableAttachment[]
 ): Promise<Project> {
   if (mediaRecords.length === 0) {
     return project;
   }
 
   const hydratedMediaRecords = await Promise.all(
-    mediaRecords.map(async (record) => [record.checkpointId, await hydrateMediaRecord(record)] as const)
+    mediaRecords.map(async (record) => [record.checkpointId, await hydrateMediaRecord(record, unreadable)] as const)
   );
   const mediaByCheckpoint = new Map(hydratedMediaRecords);
 
@@ -765,7 +785,7 @@ async function readProjectDrawingRecords(db: IDBPDatabase<PunchListDB>, projectI
   }
 }
 
-async function readProjectOnce(id: string, areaId?: string): Promise<Project | undefined> {
+async function readProjectOnce(id: string, areaId?: string, unreadable?: UnreadableAttachment[]): Promise<Project | undefined> {
   let stage = 'opening Safari storage';
   try {
     const db = await getDB();
@@ -778,7 +798,7 @@ async function readProjectOnce(id: string, areaId?: string): Promise<Project | u
     stage = 'reading saved drawings';
     const drawingRecords = await readProjectDrawingRecords(db, id);
     stage = 'opening saved photos and files';
-    const projectWithMedia = await hydrateProjectMedia(project, mediaRecords, areaId);
+    const projectWithMedia = await hydrateProjectMedia(project, mediaRecords, areaId, unreadable);
     return hydrateProjectElevationDrawings(projectWithMedia, drawingRecords);
   } catch (error) {
     const detail = error && typeof error === 'object' && 'message' in error && typeof error.message === 'string'
@@ -808,20 +828,15 @@ async function readProjectWithRetry(id: string, areaId?: string): Promise<Projec
 }
 
 export async function getUnreadableAttachmentIds(projectId: string, areaId?: string) {
-  const records = await readProjectMediaRecords(await getDB(), projectId, areaId);
-  const ids: string[] = [];
-  for (const record of records) {
-    for (const photo of record.photos) {
-      try { await storedPayloadToDataUrl(photo.imageData); } catch { ids.push(photo.id); }
-      if (photo.thumbnail) {
-        try { await storedPayloadToDataUrl(photo.thumbnail); } catch { ids.push(photo.id); }
-      }
-    }
-    for (const file of record.files) {
-      try { await storedPayloadToDataUrl(file.data); } catch { ids.push(file.id); }
-    }
+  return [...new Set((await getUnreadableAttachments(projectId, areaId)).map((entry) => entry.id))];
+}
+
+export async function getUnreadableAttachments(projectId: string, areaId?: string) {
+  const unreadable: UnreadableAttachment[] = [];
+  for (const record of await readProjectMediaRecords(await getDB(), projectId, areaId)) {
+    await hydrateMediaRecord(record, unreadable);
   }
-  return [...new Set(ids)];
+  return unreadable;
 }
 
 /** Restore only unreadable attachment bytes; inspection data and queues stay untouched. */
@@ -906,6 +921,13 @@ export async function getProject(id: string): Promise<Project | undefined> {
 
 export async function getProjectForArea(id: string, areaId: string): Promise<Project | undefined> {
   return readProjectWithRetry(id, areaId);
+}
+
+/** Display only. Missing bytes stay in IndexedDB; sync/export reads remain strict. */
+export async function getProjectForAreaPreview(id: string, areaId: string) {
+  const unreadableAttachments: UnreadableAttachment[] = [];
+  const project = await readProjectOnce(id, areaId, unreadableAttachments);
+  return { project, unreadableAttachments };
 }
 
 export async function getProjectMetadata(id: string): Promise<Project | undefined> {

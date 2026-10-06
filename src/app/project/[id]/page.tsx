@@ -3,6 +3,7 @@
 import { acknowledgePublishedSharedProject, captureLocalProjectSaveToken, saveDownloadedProjectIfUnchanged, saveReviewedSharedProject } from '@/lib/db';
 
 import AreaListReturnPosition from '@/features/projects/AreaListReturnPosition';
+import { loadProjectForExport } from '@/features/export/loadProjectForExport';
 
 import { applyCheckpointRules } from '@/lib/checkpointRules';
 
@@ -791,11 +792,12 @@ export default function ProjectDetailPage() {
         signIn();
         return;
       }
-      const projectForExport = token
+      const projectForExport = token && !project.sharedProjectId
         ? await hydrateProjectMediaFromOneDrive(token, project.id)
-        : await getProject(project.id);
+        : await loadProjectForExport(project.id, reportContent, sortedAreaIds);
       const { generateProjectPDF, downloadPDF } = await import('@/lib/pdfExport');
-      const blob = await generateProjectPDF(projectForExport ?? project, reportContent, { areaIds: sortedAreaIds });
+      if (!projectForExport) throw new Error('This project could not be loaded for export.');
+      const blob = await generateProjectPDF(projectForExport, reportContent, { areaIds: sortedAreaIds });
       if (destination === 'local') {
         const filename = `${sanitizeExportNamePart(project.projectName)}_Selected_Areas_${formatDateForExport()}.pdf`;
         downloadPDF(blob, filename);
@@ -812,7 +814,7 @@ export default function ProjectDetailPage() {
       }
     } catch (error) {
       console.error('Failed to export selected areas:', error);
-      showMessage('Failed to export selected areas. Please try again.');
+      showMessage(error instanceof Error ? error.message : 'Failed to export selected areas. Please try again.');
     } finally {
       setExportingSelectedAreas(false);
       setDeleteMode(false);
@@ -831,11 +833,12 @@ export default function ProjectDetailPage() {
         signIn();
         return;
       }
-      const projectForExport = token
+      const projectForExport = token && !project.sharedProjectId
         ? await hydrateProjectMediaFromOneDrive(token, project.id)
-        : await getProject(project.id);
+        : await loadProjectForExport(project.id, reportContent);
       const { generateProjectPDF, downloadPDF } = await import('@/lib/pdfExport');
-      const blob = await generateProjectPDF(projectForExport ?? project, reportContent);
+      if (!projectForExport) throw new Error('This project could not be loaded for export.');
+      const blob = await generateProjectPDF(projectForExport, reportContent);
       if (destination === 'local') {
         const filename = `${sanitizeExportNamePart(project.projectName)}_${reportContent === 'issues' ? 'Issues' : 'Inspection_Record'}_${formatDateForExport()}.pdf`;
         downloadPDF(blob, filename);
@@ -852,7 +855,7 @@ export default function ProjectDetailPage() {
       }
     } catch (error) {
       console.error('Failed to export project:', error);
-      showMessage('Failed to export project. Please try again.');
+      showMessage(error instanceof Error ? error.message : 'Failed to export project. Please try again.');
     } finally {
       setExportingSelectedAreas(false);
     }
