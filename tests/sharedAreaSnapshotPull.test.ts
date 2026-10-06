@@ -41,11 +41,29 @@ vi.mock('@/lib/collaboration/supabaseClient', () => ({
 import {
   getSharedProjectSnapshot,
   getSharedProjectSnapshotMetadata,
+  hasNewerSharedProjectRevisions,
 } from '@/lib/collaboration/sharedProjectSnapshots';
 
 describe('area-scoped shared snapshot pulls', () => {
   beforeEach(() => {
     fromMock.mockReset();
+  });
+
+  it('detects an older missing area update even after this browser sent a newer area', async () => {
+    const local = project('Local area');
+    local.sharedBaselinePublishedAt = new Date(basePublishedAt);
+    local.sharedSnapshotPublishedAt = new Date(metadataPublishedAt);
+    local.areas[0].sharedVersion = 2;
+    fromMock.mockImplementation((table: string) => {
+      const query = {
+        select: () => query, eq: () => query,
+        gt: async () => ({ data: [{ area_id: 'area-1', version: 3 }], error: null }),
+        maybeSingle: async () => ({ data: { published_at: basePublishedAt }, error: null }),
+      };
+      expect(['shared_project_snapshots', 'shared_project_area_snapshots']).toContain(table);
+      return query;
+    });
+    expect(await hasNewerSharedProjectRevisions(local)).toBe(true);
   });
 
   it('overlays only area rows newer than the full baseline', async () => {

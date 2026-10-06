@@ -31,7 +31,7 @@ export async function releaseSharedArea({ localProjectId, sharedProjectId, areaI
       : fallback;
     throw new Error(`This area stayed locked. ${detail}`);
   }
-  // This rechecks retained drafts, the durable queue, device ownership and the
+  // This rechecks retained drafts, the durable queue, account ownership and the
   // confirmed area version while holding the local persistence lock.
   await releaseSharedProjectArea(sharedProjectId, areaId, localProjectId);
 }

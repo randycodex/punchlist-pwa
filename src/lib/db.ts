@@ -1182,8 +1182,11 @@ export async function captureLocalProjectSaveToken(projectId: string): Promise<s
 }
 
 /** Apply downloaded data only if no local project write changed its source. */
-export async function saveDownloadedProjectIfUnchanged(project: Project, expectedToken: string | null, options: { resetSharedQueues?: boolean; captureRecovery?: boolean } = {}): Promise<boolean> {
-  const saved = await runLocalPersistence(() => saveProjectInternal(project, { touch: false, expectedToken, resetSharedQueues: options.resetSharedQueues, captureRecovery: options.captureRecovery }));
+export async function saveDownloadedProjectIfUnchanged(project: Project, expectedToken: string | null, options: { resetSharedQueues?: boolean; captureRecovery?: boolean; canApply?: () => boolean } = {}): Promise<boolean> {
+  const saved = await runLocalPersistence(async () => {
+    if (await hasProjectCaptureDrafts(project.id) || options.canApply?.() === false) return false;
+    return saveProjectInternal(project, { touch: false, expectedToken, resetSharedQueues: options.resetSharedQueues, captureRecovery: options.captureRecovery });
+  });
   if (saved && options.resetSharedQueues) reportSharedSyncQueueChanged();
   return saved;
 }

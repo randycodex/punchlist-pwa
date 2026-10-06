@@ -23,7 +23,6 @@ import {
   resumePendingSharedAreaSyncs,
   subscribeToSharedProjectAreaClaimChanges,
 } from '@/lib/collaboration';
-import { getCollaborationDeviceId } from '@/lib/collaboration/deviceIdentity';
 import { getCheckpointIssueState, type Area, type Checkpoint, type IssueState, type Project } from '@/types';
 
 const PhotoCapture = dynamic(() => import('@/components/PhotoCapture'), { ssr: false });
@@ -84,7 +83,7 @@ export default function ProjectReviewPage() {
       void getActiveSharedProjectAreaClaims(sharedProjectId).then((claims) => {
         if (!active) return;
         const mine = new Set(claims.filter((claim) =>
-          claim.claimedByUserId === userId && claim.deviceId === getCollaborationDeviceId()
+          claim.claimedByUserId === userId
         ).map((claim) => claim.areaId));
         const retained = new Set([...claimedAreaIds].filter((areaId) => mine.has(areaId)));
         if (retained.size < claimedAreaIds.size) {

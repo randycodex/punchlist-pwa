@@ -17,12 +17,11 @@ export function isAreaClaimActive(
 
 export function canUserEditClaimedArea(
   claim: Pick<CollaborationAreaClaim, 'claimedByUserId' | 'status' | 'expiresAt' | 'deviceId'> | null | undefined,
-  userId: string,
-  deviceId?: string
+  userId: string
 ) {
   if (!claim) return true;
   if (!isAreaClaimActive(claim)) return true;
-  return claim.claimedByUserId === userId && (!claim.deviceId || claim.deviceId === deviceId);
+  return claim.claimedByUserId === userId;
 }
 
 function reviveAreaClaim(
@@ -123,7 +122,7 @@ export async function claimSharedProjectArea(sharedProjectId: string, areaId: st
         throw existingClaimError;
       }
 
-      if (existingClaim?.claimed_by_user_id && existingClaim.claimed_by_user_id === currentUserId && existingClaim.device_id === getCollaborationDeviceId()) {
+      if (existingClaim?.claimed_by_user_id && existingClaim.claimed_by_user_id === currentUserId) {
         const revivedClaim = reviveAreaClaim(existingClaim);
         return {
           id: revivedClaim.id,
@@ -284,7 +283,11 @@ export async function releaseSharedProjectArea(sharedProjectId: string, areaId: 
   const claims = await getActiveSharedProjectAreaClaims(sharedProjectId);
   const claim = claims.find((entry) => entry.areaId === areaId);
   if (!claim) return;
-  if (claim.deviceId !== getCollaborationDeviceId()) throw new Error('Release this lock on the device that claimed it.');
+  const supabase = getCollaborationSupabaseClient();
+  if (!supabase) throw new Error('Collaboration is not configured.');
+  const { data, error } = await supabase.auth.getUser();
+  if (error) throw error;
+  if (!data.user || claim.claimedByUserId !== data.user.id) throw new Error('Only the claiming account can release this area.');
   await releaseVerifiedClaim(claim, localProjectId);
 }
 
@@ -310,7 +313,8 @@ export async function releaseAbandonedSharedProjectArea(
 }
 
 /**
- * Releases every active area lock held by the signed-in user on one shared project.
+ * Automatic sync cleanup releases only locks originating on this browser.
+ * Explicit area release accepts the same account from any browser or device.
  * Other people's locks are left alone.
  */
 export async function releaseAllMySharedProjectAreaClaims(sharedProjectId: string, localProjectId: string) {

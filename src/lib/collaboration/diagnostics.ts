@@ -66,7 +66,7 @@ const expectedProbeDenials: Record<string, string[]> = {
   publish_area_snapshot: ['Update and sign in on this device before syncing team areas.'],
   backup_snapshot: ['Shared project backups require an authenticated user.', 'You do not have access to back up this shared project.'],
   claim_area: ['Sign in on this device before claiming an area.'],
-  release_area: ['Sign in on the claiming device before releasing an area.'],
+  release_area: ['Sign in on the claiming device before releasing an area.', 'Sign in to the claiming account before releasing an area.'],
   transfer_ownership: ['Shared projects require an authenticated user.', 'Ownership transfer requires an allowed email address.', 'Shared project was not found.'],
 };
 

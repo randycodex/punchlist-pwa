@@ -6,7 +6,7 @@ const { publishMock, rpcMock, fromMock, getSessionMock } = vi.hoisted(() => ({
 
 vi.mock('@/lib/collaboration/supabaseClient', () => ({
   getCollaborationSupabaseClient: () => ({
-    auth: { getSession: getSessionMock }, from: fromMock, rpc: rpcMock,
+    auth: { getSession: getSessionMock, getUser: async () => ({ data: { user: { id: 'member' } }, error: null }) }, from: fromMock, rpc: rpcMock,
   }),
 }));
 vi.mock('@/lib/collaboration/deviceIdentity', () => ({ getCollaborationDeviceId: () => 'this-phone' }));

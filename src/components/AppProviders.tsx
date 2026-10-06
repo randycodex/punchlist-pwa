@@ -7,6 +7,7 @@ import { MicrosoftAuthProvider } from '@/contexts/MicrosoftAuthContext';
 import { CollaborationAuthProvider } from '@/contexts/CollaborationAuthContext';
 import { SyncStatusProvider } from '@/contexts/SyncStatusContext';
 import { AppSettingsProvider } from '@/contexts/AppSettingsContext';
+import AccountSync from '@/features/sync/AccountSync';
 
 export default function AppProviders({ children }: { children: ReactNode }) {
   return (
@@ -16,6 +17,7 @@ export default function AppProviders({ children }: { children: ReactNode }) {
           <AppSettingsProvider>
             <ThemeProvider>
               <OfflineAppStatus />
+              <AccountSync />
               {children}
             </ThemeProvider>
           </AppSettingsProvider>

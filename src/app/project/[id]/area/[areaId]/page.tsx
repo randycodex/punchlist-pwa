@@ -1,8 +1,8 @@
 'use client';
 
-import { getCollaborationDeviceId } from '@/lib/collaboration/deviceIdentity';
 import { saveRecoverableAreaNote } from '@/features/inspection/captureRecovery';
 import { releaseSharedArea } from '@/features/collaboration/releaseSharedArea';
+import { refreshSharedProject } from '@/features/sync/refreshSharedProject';
 import {
   CHECKPOINT_COMMENT_HISTORY_STORAGE_KEY,
   getCheckpointRecentComments,
@@ -497,7 +497,6 @@ export default function AreaDetailPage() {
     const unsubscribeAreaChanges = subscribeToSharedProjectAreaSnapshotChanges(
       activeSharedProjectId,
       (change) => {
-        if (change.publishedByUserId === collaborationAuth.user?.id) return;
         const currentProject = projectRef.current;
         if (!currentProject || currentProject.id !== localProjectId) return;
         if (!change.publishedAt || isSharedSnapshotNewer(currentProject, change.publishedAt)) {
@@ -523,6 +522,7 @@ export default function AreaDetailPage() {
   useEffect(() => {
     const sharedProjectId = project?.sharedProjectId;
     const currentAreaId = area?.id;
+    const localProjectId = project?.id;
     if (!sharedProjectId || !currentAreaId) {
       setAreaClaimError(null);
       setAreaClaimProblem(null);
@@ -545,7 +545,15 @@ export default function AreaDetailPage() {
     setAreaClaimProblem(null);
     setHasAreaClaim(false);
 
-    void claimSharedProjectArea(sharedProjectId, currentAreaId)
+    void (async () => {
+      // Another browser using this account may already have sent newer work.
+      // Refresh before enabling edits; pending local captures require review.
+      const result = await refreshSharedProject(localProjectId!, () => !cancelled);
+      if (cancelled) return;
+      if (result === 'updated') await loadDataRef.current();
+      if (result === 'review') markSharedUpdateAvailable(localProjectId!);
+      if (!cancelled) return claimSharedProjectArea(sharedProjectId, currentAreaId);
+    })()
       .then(() => {
         if (!cancelled) {
           setAreaClaimError(null);
@@ -574,7 +582,7 @@ export default function AreaDetailPage() {
     return () => {
       cancelled = true;
     };
-  }, [area?.id, areaClaimRetryNonce, collaborationAuth.isSignedIn, project?.sharedProjectId]);
+  }, [area?.id, areaClaimRetryNonce, collaborationAuth.isSignedIn, project?.id, project?.sharedProjectId, markSharedUpdateAvailable]);
 
   useEffect(() => {
     const sharedProjectId = project?.sharedProjectId;
@@ -586,7 +594,7 @@ export default function AreaDetailPage() {
       void getActiveSharedProjectAreaClaims(sharedProjectId).then((claims) => {
         if (!active) return;
         const current = claims.find((claim) => claim.areaId === currentAreaId);
-        if (current?.claimedByUserId === userId && current.deviceId === getCollaborationDeviceId()) return;
+        if (current?.claimedByUserId === userId) return;
         setHasAreaClaim(false);
         setAreaClaimProblem({
           kind: 'blocked',

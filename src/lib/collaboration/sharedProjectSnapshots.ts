@@ -386,6 +386,27 @@ export async function getSharedProjectSnapshot(localProject: Project): Promise<S
   };
 }
 
+/** Check all area revisions, even when this browser sent a newer unrelated area. */
+export async function hasNewerSharedProjectRevisions(project: Project): Promise<boolean> {
+  const supabase = getCollaborationSupabaseClient();
+  if (!supabase || !project.sharedProjectId) throw new Error('Collaboration is not configured.');
+  const snapshot = await supabase.from('shared_project_snapshots').select('published_at')
+    .eq('project_id', project.sharedProjectId).maybeSingle();
+  if (snapshot.error) throw snapshot.error;
+  if (!snapshot.data) return false;
+  const baseline = project.sharedBaselinePublishedAt ?? project.sharedSnapshotPublishedAt;
+  if (!baseline || new Date(snapshot.data.published_at).getTime() > new Date(baseline).getTime()) return true;
+  const areas = await supabase.from('shared_project_area_snapshots').select('area_id, version')
+    .eq('project_id', project.sharedProjectId).gt('published_at', snapshot.data.published_at);
+  if (areas.error) throw areas.error;
+  const localVersions = new Map(project.areas.map((area) => [area.id, area.sharedVersion ?? 0]));
+  if (areas.data?.some((area) => area.version > (localVersions.get(area.area_id) ?? 0))) return true;
+  const metadata = await supabase.from('shared_project_metadata_snapshots').select('version')
+    .eq('project_id', project.sharedProjectId).gt('published_at', snapshot.data.published_at).maybeSingle();
+  if (metadata.error) throw metadata.error;
+  return (metadata.data?.version ?? 0) > (project.sharedMetadataVersion ?? 0);
+}
+
 export async function getSharedProjectSnapshotMetadata(sharedProjectId: string): Promise<SnapshotMetadata | null> {
   const supabase = getCollaborationSupabaseClient();
   if (!supabase) {

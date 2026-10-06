@@ -24,6 +24,7 @@ import {
   shouldBlockSharedAreaEdits,
   releaseAllMySharedProjectAreaClaims,
   releaseAbandonedSharedProjectArea,
+  releaseSharedProjectArea,
 } from '@/lib/collaboration/areaClaims';
 
 describe('persistent shared area claims', () => {
@@ -57,11 +58,11 @@ describe('persistent shared area claims', () => {
     expect(isSharedAreaClaimBlockedError(new Error('Failed to fetch'))).toBe(false);
   });
 
-  it('requires the matching device for a device-bound edit permission', () => {
+  it('allows the claiming account to edit on any device', () => {
     const claim = { status: 'active' as const, claimedByUserId: 'claimant', deviceId: 'phone' };
-    expect(canUserEditClaimedArea(claim, 'claimant', 'phone')).toBe(true);
-    expect(canUserEditClaimedArea(claim, 'claimant', 'computer')).toBe(false);
-    expect(canUserEditClaimedArea(claim, 'claimant')).toBe(false);
+    expect(canUserEditClaimedArea(claim, 'claimant')).toBe(true);
+    expect(canUserEditClaimedArea({ ...claim, deviceId: 'computer' }, 'claimant')).toBe(true);
+    expect(canUserEditClaimedArea(claim, 'claimant')).toBe(true);
   });
 
   it('allows local work when locking is unavailable but blocks a known teammate lock', () => {
@@ -248,4 +249,13 @@ it('does not release a phone claim when the same account syncs on a computer', a
   rpcMock.mockClear();
   await expect(releaseAllMySharedProjectAreaClaims('shared-project-id', 'local-project')).resolves.toEqual({ releasedCount: 0 });
   expect(rpcMock).not.toHaveBeenCalled();
+});
+
+it('allows explicit release from another browser after verifying saved work', async () => {
+  getUserMock.mockResolvedValue({ data: { user: { id: 'me' } }, error: null });
+  fromMock.mockReturnValue({ select: () => ({ eq: () => ({ eq: async () => ({ data: [{ id: 'phone-lock', project_id: 'shared-project-id', area_id: 'area-1', claimed_by_user_id: 'me', device_id: 'phone', status: 'active', claimed_at: '2026-09-25T00:00:00Z' }], error: null }) }) }) });
+  rpcMock.mockReset();
+  rpcMock.mockResolvedValue({ data: true, error: null });
+  await releaseSharedProjectArea('shared-project-id', 'area-1', 'local-project');
+  expect(rpcMock).toHaveBeenCalledWith('release_shared_project_area_v2', expect.objectContaining({ p_claim_id: 'phone-lock', p_device_id: 'device-1', p_expected_version: 1 }));
 });

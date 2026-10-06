@@ -1923,7 +1923,7 @@ export async function backupProjectsToOneDrive(
  * next backup. Shared projects stay under the team server's versioned sync.
  * Neither side's project is deleted by this operation.
  */
-export async function mergePersonalProjectsFromOneDrive(token: OneDriveToken, projectIds?: string[]): Promise<{
+export async function mergePersonalProjectsFromOneDrive(token: OneDriveToken, projectIds?: string[], options: { canApply?: () => boolean } = {}): Promise<{
   updatedLocalProjectIds: string[];
   archivedLocalProjectIds: string[];
   forceBackupProjectIds: string[];
@@ -1932,14 +1932,16 @@ export async function mergePersonalProjectsFromOneDrive(token: OneDriveToken, pr
   token = releaseSyncLease.token;
   try {
     await ensurePunchListFolders(token);
-    const [localProjects, remoteFiles] = await Promise.all([
-      getAllProjects(),
-      listProjectFiles(token),
-    ]);
+    const localProjects = await getAllProjects();
     const requestedIds = projectIds ? new Set(projectIds) : null;
     const localById = new Map(localProjects
       .filter((project) => !requestedIds || requestedIds.has(project.id))
       .map((project) => [project.id, project]));
+    // Capture before any remote request so edits made during listing or download
+    // cannot be silently merged over by an automatic refresh.
+    const sourceTokens = new Map(await Promise.all([...localById.values()].map(async (project) =>
+      [project.id, await captureLocalProjectSaveToken(project.id)] as const)));
+    const remoteFiles = await listProjectFiles(token);
     const remoteFilesById = buildRemoteProjectFileIndex(
       remoteFiles.filter((entry) => !isRemoteProjectFileInTrash(entry))
     );
@@ -1963,7 +1965,7 @@ export async function mergePersonalProjectsFromOneDrive(token: OneDriveToken, pr
       const remoteProject = await downloadRemoteProject(token, remote.id);
       if (!remoteProject || remoteProject.sharedProjectId) return;
       if (remoteProject.id !== projectId) throw new Error('The OneDrive backup ID does not match its filename. Your local project was not changed.');
-      const sourceToken = await captureLocalProjectSaveToken(projectId);
+      const sourceToken = sourceTokens.get(projectId) ?? null;
       const fullLocal = await getProject(projectId);
       if (!fullLocal) return;
       const folderName = getProjectFolderNameFromRemoteFile(remote);
@@ -1978,7 +1980,8 @@ export async function mergePersonalProjectsFromOneDrive(token: OneDriveToken, pr
         remoteIndex
       );
       assertOneDriveLeaseActive(token);
-      if (!await saveDownloadedProjectIfUnchanged(hydrated, sourceToken)) {
+      if (options.canApply?.() === false) return;
+      if (!await saveDownloadedProjectIfUnchanged(hydrated, sourceToken, options)) {
         throw new Error('Local work changed while OneDrive photos were downloading. Your current project was kept. Sync again to merge the latest changes.');
       }
       updatedLocalProjectIds.push(projectId);
@@ -1993,7 +1996,7 @@ export async function mergePersonalProjectsFromOneDrive(token: OneDriveToken, pr
       const remoteProject = await downloadRemoteProject(token, remote.id);
       if (!remoteProject?.deletedAt || remoteProject.sharedProjectId) return;
       if (remoteProject.id !== projectId) throw new Error('The OneDrive backup ID does not match its filename. Your local project was not changed.');
-      const sourceToken = await captureLocalProjectSaveToken(projectId);
+      const sourceToken = sourceTokens.get(projectId) ?? null;
       const fullLocal = await getProject(projectId);
       if (!fullLocal || fullLocal.deletedAt) return;
       // Keep edits made after another device archived the copy. They need a
@@ -2005,7 +2008,8 @@ export async function mergePersonalProjectsFromOneDrive(token: OneDriveToken, pr
         updatedAt: maxDate(fullLocal.updatedAt, remoteProject.deletedAt) ?? fullLocal.updatedAt,
       };
       assertOneDriveLeaseActive(token);
-      if (!await saveDownloadedProjectIfUnchanged(archived, sourceToken)) {
+      if (options.canApply?.() === false) return;
+      if (!await saveDownloadedProjectIfUnchanged(archived, sourceToken, options)) {
         throw new Error('Local work changed while OneDrive archive status was loading. Your current project was kept.');
       }
       archivedLocalProjectIds.push(projectId);
@@ -2025,7 +2029,7 @@ export async function mergePersonalProjectsFromOneDrive(token: OneDriveToken, pr
  */
 export async function restoreMissingProjectsFromOneDrive(
   token: OneDriveToken,
-  options: { recoverInactiveSharedProjectIds?: string[] } = {}
+  options: { recoverInactiveSharedProjectIds?: string[]; canApply?: () => boolean; downloadOnly?: boolean } = {}
 ): Promise<OneDriveRestoreResult> {
   const releaseSyncLease = await acquireSyncLease(token);
   token = releaseSyncLease.token;
@@ -2125,50 +2129,54 @@ export async function restoreMissingProjectsFromOneDrive(
       deletionsToApply.push({ id: projectId, name, files, localProject });
     }
 
-    const changedDuringDeletion = new Set<string>();
-    for (const deletion of deletionsToApply) {
-      assertOneDriveLeaseActive(token);
-      if (!await deleteProjectIfUnchanged(deletion.id, deletion.localProject ?? null)) {
-        changedDuringDeletion.add(deletion.id);
-        failedProjects.push({
-          id: deletion.id, name: deletion.name,
-          message: 'This local copy changed while its deletion was being checked, or has unsaved recovery drafts. The local copy and OneDrive files were kept for review.',
-        });
-        continue;
-      }
-      localById.delete(deletion.id);
-    }
-    if (!syncStateMapsEqual(deletionStates, localDeletionStates)) {
-      setLocalSyncStates(deletionStates);
-    }
-    if (!syncStateMapsEqual(deletionStates, remoteDeletionStates)) {
-      await uploadDeletionLog(token, deletionStates);
-    }
-    for (const deletion of deletionsToApply) {
-      if (changedDuringDeletion.has(deletion.id)) continue;
-      try {
-        await runWithConcurrency(deletion.files, 2, (file) =>
-          ignoreMissingRemoteItem(() => deleteDriveItem(token, file.id))
-        );
-        const folders = new Set(deletion.files.map((file) => getProjectFolderNameFromRemoteFile(file)).filter(
-          (folder): folder is string => Boolean(folder)
-        ));
-        for (const folder of folders) {
-          await deleteProjectFolderFromState(token, folder, false, deletion.id);
-          await deleteProjectFolderFromState(token, folder, true, deletion.id);
+    // Automatic refresh downloads missing copies; deletion cleanup stays explicit.
+    if (!options.downloadOnly && options.canApply?.() !== false) {
+      const changedDuringDeletion = new Set<string>();
+      for (const deletion of deletionsToApply) {
+        assertOneDriveLeaseActive(token);
+        if (!await deleteProjectIfUnchanged(deletion.id, deletion.localProject ?? null)) {
+          changedDuringDeletion.add(deletion.id);
+          failedProjects.push({
+            id: deletion.id, name: deletion.name,
+            message: 'This local copy changed while its deletion was being checked, or has unsaved recovery drafts. The local copy and OneDrive files were kept for review.',
+          });
+          continue;
         }
-        await deleteProjectPhotoFolder(token, deletion.id);
-        remoteFilesById.delete(deletion.id);
-        if (deletion.localProject || deletion.files.length > 0) {
-          permanentlyDeletedProjectNames.push(deletion.name);
-        }
-      } catch (error) {
-        failedProjects.push({
-          id: deletion.id,
-          name: deletion.name,
-          message: `Removed from this device, but OneDrive deletion is still pending: ${error instanceof Error ? error.message : 'try syncing again.'}`,
-        });
+        localById.delete(deletion.id);
       }
+      if (!syncStateMapsEqual(deletionStates, localDeletionStates)) {
+        setLocalSyncStates(deletionStates);
+      }
+      if (!syncStateMapsEqual(deletionStates, remoteDeletionStates)) {
+        await uploadDeletionLog(token, deletionStates);
+      }
+      for (const deletion of deletionsToApply) {
+        if (changedDuringDeletion.has(deletion.id)) continue;
+        try {
+          await runWithConcurrency(deletion.files, 2, (file) =>
+            ignoreMissingRemoteItem(() => deleteDriveItem(token, file.id))
+          );
+          const folders = new Set(deletion.files.map((file) => getProjectFolderNameFromRemoteFile(file)).filter(
+            (folder): folder is string => Boolean(folder)
+          ));
+          for (const folder of folders) {
+            await deleteProjectFolderFromState(token, folder, false, deletion.id);
+            await deleteProjectFolderFromState(token, folder, true, deletion.id);
+          }
+          await deleteProjectPhotoFolder(token, deletion.id);
+          remoteFilesById.delete(deletion.id);
+          if (deletion.localProject || deletion.files.length > 0) {
+            permanentlyDeletedProjectNames.push(deletion.name);
+          }
+        } catch (error) {
+          failedProjects.push({
+            id: deletion.id,
+            name: deletion.name,
+            message: `Removed from this device, but OneDrive deletion is still pending: ${error instanceof Error ? error.message : 'try syncing again.'}`,
+          });
+        }
+      }
+
     }
 
     await runWithConcurrency([...remoteFilesById.entries()], 2, async ([projectId, remoteEntries]) => {
@@ -2260,7 +2268,8 @@ export async function restoreMissingProjectsFromOneDrive(
           recoveredLocalCopies.push({ id: savedRecovery.id, name: savedRecovery.projectName });
         }
         assertOneDriveLeaseActive(token);
-        if (!await saveDownloadedProjectIfUnchanged(hydratedProject, sourceToken, { resetSharedQueues: Boolean(existing?.sharedProjectId) })) {
+        if (options.canApply?.() === false) return;
+        if (!await saveDownloadedProjectIfUnchanged(hydratedProject, sourceToken, { resetSharedQueues: Boolean(existing?.sharedProjectId), canApply: options.canApply })) {
           throw new Error('A local project was created or changed while this backup was loading. Your current project and pending changes were kept.');
         }
         localProjectIds.add(projectId);

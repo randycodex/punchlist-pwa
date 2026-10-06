@@ -54,6 +54,53 @@ vi.mock('@/lib/oneDrive', async (importOriginal) => ({
 import { backupProjectsToOneDrive, markProjectDeleted, mergePersonalProjectsFromOneDrive, restoreMissingProjectsFromOneDrive, hydrateProjectMediaFromOneDrive, syncProjectsWithOneDrive } from '@/lib/oneDriveSync';
 
 describe('OneDrive and team project identity', () => {
+  it('refreshes a clean personal copy from another browser without uploading or forcing a backup', async () => {
+    const project = createProject('Cross browser personal');
+    project.areas = [createArea(project.id, 'Room', 0)];
+    await saveProjectPreserveTimestamps(project);
+    const remote = structuredClone(project);
+    remote.areas[0].notes = 'Written in the other browser';
+    remote.updatedAt = remote.areas[0].updatedAt = new Date(project.updatedAt.getTime() + 10000);
+    listProjectFilesMock.mockResolvedValue([{ id: 'cross-browser', name: `Cross-browser-personal_${project.id}.json` }]);
+    downloadProjectFileMock.mockResolvedValue(serializeProjectPayload(remote));
+    const result = await mergePersonalProjectsFromOneDrive('test-token', [project.id], { canApply: () => true });
+    expect(result.updatedLocalProjectIds).toEqual([project.id]);
+    expect((await getProject(project.id))!.areas[0].notes).toBe('Written in the other browser');
+    expect(uploadProjectFileMock).not.toHaveBeenCalled();
+  });
+
+  it('does not apply a personal download after navigation changes during transfer', async () => {
+    const project = createProject('Navigation during sync');
+    project.areas = [createArea(project.id, 'Room', 0)];
+    await saveProjectPreserveTimestamps(project);
+    const remote = structuredClone(project);
+    remote.areas[0].notes = 'Cloud edit';
+    remote.updatedAt = remote.areas[0].updatedAt = new Date(project.updatedAt.getTime() + 10000);
+    listProjectFilesMock.mockResolvedValue([{ id: 'navigation', name: `Navigation-during-sync_${project.id}.json` }]);
+    let canApply = true;
+    downloadProjectFileMock.mockImplementation(async () => { canApply = false; return serializeProjectPayload(remote); });
+    expect((await mergePersonalProjectsFromOneDrive('test-token', [project.id], { canApply: () => canApply })).updatedLocalProjectIds).toEqual([]);
+    expect((await getProject(project.id))!.areas[0].notes).toBe('');
+  });
+
+  it('downloads missing personal copies without performing permanent deletion cleanup', async () => {
+    const deleted = createProject('Deleted personal');
+    deleted.updatedAt = new Date('2026-07-01');
+    await saveProjectPreserveTimestamps(deleted);
+    const missing = createProject('Other browser project');
+    listProjectFilesMock.mockResolvedValue([
+      { id: 'deleted-file', name: `Deleted-personal_${deleted.id}.json` },
+      { id: 'missing-file', name: `Other-browser-project_${missing.id}.json` },
+    ]);
+    downloadDeletionLogMock.mockResolvedValue({ [deleted.id]: { scope: 'personal', updatedAt: '2026-07-02T00:00:00Z' } });
+    downloadProjectFileMock.mockImplementation(async (_token, id) => serializeProjectPayload(id === 'deleted-file' ? deleted : missing));
+    const result = await restoreMissingProjectsFromOneDrive('test-token', { downloadOnly: true, canApply: () => true });
+    expect(result.restoredProjectIds).toContain(missing.id);
+    expect(await getProject(deleted.id)).toBeDefined();
+    expect(deleteDriveItemMock).not.toHaveBeenCalled();
+    expect(uploadDeletionLogMock).not.toHaveBeenCalled();
+  });
+
   it('guards the older full-sync entry point against a project appearing during download', async () => {
     const backup = createProject('Legacy download race');
     listProjectFilesMock.mockResolvedValue([{ id: 'legacy-download', name: `Legacy-download-race_${backup.id}.json` }]);

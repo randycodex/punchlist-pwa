@@ -39,18 +39,21 @@ describe('database enforcement under authenticated member privileges', () => {
     await expect(db.query('select public.remove_shared_project_member($1,$2)', [project, 'owner@uai-ny.com'])).rejects.toMatchObject({ code: '42501' });
   });
 
-  it('claims idempotently on one device and blocks the same account on another', async () => {
+  it('retains one account-owned claim across browsers and blocks another account', async () => {
     claim = (await db.query<{ result: { id: string } }>('select public.claim_shared_project_area_v2($1,$2,$3) as result', [project, area, phone])).rows[0].result.id;
     expect((await db.query<{ result: { id: string } }>('select public.claim_shared_project_area_v2($1,$2,$3) as result', [project, area, phone])).rows[0].result.id).toBe(claim);
+    expect((await db.query<{ result: { id: string } }>('select public.claim_shared_project_area_v2($1,$2,$3) as result', [project, area, computer])).rows[0].result.id).toBe(claim);
+    await signIn(owner, 'owner@uai-ny.com');
     await expect(db.query('select public.claim_shared_project_area_v2($1,$2,$3)', [project, area, computer])).rejects.toMatchObject({ code: '55P03' });
     await expect(db.query('select public.release_shared_project_area_v2($1,$2,$3,$4,0)', [project, area, claim, computer])).rejects.toMatchObject({ code: '55P03' });
+    await signIn(member, 'member@uai-ny.com');
     await expect(db.query('select public.release_shared_project_area($1,$2)', [project, area])).rejects.toMatchObject({ code: '42501' });
   });
 
   it('checks the accepted version, rejects stale claim IDs, and retries release safely', async () => {
     await expect(db.query('select public.release_shared_project_area_v2($1,$2,$3,$4,3)', [project, area, claim, phone])).rejects.toMatchObject({ code: 'PT409' });
     for (let attempt = 0; attempt < 2; attempt++) {
-      expect((await db.query<{ ok: boolean }>('select public.release_shared_project_area_v2($1,$2,$3,$4,0) as ok', [project, area, claim, phone])).rows[0].ok).toBe(true);
+      expect((await db.query<{ ok: boolean }>('select public.release_shared_project_area_v2($1,$2,$3,$4,0) as ok', [project, area, claim, computer])).rows[0].ok).toBe(true);
     }
     const replacement = (await db.query<{ result: { id: string } }>('select public.claim_shared_project_area_v2($1,$2,$3) as result', [project, area, computer])).rows[0].result.id;
     await db.query('select public.release_shared_project_area_v2($1,$2,$3,$4,0)', [project, area, claim, phone]);
@@ -65,7 +68,11 @@ it('publishes through the guarded RPC, retries idempotently, and rejects stale e
   const first = (await db.query(sql, [project, id, payload, 0, 'accepted-retry-key', computer])).rows;
   expect((await db.query(sql, [project, id, payload, 0, 'accepted-retry-key', computer])).rows).toEqual(first);
   await expect(db.query(sql, [project, id, payload, 0, 'different-stale-key', computer])).rejects.toMatchObject({ code: 'PT409' });
-  await expect(db.query(sql, [project, id, payload, 1, 'wrong-device-key', phone])).rejects.toMatchObject({ code: '55P03' });
+  expect((await db.query<{ area_version: number }>(sql, [project, id, payload, 1, 'same-account-other-browser', phone])).rows[0].area_version).toBe(2);
+  await expect(db.query(sql, [project, id, payload, 1, 'stale-computer-edit', computer])).rejects.toMatchObject({ code: 'PT409' });
+  await signIn(owner, 'owner@uai-ny.com');
+  await expect(db.query(sql, [project, id, payload, 2, 'different-account-edit', phone])).rejects.toMatchObject({ code: '55P03' });
+  await signIn(member, 'member@uai-ny.com');
   await expect(db.query('select * from public.publish_shared_project_area_snapshot_internal($1,$2,$3,1,1,null,$4)', [project, id, payload, 'bypass'])).rejects.toMatchObject({ code: '42501' });
 });
 
@@ -75,6 +82,19 @@ it('prevents replacement of existing storage objects used by backups', async () 
   expect((await db.query('update storage.objects set name=$1 where name=$2 returning id', ['changed', path])).rows).toHaveLength(0);
   expect((await db.query('delete from storage.objects where name=$1 returning id', [path])).rows).toHaveLength(0);
   expect((await db.query('select id from storage.objects where name=$1', [path])).rows).toHaveLength(1);
+});
+
+it('preserves accepted content when the same account sends stale work or releases from another browser', async () => {
+  const id = crypto.randomUUID();
+  const payload = { id: localProject, areas: [{ id, notes: 'Accepted phone inspection', locations: [] }] };
+  const sql = 'select * from public.publish_shared_project_area_snapshot($1,$2,$3,1,$4,null,$5,$6)';
+  await db.query(sql, [project, id, payload, 0, 'phone-inspection', phone]);
+  const ownClaim = (await db.query<{ id: string }>('select id from public.area_claims where project_id=$1 and area_id=$2 and status=$3', [project, id, 'active'])).rows[0].id;
+  await expect(db.query(sql, [project, id, { ...payload, areas: [{ id, notes: 'Stale computer inspection', locations: [] }] }, 0, 'stale-inspection', computer])).rejects.toMatchObject({ code: 'PT409' });
+  await expect(db.query('select public.release_shared_project_area_v2($1,$2,$3,$4,0)', [project, id, ownClaim, computer])).rejects.toMatchObject({ code: 'PT409' });
+  const saved = (await db.query<{ area_payload: typeof payload }>('select area_payload from public.shared_project_area_snapshots where project_id=$1 and area_id=$2', [project, id])).rows[0].area_payload;
+  expect(saved.areas[0].notes).toBe('Accepted phone inspection');
+  expect((await db.query<{ ok: boolean }>('select public.release_shared_project_area_v2($1,$2,$3,$4,1) as ok', [project, id, ownClaim, computer])).rows[0].ok).toBe(true);
 });
 
 it('restricts cleanup reports to owners and preserves historical attachment references', async () => {
@@ -114,7 +134,7 @@ it('denies an unrelated signed-in user access to projects, photos, and guarded w
   await expect(db.query('select public.claim_shared_project_area_v2($1,$2,$3)', [project, area, phone])).rejects.toMatchObject({ code: '42501' });
 });
 
-it('preserves a legacy user-only claim and adopts it only on that user upgraded device', async () => {
+it('preserves a legacy user-only claim and retains account ownership after adopting device metadata', async () => {
   const legacyArea = crypto.randomUUID();
   await signIn(member, 'member@uai-ny.com');
   // Simulate an existing pre-migration claim through the retained implementation.
@@ -132,7 +152,6 @@ it('preserves a legacy user-only claim and adopts it only on that user upgraded 
   expect(adopted.id).toBe(legacy.id);
   expect(adopted.device_id).toBe(phone);
   expect((await db.query('select id from public.area_claims where project_id=$1 and area_id=$2', [project, legacyArea])).rows).toHaveLength(1);
-  await expect(db.query('select public.claim_shared_project_area_v2($1,$2,$3)', [project, legacyArea, computer]))
-    .rejects.toMatchObject({ code: '55P03' });
+  expect((await db.query<{ result: { id: string } }>('select public.claim_shared_project_area_v2($1,$2,$3) as result', [project, legacyArea, computer])).rows[0].result.id).toBe(legacy.id);
   expect((await db.query<{ ok: boolean }>('select public.release_shared_project_area_v2($1,$2,$3,$4,0) as ok', [project, legacyArea, legacy.id, phone])).rows[0].ok).toBe(true);
 });
