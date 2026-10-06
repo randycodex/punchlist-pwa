@@ -156,18 +156,11 @@ html:not(.dark) {
 
 }
 
-/* Reserve the desktop menu lane even when closed so lists never move on toggle. */
+/* Equal gutters keep lists centered in the window and clear of the desktop menu.
+ * This width does not depend on menu state, so toggling it never moves content. */
 @media (min-width: 1280px) {
-  .app-shell:has(.app-page[data-layout="list"]) {
-    padding-right: calc(var(--app-menu-drawer-width) + 1.5rem);
-  }
-
   .app-shell:has(.app-page[data-layout="list"]) .max-w-6xl {
-    max-width: 56rem;
-  }
-
-  .app-page[data-layout="list"] .floating-action-rail {
-    right: calc(var(--app-menu-drawer-width) + 1.5rem);
+    max-width: min(56rem, calc(100vw - 2 * var(--app-menu-drawer-width) - 3rem));
   }
 }
 
