@@ -473,6 +473,30 @@ export default function PersistentTopBar() {
   }
 
   useEffect(() => {
+    if (!showHomeMenu) return;
+
+    function handleDesktopMenuKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape' && window.matchMedia('(min-width: 768px)').matches) {
+        setHomeMenuOpen(false);
+      }
+    }
+
+    function handleDesktopMenuPointerDown(event: PointerEvent) {
+      if (!window.matchMedia('(min-width: 768px)').matches) return;
+      if (!(event.target instanceof Element)) return;
+      if (event.target.closest('.app-menu-drawer, [aria-label="Close app menu"], .modal-overlay')) return;
+      setHomeMenuOpen(false);
+    }
+
+    document.addEventListener('keydown', handleDesktopMenuKeyDown);
+    document.addEventListener('pointerdown', handleDesktopMenuPointerDown);
+    return () => {
+      document.removeEventListener('keydown', handleDesktopMenuKeyDown);
+      document.removeEventListener('pointerdown', handleDesktopMenuPointerDown);
+    };
+  }, [showHomeMenu]);
+
+  useEffect(() => {
     let cancelled = false;
     const sharedProjectId = homeMenuState.sharedProjectId;
     const userId = collaborationAuth.user?.id;
@@ -838,6 +862,17 @@ export default function PersistentTopBar() {
                 aria-modal="false"
                 aria-label="App menu"
               >
+                <div className="hidden justify-end px-3 pt-2 md:flex">
+                  <button
+                    type="button"
+                    onClick={() => setHomeMenuOpen(false)}
+                    className="soft-control flex h-10 w-10 items-center justify-center rounded-[1rem]"
+                    aria-label="Close app menu"
+                    title="Close app menu"
+                  >
+                    <PanelRightClose className="h-5 w-5" />
+                  </button>
+                </div>
                 <div className="app-menu-scroll min-h-0 flex-1 overflow-y-auto overscroll-y-contain touch-pan-y px-3 pt-1 md:pb-[calc(env(safe-area-inset-bottom)+1rem)] md:pt-[calc(env(safe-area-inset-top)+0.5rem)]">
                   {homeMenuState.hasProjects && (
                     <div className={menuGroupShellClass}>
