@@ -22,6 +22,8 @@ import { runManualOneDriveSync } from './runManualOneDriveSync';
 import { refreshSharedProject } from './refreshSharedProject';
 import { flushPendingSharedAreaSyncs } from '@/lib/collaboration/sharedAreaSyncQueue';
 import { flushPendingSharedProjectMetadataSyncs } from '@/lib/collaboration/sharedProjectMetadataSyncQueue';
+import { registerLocalMediaRecovery } from '@/lib/localMediaRecovery';
+import { recoverLocalTeamAttachments } from './recoverLocalTeamAttachments';
 
 // Browser databases are independent. Use the existing account cloud stores as
 // the bridge, without automatically resolving conflicting or unsent work.
@@ -32,6 +34,18 @@ export default function AccountSync() {
   const sync = useSyncStatus();
   const latest = useRef({ pathname, microsoft, collaboration, sync });
   useEffect(() => { latest.current = { pathname, microsoft, collaboration, sync }; });
+
+  useEffect(() => {
+    const userId = collaboration.user?.id;
+    const email = microsoft.accountEmail;
+    if (!collaboration.isSignedIn || !userId) return;
+    let active = true;
+    const canApply = () => active && latest.current.collaboration.isSignedIn
+      && latest.current.collaboration.user?.id === userId && latest.current.microsoft.accountEmail === email;
+    const unregister = registerLocalMediaRecovery((projectId, areaId) =>
+      recoverLocalTeamAttachments(projectId, canApply, areaId));
+    return () => { active = false; unregister(); };
+  }, [collaboration.isSignedIn, collaboration.user?.id, microsoft.accountEmail]);
 
   useEffect(() => {
     let active = true;

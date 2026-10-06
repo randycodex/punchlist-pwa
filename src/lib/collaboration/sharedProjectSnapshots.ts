@@ -1,5 +1,5 @@
 import { validateProjectIdentity } from '@/lib/projectPayload';
-import type { Area, Project } from '@/types';
+import type { Area, Project, PhotoAttachment, FileAttachment } from '@/types';
 import type { Json } from './database';
 import type { CollaborationSnapshotBackup, CollaborationSnapshotBackupReason } from './types';
 import {
@@ -312,6 +312,60 @@ export async function captureSharedProjectBackup(
   });
 
   return data;
+}
+
+/** Fetch matching saved media without applying any remote inspection or revision. */
+export async function getSharedAttachmentRecoveryCopies(localProject: Project, attachmentIds: string[], areaId?: string): Promise<Project> {
+  const supabase = getCollaborationSupabaseClient();
+  if (!supabase || !localProject.sharedProjectId) throw new Error('Collaboration is not configured.');
+  const wanted = new Set(attachmentIds);
+  const baseline = await supabase.from('shared_project_snapshots')
+    .select('project_payload, payload_version, published_at').eq('project_id', localProject.sharedProjectId).maybeSingle();
+  if (baseline.error) throw baseline.error;
+  if (!baseline.data) throw new Error('No saved Team copy is available for attachment recovery.');
+  let areaQuery = supabase.from('shared_project_area_snapshots')
+    .select('area_payload, payload_version').eq('project_id', localProject.sharedProjectId)
+    .gt('published_at', baseline.data.published_at);
+  if (areaId) areaQuery = areaQuery.eq('area_id', areaId);
+  const changed = await areaQuery;
+  if (changed.error) throw changed.error;
+  const photos = new Map<string, PhotoAttachment>();
+  const files = new Map<string, FileAttachment>();
+  const assets: SharedSnapshotAssetManifest = { photos: {}, files: {}, drawings: {} };
+  const sources = [parseSharedSnapshotPayload(baseline.data.project_payload, baseline.data.payload_version),
+    ...(changed.data ?? []).map((row) => parseSharedSnapshotPayload(row.area_payload, row.payload_version))];
+  for (const source of sources) {
+    for (const area of source.project.areas) {
+      if (areaId && area.id !== areaId) continue;
+      for (const room of area.locations) for (const item of room.items) for (const checkpoint of item.checkpoints) {
+        for (const photo of checkpoint.photos) if (wanted.has(photo.id)) {
+          photos.set(`${checkpoint.id}:${photo.id}`, photo);
+          if (source.assets.photos[photo.id]) assets.photos[photo.id] = source.assets.photos[photo.id];
+          else delete assets.photos[photo.id];
+        }
+        for (const file of checkpoint.files ?? []) if (wanted.has(file.id)) {
+          files.set(`${checkpoint.id}:${file.id}`, file);
+          if (source.assets.files[file.id]) assets.files[file.id] = source.assets.files[file.id];
+          else delete assets.files[file.id];
+        }
+      }
+    }
+  }
+  const copies: Project = { ...localProject, facadeElevationDrawings: undefined,
+    areas: localProject.areas.filter((area) => !areaId || area.id === areaId).map((area) => ({ ...area,
+      locations: area.locations.map((room) => ({ ...room, items: room.items.map((item) => ({ ...item,
+        checkpoints: item.checkpoints.map((checkpoint) => ({ ...checkpoint,
+          photos: checkpoint.photos.flatMap((photo) => {
+            const copy = photos.get(`${checkpoint.id}:${photo.id}`); return copy ? [{ ...copy }] : [];
+          }),
+          files: (checkpoint.files ?? []).flatMap((file) => {
+            const copy = files.get(`${checkpoint.id}:${file.id}`); return copy ? [{ ...copy }] : [];
+          }),
+        })),
+      })) })),
+    })),
+  };
+  return hydrateSharedSnapshotAssets(copies, assets, localProject.sharedProjectId);
 }
 
 export async function getSharedProjectSnapshot(localProject: Project): Promise<SnapshotResult> {

@@ -64,7 +64,8 @@ function shouldPauseAutomaticRetry(error: unknown) {
   const code = typeof input.code === 'string' ? input.code : '';
   const message = typeof input.message === 'string' ? input.message.toLowerCase() : '';
   return ['42501', '55P03', '22023', '55000', 'PGRST202', 'PGRST204', '42P01', '42883'].includes(code)
-    || message.includes('publish the shared project once');
+    || message.includes('publish the shared project once')
+    || message.includes('opening saved photos and files');
 }
 
 function ensureBrowserListeners() {
@@ -182,18 +183,17 @@ async function syncRecord(
   publishedByUserId: string
 ): Promise<'synced' | 'pending' | 'conflict'> {
   if (record.blockedByConflict) return isPendingSharedSyncVersionConflict(record) ? 'conflict' : 'pending';
-  const project = await getProjectForArea(record.localProjectId, record.areaId);
-  if (!project || project.sharedProjectId !== record.sharedProjectId) {
-    await discardPendingSharedAreaSync(record.key);
-    return 'synced';
-  }
-  const area = project.areas.find((entry) => entry.id === record.areaId);
-  if (!area) {
-    await discardPendingSharedAreaSync(record.key);
-    return 'synced';
-  }
-
   try {
+    const project = await getProjectForArea(record.localProjectId, record.areaId);
+    if (!project || project.sharedProjectId !== record.sharedProjectId) {
+      await discardPendingSharedAreaSync(record.key);
+      return 'synced';
+    }
+    const area = project.areas.find((entry) => entry.id === record.areaId);
+    if (!area) {
+      await discardPendingSharedAreaSync(record.key);
+      return 'synced';
+    }
     const areaBaseVersion = area.sharedVersion ?? 0;
     const useAreaBase = areaBaseVersion > record.baseVersion && area.sharedPublishedAt;
     const result = await publishSharedProjectAreaSnapshot({

@@ -3,6 +3,8 @@
 import { saveRecoverableAreaNote } from '@/features/inspection/captureRecovery';
 import { releaseSharedArea } from '@/features/collaboration/releaseSharedArea';
 import { refreshSharedProject } from '@/features/sync/refreshSharedProject';
+import { AreaUnavailableError, loadInspectionArea } from '@/features/inspection/loadInspectionArea';
+import AppErrorFallback from '@/components/AppErrorFallback';
 import {
   CHECKPOINT_COMMENT_HISTORY_STORAGE_KEY,
   getCheckpointRecentComments,
@@ -25,7 +27,6 @@ import {
   isAreaInspectionComplete,
 } from '@/types';
 import {
-  getActiveProjectCount,
   getProjectForArea,
   getProjectMetadata,
   getPendingSharedAreaSyncsForProject,
@@ -166,6 +167,8 @@ export default function AreaDetailPage() {
   const [project, setProject] = useState<Project | null>(() => (cachedArea ? cachedProject : null));
   const [area, setArea] = useState<Area | null>(() => cachedArea);
   const [loading, setLoading] = useState(() => !cachedArea);
+  const [areaLoadError, setAreaLoadError] = useState<Error | null>(null);
+  const loadRequestRef = useRef(0);
   const [expandedLocations, setExpandedLocations] = useState<Set<string>>(new Set());
   const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set());
   const [bulkExpansionMode, setBulkExpansionMode] = useState<'collapsed' | 'expanded'>('collapsed');
@@ -369,7 +372,8 @@ export default function AreaDetailPage() {
 
   useEffect(() => {
     if (!id || !areaId) {
-      router.push('/');
+      setAreaLoadError(new AreaUnavailableError('The project or area address is incomplete. Open it again from the project list.'));
+      setLoading(false);
       return;
     }
     void loadDataRef.current();
@@ -386,7 +390,8 @@ export default function AreaDetailPage() {
         console.error('Failed to parse recent area types:', error);
       }
     }
-  }, [id, areaId, router]);
+    return () => { loadRequestRef.current += 1; };
+  }, [id, areaId]);
 
   useEffect(() => {
     function handleProjectSynced(event: Event) {
@@ -654,64 +659,51 @@ export default function AreaDetailPage() {
 
   async function loadData() {
     if (!id || !areaId) return;
+    const request = ++loadRequestRef.current;
+    const isCurrent = () => request === loadRequestRef.current;
     try {
-      const [activeProjectCount, projectData] = await Promise.all([
-        getActiveProjectCount(),
-        getProjectForArea(id, areaId),
-      ]);
-      setReturnToHome(activeProjectCount === 1);
-      if (projectData) {
-        if (projectData.deletedAt) {
-          router.push('/');
-          return;
-        }
-        const nextProject = projectData;
-        if (collaborationAuth.isSignedIn && projectData.sharedProjectId) {
-          try {
-            const metadata = await getSharedProjectSnapshotMetadata(projectData.sharedProjectId);
-            if (metadata && isSharedSnapshotNewer(projectData, metadata.publishedAt)) {
-              markSharedUpdateAvailable(projectData.id);
-            } else {
-              clearSharedUpdateAvailable(projectData.id);
-            }
-          } catch (error) {
-            console.info('Shared update check skipped:', error);
+      const { project: nextProject, area: areaData, returnToHome: nextReturnToHome } = await loadInspectionArea(id, areaId);
+      if (!isCurrent()) return;
+      let inspectionHierarchyChanged = dedupeInspectionHierarchy(areaData);
+      const normalizedLocations = areaData.locations.filter(
+        (location) => location.name.trim().toLowerCase() !== OTHER_LOCATION_NAME.toLowerCase()
+      );
+      if (normalizedLocations.length !== areaData.locations.length) {
+        areaData.locations = normalizedLocations.map((location, index) => ({
+          ...location,
+          sortOrder: index,
+        }));
+        inspectionHierarchyChanged = true;
+      }
+      if (facadeAreaNeedsTemplateRefresh(areaData)) {
+        applyTemplateToArea(areaData, { preserveExisting: true });
+        inspectionHierarchyChanged = true;
+      }
+      if (inspectionHierarchyChanged) {
+        await saveProjectAreaMetadataOnly(nextProject, areaData.id);
+        scheduleSync(nextProject.id);
+      }
+      if (!isCurrent()) return;
+      setReturnToHome(nextReturnToHome);
+      setAreaLoadError(null);
+      setProject(nextProject);
+      setArea(areaData);
+      if (collaborationAuth.isSignedIn && nextProject.sharedProjectId) {
+        // The local inspection can open while the optional cloud check runs.
+        void getSharedProjectSnapshotMetadata(nextProject.sharedProjectId).then((metadata) => {
+          if (!isCurrent()) return;
+          if (metadata && isSharedSnapshotNewer(nextProject, metadata.publishedAt)) {
+            markSharedUpdateAvailable(nextProject.id);
+          } else {
+            clearSharedUpdateAvailable(nextProject.id);
           }
-        }
-        setProject(nextProject);
-        const areaData = nextProject.areas.find((a) => a.id === areaId);
-        if (areaData && !areaData.deletedAt) {
-          let inspectionHierarchyChanged = dedupeInspectionHierarchy(areaData);
-          const normalizedLocations = areaData.locations.filter(
-            (location) => location.name.trim().toLowerCase() !== OTHER_LOCATION_NAME.toLowerCase()
-          );
-          if (normalizedLocations.length !== areaData.locations.length) {
-            areaData.locations = normalizedLocations.map((location, index) => ({
-              ...location,
-              sortOrder: index,
-            }));
-            inspectionHierarchyChanged = true;
-          }
-          if (facadeAreaNeedsTemplateRefresh(areaData)) {
-            applyTemplateToArea(areaData, { preserveExisting: true });
-            inspectionHierarchyChanged = true;
-          }
-          if (inspectionHierarchyChanged) {
-            await saveProjectAreaMetadataOnly(nextProject, areaData.id);
-            scheduleSync(nextProject.id);
-          }
-          setArea(areaData);
-        } else {
-          router.push(`/project/${id}`);
-        }
-      } else {
-        router.push('/');
+        }).catch((error) => console.info('Shared update check skipped:', error));
       }
     } catch (error) {
       console.error('Failed to load data:', error);
-      router.push('/');
+      if (isCurrent()) setAreaLoadError(error instanceof Error ? error : new Error(String(error)));
     } finally {
-      setLoading(false);
+      if (isCurrent()) setLoading(false);
     }
   }
 
@@ -2094,8 +2086,16 @@ export default function AreaDetailPage() {
     );
   }
 
-  if (!project || !area) {
-    return null;
+  if (areaLoadError || !project || !area) {
+    return <AppErrorFallback
+      title="Could not open this area"
+      message={areaLoadError instanceof AreaUnavailableError ? areaLoadError.message
+        : areaLoadError?.message.includes('opening saved photos and files')
+          ? 'A saved photo or file could not be opened. Your saved inspection and pending changes have been kept. Try again while online. Keep this browser’s saved data intact.'
+        : 'This area could not finish opening on this device. Try again. If it keeps happening, copy the error details.'}
+      error={areaLoadError ?? undefined}
+      onRetry={() => { setLoading(true); void loadDataRef.current(); }}
+    />;
   }
 
   const areaTitle = getAreaTitle(area);

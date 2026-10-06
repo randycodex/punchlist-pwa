@@ -17,6 +17,7 @@ import {
 import type { AreaTypeKey, ApartmentUnitType, FacadeOrientation } from '@/lib/areas';
 import { v4 as uuidv4 } from 'uuid';
 import { deleteProjectCaptureDrafts, hasProjectCaptureDrafts } from '@/lib/captureJournal';
+import { tryLocalMediaRecovery } from '@/lib/localMediaRecovery';
 
 type StoredPhotoAttachment = Omit<PhotoAttachment, 'imageData' | 'thumbnail'> & {
   imageData: string | Blob;
@@ -419,6 +420,10 @@ async function storedPayloadToDataUrl(payload: string | Blob | undefined) {
 }
 
 function dataUrlToStoredPayload(payload: string) {
+  // WebKit can retain an IndexedDB Blob record after losing its backing file.
+  // Strings avoid that dependency for new and recovered Safari attachments.
+  if (typeof navigator !== 'undefined' && /AppleWebKit/i.test(navigator.userAgent)
+    && !/Chrome|Chromium|Edg|OPR|Android/i.test(navigator.userAgent)) return payload;
   const match = payload.match(/^data:([^;,]+)?(;base64)?,(.*)$/);
   if (!match) return payload;
   try {
@@ -792,8 +797,107 @@ async function readProjectWithRetry(id: string, areaId?: string): Promise<Projec
     // WebKit can fail an individual IndexedDB read while other reads still work.
     // Retrying this read never changes the project or its pending sync queue.
     await new Promise((resolve) => setTimeout(resolve, 100));
-    return readProjectOnce(id, areaId);
+    try {
+      return await readProjectOnce(id, areaId);
+    } catch (retryError) {
+      if (retryError instanceof Error && retryError.message.includes('opening saved photos and files')
+        && await tryLocalMediaRecovery(id, areaId)) return readProjectOnce(id, areaId);
+      throw retryError;
+    }
   }
+}
+
+export async function getUnreadableAttachmentIds(projectId: string, areaId?: string) {
+  const records = await readProjectMediaRecords(await getDB(), projectId, areaId);
+  const ids: string[] = [];
+  for (const record of records) {
+    for (const photo of record.photos) {
+      try { await storedPayloadToDataUrl(photo.imageData); } catch { ids.push(photo.id); }
+      if (photo.thumbnail) {
+        try { await storedPayloadToDataUrl(photo.thumbnail); } catch { ids.push(photo.id); }
+      }
+    }
+    for (const file of record.files) {
+      try { await storedPayloadToDataUrl(file.data); } catch { ids.push(file.id); }
+    }
+  }
+  return [...new Set(ids)];
+}
+
+/** Restore only unreadable attachment bytes; inspection data and queues stay untouched. */
+export async function restoreUnreadableAttachments(
+  projectId: string, copies: Project, canApply: () => boolean, areaId?: string
+): Promise<number> {
+  const sharedProjectId = copies.sharedProjectId;
+  if (copies.id !== projectId || !sharedProjectId) throw new Error('The recovery copy does not match this Team project.');
+  return runLocalPersistence(async () => {
+    const db = await getDB();
+    const source = await db.get('projects', projectId);
+    if (!source || source.sharedProjectId !== copies.sharedProjectId || !canApply()) return 0;
+    const byCheckpoint = new Map(copies.areas.flatMap((area) => area.locations.flatMap((room) =>
+      room.items.flatMap((item) => item.checkpoints.map((checkpoint) => [checkpoint.id, checkpoint] as const)))));
+    const original = await readProjectMediaRecords(db, projectId, areaId);
+    const replacements: CheckpointMediaRecord[] = [];
+    let restored = 0;
+    for (const record of original) {
+      const remote = byCheckpoint.get(record.checkpointId);
+      if (!remote) continue;
+      const next = { ...record, photos: record.photos.map((photo) => ({ ...photo })), files: record.files.map((file) => ({ ...file })) };
+      let changed = false;
+      for (const photo of next.photos) {
+        const saved = remote.photos.find((entry) => entry.id === photo.id && entry.checkpointId === photo.checkpointId
+          && new Date(entry.createdAt).getTime() === new Date(photo.createdAt).getTime());
+        if (!saved?.imageData) continue;
+        try { await storedPayloadToDataUrl(photo.imageData); } catch {
+          // Store recovered bytes as strings on every browser; don't recreate
+          // the failing Blob reference or change the attachment's identity.
+          photo.imageData = saved.imageData;
+          changed = true; restored += 1;
+        }
+        if (photo.thumbnail) {
+          try { await storedPayloadToDataUrl(photo.thumbnail); } catch {
+            photo.thumbnail = saved.thumbnail ?? saved.imageData;
+            changed = true;
+          }
+        }
+      }
+      for (const file of next.files) {
+        const saved = remote.files?.find((entry) => entry.id === file.id && entry.checkpointId === file.checkpointId
+          && entry.size === file.size && entry.mimeType === file.mimeType
+          && new Date(entry.createdAt).getTime() === new Date(file.createdAt).getTime());
+        if (!saved?.data) continue;
+        try { await storedPayloadToDataUrl(file.data); } catch {
+          file.data = saved.data;
+          changed = true; restored += 1;
+        }
+      }
+      if (changed) replacements.push(next);
+    }
+    if (!replacements.length || !canApply()) return 0;
+    // Keep the exact previous records, including broken Blob references and
+    // unsent queues, before replacing any byte. Quota failures roll back all.
+    const mediaRecords = await readProjectMediaRecords(db, projectId);
+    const drawingRecords = await readProjectDrawingRecords(db, projectId);
+    const tx = db.transaction(['projects', 'checkpointMedia', 'sharedAreaSyncQueue', 'sharedProjectMetadataSyncQueue', 'sharedProjectRecovery', 'sharedProjectRecoveryMetadata'], 'readwrite');
+    const current = await tx.objectStore('projects').get(projectId);
+    if (!current || current.sharedProjectId !== copies.sharedProjectId || !canApply()) { await tx.done; return 0; }
+    const capturedAt = new Date();
+    const recoveryId = uuidv4();
+    await tx.objectStore('sharedProjectRecovery').add({
+      id: recoveryId, localProjectId: projectId, project: current, mediaRecords,
+      elevationDrawingRecords: drawingRecords,
+      areaSyncRecords: await tx.objectStore('sharedAreaSyncQueue').index('by-local-project').getAll(projectId),
+      metadataSyncRecords: await tx.objectStore('sharedProjectMetadataSyncQueue').index('by-local-project').getAll(projectId),
+    });
+    await tx.objectStore('sharedProjectRecoveryMetadata').add({
+      id: recoveryId, localProjectId: projectId, sharedProjectId,
+      projectName: current.projectName, capturedAt, reason: 'restore', uploadStatus: 'pending',
+      cloudBackupId: null, attemptCount: 0, nextAttemptAt: capturedAt, lastError: null,
+    });
+    for (const record of replacements) await tx.objectStore('checkpointMedia').put(record);
+    await tx.done;
+    return restored || replacements.length;
+  });
 }
 
 export async function getProject(id: string): Promise<Project | undefined> {
