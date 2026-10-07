@@ -10,12 +10,13 @@ import { getPendingSharedPullState } from '@/features/collaboration/manualShared
 /** Download a clean copy without releasing locks or advancing unsent edits' bases. */
 export async function refreshSharedProject(
   projectId: string,
-  canApply: () => boolean = () => true
+  canApply: () => boolean = () => true,
+  areaId?: string
 ): Promise<'current' | 'updated' | 'review' | 'deferred'> {
   const sourceToken = await captureLocalProjectSaveToken(projectId);
   const metadata = await getProjectMetadata(projectId);
   if (!metadata?.sharedProjectId || metadata.deletedAt || !canApply()) return 'deferred';
-  if (!await hasNewerSharedProjectRevisions(metadata)) return 'current';
+  if (!await hasNewerSharedProjectRevisions(metadata, areaId)) return 'current';
   const [pendingAreas, pendingMetadata, drafts] = await Promise.all([
     getPendingSharedAreaSyncsForProject(projectId),
     getPendingSharedProjectMetadataSyncForProject(projectId),

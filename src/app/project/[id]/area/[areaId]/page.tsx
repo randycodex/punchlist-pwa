@@ -2,7 +2,7 @@
 
 import { saveRecoverableAreaNote } from '@/features/inspection/captureRecovery';
 import { releaseSharedArea } from '@/features/collaboration/releaseSharedArea';
-import { refreshSharedProject } from '@/features/sync/refreshSharedProject';
+import { prepareSharedInspectionArea } from '@/features/inspection/prepareSharedInspectionArea';
 import { AreaUnavailableError, loadInspectionArea } from '@/features/inspection/loadInspectionArea';
 import AppErrorFallback from '@/components/AppErrorFallback';
 import AttachmentRecoveryNotice from '@/components/inspection/AttachmentRecoveryNotice';
@@ -88,7 +88,6 @@ import { useCollaborationAuth } from '@/contexts/CollaborationAuthContext';
 import { useSyncStatus } from '@/contexts/SyncStatusContext';
 import { useAppSettings } from '@/contexts/AppSettingsContext';
 import {
-  claimSharedProjectArea,
   getActiveSharedProjectAreaClaims,
   isSharedAreaClaimBlockedError,
   shouldBlockSharedAreaEdits,
@@ -567,11 +566,10 @@ export default function AreaDetailPage() {
     void (async () => {
       // Another browser using this account may already have sent newer work.
       // Refresh before enabling edits; pending local captures require review.
-      const result = await refreshSharedProject(localProjectId!, () => !cancelled);
+      const result = await prepareSharedInspectionArea(localProjectId!, sharedProjectId, currentAreaId, () => !cancelled);
       if (cancelled) return;
       if (result === 'updated') await loadDataRef.current();
       if (result === 'review') markSharedUpdateAvailable(localProjectId!);
-      if (!cancelled) return claimSharedProjectArea(sharedProjectId, currentAreaId);
     })()
       .then(() => {
         if (!cancelled) {

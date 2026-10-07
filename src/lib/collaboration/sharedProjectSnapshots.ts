@@ -454,10 +454,37 @@ export async function getSharedProjectSnapshot(localProject: Project): Promise<S
   };
 }
 
-/** Check all area revisions, even when this browser sent a newer unrelated area. */
-export async function hasNewerSharedProjectRevisions(project: Project): Promise<boolean> {
+/** Check all revisions for account sync, or just the opening area plus project-wide changes. */
+export async function hasNewerSharedProjectRevisions(project: Project, areaId?: string): Promise<boolean> {
   const supabase = getCollaborationSupabaseClient();
   if (!supabase || !project.sharedProjectId) throw new Error('Collaboration is not configured.');
+  if (areaId) {
+    // Opening a unit must not download every other inspector's updated units.
+    // These small independent reads take one network round trip; full baseline
+    // or project-detail changes still require the ordinary guarded refresh.
+    const [snapshot, area, metadata] = await Promise.all([
+      supabase.from('shared_project_snapshots').select('published_at')
+        .eq('project_id', project.sharedProjectId).maybeSingle(),
+      supabase.from('shared_project_area_snapshots').select('version, published_at')
+        .eq('project_id', project.sharedProjectId).eq('area_id', areaId).maybeSingle(),
+      supabase.from('shared_project_metadata_snapshots').select('version, published_at')
+        .eq('project_id', project.sharedProjectId).maybeSingle(),
+    ]);
+    if (snapshot.error) throw snapshot.error;
+    if (area.error) throw area.error;
+    if (metadata.error) throw metadata.error;
+    if (!snapshot.data) return false;
+    const remoteBaselineMs = new Date(snapshot.data.published_at).getTime();
+    const baseline = project.sharedBaselinePublishedAt ?? project.sharedSnapshotPublishedAt;
+    if (!baseline || remoteBaselineMs > new Date(baseline).getTime()) return true;
+    const localVersion = project.areas.find((entry) => entry.id === areaId)?.sharedVersion ?? 0;
+    return Boolean(
+      (area.data && new Date(area.data.published_at).getTime() > remoteBaselineMs
+        && area.data.version > localVersion)
+      || (metadata.data && new Date(metadata.data.published_at).getTime() > remoteBaselineMs
+        && metadata.data.version > (project.sharedMetadataVersion ?? 0))
+    );
+  }
   const snapshot = await supabase.from('shared_project_snapshots').select('published_at')
     .eq('project_id', project.sharedProjectId).maybeSingle();
   if (snapshot.error) throw snapshot.error;

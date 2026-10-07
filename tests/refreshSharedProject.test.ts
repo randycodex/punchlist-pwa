@@ -36,6 +36,18 @@ describe('automatic Team refresh', () => {
     expect(await refreshSharedProject(id)).toBe('current');
     expect(pull).not.toHaveBeenCalled();
   });
+  it('opens a current unit without downloading unrelated team updates', async () => {
+    newer.mockResolvedValue(false);
+    expect(await refreshSharedProject(id, () => true, areaId)).toBe('current');
+    expect(newer).toHaveBeenCalledWith(expect.objectContaining({ id }), areaId);
+    expect(pull).not.toHaveBeenCalled();
+  });
+  it('keeps unsent local work when the opening unit needs newer team data', async () => {
+    await saveAreaNotes(id, areaId, 'Unsent local note');
+    expect(await refreshSharedProject(id, () => true, areaId)).toBe('review');
+    expect(pull).not.toHaveBeenCalled();
+    expect((await getProject(id))?.areas[0].notes).toBe('Unsent local note');
+  });
   it('keeps unsent local edits and asks for review', async () => {
     await saveAreaNotes(id, areaId, 'Unsent local note');
     expect(await refreshSharedProject(id)).toBe('review');

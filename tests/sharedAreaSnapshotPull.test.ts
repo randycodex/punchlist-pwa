@@ -66,6 +66,69 @@ describe('area-scoped shared snapshot pulls', () => {
     expect(await hasNewerSharedProjectRevisions(local)).toBe(true);
   });
 
+  it.each([
+    ['unchanged opening unit', basePublishedAt, 2, 0, false],
+    ['newer opening unit', basePublishedAt, 3, 0, true],
+    ['newer project baseline', areaPublishedAt, 2, 0, true],
+    ['newer project details', basePublishedAt, 2, 1, true],
+  ])('checks %s without pulling unrelated unit payloads', async (_, baseline, version, metadataVersion, expected) => {
+    const local = project('Opening unit');
+    local.sharedBaselinePublishedAt = new Date(basePublishedAt);
+    local.areas[0].sharedVersion = 2;
+    const areaFilter = vi.fn();
+    fromMock.mockImplementation((table: string) => {
+      const query = {
+        select: vi.fn(() => query),
+        eq: vi.fn((key: string, value: string) => {
+          if (table === 'shared_project_area_snapshots' && key === 'area_id') areaFilter(value);
+          return query;
+        }),
+        maybeSingle: async () => ({ error: null, data: table === 'shared_project_snapshots'
+          ? { published_at: baseline }
+          : table === 'shared_project_area_snapshots'
+            ? { version, published_at: areaPublishedAt }
+            : { version: metadataVersion, published_at: metadataPublishedAt } }),
+      };
+      return query;
+    });
+    expect(await hasNewerSharedProjectRevisions(local, 'area-1')).toBe(expected);
+    expect(areaFilter).toHaveBeenCalledWith('area-1');
+    // Payloads and storage objects are outside this small freshness check.
+    expect(fromMock.mock.calls.map(([table]) => table)).toEqual([
+      'shared_project_snapshots', 'shared_project_area_snapshots', 'shared_project_metadata_snapshots',
+    ]);
+  });
+
+  it('starts the opening unit checks together instead of waiting three network round trips', async () => {
+    const local = project('Opening unit');
+    local.sharedBaselinePublishedAt = new Date(basePublishedAt);
+    let resolveBaseline!: (value: unknown) => void;
+    const baseline = new Promise((resolve) => { resolveBaseline = resolve; });
+    fromMock.mockImplementation((table: string) => {
+      const query = { select: () => query, eq: () => query,
+        maybeSingle: () => table === 'shared_project_snapshots' ? baseline
+          : Promise.resolve({ data: null, error: null }) };
+      return query;
+    });
+    const check = hasNewerSharedProjectRevisions(local, 'area-1');
+    expect(fromMock).toHaveBeenCalledTimes(3);
+    resolveBaseline({ data: { published_at: basePublishedAt }, error: null });
+    expect(await check).toBe(false);
+  });
+
+  it('does not treat a failed opening unit check as fresh', async () => {
+    const local = project('Opening unit');
+    local.sharedBaselinePublishedAt = new Date(basePublishedAt);
+    const error = { message: 'Failed to fetch' };
+    fromMock.mockImplementation((table: string) => {
+      const query = { select: () => query, eq: () => query,
+        maybeSingle: async () => table === 'shared_project_area_snapshots'
+          ? { data: null, error } : { data: { published_at: basePublishedAt }, error: null } };
+      return query;
+    });
+    await expect(hasNewerSharedProjectRevisions(local, 'area-1')).rejects.toEqual(error);
+  });
+
   it('overlays only area rows newer than the full baseline', async () => {
     const baselineQuery: Record<string, ReturnType<typeof vi.fn>> = {};
     baselineQuery.select = vi.fn(() => baselineQuery);
