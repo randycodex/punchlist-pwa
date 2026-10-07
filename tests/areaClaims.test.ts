@@ -1,3 +1,4 @@
+vi.mock('@/lib/collaboration/areaLocking', () => ({ AREA_LOCKING_ENABLED: true }));
 vi.mock('@/lib/db', () => ({ getPendingSharedAreaSyncsForProject: vi.fn(async () => []), getProjectMetadata: vi.fn(async () => ({ sharedProjectId: 'shared-project-id', areas: ['area-1', 'area-2', 'area-3'].map((id) => ({ id, sharedVersion: 1 })) })) }));
 vi.mock('@/lib/collaboration/deviceIdentity', () => ({ getCollaborationDeviceId: () => 'device-1' }));
 import { beforeEach, describe, expect, it, vi } from 'vitest';

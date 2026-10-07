@@ -1,5 +1,7 @@
 'use client';
 
+import { AREA_LOCKING_ENABLED } from '@/lib/collaboration/areaLocking';
+
 import UnitPhotoDropTarget from './UnitPhotoDropTarget';
 import { useAppSettings } from '@/contexts/AppSettingsContext';
 import { memo } from 'react';
@@ -60,12 +62,12 @@ export const HomeAreaCard = memo(function HomeAreaCard({
   const { setInspectionShowOnlyIssues } = useAppSettings();
   const areaStats = metric?.stats ?? { total: 0, ok: 0, issues: 0 };
   const photoCount = metric?.photoCount ?? 0;
-  const blockedByClaim = claimStatus?.ownership === 'other';
+  const blockedByClaim = AREA_LOCKING_ENABLED && claimStatus?.ownership === 'other';
   const blockedClaimMessage = claimStatus?.ownership === 'other'
     ? `${claimStatus.label} is working in this area. Try another area, or wait until they release it.`
     : 'This area is locked until the current person releases it.';
   // Main stays minimal: only surface locks that block this user.
-  const showOtherClaim = claimStatus?.ownership === 'other';
+  const showOtherClaim = AREA_LOCKING_ENABLED && claimStatus?.ownership === 'other';
 
   return (
     <UnitPhotoDropTarget projectId={project.id} area={area} label={displayName} disabled={deleteMode || blockedByClaim} onSaved={onPhotosSaved}>
@@ -119,7 +121,7 @@ export const HomeAreaCard = memo(function HomeAreaCard({
             <div className="flex min-w-0 flex-wrap items-center gap-2">
               <h3
                 className={`truncate text-[1.03rem] font-semibold tracking-[-0.02em] ${
-                  claimStatus?.ownership === 'mine' ? 'accent-text' : 'text-gray-900 dark:text-white'
+                  AREA_LOCKING_ENABLED && claimStatus?.ownership === 'mine' ? 'accent-text' : 'text-gray-900 dark:text-white'
                 }`}
               >
                 {displayName}

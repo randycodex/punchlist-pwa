@@ -1,3 +1,4 @@
+vi.mock('@/lib/collaboration/areaLocking', () => ({ AREA_LOCKING_ENABLED: true }));
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { channels, channelMock, removeChannelMock } = vi.hoisted(() => {

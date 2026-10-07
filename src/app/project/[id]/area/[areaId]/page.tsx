@@ -1,5 +1,7 @@
 'use client';
 
+import { AREA_LOCKING_ENABLED } from '@/lib/collaboration/areaLocking';
+
 import { saveRecoverableAreaNote } from '@/features/inspection/captureRecovery';
 import { releaseSharedArea } from '@/features/collaboration/releaseSharedArea';
 import { prepareSharedInspectionArea } from '@/features/inspection/prepareSharedInspectionArea';
@@ -533,7 +535,7 @@ export default function AreaDetailPage() {
     const sharedProjectId = project?.sharedProjectId;
     const currentAreaId = area?.id;
     const localProjectId = project?.id;
-    if (!sharedProjectId || !currentAreaId) {
+    if (!AREA_LOCKING_ENABLED || !sharedProjectId || !currentAreaId) {
       setAreaClaimError(null);
       setAreaClaimProblem(null);
       setHasAreaClaim(false);
@@ -605,7 +607,7 @@ export default function AreaDetailPage() {
     const sharedProjectId = project?.sharedProjectId;
     const currentAreaId = area?.id;
     const userId = collaborationAuth.user?.id;
-    if (!sharedProjectId || !currentAreaId || !userId || !hasAreaClaim) return;
+    if (!AREA_LOCKING_ENABLED || !sharedProjectId || !currentAreaId || !userId || !hasAreaClaim) return;
     let active = true;
     const unsubscribe = subscribeToSharedProjectAreaClaimChanges(sharedProjectId, () => {
       void getActiveSharedProjectAreaClaims(sharedProjectId).then((claims) => {
@@ -2127,7 +2129,7 @@ export default function AreaDetailPage() {
     ? project.facadeElevationDrawings?.find((drawing) => drawing.id === area.elevationDrawingId) ?? null
     : null;
 
-  const visibleAreaClaimProblem = project.sharedProjectId ? areaClaimProblem : null;
+  const visibleAreaClaimProblem = AREA_LOCKING_ENABLED && project.sharedProjectId ? areaClaimProblem : null;
   const areaEditingLocked = unreadableAttachments.length > 0 || Boolean(project.sharedProjectId && shouldBlockSharedAreaEdits(
     hasAreaClaim,
     visibleAreaClaimProblem?.kind ?? null
@@ -2138,7 +2140,7 @@ export default function AreaDetailPage() {
   const flattenSingleStairsLocation =
     !deleteMode && !isApartmentArea(area) && sortedStandardLocations.length === 1;
   const canReleaseAreaClaim = Boolean(
-    project.sharedProjectId &&
+    AREA_LOCKING_ENABLED && project.sharedProjectId &&
     hasAreaClaim &&
     !unreadableAttachments.length &&
     !claimingArea &&

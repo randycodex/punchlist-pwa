@@ -1,4 +1,6 @@
 'use client';
+
+import { AREA_LOCKING_ENABLED } from '@/lib/collaboration/areaLocking';
 import type { ReactNode } from 'react';
 import type { Area } from '@/types';
 import PhotoDropTarget from '@/components/inspection/PhotoDropTarget';
@@ -14,7 +16,7 @@ export default function UnitPhotoDropTarget({ projectId, area, label, disabled, 
     if (disabled) throw new Error('This unit is not available for editing.');
     const project = await getProjectMetadata(projectId);
     if (!project || project.deletedAt || !project.areas.some((entry) => entry.id === area.id && !entry.deletedAt)) throw new Error('This unit is no longer available.');
-    if (project.sharedProjectId) await claimSharedProjectArea(project.sharedProjectId, area.id);
+    if (AREA_LOCKING_ENABLED && project.sharedProjectId) await claimSharedProjectArea(project.sharedProjectId, area.id);
   }
   return <PhotoDropTarget label={label} destinations={[]}
     destinationRooms={disabled ? [] : area.locations.map((room) => ({ id: room.id, name: room.name, groups: room.items.map((item) => ({ id: item.id, name: item.name, destinations: item.checkpoints.map(({ id, name }) => ({ id, name })) })) }))}

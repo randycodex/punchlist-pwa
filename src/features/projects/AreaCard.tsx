@@ -1,5 +1,7 @@
 'use client';
 
+import { AREA_LOCKING_ENABLED } from '@/lib/collaboration/areaLocking';
+
 import UnitPhotoDropTarget from './UnitPhotoDropTarget';
 import { useAppSettings } from '@/contexts/AppSettingsContext';
 import { memo } from 'react';
@@ -62,8 +64,8 @@ export const AreaCard = memo(function AreaCard({
   const { setInspectionShowOnlyIssues } = useAppSettings();
   const areaStats = metric?.stats ?? { total: 0, ok: 0, issues: 0 };
   const photoCount = metric?.photoCount ?? 0;
-  const blockedByClaim = claimStatus?.ownership === 'other';
-  const showOtherClaim = claimStatus?.ownership === 'other';
+  const blockedByClaim = AREA_LOCKING_ENABLED && claimStatus?.ownership === 'other';
+  const showOtherClaim = AREA_LOCKING_ENABLED && claimStatus?.ownership === 'other';
 
   return (
     <UnitPhotoDropTarget projectId={projectId} area={area} label={displayName} disabled={deleteMode || blockedByClaim} onSaved={onPhotosSaved}>
@@ -115,7 +117,7 @@ export const AreaCard = memo(function AreaCard({
             <div className="flex min-w-0 flex-wrap items-center gap-2">
               <h3
                 className={`truncate text-[1.05rem] font-semibold tracking-[-0.02em] ${
-                  claimStatus?.ownership === 'mine' ? 'accent-text' : 'text-gray-900 dark:text-white'
+                  AREA_LOCKING_ENABLED && claimStatus?.ownership === 'mine' ? 'accent-text' : 'text-gray-900 dark:text-white'
                 }`}
               >
                 {displayName}

@@ -1,3 +1,4 @@
+import { AREA_LOCKING_ENABLED } from '@/lib/collaboration/areaLocking';
 import { claimSharedProjectArea } from '@/lib/collaboration/areaClaims';
 import { refreshSharedProject } from '@/features/sync/refreshSharedProject';
 
@@ -8,6 +9,7 @@ export async function prepareSharedInspectionArea(
   areaId: string,
   canApply: () => boolean
 ) {
+  if (!AREA_LOCKING_ENABLED) return 'current' as const;
   await claimSharedProjectArea(sharedProjectId, areaId);
   if (!canApply()) return 'deferred' as const;
   // A teammate's lock fails before any snapshot/attachment download. Edits

@@ -1,5 +1,7 @@
 'use client';
 
+import { AREA_LOCKING_ENABLED } from '@/lib/collaboration/areaLocking';
+
 import { acknowledgePublishedSharedProject, captureLocalProjectSaveToken, saveDownloadedProjectIfUnchanged, saveReviewedSharedProject } from '@/lib/db';
 
 import AreaListReturnPosition from '@/features/projects/AreaListReturnPosition';
@@ -372,7 +374,7 @@ export default function ProjectDetailPage() {
     (areaId: string) => {
       const sharedProjectId = project?.sharedProjectId;
       const userId = collaborationAuth.user?.id;
-      if (!sharedProjectId || !collaborationAuth.isSignedIn || !userId) return;
+      if (!AREA_LOCKING_ENABLED || !sharedProjectId || !collaborationAuth.isSignedIn || !userId) return;
 
       const claimKey = `${sharedProjectId}:${areaId}`;
       if (backgroundAreaClaimKeysRef.current.has(claimKey)) return;

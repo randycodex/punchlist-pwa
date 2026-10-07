@@ -19,6 +19,8 @@ async function signIn(id: string, email: string) {
 
 beforeAll(async () => {
   db = await createCollaborationTestDatabase();
+  // Retain coverage of the optional locking policy; paused mode has its own suite.
+  await db.exec("create or replace function public.area_locking_enabled() returns boolean language sql immutable set search_path = '' as $$ select true $$");
   await db.query('insert into auth.users(id,email) values ($1,$2),($3,$4)', [owner, 'owner@uai-ny.com', member, 'member@uai-ny.com']);
   await signIn(owner, 'owner@uai-ny.com');
   project = (await db.query<{ id: string }>('select public.create_shared_project($1,$2,$3) as id', [localProject, 'Database test', 'owner@uai-ny.com'])).rows[0].id;

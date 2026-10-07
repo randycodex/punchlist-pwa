@@ -1,3 +1,4 @@
+vi.mock('@/lib/collaboration/areaLocking', () => ({ AREA_LOCKING_ENABLED: true }));
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { claim, refresh } = vi.hoisted(() => ({ claim: vi.fn(), refresh: vi.fn() }));

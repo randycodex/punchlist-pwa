@@ -1,5 +1,7 @@
 'use client';
 
+import { AREA_LOCKING_ENABLED } from '@/lib/collaboration/areaLocking';
+
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import dynamic from 'next/dynamic';
@@ -60,7 +62,7 @@ export default function ProjectReviewPage() {
   const entries = useMemo(() => project ? buildProjectReviewList(project) : [], [project]);
   const openEntry = entries.find((entry) => entry.id === openId) ?? null;
   const activeCheckpoint = findCheckpoint(openArea, openEntry?.checkpointId);
-  const canEditOpenArea = Boolean(project && (!project.sharedProjectId || (openEntry && claimedAreaIds.has(openEntry.areaId))));
+  const canEditOpenArea = Boolean(project && (!AREA_LOCKING_ENABLED || !project.sharedProjectId || (openEntry && claimedAreaIds.has(openEntry.areaId))));
 
   useEffect(() => {
     let active = true;
@@ -77,7 +79,7 @@ export default function ProjectReviewPage() {
   useEffect(() => {
     const sharedProjectId = project?.sharedProjectId;
     const userId = collaborationAuth.user?.id;
-    if (!sharedProjectId || !userId || claimedAreaIds.size === 0) return;
+    if (!AREA_LOCKING_ENABLED || !sharedProjectId || !userId || claimedAreaIds.size === 0) return;
     let active = true;
     const unsubscribe = subscribeToSharedProjectAreaClaimChanges(sharedProjectId, () => {
       void getActiveSharedProjectAreaClaims(sharedProjectId).then((claims) => {
@@ -287,7 +289,7 @@ export default function ProjectReviewPage() {
             <div className="space-y-3">
               {entries.map((entry) => {
                 const isOpen = openId === entry.id;
-                const editing = !project.sharedProjectId || claimedAreaIds.has(entry.areaId);
+                const editing = !AREA_LOCKING_ENABLED || !project.sharedProjectId || claimedAreaIds.has(entry.areaId);
                 const checkpoint = isOpen ? activeCheckpoint : null;
                 return (
                   <section key={entry.id} className="overflow-hidden rounded-[1.4rem] bg-[var(--surface)]">
@@ -308,7 +310,7 @@ export default function ProjectReviewPage() {
                     {isOpen && (
                       <div className="border-t border-black/5 px-4 pb-5 pt-4 dark:border-white/10 sm:px-5">
                         {error && <p role="alert" className="mb-4 rounded-xl bg-amber-100 p-3 text-sm text-amber-900 dark:bg-amber-400/15 dark:text-amber-200">{error}</p>}
-                        {project.sharedProjectId && (
+                        {AREA_LOCKING_ENABLED && project.sharedProjectId && (
                           <div className="mb-4 flex items-center gap-3">
                             {editing ? (
                               <><span className="text-xs text-emerald-700 dark:text-emerald-400">Editing this area</span><button type="button" disabled={busy} onClick={() => void releaseArea(entry)} className="text-xs underline disabled:opacity-50">Release lock</button></>

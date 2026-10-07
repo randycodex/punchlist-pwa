@@ -1,3 +1,4 @@
+import { AREA_LOCKING_ENABLED } from '@/lib/collaboration/areaLocking';
 import { withBrowserLock } from '@/lib/browserLocks';
 import { listCaptureDrafts } from '@/lib/captureJournal';
 import { getPendingSharedAreaSyncsForProject, getProjectMetadata } from '@/lib/db';
@@ -19,7 +20,7 @@ export function canUserEditClaimedArea(
   claim: Pick<CollaborationAreaClaim, 'claimedByUserId' | 'status' | 'expiresAt' | 'deviceId'> | null | undefined,
   userId: string
 ) {
-  if (!claim) return true;
+  if (!AREA_LOCKING_ENABLED || !claim) return true;
   if (!isAreaClaimActive(claim)) return true;
   return claim.claimedByUserId === userId;
 }
@@ -85,6 +86,7 @@ export function shouldBlockSharedAreaEdits(
   hasClaim: boolean,
   problemKind: 'blocked' | 'lost' | null
 ) {
+  if (!AREA_LOCKING_ENABLED) return false;
   return problemKind === 'blocked' || (!hasClaim && problemKind !== 'lost');
 }
 
@@ -157,6 +159,7 @@ export async function claimSharedProjectArea(sharedProjectId: string, areaId: st
 }
 
 export async function getActiveSharedProjectAreaClaims(sharedProjectId: string) {
+  if (!AREA_LOCKING_ENABLED) return [];
   const supabase = getCollaborationSupabaseClient();
   if (!supabase) {
     throw new Error('Collaboration is not configured.');
@@ -178,6 +181,7 @@ export async function getActiveSharedProjectAreaClaims(sharedProjectId: string) 
 }
 
 export async function getActiveSharedProjectAreaClaimSummaries(sharedProjectId: string): Promise<CollaborationAreaClaimSummary[]> {
+  if (!AREA_LOCKING_ENABLED) return [];
   const supabase = getCollaborationSupabaseClient();
   if (!supabase) {
     throw new Error('Collaboration is not configured.');
@@ -280,6 +284,7 @@ async function releaseVerifiedClaimUnderLock(claim: CollaborationAreaClaim, loca
 }
 
 export async function releaseSharedProjectArea(sharedProjectId: string, areaId: string, localProjectId: string) {
+  if (!AREA_LOCKING_ENABLED) return;
   const claims = await getActiveSharedProjectAreaClaims(sharedProjectId);
   const claim = claims.find((entry) => entry.areaId === areaId);
   if (!claim) return;
@@ -318,6 +323,7 @@ export async function releaseAbandonedSharedProjectArea(
  * Other people's locks are left alone.
  */
 export async function releaseAllMySharedProjectAreaClaims(sharedProjectId: string, localProjectId: string) {
+  if (!AREA_LOCKING_ENABLED) return { releasedCount: 0 };
   const supabase = getCollaborationSupabaseClient();
   if (!supabase) {
     throw new Error('Collaboration is not configured.');
@@ -377,6 +383,7 @@ export function subscribeToSharedProjectAreaClaimChanges(
   sharedProjectId: string,
   onChange: () => void
 ) {
+  if (!AREA_LOCKING_ENABLED) return () => {};
   const supabase = getCollaborationSupabaseClient();
   if (!supabase) {
     return () => {};
