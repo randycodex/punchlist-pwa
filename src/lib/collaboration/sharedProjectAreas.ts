@@ -6,10 +6,15 @@ import { getCollaborationSupabaseClient } from './supabaseClient';
 import { createCollaborationRealtimeChannel } from './realtimeChannel';
 import {
   hydrateSharedSnapshotAssets,
+  mapWithConcurrency,
   prepareCompactSharedSnapshotPayload,
   projectHasSharedSnapshotAttachments,
 } from './sharedSnapshotAssets';
 import { parseSharedSnapshotPayload } from './sharedSnapshotPayload';
+
+/** Areas hydrate through the shared download pool; keep a small fan-out. */
+export const SHARED_AREA_HYDRATE_CONCURRENCY = 4;
+export const SHARED_AREA_PREPARE_CONCURRENCY = 3;
 
 export type SharedProjectAreaSnapshotRow = {
   project_id: string;
@@ -80,14 +85,25 @@ export function isSharedProjectAreaConflictError(error: unknown): error is Share
     || message.includes('area has newer team data');
 }
 
-export async function publishSharedProjectAreaSnapshot(input: {
+export type PreparedSharedProjectAreaSnapshot = {
+  sharedProjectId: string;
+  areaId: string;
+  baseVersion: number;
+  basePublishedAt: string;
+  clientId: string;
+  payload: Json;
+  payloadVersion: number;
+};
+
+/** Load/upload media for one area. Safe to overlap across areas in one project. */
+export async function prepareSharedProjectAreaSnapshot(input: {
   project: Project;
   areaId: string;
   baseVersion: number;
   basePublishedAt: string;
   clientId: string;
   publishedByUserId: string;
-}) {
+}): Promise<PreparedSharedProjectAreaSnapshot> {
   const { project, areaId, baseVersion, basePublishedAt, clientId, publishedByUserId } = input;
   if (!project.sharedProjectId) {
     throw new Error('Share this project before syncing area data.');
@@ -106,24 +122,37 @@ export async function publishSharedProjectAreaSnapshot(input: {
     throw new Error('Could not find this area before syncing shared data.');
   }
 
-  const supabase = getCollaborationSupabaseClient();
-  if (!supabase) {
-    throw new Error('Collaboration is not configured.');
-  }
-
   const scopedProject = scopeProjectToArea(project, area, baseVersion + 1);
   validateProjectIdentity(scopedProject);
   const transfer = projectHasSharedSnapshotAttachments(scopedProject)
     ? await prepareCompactSharedSnapshotPayload(scopedProject, publishedByUserId, { areaId })
     : { payload: scopedProject, payloadVersion: 1 };
+  return {
+    sharedProjectId: project.sharedProjectId,
+    areaId,
+    baseVersion,
+    basePublishedAt,
+    clientId,
+    payload: toJson(transfer.payload),
+    payloadVersion: transfer.payloadVersion,
+  };
+}
+
+/** Final DB publish. Keep sequential per project; RPC uses a project advisory lock. */
+export async function commitSharedProjectAreaSnapshot(prepared: PreparedSharedProjectAreaSnapshot) {
+  const supabase = getCollaborationSupabaseClient();
+  if (!supabase) {
+    throw new Error('Collaboration is not configured.');
+  }
+
   const { data, error } = await supabase.rpc('publish_shared_project_area_snapshot', {
-    p_project_id: project.sharedProjectId,
-    p_area_id: areaId,
-    p_area_payload: toJson(transfer.payload),
-    p_payload_version: transfer.payloadVersion,
-    p_base_version: baseVersion,
-    p_base_published_at: basePublishedAt,
-    p_client_id: clientId,
+    p_project_id: prepared.sharedProjectId,
+    p_area_id: prepared.areaId,
+    p_area_payload: prepared.payload,
+    p_payload_version: prepared.payloadVersion,
+    p_base_version: prepared.baseVersion,
+    p_base_published_at: prepared.basePublishedAt,
+    p_client_id: prepared.clientId,
     p_device_id: getCollaborationDeviceId(),
   });
   if (error) {
@@ -149,6 +178,28 @@ export async function publishSharedProjectAreaSnapshot(input: {
     areaVersion: result.area_version,
     publishedAt: result.published_at,
   };
+}
+
+export async function publishSharedProjectAreaSnapshot(input: {
+  project: Project;
+  areaId: string;
+  baseVersion: number;
+  basePublishedAt: string;
+  clientId: string;
+  publishedByUserId: string;
+}) {
+  const prepared = await prepareSharedProjectAreaSnapshot(input);
+  return commitSharedProjectAreaSnapshot(prepared);
+}
+
+export async function parseSharedProjectAreaSnapshots(
+  rows: SharedProjectAreaSnapshotRow[],
+  localProjectId: string,
+  sharedProjectId: string,
+  localProject?: Project
+) {
+  return mapWithConcurrency(rows, SHARED_AREA_HYDRATE_CONCURRENCY, (row) =>
+    parseSharedProjectAreaSnapshot(row, localProjectId, sharedProjectId, localProject));
 }
 
 export async function parseSharedProjectAreaSnapshot(

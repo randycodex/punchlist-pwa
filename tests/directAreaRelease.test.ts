@@ -11,10 +11,29 @@ vi.mock('@/lib/collaboration/supabaseClient', () => ({
   }),
 }));
 vi.mock('@/lib/collaboration/deviceIdentity', () => ({ getCollaborationDeviceId: () => 'this-phone' }));
-vi.mock('@/lib/collaboration/sharedProjectAreas', async (importOriginal) => ({
-  ...await importOriginal<typeof import('@/lib/collaboration/sharedProjectAreas')>(),
-  publishSharedProjectAreaSnapshot: publishMock,
-}));
+vi.mock('@/lib/collaboration/sharedProjectAreas', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/collaboration/sharedProjectAreas')>();
+  return {
+    ...actual,
+    prepareSharedProjectAreaSnapshot: async (input: {
+      project: { sharedProjectId?: string };
+      areaId: string;
+      baseVersion: number;
+      basePublishedAt: string;
+      clientId: string;
+    }) => ({
+      sharedProjectId: input.project.sharedProjectId!,
+      areaId: input.areaId,
+      baseVersion: input.baseVersion,
+      basePublishedAt: input.basePublishedAt,
+      clientId: input.clientId,
+      payload: {},
+      payloadVersion: 2,
+    }),
+    commitSharedProjectAreaSnapshot: publishMock,
+    publishSharedProjectAreaSnapshot: publishMock,
+  };
+});
 
 import {
   createArea, createProject, deleteProject, getPendingSharedAreaSyncsForProject,

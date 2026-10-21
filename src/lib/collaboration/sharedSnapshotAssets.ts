@@ -15,6 +15,11 @@ import {
   type SharedSnapshotAssetReference,
 } from './sharedSnapshotPayload';
 import { isCollaborationCapacityError, retryCollaborationOperation } from './request';
+import {
+  assetTransferKey,
+  getSharedDownloadPool,
+  getSharedUploadPool,
+} from './sharedTransferPool';
 
 export class SharedAttachmentIntegrityError extends Error {
   readonly code = '22023';
@@ -136,7 +141,8 @@ function referenceFromMetadata(row: SharedAttachmentMetadataRow): SharedSnapshot
   };
 }
 
-function runWithConcurrency<T>(
+/** Run workers with bounded concurrency; drain in-flight work before rethrowing. */
+export async function runWithConcurrency<T>(
   values: T[],
   concurrency: number,
   worker: (value: T) => Promise<void>
@@ -145,7 +151,8 @@ function runWithConcurrency<T>(
   let failed = false;
   let firstError: unknown;
   const workerCount = Math.min(Math.max(concurrency, 1), values.length);
-  return Promise.all(
+  if (workerCount === 0) return;
+  await Promise.all(
     Array.from({ length: workerCount }, async () => {
       while (!failed && nextIndex < values.length) {
         const value = values[nextIndex];
@@ -158,10 +165,28 @@ function runWithConcurrency<T>(
         }
       }
     })
-  ).then(() => {
-    // Drain requests already in flight before allowing a subsequent transfer.
-    if (failed) throw firstError;
+  );
+  if (failed) throw firstError;
+}
+
+export async function mapWithConcurrency<T, R>(
+  values: T[],
+  concurrency: number,
+  worker: (value: T, index: number) => Promise<R>
+): Promise<R[]> {
+  const results = new Array<R>(values.length);
+  await runWithConcurrency(values.map((value, index) => ({ value, index })), concurrency, async ({ value, index }) => {
+    results[index] = await worker(value, index);
   });
+  return results;
+}
+
+async function asBlob(value: string | Blob) {
+  return typeof value === 'string' ? dataUrlToBlob(value) : value;
+}
+
+async function asDataUrl(value: string | Blob) {
+  return typeof value === 'string' ? value : blobToDataUrl(value);
 }
 
 export function projectHasSharedSnapshotAttachments(project: Project) {
@@ -351,6 +376,11 @@ export async function buildSharedSnapshotAssetPlan(
   return { attachmentCount, assets, uploads };
 }
 
+/**
+ * Upload immutable attachments for a compact payload.
+ * File/byte capacity is shared across areas via the upload pool; identical paths
+ * dedupe. Final area RPC publishes remain sequential in the sync queue.
+ */
 export async function prepareCompactSharedSnapshotPayload(
   project: Project,
   uploadedByUserId: string,
@@ -360,15 +390,6 @@ export async function prepareCompactSharedSnapshotPayload(
     throw new Error('Share this project before publishing shared data.');
   }
 
-  return withBrowserLock(localAccountKey(`shared-attachment-transfer:${project.sharedProjectId}`), () =>
-    prepareCompactSharedSnapshotPayloadUnderLock(project, uploadedByUserId, options));
-}
-
-async function prepareCompactSharedSnapshotPayloadUnderLock(
-  project: Project,
-  uploadedByUserId: string,
-  options: { areaId?: string }
-) {
   const supabase = getCollaborationSupabaseClient();
   if (!supabase) {
     throw new Error('Collaboration is not configured.');
@@ -402,55 +423,62 @@ async function prepareCompactSharedSnapshotPayloadUnderLock(
   }
 
   const plan = await buildSharedSnapshotAssetPlan(project, data);
-  const uploadConcurrency = plan.uploads.some((upload) => upload.reference.sizeBytes > 5 * 1024 * 1024)
-    ? 1
-    : 2;
-  await runWithConcurrency(plan.uploads, uploadConcurrency, async (upload) => {
-    const blob = dataUrlToBlob(upload.dataUrl);
-    const alreadyExists = await retryCollaborationOperation(async () => {
-      const { error: uploadError } = await supabase.storage
-        .from(upload.reference.bucket)
-        .upload(upload.reference.path, blob, {
-          cacheControl: '3600',
-          contentType: upload.reference.mimeType,
-          upsert: false,
+  const uploadPool = getSharedUploadPool();
+  try {
+    await runWithConcurrency(plan.uploads, uploadPool.getLimits().maxFiles, async (upload) => {
+      const key = assetTransferKey(upload.reference.bucket, upload.reference.path);
+      await uploadPool.schedule(key, upload.reference.sizeBytes, async () => {
+        const blob = dataUrlToBlob(upload.dataUrl);
+        const alreadyExists = await retryCollaborationOperation(async () => {
+          const { error: uploadError } = await supabase.storage
+            .from(upload.reference.bucket)
+            .upload(upload.reference.path, blob, {
+              cacheControl: '3600',
+              contentType: upload.reference.mimeType,
+              upsert: false,
+            });
+          if (!uploadError) return false;
+          const code = String(uploadError.statusCode);
+          // Recognize symbolic Storage codes as well as legacy responses.
+          const duplicate = ['409', 'Duplicate', 'ResourceAlreadyExists', 'KeyAlreadyExists', 'already_exists'].includes(code)
+            || (uploadError.status === 400 && code === '400' && uploadError.message === 'The resource already exists');
+          if (!duplicate) throw uploadError;
+          return true;
         });
-      if (!uploadError) return false;
-      const code = String(uploadError.statusCode);
-      // Recognize symbolic Storage codes as well as legacy responses.
-      const duplicate = ['409', 'Duplicate', 'ResourceAlreadyExists', 'KeyAlreadyExists', 'already_exists'].includes(code)
-        || (uploadError.status === 400 && code === '400' && uploadError.message === 'The resource already exists');
-      if (!duplicate) throw uploadError;
-      return true;
-    });
-    if (alreadyExists) await retryCollaborationOperation(async () => {
-      // A lost reply or missing metadata may leave the immutable object present.
-      // Verify bytes before registering it; never overwrite historical assets.
-      const { data: existingBlob, error: downloadError } = await supabase.storage
-        .from(upload.reference.bucket).download(upload.reference.path);
-      if (downloadError) throw downloadError;
-      if (!existingBlob) throw new SharedAttachmentIntegrityError('The existing shared attachment is unavailable.');
-      await verifyAssetContent(upload.reference, existingBlob);
-    });
+        if (alreadyExists) await retryCollaborationOperation(async () => {
+          // A lost reply or missing metadata may leave the immutable object present.
+          // Verify bytes before registering it; never overwrite historical assets.
+          const { data: existingBlob, error: downloadError } = await supabase.storage
+            .from(upload.reference.bucket).download(upload.reference.path);
+          if (downloadError) throw downloadError;
+          if (!existingBlob) throw new SharedAttachmentIntegrityError('The existing shared attachment is unavailable.');
+          await verifyAssetContent(upload.reference, existingBlob);
+        });
 
-    await retryCollaborationOperation(async () => {
-      const { error: metadataError } = await supabase
-        .from('shared_attachments')
-        .upsert({
-          project_id: project.sharedProjectId!,
-          area_id: upload.areaId,
-          checkpoint_id: upload.checkpointId,
-          uploaded_by_user_id: uploadedByUserId,
-          storage_bucket: upload.reference.bucket,
-          storage_path: upload.reference.path,
-          file_name: upload.fileName,
-          mime_type: upload.reference.mimeType,
-          size_bytes: upload.reference.sizeBytes,
-          deleted_at: null,
-        }, { onConflict: 'storage_bucket,storage_path', ignoreDuplicates: true });
-      if (metadataError) throw metadataError;
+        await retryCollaborationOperation(async () => {
+          const { error: metadataError } = await supabase
+            .from('shared_attachments')
+            .upsert({
+              project_id: project.sharedProjectId!,
+              area_id: upload.areaId,
+              checkpoint_id: upload.checkpointId,
+              uploaded_by_user_id: uploadedByUserId,
+              storage_bucket: upload.reference.bucket,
+              storage_path: upload.reference.path,
+              file_name: upload.fileName,
+              mime_type: upload.reference.mimeType,
+              size_bytes: upload.reference.sizeBytes,
+              deleted_at: null,
+            }, { onConflict: 'storage_bucket,storage_path', ignoreDuplicates: true });
+          if (metadataError) throw metadataError;
+        });
+      });
     });
-  });
+  } catch (error) {
+    uploadPool.rejectQueued(error);
+    await uploadPool.drain();
+    throw error;
+  }
 
   return {
     payload: createCompactSharedSnapshotPayload(project, plan.assets),
@@ -476,12 +504,18 @@ function validateReference(
   }
 }
 
+export type SharedAssetResolveOptions = {
+  /** Resolver already verified checksum/size (e.g. downloadVerifiedAsset). */
+  contentAlreadyVerified?: boolean;
+};
+
 export async function hydrateSharedSnapshotAssetsWithResolver(
   project: Project,
   assets: SharedSnapshotAssetManifest,
   sharedProjectId: string,
-  resolve: (reference: SharedSnapshotAssetReference) => Promise<string>,
-  localProject?: Project
+  resolve: (reference: SharedSnapshotAssetReference) => Promise<string | Blob>,
+  localProject?: Project,
+  options: SharedAssetResolveOptions = {}
 ) {
   const references = new Map<string, {
     reference: SharedSnapshotAssetReference;
@@ -489,7 +523,7 @@ export async function hydrateSharedSnapshotAssetsWithResolver(
   }>();
   function addReference(reference: SharedSnapshotAssetReference, required: boolean) {
     validateReference(reference, sharedProjectId);
-    const key = `${reference.bucket}:${reference.path}`;
+    const key = assetTransferKey(reference.bucket, reference.path);
     const existing = references.get(key);
     references.set(key, { reference, required: required || existing?.required === true });
   }
@@ -505,7 +539,7 @@ export async function hydrateSharedSnapshotAssetsWithResolver(
   // attachment ID alone cannot prove that the team still has the same image.
   const localCandidates = new Map<string, string>();
   function addLocalCandidate(reference: SharedSnapshotAssetReference | undefined, value: string | undefined) {
-    if (reference?.sha256 && value) localCandidates.set(`${reference.bucket}:${reference.path}`, value);
+    if (reference?.sha256 && value) localCandidates.set(assetTransferKey(reference.bucket, reference.path), value);
   }
   if (localProject?.sharedProjectId === sharedProjectId) {
     for (const drawing of localProject.facadeElevationDrawings ?? []) {
@@ -527,31 +561,43 @@ export async function hydrateSharedSnapshotAssetsWithResolver(
     }
   }
 
+  const downloadPool = getSharedDownloadPool();
   const downloaded = new Map<string, string>();
-  await runWithConcurrency([...references.entries()], 3, async ([key, entry]) => {
-    const candidate = localCandidates.get(key);
-    if (candidate) {
-      try {
-        await verifyAssetContent(entry.reference, dataUrlToBlob(candidate));
-        downloaded.set(key, candidate);
-        return;
-      } catch {
-        // A changed or damaged local copy needs the server's verified bytes.
+  try {
+    await runWithConcurrency([...references.entries()], downloadPool.getLimits().maxFiles, async ([key, entry]) => {
+      const candidate = localCandidates.get(key);
+      if (candidate) {
+        try {
+          await verifyAssetContent(entry.reference, await asBlob(candidate));
+          downloaded.set(key, candidate);
+          return;
+        } catch {
+          // A changed or damaged local copy needs the server's verified bytes.
+        }
       }
-    }
-    try {
-      const value = await retryCollaborationOperation(() => resolve(entry.reference), { attempts: 2 });
-      await verifyAssetContent(entry.reference, dataUrlToBlob(value));
-      downloaded.set(key, value);
-    } catch (error) {
-      if (!entry.required && !isCollaborationCapacityError(error)) return;
-      throw error;
-    }
-  });
+      try {
+        const value = await downloadPool.schedule(key, entry.reference.sizeBytes, async () => {
+          const resolved = await retryCollaborationOperation(() => resolve(entry.reference), { attempts: 2 });
+          const blob = await asBlob(resolved);
+          if (!options.contentAlreadyVerified) await verifyAssetContent(entry.reference, blob);
+          // Keep Blobs through validation; convert once for Project field consumers.
+          return asDataUrl(typeof resolved === 'string' ? resolved : blob);
+        });
+        downloaded.set(key, value);
+      } catch (error) {
+        if (!entry.required && !isCollaborationCapacityError(error)) return;
+        throw error;
+      }
+    });
+  } catch (error) {
+    downloadPool.rejectQueued(error);
+    await downloadPool.drain();
+    throw error;
+  }
 
   function getDownloaded(reference: SharedSnapshotAssetReference | undefined) {
     if (!reference) return undefined;
-    return downloaded.get(`${reference.bucket}:${reference.path}`);
+    return downloaded.get(assetTransferKey(reference.bucket, reference.path));
   }
 
   for (const drawing of project.facadeElevationDrawings ?? []) {
@@ -640,14 +686,12 @@ export async function hydrateSharedSnapshotAssets(
     project,
     assets,
     sharedProjectId,
-    async (reference) => {
-      const blob = await downloadVerifiedAsset(reference, async () => {
-        const { data, error } = await supabase.storage.from(reference.bucket).download(reference.path);
-        if (error || !data) throw error ?? new Error(`Shared attachment ${reference.path} could not be downloaded.`);
-        return data;
-      });
-      return blobToDataUrl(blob);
-    },
-    localProject
+    async (reference) => downloadVerifiedAsset(reference, async () => {
+      const { data, error } = await supabase.storage.from(reference.bucket).download(reference.path);
+      if (error || !data) throw error ?? new Error(`Shared attachment ${reference.path} could not be downloaded.`);
+      return data;
+    }),
+    localProject,
+    { contentAlreadyVerified: true }
   );
 }

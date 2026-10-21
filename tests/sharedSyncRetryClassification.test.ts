@@ -9,10 +9,29 @@ import { ProjectPayloadValidationError } from '@/lib/projectPayload';
 
 const { areaPublish, metadataPublish } = vi.hoisted(() => ({ areaPublish: vi.fn(), metadataPublish: vi.fn() }));
 vi.mock('@/lib/collaboration/supabaseClient', () => ({ getCollaborationSupabaseClient: () => ({ auth: { getSession: async () => ({ data: { session: { user: { id: 'member' } } }, error: null }) } }) }));
-vi.mock('@/lib/collaboration/sharedProjectAreas', async (importOriginal) => ({
-  ...await importOriginal<typeof import('@/lib/collaboration/sharedProjectAreas')>(),
-  publishSharedProjectAreaSnapshot: areaPublish,
-}));
+vi.mock('@/lib/collaboration/sharedProjectAreas', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/collaboration/sharedProjectAreas')>();
+  return {
+    ...actual,
+    prepareSharedProjectAreaSnapshot: async (input: {
+      project: { sharedProjectId?: string };
+      areaId: string;
+      baseVersion: number;
+      basePublishedAt: string;
+      clientId: string;
+    }) => ({
+      sharedProjectId: input.project.sharedProjectId!,
+      areaId: input.areaId,
+      baseVersion: input.baseVersion,
+      basePublishedAt: input.basePublishedAt,
+      clientId: input.clientId,
+      payload: {},
+      payloadVersion: 2,
+    }),
+    commitSharedProjectAreaSnapshot: areaPublish,
+    publishSharedProjectAreaSnapshot: areaPublish,
+  };
+});
 vi.mock('@/lib/collaboration/sharedProjectMetadata', async (importOriginal) => ({
   ...await importOriginal<typeof import('@/lib/collaboration/sharedProjectMetadata')>(),
   publishSharedProjectMetadataSnapshot: metadataPublish,

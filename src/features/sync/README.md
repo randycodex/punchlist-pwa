@@ -4,9 +4,14 @@ Team changes are sent to the team server. Signed-in browsers refresh clean Team
 copies on list pages after realtime notices (coalesced for 250 ms), on
 focus/reconnection, and every 30 seconds while visible as a fallback.
 Clean copies with the same server baseline compare area versions and download
-only changed area payloads and missing media. Pending work, legacy copies, or a
-changed baseline retain the full guarded pull/review path. Revision lists and
-full downloads are paginated for large projects.
+only changed area payloads and missing media. Attachment downloads share a
+global file/byte pool across areas (with path dedupe); Blobs stay binary through
+checksum verification and convert to data URLs only for Project consumers.
+Safari still persists attachment strings. Area media preparation/uploads can
+overlap under that pool, while same-project database publishes stay sequential
+because of the project advisory lock. Pending work, legacy copies, or a changed
+baseline retain the full guarded pull/review path. Revision lists and full
+downloads are paginated for large projects.
 Areas check for clean updates before enabling editing. Changes from the same
 account in another browser are included. Locks belong to the account; device IDs
 identify the originating browser for automatic lock cleanup and backups. Explicit

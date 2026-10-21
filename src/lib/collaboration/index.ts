@@ -13,6 +13,7 @@ export * from './sharedAreaSyncQueue';
 export * from './sharedProjects';
 export * from './sharedSnapshotAssets';
 export * from './sharedSnapshotPayload';
+export * from './sharedTransferPool';
 export * from './storage';
 export * from './supabaseClient';
 export * from './types';

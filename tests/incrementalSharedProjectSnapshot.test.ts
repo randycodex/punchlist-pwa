@@ -9,7 +9,15 @@ vi.mock('@/lib/db', () => ({ getPendingSharedAreaSyncsForProject: mocks.pendingA
 vi.mock('@/lib/collaboration/sharedProjectMetadata', async (original) => ({
   ...await original<object>(), getSharedProjectMetadataSnapshot: mocks.metadata,
 }));
-vi.mock('@/lib/collaboration/sharedProjectAreas', () => ({ parseSharedProjectAreaSnapshot: mocks.parseArea }));
+vi.mock('@/lib/collaboration/sharedProjectAreas', () => ({
+  parseSharedProjectAreaSnapshot: mocks.parseArea,
+  parseSharedProjectAreaSnapshots: async (
+    rows: SharedProjectAreaSnapshotRow[],
+    localProjectId: string,
+    sharedProjectId: string,
+    localProject?: Project
+  ) => Promise.all(rows.map((row) => mocks.parseArea(row, localProjectId, sharedProjectId, localProject))),
+}));
 import { getIncrementalSharedProjectSnapshot } from '@/lib/collaboration/incrementalSharedProjectSnapshot';
 
 const baseline = '2026-10-01T00:00:00.000Z';

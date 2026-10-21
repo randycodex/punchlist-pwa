@@ -2,7 +2,27 @@ import { describe, expect, it, vi } from 'vitest';
 import { createProject, createArea, saveProjectPreserveTimestamps, queuePendingSharedAreaSync, queuePendingSharedProjectMetadataSync, getPendingSharedAreaSyncsForProject, getPendingSharedProjectMetadataSyncForProject } from '@/lib/db';
 const { areaPublish, metadataPublish } = vi.hoisted(() => ({ areaPublish: vi.fn(async () => ({ areaVersion: 1, publishedAt: '2026-09-25T12:00:00Z' })), metadataPublish: vi.fn(async () => ({ metadataVersion: 1, publishedAt: '2026-09-25T12:00:00Z' })) }));
 vi.mock('@/lib/collaboration/supabaseClient', () => ({ getCollaborationSupabaseClient: () => ({ auth: { getSession: async () => ({ data: { session: { user: { id: 'member' } } } }) } }) }));
-vi.mock('@/lib/collaboration/sharedProjectAreas', () => ({ publishSharedProjectAreaSnapshot: areaPublish, isSharedProjectAreaConflictError: () => false }));
+vi.mock('@/lib/collaboration/sharedProjectAreas', () => ({
+  publishSharedProjectAreaSnapshot: areaPublish,
+  prepareSharedProjectAreaSnapshot: async (input: {
+    project: { sharedProjectId?: string };
+    areaId: string;
+    baseVersion: number;
+    basePublishedAt: string;
+    clientId: string;
+  }) => ({
+    sharedProjectId: input.project.sharedProjectId!,
+    areaId: input.areaId,
+    baseVersion: input.baseVersion,
+    basePublishedAt: input.basePublishedAt,
+    clientId: input.clientId,
+    payload: {},
+    payloadVersion: 2,
+  }),
+  commitSharedProjectAreaSnapshot: areaPublish,
+  SHARED_AREA_PREPARE_CONCURRENCY: 3,
+  isSharedProjectAreaConflictError: () => false,
+}));
 vi.mock('@/lib/collaboration/sharedProjectMetadata', () => ({ publishSharedProjectMetadataSnapshot: metadataPublish, isSharedProjectMetadataConflictError: () => false }));
 import { pushQueuedSharedChanges } from '@/features/collaboration/pushQueuedSharedChanges';
 

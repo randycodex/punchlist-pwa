@@ -14,9 +14,13 @@ import { getLocalMediaRecoveryMessage } from '@/lib/localMediaRecovery';
 import { loadAreaWithRecoveredMedia } from '@/features/sync/loadAreaWithRecoveredMedia';
 import { getSharedSyncFailureCode, isPendingSharedSyncVersionConflict } from './sharedSyncFailure';
 import { getCollaborationSupabaseClient } from './supabaseClient';
+import { mapWithConcurrency } from './sharedSnapshotAssets';
 import {
+  commitSharedProjectAreaSnapshot,
   isSharedProjectAreaConflictError,
-  publishSharedProjectAreaSnapshot,
+  prepareSharedProjectAreaSnapshot,
+  SHARED_AREA_PREPARE_CONCURRENCY,
+  type PreparedSharedProjectAreaSnapshot,
 } from './sharedProjectAreas';
 
 export const SHARED_AREA_SYNC_EVENT = 'punchlist-shared-area-sync';
@@ -179,25 +183,63 @@ export async function rebaseSharedProjectAreaSyncsAfterPull(
   return { rebased: records.length > 0, records };
 }
 
-async function syncRecord(
+type PreparedAreaSync = {
+  record: PendingSharedAreaSyncRecord;
+  prepared: PreparedSharedProjectAreaSnapshot;
+};
+
+type PrepareOutcome =
+  | { status: 'ready'; value: PreparedAreaSync }
+  | { status: 'synced' }
+  | { status: 'pending' }
+  | { status: 'conflict' };
+
+async function recordSyncFailure(
+  record: PendingSharedAreaSyncRecord,
+  error: unknown
+): Promise<'pending' | 'conflict'> {
+  const recovery = error instanceof Error && error.message.includes('opening saved photos and files')
+    ? getLocalMediaRecoveryMessage(record.localProjectId, record.areaId) : undefined;
+  const message = `${getErrorMessage(error)}${recovery ? ` ${recovery}` : ''}`;
+  const conflicted = isSharedProjectAreaConflictError(error);
+  const pauseRetry = shouldPauseAutomaticRetry(error);
+  const errorCode = conflicted ? '40001' : getSharedSyncFailureCode(error);
+  await recordPendingSharedAreaSyncFailure(record.key, record.clientId, message, pauseRetry, errorCode);
+  dispatchSharedAreaSync({
+    status: conflicted ? 'conflict' : 'error',
+    localProjectId: record.localProjectId,
+    sharedProjectId: record.sharedProjectId,
+    areaId: record.areaId,
+    message,
+  });
+  if (!pauseRetry) {
+    const retryDelay = Math.min(30_000, 2_000 * (2 ** Math.min(record.attemptCount, 4)));
+    schedulePendingSharedAreaSyncFlush(retryDelay);
+  }
+  return conflicted ? 'conflict' : 'pending';
+}
+
+async function prepareRecord(
   record: PendingSharedAreaSyncRecord,
   publishedByUserId: string
-): Promise<'synced' | 'pending' | 'conflict'> {
-  if (record.blockedByConflict) return isPendingSharedSyncVersionConflict(record) ? 'conflict' : 'pending';
+): Promise<PrepareOutcome> {
+  if (record.blockedByConflict) {
+    return { status: isPendingSharedSyncVersionConflict(record) ? 'conflict' : 'pending' };
+  }
   try {
     const project = await loadAreaWithRecoveredMedia(record.localProjectId, record.areaId);
     if (!project || project.sharedProjectId !== record.sharedProjectId) {
       await discardPendingSharedAreaSync(record.key);
-      return 'synced';
+      return { status: 'synced' };
     }
     const area = project.areas.find((entry) => entry.id === record.areaId);
     if (!area) {
       await discardPendingSharedAreaSync(record.key);
-      return 'synced';
+      return { status: 'synced' };
     }
     const areaBaseVersion = area.sharedVersion ?? 0;
     const useAreaBase = areaBaseVersion > record.baseVersion && area.sharedPublishedAt;
-    const result = await publishSharedProjectAreaSnapshot({
+    const prepared = await prepareSharedProjectAreaSnapshot({
       project,
       areaId: record.areaId,
       baseVersion: Math.max(record.baseVersion, areaBaseVersion),
@@ -205,6 +247,16 @@ async function syncRecord(
       clientId: record.clientId,
       publishedByUserId,
     });
+    return { status: 'ready', value: { record, prepared } };
+  } catch (error) {
+    return { status: await recordSyncFailure(record, error) };
+  }
+}
+
+async function commitPrepared(preparedSync: PreparedAreaSync): Promise<'synced' | 'pending' | 'conflict'> {
+  const { record, prepared } = preparedSync;
+  try {
+    const result = await commitSharedProjectAreaSnapshot(prepared);
     const completion = await completePendingSharedAreaSync({
       key: record.key,
       clientId: record.clientId,
@@ -226,25 +278,7 @@ async function syncRecord(
     }
     return 'synced';
   } catch (error) {
-    const recovery = error instanceof Error && error.message.includes('opening saved photos and files')
-      ? getLocalMediaRecoveryMessage(record.localProjectId, record.areaId) : undefined;
-    const message = `${getErrorMessage(error)}${recovery ? ` ${recovery}` : ''}`;
-    const conflicted = isSharedProjectAreaConflictError(error);
-    const pauseRetry = shouldPauseAutomaticRetry(error);
-    const errorCode = conflicted ? '40001' : getSharedSyncFailureCode(error);
-    await recordPendingSharedAreaSyncFailure(record.key, record.clientId, message, pauseRetry, errorCode);
-    dispatchSharedAreaSync({
-      status: conflicted ? 'conflict' : 'error',
-      localProjectId: record.localProjectId,
-      sharedProjectId: record.sharedProjectId,
-      areaId: record.areaId,
-      message,
-    });
-    if (!pauseRetry) {
-      const retryDelay = Math.min(30_000, 2_000 * (2 ** Math.min(record.attemptCount, 4)));
-      schedulePendingSharedAreaSyncFlush(retryDelay);
-    }
-    return conflicted ? 'conflict' : 'pending';
+    return recordSyncFailure(record, error);
   }
 }
 
@@ -277,11 +311,30 @@ export async function flushPendingSharedAreaSyncs(localProjectId?: string, areaI
     let synced = 0;
     let pending = 0;
     let conflicted = 0;
+    const byProject = new Map<string, PendingSharedAreaSyncRecord[]>();
     for (const record of records) {
-      const result = await syncRecord(record, userId);
-      if (result === 'synced') synced += 1;
-      else if (result === 'conflict') conflicted += 1;
-      else pending += 1;
+      const group = byProject.get(record.localProjectId) ?? [];
+      group.push(record);
+      byProject.set(record.localProjectId, group);
+    }
+
+    for (const projectRecords of byProject.values()) {
+      // Overlap media preparation; keep same-project RPC publishes sequential.
+      const outcomes = await mapWithConcurrency(
+        projectRecords,
+        SHARED_AREA_PREPARE_CONCURRENCY,
+        (record) => prepareRecord(record, userId)
+      );
+      for (const outcome of outcomes) {
+        if (outcome.status === 'ready') {
+          const result = await commitPrepared(outcome.value);
+          if (result === 'synced') synced += 1;
+          else if (result === 'conflict') conflicted += 1;
+          else pending += 1;
+        } else if (outcome.status === 'synced') synced += 1;
+        else if (outcome.status === 'conflict') conflicted += 1;
+        else pending += 1;
+      }
     }
     return { synced, pending, conflicted };
   }).finally(() => {

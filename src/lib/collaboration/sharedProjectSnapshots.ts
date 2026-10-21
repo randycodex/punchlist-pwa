@@ -25,7 +25,7 @@ import {
   projectHasSharedSnapshotAttachments,
 } from './sharedSnapshotAssets';
 import {
-  parseSharedProjectAreaSnapshot,
+  parseSharedProjectAreaSnapshots,
   type SharedProjectAreaSnapshotRow,
 } from './sharedProjectAreas';
 import {
@@ -433,13 +433,14 @@ export async function getSharedProjectSnapshot(localProject: Project): Promise<S
   const drawingsById = new Map(
     (hydratedProject.facadeElevationDrawings ?? []).map((drawing) => [drawing.id, drawing])
   );
-  for (const row of changedAreaSnapshots) {
-    const parsedArea = await parseSharedProjectAreaSnapshot(
-      row,
-      localProject.id,
-      localProject.sharedProjectId,
-      localProject
-    );
+  const parsedAreas = await parseSharedProjectAreaSnapshots(
+    changedAreaSnapshots,
+    localProject.id,
+    localProject.sharedProjectId,
+    localProject
+  );
+  for (const [index, parsedArea] of parsedAreas.entries()) {
+    const row = changedAreaSnapshots[index];
     const existingIndex = hydratedProject.areas.findIndex((area) => area.id === parsedArea.area.id);
     if (existingIndex === -1) hydratedProject.areas.push(parsedArea.area);
     else hydratedProject.areas[existingIndex] = parsedArea.area;
