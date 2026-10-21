@@ -22,6 +22,8 @@ describe('new device project restoration menu', () => {
     expect(persistentTopBar).not.toContain("dispatchHomeAction('publish-shared-project')");
     expect(persistentTopBar).toContain("dispatchHomeAction('pull-shared-project')");
     expect(persistentTopBar).toContain('Get Team Updates');
+    expect(persistentTopBar).toContain("sharedTransferStatus === 'pulling' ? 'animate-spin'");
+    expect(persistentTopBar).toContain("|| sharedTransferStatus === 'pulling'");
     expect(persistentTopBar).not.toContain("dispatchHomeAction('release-my-area-locks')");
   });
 
