@@ -24,6 +24,8 @@ import { flushPendingSharedAreaSyncs } from '@/lib/collaboration/sharedAreaSyncQ
 import { flushPendingSharedProjectMetadataSyncs } from '@/lib/collaboration/sharedProjectMetadataSyncQueue';
 import { registerLocalMediaRecovery } from '@/lib/localMediaRecovery';
 import { recoverLocalTeamAttachments } from './recoverLocalTeamAttachments';
+import { createRefreshScheduler } from './refreshScheduler';
+import { SHARED_UPDATE_AVAILABLE_EVENT } from '@/lib/collaboration/sharedUpdateEvents';
 
 // Browser databases are independent. Use the existing account cloud stores as
 // the bridge, without automatically resolving conflicting or unsent work.
@@ -50,11 +52,66 @@ export default function AccountSync() {
   useEffect(() => {
     let active = true;
     let running = false;
-    let timer: ReturnType<typeof setTimeout> | undefined;
     let retryAfter = 0;
+    let oneDriveRunning = false;
+    let oneDriveRetryAfter = 0;
+    const manualTransferInProgress = () => latest.current.sync.status === 'syncing'
+      || Boolean(latest.current.sync.sharedTransferStatus);
 
     function notify(projectId: string) {
       window.dispatchEvent(new CustomEvent('punchlist-project-synced', { detail: { projectId } }));
+    }
+
+    // OneDrive may take minutes on a weak connection. Its independent lifecycle
+    // must not hold up the next team refresh or team-sync completion.
+    async function runOneDrive(state: typeof latest.current, sameAccount: () => boolean, canPull: () => boolean) {
+      if (oneDriveRunning || !sameAccount() || !navigator.onLine || document.visibilityState === 'hidden'
+        || manualTransferInProgress()
+        || Date.now() < oneDriveRetryAfter) return;
+      oneDriveRunning = true;
+      try {
+        if (!state.microsoft.isSignedIn || !sameAccount()) return;
+        const token = await state.microsoft.ensureAccessToken({ interactive: false });
+        if (!token || !sameAccount()) return;
+        const projects = await getAllProjects();
+        const pending = loadPendingSyncState();
+        const dirty = new Set(pending.projectIds);
+        const personal = projects.filter((project) => !project.sharedProjectId && !project.deletedAt);
+        if (canPull() && !pending.fullSyncNeeded) {
+          const cleanIds: string[] = [];
+          for (const project of personal) {
+            if (!dirty.has(project.id) && !await hasProjectCaptureDrafts(project.id)) cleanIds.push(project.id);
+          }
+          if (cleanIds.length) {
+            const merged = await mergePersonalProjectsFromOneDrive(token, cleanIds, { canApply: canPull });
+            [...merged.updatedLocalProjectIds, ...merged.archivedLocalProjectIds].forEach(notify);
+          }
+        }
+        if (canPull()) {
+          const restored = await restoreMissingProjectsFromOneDrive(token, { downloadOnly: true, canApply: canPull });
+          restored.restoredProjectIds.forEach(notify);
+        }
+        if (!sameAccount() || pending.autoRetryPaused
+          || manualTransferInProgress()
+          || (pending.retryNotBefore && new Date(pending.retryNotBefore).getTime() > Date.now())) return;
+        const queuedIds = projects.filter((project) => dirty.has(project.id)
+          && (!project.sharedProjectId || !project.deletedAt)).map((project) => project.id);
+        if (!queuedIds.length) return;
+        const result = await runManualOneDriveSync({ ensureAccessToken: async () => token,
+          scope: 'selected', projectIds: queuedIds });
+        if (!sameAccount() || manualTransferInProgress()) return;
+        if (result.status === 'conflict') {
+          state.sync.setSyncConflicts(result.conflicts);
+          pausePendingSyncAutoRetry();
+        }
+        state.sync.setStatus(result.status === 'success'
+          ? loadPendingSyncState().projectIds.length || loadPendingSyncState().fullSyncNeeded ? 'pending' : 'idle'
+          : result.status === 'needs-auth' ? 'needs-auth' : 'pending');
+        if (result.status !== 'success') oneDriveRetryAfter = Date.now() + 60_000;
+      } catch (error) {
+        oneDriveRetryAfter = Date.now() + 60_000;
+        console.info('Account backup deferred; local work was kept:', error);
+      } finally { oneDriveRunning = false; }
     }
 
     async function run() {
@@ -112,7 +169,7 @@ export default function AccountSync() {
               if (state.pathname !== '/' && state.pathname !== `/project/${project.id}`) continue;
               try {
                 const result = await refreshSharedProject(project.id, canPull);
-                if (result === 'review') state.sync.markSharedUpdateAvailable(project.id);
+                if (result === 'review') state.sync.markSharedUpdateAvailable(project.id, { refresh: false });
                 if (result === 'current' || result === 'updated') state.sync.clearSharedUpdateAvailable(project.id);
                 if (result === 'updated') notify(project.id);
               } catch (error) { console.info('Team project refresh deferred:', error); }
@@ -121,69 +178,34 @@ export default function AccountSync() {
             console.info('Team refresh deferred; personal sync can continue:', error);
           }
         }
-        if (!state.microsoft.isSignedIn || !sameAccount()) return;
-        const token = await state.microsoft.ensureAccessToken({ interactive: false });
-        if (!token || !sameAccount()) return;
-        projects = await getAllProjects();
-        const pending = loadPendingSyncState();
-        const dirty = new Set(pending.projectIds);
-        const personal = projects.filter((project) => !project.sharedProjectId && !project.deletedAt);
-        if (canPull() && !pending.fullSyncNeeded) {
-          const cleanIds: string[] = [];
-          for (const project of personal) {
-            if (!dirty.has(project.id) && !await hasProjectCaptureDrafts(project.id)) cleanIds.push(project.id);
-          }
-          if (cleanIds.length) {
-            const merged = await mergePersonalProjectsFromOneDrive(token, cleanIds, { canApply: canPull });
-            [...merged.updatedLocalProjectIds, ...merged.archivedLocalProjectIds].forEach(notify);
-          }
-        }
-        if (canPull()) {
-          const restored = await restoreMissingProjectsFromOneDrive(token, { downloadOnly: true, canApply: canPull });
-          restored.restoredProjectIds.forEach(notify);
-        }
-        if (!sameAccount() || pending.autoRetryPaused
-          || latest.current.sync.status === 'syncing' || latest.current.sync.sharedTransferStatus
-          || (pending.retryNotBefore && new Date(pending.retryNotBefore).getTime() > Date.now())) return;
-        const queuedIds = projects.filter((project) => !project.sharedProjectId
-          && dirty.has(project.id)).map((project) => project.id);
-        if (!queuedIds.length) return;
-        state.sync.setStatus('syncing');
-        const result = await runManualOneDriveSync({ ensureAccessToken: async () => token,
-          scope: 'selected', projectIds: queuedIds });
-        if (!sameAccount()) return;
-        if (result.status === 'conflict') {
-          state.sync.setSyncConflicts(result.conflicts);
-          pausePendingSyncAutoRetry();
-        }
-        state.sync.setStatus(result.status === 'success'
-          ? loadPendingSyncState().projectIds.length || loadPendingSyncState().fullSyncNeeded ? 'pending' : 'idle'
-          : result.status === 'needs-auth' ? 'needs-auth' : 'pending');
-        if (result.status !== 'success') retryAfter = Date.now() + 60_000;
+        void runOneDrive(state, sameAccount, canPull);
       } catch (error) {
         retryAfter = Date.now() + 60_000;
         console.info('Account sync deferred; local work was kept:', error);
       } finally { running = false; }
     }
 
-    function schedule() {
-      if (timer) clearTimeout(timer);
-      timer = setTimeout(() => { void run(); }, 3_000);
-    }
+    const scheduler = createRefreshScheduler(run);
+    const schedule = () => scheduler.schedule(3_000);
+    const refreshSoon = () => scheduler.schedule();
     schedule();
-    const interval = setInterval(() => { void run(); }, 30_000);
+    const interval = setInterval(refreshSoon, 30_000);
     window.addEventListener('online', schedule);
     window.addEventListener('focus', schedule);
     document.addEventListener('visibilitychange', schedule);
     window.addEventListener('punchlist-local-save-status', schedule);
+    window.addEventListener(SHARED_UPDATE_AVAILABLE_EVENT, refreshSoon);
+    window.addEventListener('punchlist-team-sync-completed', refreshSoon);
     return () => {
       active = false;
-      if (timer) clearTimeout(timer);
+      scheduler.dispose();
       clearInterval(interval);
       window.removeEventListener('online', schedule);
       window.removeEventListener('focus', schedule);
       document.removeEventListener('visibilitychange', schedule);
       window.removeEventListener('punchlist-local-save-status', schedule);
+      window.removeEventListener(SHARED_UPDATE_AVAILABLE_EVENT, refreshSoon);
+      window.removeEventListener('punchlist-team-sync-completed', refreshSoon);
     };
   }, [microsoft.isSignedIn, microsoft.accountEmail, collaboration.isSignedIn, collaboration.user?.id]);
   return null;

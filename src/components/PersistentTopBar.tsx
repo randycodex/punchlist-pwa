@@ -20,7 +20,7 @@ import {
   summarizePendingSharedSyncs,
   type SharedSyncQueueSummary,
 } from '@/lib/db';
-import { hasPendingSyncState } from '@/lib/pendingSync';
+import { hasPendingSyncState, queuePendingSync } from '@/lib/pendingSync';
 import { mergePersonalProjectsFromOneDrive } from '@/lib/oneDriveSync';
 import { runManualOneDriveSync } from '@/features/sync/runManualOneDriveSync';
 import { syncSharedProject } from '@/features/sync/syncSharedProject';
@@ -291,7 +291,6 @@ export default function PersistentTopBar() {
     closeHomeMenuOnMobile();
     setInfoDialog(null);
     setSyncStatus('syncing');
-    let teamSyncMessage = '';
     let syncStage = 'loading the saved project';
     try {
       const project = await getProjectMetadata(syncProjectId);
@@ -317,14 +316,19 @@ export default function PersistentTopBar() {
         if (result.sharedUpdatesAvailable) markSharedUpdateAvailable(syncProjectId);
         // Sending our areas does not mean other team updates were downloaded.
         window.dispatchEvent(new CustomEvent('punchlist-project-synced', { detail: { projectId: syncProjectId } }));
-        teamSyncMessage = `${project.projectName}: your team changes were sent${result.releasedAreaCount ? `; ${result.releasedAreaCount} area${result.releasedAreaCount === 1 ? '' : 's'} released` : ''}. ${result.sharedUpdatesAvailable ? 'Team updates are waiting to download. Use Get Team Updates to load the latest changes and photos onto this device.' : ''}\n\n`;
+        queuePendingSync(syncProjectId);
+        setSyncStatus('pending');
+        setInfoDialog({ title: 'Sync This Team Project',
+          message: `${project.projectName}: your team changes were sent${result.releasedAreaCount ? `; ${result.releasedAreaCount} area${result.releasedAreaCount === 1 ? '' : 's'} released` : ''}. ${result.sharedUpdatesAvailable ? 'Team updates are available. Use Get Team Updates to download them. ' : ''}A separate OneDrive backup is queued for the background. Use OneDrive Sync / Backup to check or retry the backup.` });
+        window.dispatchEvent(new Event('punchlist-team-sync-completed'));
+        return;
       }
 
       syncStage = 'signing in to Microsoft';
       const token = await ensureAccessToken({ interactive: true });
       if (!token) {
         setSyncStatus('needs-auth');
-        setInfoDialog({ title: 'Sync This Project', message: `${teamSyncMessage}Sign in to Microsoft to back up this project's JSON and photos to OneDrive.` });
+        setInfoDialog({ title: 'Sync This Project', message: "Sign in to Microsoft to back up this project's JSON and photos to OneDrive." });
         return;
       }
       syncStage = 'checking the OneDrive copy';
@@ -346,21 +350,21 @@ export default function PersistentTopBar() {
           title: 'Sync This Project',
           message: merged.archivedLocalProjectIds.includes(syncProjectId)
             ? `${project.projectName}: the newer OneDrive copy shows this project was archived. This device moved it to Trash.`
-            : `${teamSyncMessage}${project.projectName}: ${project.sharedProjectId ? "this device's JSON and photos backed up in OneDrive/PunchList/Team Backups" : 'JSON and photos backed up in OneDrive/PunchList'}${merged.updatedLocalProjectIds.includes(syncProjectId) ? '; newer changes from OneDrive added' : ''}.`,
+            : `${project.projectName}: JSON and photos backed up in OneDrive/PunchList${merged.updatedLocalProjectIds.includes(syncProjectId) ? '; newer changes from OneDrive added' : ''}.`,
         });
       } else {
         if (result.status === 'conflict') setSyncConflicts(result.conflicts);
         setSyncStatus(result.status === 'needs-auth' ? 'needs-auth' : result.status === 'error' || result.status === 'conflict' ? 'error' : 'pending');
         setInfoDialog({
           title: 'Sync This Project',
-          message: `${teamSyncMessage}${'message' in result ? result.message : 'Sign in to Microsoft to back up this project.'}`,
+          message: 'message' in result ? result.message : 'Sign in to Microsoft to back up this project.',
         });
       }
     } catch (error) {
       setSyncStatus('error');
       setInfoDialog({
         title: 'Sync This Project',
-        message: `${teamSyncMessage}${syncStage === 'syncing team changes' ? '' : `Could not finish sync while ${syncStage}. `}${getCollaborationErrorMessage(error, 'Your work is saved on this device. Try sync again.')}`,
+        message: `${syncStage === 'syncing team changes' ? '' : `Could not finish sync while ${syncStage}. `}${getCollaborationErrorMessage(error, 'Your work is saved on this device. Try sync again.')}`,
       });
     } finally {
       projectSyncingRef.current = false;

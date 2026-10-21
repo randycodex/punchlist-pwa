@@ -100,7 +100,9 @@ import {
   getSharedProjectMembers,
   getSharedProjectBackupSnapshot,
   getSharedProjectSnapshot,
-  getSharedProjectSnapshotMetadata,
+  isSharedProjectUpdateNewer,
+  type SharedProjectUpdateNotice,
+  hasNewerSharedProjectRevisions,
   hasNewerLocalChangesThanSharedSnapshot,
   getCollaborationErrorMessage,
   TEAM_PROJECTS_SIGNIN_HINT,
@@ -1005,7 +1007,7 @@ export default function ProjectsPage() {
   const noticeLiveSharedDashboardProject = useCallback(async (
     localProjectId: string,
     sharedProjectId: string,
-    publishedAt?: string
+    change: SharedProjectUpdateNotice
   ) => {
     try {
       const visibleProject = projectsRef.current.find(
@@ -1018,13 +1020,7 @@ export default function ProjectsPage() {
         ? storedProject
         : visibleProject;
 
-      let remotePublishedAt = publishedAt;
-      if (!remotePublishedAt) {
-        const metadata = await getSharedProjectSnapshotMetadata(sharedProjectId);
-        remotePublishedAt = metadata?.publishedAt;
-      }
-      if (!remotePublishedAt) return;
-      if (!isSharedSnapshotNewer(comparisonProject, remotePublishedAt)) return;
+      if (!isSharedProjectUpdateNewer(comparisonProject, change)) return;
       markSharedUpdateAvailable(localProjectId);
     } catch (error) {
       console.info('Live shared update notice skipped:', error);
@@ -1040,15 +1036,15 @@ export default function ProjectsPage() {
         const [localProjectId, sharedProjectId] = entry.split(':');
         if (!localProjectId || !sharedProjectId) return () => {};
         const unsubscribeSnapshot = subscribeToSharedProjectSnapshotChanges(sharedProjectId, (change) => {
-          void noticeLiveSharedDashboardProject(localProjectId, sharedProjectId, change.publishedAt);
+          void noticeLiveSharedDashboardProject(localProjectId, sharedProjectId, change);
         });
         const unsubscribeArea = subscribeToSharedProjectAreaSnapshotChanges(sharedProjectId, (change) => {
-          void noticeLiveSharedDashboardProject(localProjectId, sharedProjectId, change.publishedAt);
+          void noticeLiveSharedDashboardProject(localProjectId, sharedProjectId, change);
         });
         const unsubscribeMetadata = subscribeToSharedProjectMetadataSnapshotChanges(
           sharedProjectId,
           (change) => {
-            void noticeLiveSharedDashboardProject(localProjectId, sharedProjectId, change.publishedAt);
+            void noticeLiveSharedDashboardProject(localProjectId, sharedProjectId, change);
           }
         );
         return () => {
@@ -1078,7 +1074,7 @@ export default function ProjectsPage() {
         void noticeLiveSharedDashboardProject(
           localProjectId,
           activeSharedProjectId,
-          change.publishedAt
+          change
         );
       }
     );
@@ -1088,7 +1084,7 @@ export default function ProjectsPage() {
         void noticeLiveSharedDashboardProject(
           localProjectId,
           activeSharedProjectId,
-          change.publishedAt
+          change
         );
       }
     );
@@ -1098,7 +1094,7 @@ export default function ProjectsPage() {
         void noticeLiveSharedDashboardProject(
           localProjectId,
           activeSharedProjectId,
-          change.publishedAt
+          change
         );
       }
     );
@@ -2334,11 +2330,7 @@ export default function ProjectsPage() {
       fullProject.sharedProjectLinkedAt = project.sharedProjectLinkedAt;
       const pendingAreaSyncs = await getPendingSharedAreaSyncsForProject(fullProject.id);
       const hasPendingAreaSyncs = pendingAreaSyncs.length > 0;
-      const metadata = await getSharedProjectSnapshotMetadata(project.sharedProjectId);
-      if (!metadata) {
-        throw new Error('No team data has been published for this project yet.');
-      }
-      if (!hasPendingAreaSyncs && !isSharedSnapshotNewer(fullProject, metadata.publishedAt)) {
+      if (!hasPendingAreaSyncs && !await hasNewerSharedProjectRevisions(fullProject)) {
         showMessage('You already have the latest team updates. Your work on this device was not replaced.');
         return;
       }
@@ -2356,11 +2348,6 @@ export default function ProjectsPage() {
           hasNewerLocalChanges,
           reason: 'manual-pull',
         });
-        return;
-      }
-
-      if (!hasPendingAreaSyncs && !isSharedSnapshotNewer(fullProject, result.publishedAt)) {
-        showMessage('You already have the latest team updates.');
         return;
       }
 

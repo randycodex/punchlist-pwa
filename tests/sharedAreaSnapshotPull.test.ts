@@ -49,6 +49,42 @@ describe('area-scoped shared snapshot pulls', () => {
     fromMock.mockReset();
   });
 
+  it('finds a missing revision beyond the API default row limit', async () => {
+    const local = project('Current');
+    local.sharedBaselinePublishedAt = new Date(basePublishedAt);
+    local.areas = Array.from({ length: 1001 }, (_, index) => ({ ...local.areas[0], id: `area-${index}`, sharedVersion: 2 }));
+    const revisions = local.areas.map((area, index) => ({ area_id: area.id,
+      version: index === 1000 ? 3 : 2, published_at: areaPublishedAt }));
+    const offsets: number[] = [];
+    fromMock.mockImplementation(() => {
+      const query = { select: () => query, eq: () => query, gt: () => query, order: () => query,
+        maybeSingle: async () => ({ data: { published_at: basePublishedAt }, error: null }),
+        range: async (from: number, to: number) => {
+          offsets.push(from); return { data: revisions.slice(from, to + 1), error: null };
+        },
+      };
+      return query;
+    });
+    expect(await hasNewerSharedProjectRevisions(local)).toBe(true);
+    expect(offsets).toEqual([0, 500, 1000]);
+  });
+
+  it('starts the three sync freshness reads together', async () => {
+    let finish!: (value: unknown) => void;
+    const baseline = new Promise((resolve) => { finish = resolve; });
+    fromMock.mockImplementation((table: string) => {
+      const query = { select: () => query, eq: () => query, order: () => query, limit: () => query,
+        maybeSingle: () => table === 'shared_project_snapshots' ? baseline
+          : Promise.resolve({ data: { published_at: areaPublishedAt }, error: null }),
+      };
+      return query;
+    });
+    const check = getSharedProjectSnapshotMetadata('shared-project-1');
+    expect(fromMock).toHaveBeenCalledTimes(3);
+    finish({ data: { published_at: basePublishedAt }, error: null });
+    expect(await check).toEqual({ publishedAt: areaPublishedAt });
+  });
+
   it('detects an older missing area update even after this browser sent a newer area', async () => {
     const local = project('Local area');
     local.sharedBaselinePublishedAt = new Date(basePublishedAt);
@@ -56,8 +92,8 @@ describe('area-scoped shared snapshot pulls', () => {
     local.areas[0].sharedVersion = 2;
     fromMock.mockImplementation((table: string) => {
       const query = {
-        select: () => query, eq: () => query,
-        gt: async () => ({ data: [{ area_id: 'area-1', version: 3 }], error: null }),
+        select: () => query, eq: () => query, gt: () => query, order: () => query,
+        range: async () => ({ data: [{ area_id: 'area-1', version: 3, published_at: areaPublishedAt }], error: null }),
         maybeSingle: async () => ({ data: { published_at: basePublishedAt }, error: null }),
       };
       expect(['shared_project_snapshots', 'shared_project_area_snapshots']).toContain(table);
@@ -146,7 +182,8 @@ describe('area-scoped shared snapshot pulls', () => {
     areaQuery.select = vi.fn(() => areaQuery);
     areaQuery.eq = vi.fn(() => areaQuery);
     areaQuery.gt = vi.fn(() => areaQuery);
-    areaQuery.order = vi.fn().mockResolvedValue({
+    areaQuery.order = vi.fn(() => areaQuery);
+    areaQuery.range = vi.fn().mockResolvedValue({
       data: [{
         project_id: 'shared-project-1',
         area_id: 'area-1',

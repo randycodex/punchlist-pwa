@@ -11,6 +11,7 @@ import {
   type SharedSyncQueueSummary,
 } from '@/lib/db';
 import type { SyncConflict } from '@/lib/oneDriveSync';
+import { SHARED_UPDATE_AVAILABLE_EVENT } from '@/lib/collaboration/sharedUpdateEvents';
 
 export type SyncStatus = 'idle' | 'syncing' | 'pending' | 'needs-auth' | 'error';
 export type LocalSaveStatus = 'saving' | 'saved' | 'error';
@@ -23,7 +24,7 @@ type SyncStatusContextValue = {
   retryInSeconds: number;
   setRetryAt: (retryAt: Date | null) => void;
   sharedUpdateProjectIds: ReadonlySet<string>;
-  markSharedUpdateAvailable: (projectId: string) => void;
+  markSharedUpdateAvailable: (projectId: string, options?: { refresh?: boolean }) => void;
   clearSharedUpdateAvailable: (projectId: string) => void;
   localSaveStatus: LocalSaveStatus;
   localSaveError: string | null;
@@ -141,8 +142,9 @@ export function SyncStatusProvider({ children }: { children: ReactNode }) {
     return Math.max(0, Math.ceil((retryAt.getTime() - now) / 1000));
   }, [now, retryAt]);
 
-  const markSharedUpdateAvailable = useCallback((projectId: string) => {
+  const markSharedUpdateAvailable = useCallback((projectId: string, options: { refresh?: boolean } = {}) => {
     if (!projectId) return;
+    if (options.refresh !== false) window.dispatchEvent(new CustomEvent(SHARED_UPDATE_AVAILABLE_EVENT, { detail: { projectId } }));
     setSharedUpdateProjectIds((current) => {
       if (current.has(projectId)) return current;
       const next = new Set(current);

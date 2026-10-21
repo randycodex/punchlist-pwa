@@ -23,6 +23,7 @@ Use one branch + one worktree per workstream.
 
 | Thread | Branch | Worktree Path | Scope | Status | Owner | Notes |
 |---|---|---|---|---|---|---|
+| Incremental team sync | `codex/sync-incremental-updates` | `/workspace/punchlist-worktrees/sync-incremental-updates` | Changed-area pulls, realtime refresh, background OneDrive backups | Ready | Codex | `npm run verify` passed: 686 tests, lint, TypeScript, production build. Local candidate; not deployed. |
 | Main integration | `main` | `.` | Stable baseline + merges | Active | You | Do release checks here |
 | UI / Layout | `codex/ui-layout` | `.worktrees/ui-layout` | Shared layout, navigation, menus, visual polish | Planned | You | |
 | Camera / Photos / Files | `codex/camera-photos-files` | `.worktrees/camera-photos-files` | Camera capture, attachments, previews, file handling | Planned | You | |

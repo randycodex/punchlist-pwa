@@ -3,6 +3,7 @@ import {
   hasNewerLocalChangesThanSharedSnapshot,
   isSharedProjectPublishStale,
   isSharedSnapshotNewer,
+  isSharedProjectUpdateNewer,
 } from '@/lib/collaboration/sharedProjectSnapshots';
 import type { Project } from '@/types';
 
@@ -26,6 +27,21 @@ function project(overrides: Partial<Project> = {}): Project {
 }
 
 describe('shared snapshot revision safety', () => {
+  it('notices an older missing area or metadata revision after a newer area was sent', () => {
+    const local = project({ sharedMetadataVersion: 1 });
+    expect(isSharedProjectUpdateNewer(local, { areaId: 'missing-area', areaVersion: 2,
+      publishedAt: '2026-01-01T11:00:00Z' })).toBe(true);
+    expect(isSharedProjectUpdateNewer(local, { metadataVersion: 2,
+      publishedAt: '2026-01-01T11:00:00Z' })).toBe(true);
+    expect(isSharedProjectUpdateNewer(local, { metadataVersion: 1,
+      publishedAt: '2026-01-01T13:00:00Z' })).toBe(false);
+  });
+
+  it('checks full baseline notices against the saved baseline without a device-clock tolerance', () => {
+    const local = project({ sharedBaselinePublishedAt: new Date('2026-01-01T10:00:00Z') });
+    expect(isSharedProjectUpdateNewer(local, { publishedAt: '2026-01-01T10:00:00.001Z' })).toBe(true);
+    expect(isSharedProjectUpdateNewer(local, { publishedAt: '2026-01-01T10:00:00Z' })).toBe(false);
+  });
   it('detects a newer remote revision without applying it', () => {
     const local = project();
     const remotePublishedAt = '2026-01-01T12:00:05.000Z';

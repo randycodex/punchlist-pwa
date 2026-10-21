@@ -36,6 +36,7 @@ import {
 import { settlePendingSharedProjectMetadataSync } from './sharedProjectMetadataSyncQueue';
 import { retryCollaborationOperation } from './request';
 import { fillUploadedAttachmentRecoveryCopies } from './uploadedAttachmentRecovery';
+import { getIncrementalSharedProjectSnapshot, listSharedProjectAreaRevisions } from './incrementalSharedProjectSnapshot';
 
 type SnapshotResult = {
   project: Project;
@@ -113,17 +114,24 @@ async function listChangedSharedProjectAreaSnapshots(
 ): Promise<SharedProjectAreaSnapshotRow[]> {
   const supabase = getCollaborationSupabaseClient();
   if (!supabase) throw new Error('Collaboration is not configured.');
-  const { data, error } = await supabase
-    .from('shared_project_area_snapshots')
-    .select('project_id, area_id, area_payload, payload_version, version, published_by_user_id, published_at')
-    .eq('project_id', sharedProjectId)
-    .gt('published_at', baselinePublishedAt)
-    .order('published_at', { ascending: true });
-  if (error) {
-    if (isMissingAreaSnapshotsTableError(error)) return [];
-    throw error;
+  const rows: SharedProjectAreaSnapshotRow[] = [];
+  const pageSize = 500;
+  for (let offset = 0; ; offset += pageSize) {
+    const { data, error } = await supabase
+      .from('shared_project_area_snapshots')
+      .select('project_id, area_id, area_payload, payload_version, version, published_by_user_id, published_at')
+      .eq('project_id', sharedProjectId)
+      .gt('published_at', baselinePublishedAt)
+      .order('area_id', { ascending: true }).range(offset, offset + pageSize - 1);
+    if (error) {
+      if (isMissingAreaSnapshotsTableError(error)) return [];
+      throw error;
+    }
+    rows.push(...(data ?? []));
+    if ((data?.length ?? 0) < pageSize) {
+      return rows.sort((left, right) => new Date(left.published_at).getTime() - new Date(right.published_at).getTime());
+    }
   }
-  return data ?? [];
 }
 
 function omitChangedAreaAssets(
@@ -392,6 +400,9 @@ export async function getSharedProjectSnapshot(localProject: Project): Promise<S
     throw new Error('Collaboration is not configured.');
   }
 
+  const incremental = await getIncrementalSharedProjectSnapshot(localProject);
+  if (incremental) return incremental;
+
   const { data, error } = await supabase
     .from('shared_project_snapshots')
     .select('project_payload, payload_version, published_at')
@@ -491,11 +502,9 @@ export async function hasNewerSharedProjectRevisions(project: Project, areaId?: 
   if (!snapshot.data) return false;
   const baseline = project.sharedBaselinePublishedAt ?? project.sharedSnapshotPublishedAt;
   if (!baseline || new Date(snapshot.data.published_at).getTime() > new Date(baseline).getTime()) return true;
-  const areas = await supabase.from('shared_project_area_snapshots').select('area_id, version')
-    .eq('project_id', project.sharedProjectId).gt('published_at', snapshot.data.published_at);
-  if (areas.error) throw areas.error;
+  const areas = await listSharedProjectAreaRevisions(project.sharedProjectId, snapshot.data.published_at);
   const localVersions = new Map(project.areas.map((area) => [area.id, area.sharedVersion ?? 0]));
-  if (areas.data?.some((area) => area.version > (localVersions.get(area.area_id) ?? 0))) return true;
+  if (areas?.some((area) => area.version > (localVersions.get(area.area_id) ?? 0))) return true;
   const metadata = await supabase.from('shared_project_metadata_snapshots').select('version')
     .eq('project_id', project.sharedProjectId).gt('published_at', snapshot.data.published_at).maybeSingle();
   if (metadata.error) throw metadata.error;
@@ -508,28 +517,24 @@ export async function getSharedProjectSnapshotMetadata(sharedProjectId: string):
     throw new Error('Collaboration is not configured.');
   }
 
-  const snapshotResult = await supabase
+  const [snapshotResult, areaResult, metadataResult] = await Promise.all([supabase
     .from('shared_project_snapshots')
     .select('published_at')
     .eq('project_id', sharedProjectId)
-    .maybeSingle();
-  if (snapshotResult.error) throw snapshotResult.error;
-  if (!snapshotResult.data) return null;
-
-  // Project sync reads this before and after flushing the queues. Avoid a
-  // three-request burst each time, especially when several people sync.
-  const areaResult = await supabase
+    .maybeSingle(), supabase
     .from('shared_project_area_snapshots')
     .select('published_at')
     .eq('project_id', sharedProjectId)
     .order('published_at', { ascending: false })
     .limit(1)
-    .maybeSingle();
-  const metadataResult = await supabase
+    .maybeSingle(), supabase
     .from('shared_project_metadata_snapshots')
     .select('published_at')
     .eq('project_id', sharedProjectId)
-    .maybeSingle();
+    .maybeSingle()]);
+
+  if (snapshotResult.error) throw snapshotResult.error;
+  if (!snapshotResult.data) return null;
 
   if (areaResult.error && !isMissingAreaSnapshotsTableError(areaResult.error)) {
     throw areaResult.error;
@@ -711,6 +716,24 @@ export function isSharedSnapshotNewer(localProject: Project, publishedAt: string
   if (!Number.isFinite(publishedMs)) return false;
   if (!Number.isFinite(localUpdatedMs)) return true;
   return publishedMs > localUpdatedMs + SHARED_SNAPSHOT_CLOCK_SKEW_MS;
+}
+
+export type SharedProjectUpdateNotice = {
+  publishedAt?: string;
+  areaId?: string;
+  areaVersion?: number;
+  metadataVersion?: number;
+};
+
+/** Another area's publication must not hide an older revision still missing here. */
+export function isSharedProjectUpdateNewer(project: Project, change: SharedProjectUpdateNotice) {
+  if (change.areaId && change.areaVersion !== undefined) {
+    return change.areaVersion > (project.areas.find((area) => area.id === change.areaId)?.sharedVersion ?? 0);
+  }
+  if (change.metadataVersion !== undefined) return change.metadataVersion > (project.sharedMetadataVersion ?? 0);
+  if (!change.publishedAt) return true;
+  const baseline = project.sharedBaselinePublishedAt ?? project.sharedSnapshotPublishedAt;
+  return !baseline || new Date(change.publishedAt).getTime() > new Date(baseline).getTime();
 }
 
 export function hasNewerLocalChangesThanSharedSnapshot(localProject: Project, publishedAt: string) {
