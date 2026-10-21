@@ -53,6 +53,7 @@ vi.mock('@/lib/collaboration/supabaseClient', () => ({
 }));
 
 import { buildSharedSnapshotAssetPlan, prepareCompactSharedSnapshotPayload } from '@/lib/collaboration/sharedSnapshotAssets';
+import { getSharedUploadPool, resetSharedTransferPoolsForTests } from '@/lib/collaboration/sharedTransferPool';
 
 const timestamp = new Date('2026-07-17T12:00:00.000Z');
 
@@ -118,6 +119,8 @@ function project(): Project {
 
 describe('shared snapshot attachment transfer', () => {
   beforeEach(() => {
+    resetSharedTransferPoolsForTests();
+    getSharedUploadPool().setLimits({ maxFiles: 2, maxBytes: 16 * 1024 * 1024 });
     fromMock.mockClear();
     storageFromMock.mockClear();
     attachmentIsMock.mockClear();
@@ -220,7 +223,7 @@ describe('shared snapshot attachment transfer', () => {
     expect(plan.uploads).toHaveLength(1);
   });
 
-  it('serializes overlapping area publish and full backup preparation and rereads metadata', async () => {
+  it('dedupes overlapping area publish and full backup uploads for the same immutable path', async () => {
     const plan = await buildSharedSnapshotAssetPlan(project());
     const upload = plan.uploads[0];
     let saved = false;
@@ -236,11 +239,12 @@ describe('shared snapshot attachment transfer', () => {
     const area = prepareCompactSharedSnapshotPayload(project(), 'user-1', { areaId: 'area-1' });
     const backup = prepareCompactSharedSnapshotPayload(project(), 'user-1');
     await vi.waitFor(() => expect(storageUploadMock).toHaveBeenCalledTimes(1));
-    expect(attachmentRetryMock).toHaveBeenCalledTimes(1);
+    expect(getSharedUploadPool().snapshot().deduped).toBeGreaterThanOrEqual(1);
     release();
     await Promise.all([area, backup]);
     expect(storageUploadMock).toHaveBeenCalledTimes(1);
-    expect(attachmentRetryMock).toHaveBeenCalledTimes(2);
+    // Shared path work uploads and registers metadata once; ignoreDuplicates makes a second upsert unnecessary.
+    expect(attachmentUpsertMock).toHaveBeenCalledTimes(1);
   });
 
   it('limits area publishes to the selected area and project-level attachment metadata', async () => {
@@ -353,6 +357,8 @@ describe('shared snapshot attachment transfer', () => {
 });
 
 it('stops starting attachments after capacity rejection and drains the in-flight upload', async () => {
+  resetSharedTransferPoolsForTests();
+  getSharedUploadPool().setLimits({ maxFiles: 2, maxBytes: 16 * 1024 * 1024 });
   const input = project();
   const checkpoint = input.areas[0].locations[0].items[0].checkpoints[0];
   checkpoint.photos = Array.from({ length: 8 }, (_, index) => ({ ...checkpoint.photos[0], id: `photo-${index}` }));

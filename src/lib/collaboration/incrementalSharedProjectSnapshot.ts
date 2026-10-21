@@ -2,7 +2,7 @@ import type { Project } from '@/types';
 import { getPendingSharedAreaSyncsForProject, getPendingSharedProjectMetadataSyncForProject } from '@/lib/db';
 import { getCollaborationSupabaseClient } from './supabaseClient';
 import { applySharedProjectMetadataSnapshot, getSharedProjectMetadataSnapshot } from './sharedProjectMetadata';
-import { parseSharedProjectAreaSnapshot, type SharedProjectAreaSnapshotRow } from './sharedProjectAreas';
+import { parseSharedProjectAreaSnapshots, type SharedProjectAreaSnapshotRow } from './sharedProjectAreas';
 
 type AreaRevision = Pick<SharedProjectAreaSnapshotRow, 'area_id' | 'version' | 'published_at'>;
 const PAGE_SIZE = 500;
@@ -97,9 +97,9 @@ export async function getIncrementalSharedProjectSnapshot(local: Project): Promi
     })),
   }]));
   const drawings = new Map((local.facadeElevationDrawings ?? []).map((drawing) => [drawing.id, drawing]));
-  for (const row of rows) {
-    const parsed = await parseSharedProjectAreaSnapshot(row, local.id, local.sharedProjectId, local);
-    areas.set(row.area_id, parsed.area);
+  const parsedAreas = await parseSharedProjectAreaSnapshots(rows, local.id, local.sharedProjectId, local);
+  for (const parsed of parsedAreas) {
+    areas.set(parsed.area.id, parsed.area);
     parsed.drawings.forEach((drawing) => {
       const current = drawings.get(drawing.id);
       if (!current || drawing.updatedAt >= current.updatedAt) drawings.set(drawing.id, drawing);

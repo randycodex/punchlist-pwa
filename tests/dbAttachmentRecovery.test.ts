@@ -5,10 +5,37 @@ vi.mock('@/lib/collaboration/sharedProjectSnapshots', () => ({ getSharedAttachme
 vi.mock('@/lib/collaboration/supabaseClient', () => ({ getCollaborationSupabaseClient: () => ({
   auth: { getSession: async () => ({ data: { session: { user: { id: 'member' } } }, error: null }) },
 }) }));
-vi.mock('@/lib/collaboration/sharedProjectAreas', async (importOriginal) => ({
-  ...await importOriginal<typeof import('@/lib/collaboration/sharedProjectAreas')>(),
-  publishSharedProjectAreaSnapshot: publish,
-}));
+vi.mock('@/lib/collaboration/sharedProjectAreas', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/collaboration/sharedProjectAreas')>();
+  const pendingInputs = new Map<string, unknown>();
+  return {
+    ...actual,
+    prepareSharedProjectAreaSnapshot: async (input: {
+      project: { sharedProjectId?: string };
+      areaId: string;
+      baseVersion: number;
+      basePublishedAt: string;
+      clientId: string;
+    }) => {
+      pendingInputs.set(input.areaId, input);
+      return {
+        sharedProjectId: input.project.sharedProjectId!,
+        areaId: input.areaId,
+        baseVersion: input.baseVersion,
+        basePublishedAt: input.basePublishedAt,
+        clientId: input.clientId,
+        payload: {},
+        payloadVersion: 2,
+      };
+    },
+    commitSharedProjectAreaSnapshot: async (prepared: { areaId: string }) => {
+      const input = pendingInputs.get(prepared.areaId);
+      pendingInputs.delete(prepared.areaId);
+      return publish(input);
+    },
+    publishSharedProjectAreaSnapshot: publish,
+  };
+});
 import {
   createProject, createArea, createLocation, createItem, createCheckpoint, createPhotoAttachment,
   getProject, getProjectMetadata, saveProjectPreserveTimestamps, saveAreaNotes, deleteProject,
