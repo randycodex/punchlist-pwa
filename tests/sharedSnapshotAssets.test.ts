@@ -162,6 +162,53 @@ describe('shared snapshot attachment transfer', () => {
     expect(compactPhoto.imageData).toBe('');
   });
 
+  it('keeps another operation’s byte-queued uploads running when one prepare fails', async () => {
+    const pool = getSharedUploadPool();
+    pool.setLimits({ maxFiles: 3, maxBytes: 5 });
+    const failing = project();
+    failing.areas[0].locations[0].items[0].checkpoints[0].photos[0].id = 'failing-photo';
+    const healthy = project();
+    const checkpoint = healthy.areas[0].locations[0].items[0].checkpoints[0];
+    checkpoint.photos = Array.from({ length: 3 }, (_, index) => ({ ...checkpoint.photos[0], id: `healthy-photo-${index}` }));
+    let fail!: () => void;
+    let finishHealthy!: () => void;
+    const failureGate = new Promise<void>((resolve) => { fail = resolve; });
+    const healthyGate = new Promise<void>((resolve) => { finishHealthy = resolve; });
+    const failure = { status: 403, statusCode: '403', message: 'Synthetic upload denied for this photo' };
+    storageUploadMock.mockImplementation(async (path: string) => {
+      if (path.includes('/failing-photo/')) {
+        await failureGate;
+        return { error: failure };
+      }
+      await healthyGate;
+      return { error: null };
+    });
+    let failedSettled = false;
+    const failedResult = Promise.allSettled([prepareCompactSharedSnapshotPayload(failing, 'user-1')])
+      .then((results) => { failedSettled = true; return results; });
+    let healthyResult: ReturnType<typeof Promise.allSettled> | undefined;
+    try {
+      await vi.waitFor(() => expect(storageUploadMock).toHaveBeenCalledTimes(1));
+      healthyResult = Promise.allSettled([prepareCompactSharedSnapshotPayload(healthy, 'user-1')]);
+      await vi.waitFor(() => expect(pool.snapshot().queued).toBe(3));
+      fail();
+      await vi.waitFor(() => expect(storageUploadMock).toHaveBeenCalledTimes(2));
+      await vi.waitFor(() => expect(failedSettled).toBe(true));
+      finishHealthy();
+      expect(await failedResult).toEqual([{ status: 'rejected', reason: failure }]);
+      expect((await healthyResult)[0]).toMatchObject({ status: 'fulfilled', value: { uploadedAssetCount: 3 } });
+      expect(storageUploadMock).toHaveBeenCalledTimes(4);
+      expect(attachmentUpsertMock).toHaveBeenCalledTimes(3);
+    } finally {
+      fail(); finishHealthy();
+      await Promise.all([failedResult, healthyResult]);
+      await pool.drain();
+    }
+    expect(pool.snapshot()).toMatchObject({ activeFiles: 0, activeBytes: 0, queued: 0, inflightKeys: 0 });
+    expect(pool.snapshot().peakActiveFiles).toBeLessThanOrEqual(3);
+    expect(pool.snapshot().peakActiveBytes).toBeLessThanOrEqual(5);
+  });
+
   it.each([
     { status: 409, statusCode: 'ResourceAlreadyExists' },
     { status: 409, statusCode: 'KeyAlreadyExists' },

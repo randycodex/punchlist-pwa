@@ -165,6 +165,63 @@ describe('shared transfer pool', () => {
     expect(resolve).toHaveBeenCalledTimes(3);
   });
 
+  it('keeps another operation’s byte-queued downloads running when one hydrate fails', async () => {
+    const pool = getSharedDownloadPool();
+    pool.setLimits({ maxFiles: 3, maxBytes: 1 });
+    const failing = areaProject('failing-area', 'failing-photo', photoA);
+    const healthy = areaProject('healthy-area', 'healthy-photo', photoB);
+    const checkpoint = healthy.areas[0].locations[0].items[0].checkpoints[0];
+    checkpoint.photos = Array.from({ length: 3 }, (_, index) => ({ ...checkpoint.photos[0], id: `healthy-photo-${index}` }));
+    const compact = async (source: Project) => {
+      const plan = await buildSharedSnapshotAssetPlan(source);
+      return parseSharedSnapshotPayload(
+        JSON.parse(JSON.stringify(createCompactSharedSnapshotPayload(source, plan.assets))),
+        COMPACT_SHARED_SNAPSHOT_PAYLOAD_VERSION
+      );
+    };
+    const [failedCopy, healthyCopy] = await Promise.all([compact(failing), compact(healthy)]);
+    let fail!: () => void;
+    let finishHealthy!: () => void;
+    const failureGate = new Promise<void>((resolve) => { fail = resolve; });
+    const healthyGate = new Promise<void>((resolve) => { finishHealthy = resolve; });
+    const failure = new Error('Synthetic photo is unavailable');
+    const failedResolver = vi.fn(async () => { await failureGate; throw failure; });
+    const healthyResolver = vi.fn(async () => { await healthyGate; return photoB; });
+    let failedSettled = false;
+    const failedResult = Promise.allSettled([hydrateSharedSnapshotAssetsWithResolver(
+      failedCopy.project, failedCopy.assets, 'shared-1', failedResolver
+    )]).then((results) => { failedSettled = true; return results; });
+    let healthyResult: ReturnType<typeof Promise.allSettled> | undefined;
+    try {
+      await vi.waitFor(() => expect(failedResolver).toHaveBeenCalledTimes(1));
+      healthyResult = Promise.allSettled([hydrateSharedSnapshotAssetsWithResolver(
+        healthyCopy.project, healthyCopy.assets, 'shared-1', healthyResolver
+      )]);
+      // The file limit allows three workers, while the byte limit holds all of
+      // this second operation's transfers behind the first operation's photo.
+      await vi.waitFor(() => expect(pool.snapshot().queued).toBe(3));
+      fail();
+      await vi.waitFor(() => expect(healthyResolver).toHaveBeenCalledTimes(1));
+      // Failure reporting belongs to the failed operation, not to the lifetime
+      // of another operation's active/queued transfers on the shared pool.
+      await vi.waitFor(() => expect(failedSettled).toBe(true));
+      finishHealthy();
+      expect(await failedResult).toEqual([{ status: 'rejected', reason: failure }]);
+      expect((await healthyResult)[0].status).toBe('fulfilled');
+      expect(healthyResolver).toHaveBeenCalledTimes(3);
+      expect(healthyCopy.project.areas[0].locations[0].items[0].checkpoints[0].photos.map((photo) => photo.imageData))
+        .toEqual([photoB, photoB, photoB]);
+      expect(failedCopy.project.areas[0].locations[0].items[0].checkpoints[0].photos[0].imageData).toBe('');
+    } finally {
+      fail(); finishHealthy();
+      await Promise.all([failedResult, healthyResult]);
+      await pool.drain();
+    }
+    expect(pool.snapshot()).toMatchObject({ activeFiles: 0, activeBytes: 0, queued: 0, inflightKeys: 0 });
+    expect(pool.snapshot().peakActiveFiles).toBeLessThanOrEqual(3);
+    expect(pool.snapshot().peakActiveBytes).toBeLessThanOrEqual(1);
+  });
+
   it('rejects corrupted downloads and leaves the working copy untouched', async () => {
     const remote = areaProject('area-1', 'photo-1', photoA);
     const local = areaProject('area-1', 'photo-1', photoC);

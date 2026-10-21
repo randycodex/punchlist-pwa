@@ -123,18 +123,6 @@ export class SharedTransferPool {
     }
   }
 
-  /** Reject work that has not started yet. Active transfers still drain. */
-  rejectQueued(error: unknown) {
-    const pending = this.queue.splice(0);
-    for (const entry of pending) {
-      const tracked = this.inflight.get(entry.key);
-      this.inflight.delete(entry.key);
-      entry.reject(error);
-      // Keep a rejected placeholder out of the map so a retry can reschedule.
-      void tracked;
-    }
-  }
-
   private canStart(sizeBytes: number) {
     if (this.activeFiles >= this.limits.maxFiles) return false;
     if (this.activeFiles > 0 && this.activeBytes + sizeBytes > this.limits.maxBytes) return false;

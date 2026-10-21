@@ -141,7 +141,10 @@ function referenceFromMetadata(row: SharedAttachmentMetadataRow): SharedSnapshot
   };
 }
 
-/** Run workers with bounded concurrency; drain in-flight work before rethrowing. */
+/**
+ * Stop scheduling after this operation fails and settle its scheduled workers
+ * before rethrowing. Never cancel or drain unrelated work on a shared pool.
+ */
 export async function runWithConcurrency<T>(
   values: T[],
   concurrency: number,
@@ -424,61 +427,55 @@ export async function prepareCompactSharedSnapshotPayload(
 
   const plan = await buildSharedSnapshotAssetPlan(project, data);
   const uploadPool = getSharedUploadPool();
-  try {
-    await runWithConcurrency(plan.uploads, uploadPool.getLimits().maxFiles, async (upload) => {
-      const key = assetTransferKey(upload.reference.bucket, upload.reference.path);
-      await uploadPool.schedule(key, upload.reference.sizeBytes, async () => {
-        const blob = dataUrlToBlob(upload.dataUrl);
-        const alreadyExists = await retryCollaborationOperation(async () => {
-          const { error: uploadError } = await supabase.storage
-            .from(upload.reference.bucket)
-            .upload(upload.reference.path, blob, {
-              cacheControl: '3600',
-              contentType: upload.reference.mimeType,
-              upsert: false,
-            });
-          if (!uploadError) return false;
-          const code = String(uploadError.statusCode);
-          // Recognize symbolic Storage codes as well as legacy responses.
-          const duplicate = ['409', 'Duplicate', 'ResourceAlreadyExists', 'KeyAlreadyExists', 'already_exists'].includes(code)
-            || (uploadError.status === 400 && code === '400' && uploadError.message === 'The resource already exists');
-          if (!duplicate) throw uploadError;
-          return true;
-        });
-        if (alreadyExists) await retryCollaborationOperation(async () => {
-          // A lost reply or missing metadata may leave the immutable object present.
-          // Verify bytes before registering it; never overwrite historical assets.
-          const { data: existingBlob, error: downloadError } = await supabase.storage
-            .from(upload.reference.bucket).download(upload.reference.path);
-          if (downloadError) throw downloadError;
-          if (!existingBlob) throw new SharedAttachmentIntegrityError('The existing shared attachment is unavailable.');
-          await verifyAssetContent(upload.reference, existingBlob);
-        });
+  await runWithConcurrency(plan.uploads, uploadPool.getLimits().maxFiles, async (upload) => {
+    const key = assetTransferKey(upload.reference.bucket, upload.reference.path);
+    await uploadPool.schedule(key, upload.reference.sizeBytes, async () => {
+      const blob = dataUrlToBlob(upload.dataUrl);
+      const alreadyExists = await retryCollaborationOperation(async () => {
+        const { error: uploadError } = await supabase.storage
+          .from(upload.reference.bucket)
+          .upload(upload.reference.path, blob, {
+            cacheControl: '3600',
+            contentType: upload.reference.mimeType,
+            upsert: false,
+          });
+        if (!uploadError) return false;
+        const code = String(uploadError.statusCode);
+        // Recognize symbolic Storage codes as well as legacy responses.
+        const duplicate = ['409', 'Duplicate', 'ResourceAlreadyExists', 'KeyAlreadyExists', 'already_exists'].includes(code)
+          || (uploadError.status === 400 && code === '400' && uploadError.message === 'The resource already exists');
+        if (!duplicate) throw uploadError;
+        return true;
+      });
+      if (alreadyExists) await retryCollaborationOperation(async () => {
+        // A lost reply or missing metadata may leave the immutable object present.
+        // Verify bytes before registering it; never overwrite historical assets.
+        const { data: existingBlob, error: downloadError } = await supabase.storage
+          .from(upload.reference.bucket).download(upload.reference.path);
+        if (downloadError) throw downloadError;
+        if (!existingBlob) throw new SharedAttachmentIntegrityError('The existing shared attachment is unavailable.');
+        await verifyAssetContent(upload.reference, existingBlob);
+      });
 
-        await retryCollaborationOperation(async () => {
-          const { error: metadataError } = await supabase
-            .from('shared_attachments')
-            .upsert({
-              project_id: project.sharedProjectId!,
-              area_id: upload.areaId,
-              checkpoint_id: upload.checkpointId,
-              uploaded_by_user_id: uploadedByUserId,
-              storage_bucket: upload.reference.bucket,
-              storage_path: upload.reference.path,
-              file_name: upload.fileName,
-              mime_type: upload.reference.mimeType,
-              size_bytes: upload.reference.sizeBytes,
-              deleted_at: null,
-            }, { onConflict: 'storage_bucket,storage_path', ignoreDuplicates: true });
-          if (metadataError) throw metadataError;
-        });
+      await retryCollaborationOperation(async () => {
+        const { error: metadataError } = await supabase
+          .from('shared_attachments')
+          .upsert({
+            project_id: project.sharedProjectId!,
+            area_id: upload.areaId,
+            checkpoint_id: upload.checkpointId,
+            uploaded_by_user_id: uploadedByUserId,
+            storage_bucket: upload.reference.bucket,
+            storage_path: upload.reference.path,
+            file_name: upload.fileName,
+            mime_type: upload.reference.mimeType,
+            size_bytes: upload.reference.sizeBytes,
+            deleted_at: null,
+          }, { onConflict: 'storage_bucket,storage_path', ignoreDuplicates: true });
+        if (metadataError) throw metadataError;
       });
     });
-  } catch (error) {
-    uploadPool.rejectQueued(error);
-    await uploadPool.drain();
-    throw error;
-  }
+  });
 
   return {
     payload: createCompactSharedSnapshotPayload(project, plan.assets),
@@ -563,37 +560,31 @@ export async function hydrateSharedSnapshotAssetsWithResolver(
 
   const downloadPool = getSharedDownloadPool();
   const downloaded = new Map<string, string>();
-  try {
-    await runWithConcurrency([...references.entries()], downloadPool.getLimits().maxFiles, async ([key, entry]) => {
-      const candidate = localCandidates.get(key);
-      if (candidate) {
-        try {
-          await verifyAssetContent(entry.reference, await asBlob(candidate));
-          downloaded.set(key, candidate);
-          return;
-        } catch {
-          // A changed or damaged local copy needs the server's verified bytes.
-        }
-      }
+  await runWithConcurrency([...references.entries()], downloadPool.getLimits().maxFiles, async ([key, entry]) => {
+    const candidate = localCandidates.get(key);
+    if (candidate) {
       try {
-        const value = await downloadPool.schedule(key, entry.reference.sizeBytes, async () => {
-          const resolved = await retryCollaborationOperation(() => resolve(entry.reference), { attempts: 2 });
-          const blob = await asBlob(resolved);
-          if (!options.contentAlreadyVerified) await verifyAssetContent(entry.reference, blob);
-          // Keep Blobs through validation; convert once for Project field consumers.
-          return asDataUrl(typeof resolved === 'string' ? resolved : blob);
-        });
-        downloaded.set(key, value);
-      } catch (error) {
-        if (!entry.required && !isCollaborationCapacityError(error)) return;
-        throw error;
+        await verifyAssetContent(entry.reference, await asBlob(candidate));
+        downloaded.set(key, candidate);
+        return;
+      } catch {
+        // A changed or damaged local copy needs the server's verified bytes.
       }
-    });
-  } catch (error) {
-    downloadPool.rejectQueued(error);
-    await downloadPool.drain();
-    throw error;
-  }
+    }
+    try {
+      const value = await downloadPool.schedule(key, entry.reference.sizeBytes, async () => {
+        const resolved = await retryCollaborationOperation(() => resolve(entry.reference), { attempts: 2 });
+        const blob = await asBlob(resolved);
+        if (!options.contentAlreadyVerified) await verifyAssetContent(entry.reference, blob);
+        // Keep Blobs through validation; convert once for Project field consumers.
+        return asDataUrl(typeof resolved === 'string' ? resolved : blob);
+      });
+      downloaded.set(key, value);
+    } catch (error) {
+      if (!entry.required && !isCollaborationCapacityError(error)) return;
+      throw error;
+    }
+  });
 
   function getDownloaded(reference: SharedSnapshotAssetReference | undefined) {
     if (!reference) return undefined;

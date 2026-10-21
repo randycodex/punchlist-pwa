@@ -23,6 +23,7 @@ Use one branch + one worktree per workstream.
 
 | Thread | Branch | Worktree Path | Scope | Status | Owner | Notes |
 |---|---|---|---|---|---|---|
+| Transfer failure isolation | `codex/sync-transfer-failure-isolation` | `/workspace/punchlist-worktrees/sync-transfer-failure-isolation` | Keep concurrent upload/download failures local to their operation | Ready | Codex | PR #5 finding reproduced and fixed; 38 relevant tests, TypeScript, lint passed. Synthetic data only; local changes. |
 | Incremental team sync | `codex/sync-incremental-updates` | `/workspace/punchlist-worktrees/sync-incremental-updates` | Changed-area pulls, realtime refresh, background OneDrive backups | Ready | Codex | `npm run verify` passed: 686 tests, lint, TypeScript, production build. Local candidate; not deployed. |
 | Main integration | `main` | `.` | Stable baseline + merges | Active | You | Do release checks here |
 | UI / Layout | `codex/ui-layout` | `.worktrees/ui-layout` | Shared layout, navigation, menus, visual polish | Planned | You | |
