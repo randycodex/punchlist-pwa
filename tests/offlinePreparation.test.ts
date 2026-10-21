@@ -1,8 +1,24 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { createArea, createProject } from '@/lib/db';
-import { prepareSavedProjectPages } from '@/features/offline/sitePreparation';
+import {
+  AppUpdateWaitingError,
+  OfflineBuildMismatchError,
+  isOfflineUpdateError,
+  prepareSavedProjectPages,
+} from '@/features/offline/sitePreparation';
 
 const ready = { ready: true, build: 'test', missing: [] as string[] };
+const offlineAppStatus = readFileSync(
+  resolve(process.cwd(), 'src/features/offline/OfflineAppStatus.tsx'),
+  'utf8'
+);
+const sitePreparation = readFileSync(
+  resolve(process.cwd(), 'src/features/offline/sitePreparation.ts'),
+  'utf8'
+);
+
 describe('saved project offline preparation', () => {
   it('prepares every saved area without requiring a prior visit, excluding removed records', async () => {
     const project = createProject('Offline');
@@ -21,5 +37,27 @@ describe('saved project offline preparation', () => {
     await prepareSavedProjectPages([], check);
     expect(check).toHaveBeenCalledExactlyOnceWith(['/']);
     await expect(prepareSavedProjectPages([], async () => ({ ...ready, ready: false }))).rejects.toThrow('unavailable offline');
+  });
+});
+
+describe('offline version mismatch handling', () => {
+  it('classifies waiting updates and build mismatches as update errors, not prep retries', () => {
+    expect(isOfflineUpdateError(new OfflineBuildMismatchError())).toBe(true);
+    expect(isOfflineUpdateError(new AppUpdateWaitingError('waiting'))).toBe(true);
+    expect(isOfflineUpdateError(new Error('Some saved pages are still unavailable offline.'))).toBe(false);
+  });
+
+  it('rejects mismatched worker builds with OfflineBuildMismatchError instead of a Retry loop message', () => {
+    expect(sitePreparation).toContain('new OfflineBuildMismatchError()');
+    expect(sitePreparation).not.toContain('The offline copy belongs to an earlier app version');
+  });
+
+  it('routes version mismatch to Update now or Reload to update, not Retry', () => {
+    expect(offlineAppStatus).toContain('isOfflineUpdateError');
+    expect(offlineAppStatus).toContain('Update now');
+    expect(offlineAppStatus).toContain('Reload to update');
+    expect(offlineAppStatus).toContain("action === 'reload'");
+    expect(offlineAppStatus).toContain("notice.action !== 'reload'");
+    expect(offlineAppStatus).toContain('Save your changes first');
   });
 });

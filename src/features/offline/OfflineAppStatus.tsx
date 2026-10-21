@@ -4,9 +4,21 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { usePathname } from 'next/navigation';
 import { getAllProjects } from '@/lib/db';
 import { useSyncStatus } from '@/contexts/SyncStatusContext';
-import { AppUpdateWaitingError, isOfflinePage, offlineBuild, prepareSavedProjectPages, registerInspectionWorker } from './sitePreparation';
+import {
+  isOfflinePage,
+  isOfflineUpdateError,
+  offlineBuild,
+  prepareSavedProjectPages,
+  registerInspectionWorker,
+} from './sitePreparation';
 
-type StatusNotice = { message: string; kind: 'offline' | 'preparation'; error?: boolean };
+type StatusNotice = {
+  message: string;
+  kind: 'offline' | 'preparation';
+  error?: boolean;
+  /** Version mismatch without a waiting worker: reload, do not retry prep. */
+  action?: 'reload';
+};
 
 export default function OfflineAppStatus() {
   const pathname = usePathname();
@@ -21,6 +33,7 @@ export default function OfflineAppStatus() {
   const [updateRegistration, setUpdateRegistration] = useState<ServiceWorkerRegistration | null>(null);
   const [updating, setUpdating] = useState(false);
   const reloadForUpdate = useRef(false);
+  const registrationRef = useRef<ServiceWorkerRegistration | null>(null);
   const clearNotice = useCallback(() => {
     clearTimeout(noticeTimer.current);
     noticeTimer.current = undefined;
@@ -30,7 +43,12 @@ export default function OfflineAppStatus() {
   const showNotice = useCallback((next: StatusNotice) => {
     if (next.kind !== 'offline' && !navigator.onLine) return;
     const current = activeNotice.current;
-    if (current?.kind === next.kind && current.message === next.message && current.error === next.error) return;
+    if (
+      current?.kind === next.kind
+      && current.message === next.message
+      && current.error === next.error
+      && current.action === next.action
+    ) return;
     clearTimeout(noticeTimer.current);
     activeNotice.current = next;
     setNotice(next);
@@ -40,6 +58,17 @@ export default function OfflineAppStatus() {
       setNotice(null);
     }, 30_000);
   }, []);
+  const beginUpdate = useCallback((registration: ServiceWorkerRegistration) => {
+    const waiting = registration.waiting;
+    if (!waiting) {
+      setUpdateRegistration(null);
+      return;
+    }
+    if (localSaveStatus !== 'saved') return;
+    reloadForUpdate.current = true;
+    setUpdating(true);
+    waiting.postMessage({ type: 'ACTIVATE_UPDATE' });
+  }, [localSaveStatus]);
   useEffect(() => () => {
     clearTimeout(noticeTimer.current);
     noticeTimer.current = undefined;
@@ -69,6 +98,7 @@ export default function OfflineAppStatus() {
     void registerInspectionWorker().then((value) => {
       if (disposed) return;
       registration = value;
+      registrationRef.current = value;
       registration.addEventListener('updatefound', onUpdateFound);
       showWaiting();
       checkForUpdate();
@@ -92,6 +122,28 @@ export default function OfflineAppStatus() {
     let requested = false;
     let firstCheck = true;
     let timer: ReturnType<typeof setTimeout>;
+    const promoteUpdate = async () => {
+      try {
+        const registration = registrationRef.current ?? await registerInspectionWorker();
+        registrationRef.current = registration;
+        if (navigator.onLine) await registration.update().catch(() => {});
+        if (disposed) return;
+        if (registration.waiting) {
+          clearNotice();
+          setUpdateRegistration(registration);
+          return;
+        }
+      } catch {
+        // Fall through to reload guidance when the worker cannot be refreshed.
+      }
+      if (!disposed) {
+        showNotice({
+          kind: 'preparation',
+          message: 'A PunchList update is needed. Save your work, then reload. If this returns, close all PunchList tabs and reopen online.',
+          action: 'reload',
+        });
+      }
+    };
     const prepare = async () => {
       if (disposed || !navigator.onLine) return;
       if (running) { requested = true; return; }
@@ -104,12 +156,15 @@ export default function OfflineAppStatus() {
         if (!disposed) showNotice({ kind: 'preparation', message: 'App pages ready offline' });
       } catch (reason) {
         if (!disposed) {
-          const updateWaiting = reason instanceof AppUpdateWaitingError;
-          showNotice({
-            kind: 'preparation',
-            message: reason instanceof Error ? reason.message : 'Offline preparation failed. Stay online and retry.',
-            error: !updateWaiting,
-          });
+          if (isOfflineUpdateError(reason)) {
+            await promoteUpdate();
+          } else {
+            showNotice({
+              kind: 'preparation',
+              message: reason instanceof Error ? reason.message : 'Offline preparation failed. Stay online and retry.',
+              error: true,
+            });
+          }
         }
       } finally {
         running = false;
@@ -136,7 +191,7 @@ export default function OfflineAppStatus() {
       window.removeEventListener('punchlist-local-save-status', saved);
       navigator.serviceWorker?.removeEventListener('controllerchange', schedule);
     };
-  }, [retry, showNotice]);
+  }, [retry, showNotice, clearNotice]);
   useEffect(() => {
     const update = () => {
       if (!navigator.onLine) showNotice({ kind: 'offline', message: 'Offline · Edits save on this device. Team delivery waits for a connection.' });
@@ -165,13 +220,14 @@ export default function OfflineAppStatus() {
   if (offlineBuild === 'development') return null;
   if (updateRegistration) return <div role="status" className={`${floatingStatusClass} bottom-[calc(env(safe-area-inset-bottom)+5.5rem)] rounded-xl bg-amber-100 py-2 text-amber-950 shadow-lg dark:bg-amber-950 dark:text-amber-100`}>
     <span>A new PunchList version is ready.</span>{' '}
-    <button type="button" className="ml-2 font-semibold underline disabled:opacity-50" disabled={updating || localSaveStatus !== 'saved'} onClick={() => {
-      const waiting = updateRegistration.waiting;
-      if (!waiting) { setUpdateRegistration(null); return; }
-      reloadForUpdate.current = true;
-      setUpdating(true);
-      waiting.postMessage({ type: 'ACTIVATE_UPDATE' });
-    }}>{updating ? 'Updating…' : localSaveStatus === 'saved' ? 'Update now' : 'Save your changes first'}</button>
+    <button
+      type="button"
+      className="ml-2 font-semibold underline disabled:opacity-50"
+      disabled={updating || localSaveStatus !== 'saved'}
+      onClick={() => beginUpdate(updateRegistration)}
+    >
+      {updating ? 'Updating…' : localSaveStatus === 'saved' ? 'Update now' : 'Save your changes first'}
+    </button>
   </div>;
   if (!notice) return null;
   return <div
@@ -183,6 +239,22 @@ export default function OfflineAppStatus() {
         : 'shrink-0 bg-slate-100 px-4 py-2 text-xs text-slate-700 dark:bg-slate-900 dark:text-slate-200'}
   >
     {notice.message}
-    {notice.error && <button type="button" className="ml-2 underline" onClick={() => setRetry((value) => value + 1)}>Retry</button>}
+    {notice.action === 'reload' && (
+      <button
+        type="button"
+        className="ml-2 font-semibold underline disabled:opacity-50"
+        disabled={updating || localSaveStatus !== 'saved'}
+        onClick={() => {
+          if (localSaveStatus !== 'saved') return;
+          setUpdating(true);
+          window.location.reload();
+        }}
+      >
+        {updating ? 'Reloading…' : localSaveStatus === 'saved' ? 'Reload to update' : 'Save your changes first'}
+      </button>
+    )}
+    {notice.error && notice.action !== 'reload' && (
+      <button type="button" className="ml-2 underline" onClick={() => setRetry((value) => value + 1)}>Retry</button>
+    )}
   </div>;
 }

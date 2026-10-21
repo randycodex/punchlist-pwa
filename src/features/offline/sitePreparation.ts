@@ -3,7 +3,18 @@ import type { Project } from '@/types';
 export const offlineBuild = process.env.NEXT_PUBLIC_OFFLINE_BUILD_ID ?? 'development';
 export const isOfflinePage = (path: string) => path === '/' || /^\/project\/[a-zA-Z0-9-]+(?:\/area\/[a-zA-Z0-9-]+)?$/.test(path);
 export class AppUpdateWaitingError extends Error {}
+/** Page JS and the controlling offline worker disagree on build id. Retry cannot fix this. */
+export class OfflineBuildMismatchError extends Error {
+  constructor() {
+    super('This device needs a PunchList update before offline pages can finish preparing.');
+    this.name = 'OfflineBuildMismatchError';
+  }
+}
 let registrationPromise: Promise<ServiceWorkerRegistration> | undefined;
+
+export function isOfflineUpdateError(error: unknown): error is AppUpdateWaitingError | OfflineBuildMismatchError {
+  return error instanceof AppUpdateWaitingError || error instanceof OfflineBuildMismatchError;
+}
 
 export function registerInspectionWorker() {
   if (offlineBuild === 'development') return Promise.reject(new Error('Offline preparation is available in the production preview.'));
@@ -37,7 +48,7 @@ export async function checkPreparedPages(paths: string[], prepare = false) {
     channel.port1.onmessage = ({ data }) => {
       clearTimeout(timer); channel.port1.close();
       if (data.error) reject(new Error(data.error));
-      else if (data.build !== offlineBuild) reject(new Error('The offline copy belongs to an earlier app version. Close all app tabs and reopen online.'));
+      else if (data.build !== offlineBuild) reject(new OfflineBuildMismatchError());
       else resolve(data);
     };
     worker.postMessage({ type: prepare ? 'PREPARE' : 'CHECK', paths }, [channel.port2]);
