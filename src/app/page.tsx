@@ -4,11 +4,15 @@ import { AREA_LOCKING_ENABLED } from '@/lib/collaboration/areaLocking';
 
 import { acknowledgePublishedSharedProject, captureLocalProjectSaveToken, saveDownloadedProjectIfUnchanged, saveReviewedSharedProject } from '@/lib/db';
 
+import { loadProjectForExport } from '@/features/export/loadProjectForExport';
+
 import AreaListReturnPosition from '@/features/projects/AreaListReturnPosition';
 import TeamBackupCard from '@/components/TeamBackupCard';
 import { formatTeamBackupImpact, type TeamBackupImpact } from '@/features/projects/teamBackupImpact';
 
 import ReportContentChoice from '@/components/inspection/ReportContentChoice';
+import AreaExportFormatChoice from '@/components/inspection/AreaExportFormatChoice';
+import type { AreaExportFormat } from '@/features/export/selectedAreaExport';
 
 import { useState, useEffect, useLayoutEffect, useMemo, useRef, useCallback } from 'react';
 import { Area, Project, checkpointHasIssue, getReviewMetrics } from '@/types';
@@ -37,11 +41,9 @@ import {
   queuePendingSync,
 } from '@/lib/pendingSync';
 import ResumeInspectionLink from '@/components/inspection/ResumeInspectionLink';
-import { uploadPdfToOneDrive, getNextOneDriveExportFilename } from '@/lib/oneDrive';
+import { uploadPdfToOneDrive, uploadReportToOneDrive, getNextOneDriveExportFilename } from '@/lib/oneDrive';
 import {
-  formatDateForExport,
   getOneDriveProjectFolderName,
-  sanitizeExportNamePart,
 } from '@/lib/projectNaming';
 import {
   runManualOneDriveRestore,
@@ -284,6 +286,8 @@ export default function ProjectsPage() {
   const [exportingSelected, setExportingSelected] = useState(false);
   const [exportingSelectedToDrive, setExportingSelectedToDrive] = useState(false);
   const [exportingSelectedAreas, setExportingSelectedAreas] = useState(false);
+  const [areaExportFormat, setAreaExportFormat] = useState<AreaExportFormat>('combined');
+  const [areaExportProgress, setAreaExportProgress] = useState('');
   const [actionSheet, setActionSheet] = useState<'delete' | 'export' | 'export-scope' | null>(null);
   const [reportContent, setReportContent] = useState<'issues' | 'full'>('issues');
   const [exportScope, setExportScope] = useState<ExportScope>('selected-projects');
@@ -1673,7 +1677,7 @@ export default function ProjectsPage() {
   async function handleExportSelectedAreas(destination: ExportDestination) {
     if (!singleProject || exportingSelectedAreas || selectedAreaIds.size === 0) return;
     setExportingSelectedAreas(true);
-    setActionSheet(null);
+    setAreaExportProgress('Loading selected areas…');
     try {
       const selectedIds = new Set(selectedAreaIds);
       const selectedSortedAreaIds = sortedAreas
@@ -1685,34 +1689,36 @@ export default function ProjectsPage() {
         signIn();
         return;
       }
-      const fullProject = token
+      const projectForExport = token && !singleProject.sharedProjectId
         ? await hydrateProjectMediaFromOneDrive(token, singleProject.id)
-        : await getProject(singleProject.id);
-      const projectForExport = fullProject ?? singleProject;
-      const { generateProjectPDF, downloadPDF } = await import('@/lib/pdfExport');
-      const blob = await generateProjectPDF(projectForExport, reportContent, { areaIds: selectedSortedAreaIds });
-      if (destination === 'local') {
-        const filename = `${sanitizeExportNamePart(singleProject.projectName)}_Selected_Areas_${formatDateForExport()}.pdf`;
-        downloadPDF(blob, filename);
-      }
+        : await loadProjectForExport(singleProject.id, reportContent, selectedSortedAreaIds);
+      if (!projectForExport) throw new Error('This project could not be loaded for export.');
+      const { generateSelectedAreaExport } = await import('@/features/export/selectedAreaExport');
+      const { downloadPDF } = await import('@/lib/pdfExport');
+      const report = await generateSelectedAreaExport(projectForExport, selectedSortedAreaIds, reportContent, areaExportFormat, setAreaExportProgress);
+      if (destination === 'local') downloadPDF(report.blob, report.filename);
       if (token && shouldSaveToDrive) {
+        setAreaExportProgress('Saving to OneDrive…');
         const projectFolderName = getOneDriveProjectFolderName(singleProject);
         const filename = await getNextOneDriveExportFilename(
           token,
           [`${singleProject.projectName}_Selected_Areas_${reportContent === 'issues' ? 'Issues' : 'Inspection_Record'}`],
           new Date(),
-          projectFolderName
+          projectFolderName,
+          report.extension
         );
-        await uploadPdfToOneDrive(token, filename, blob, projectFolderName);
+        await uploadReportToOneDrive(token, filename, report.blob, projectFolderName, report.extension);
       }
       setSelectedAreaIds(new Set());
       setDeleteMode(false);
       setExportMode(false);
+      setActionSheet(null);
     } catch (error) {
       console.error('Failed to export selected areas:', error);
-      showMessage('Failed to export selected areas. Please try again.');
+      showMessage(error instanceof Error ? error.message : 'Failed to export selected areas. Please try again.');
     } finally {
       setExportingSelectedAreas(false);
+      setAreaExportProgress('');
     }
   }
 
@@ -4081,7 +4087,7 @@ export default function ProjectsPage() {
       {actionSheet && (
         <div className="modal-overlay fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="w-full max-w-md">
-            <div className="modal-panel overflow-hidden rounded-[1.8rem] p-2">
+            <div className="modal-panel max-h-[calc(100dvh-2rem)] overflow-y-auto rounded-[1.8rem] p-2">
               {actionSheet === 'export-scope' ? (
                 <>
                   <div className="px-4 pb-2 pt-3 text-center">
@@ -4123,10 +4129,14 @@ export default function ProjectsPage() {
                   </button>
                 </>
               ) : actionSheet === 'export' ? (
-                <>
+                <fieldset disabled={exportingSelectedAreas} className="min-w-0">
                   <div className="px-4 pb-2 pt-3 text-center">
                     <div className="text-sm font-semibold text-gray-900 dark:text-white">Export PDF</div>
                     <ReportContentChoice value={reportContent} onChange={setReportContent} />
+                    {exportScope === 'selected-areas' && (
+                      <AreaExportFormatChoice value={areaExportFormat} onChange={setAreaExportFormat} />
+                    )}
+                    {areaExportProgress && <p role="status" className="my-2 text-sm text-gray-600 dark:text-gray-300">{areaExportProgress}</p>}
                     <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">
                       {exportScope === 'selected-areas'
                         ? 'Save selected areas to this device or OneDrive.'
@@ -4155,7 +4165,7 @@ export default function ProjectsPage() {
                     }}
                     className="w-full rounded-[1.1rem] px-4 py-3 text-center text-[17px] text-gray-900 transition hover:bg-black/[0.04] dark:text-white dark:hover:bg-white/[0.05]"
                   >
-                    Download PDF
+                    {exportScope === 'selected-areas' && areaExportFormat === 'individual' ? 'Download ZIP' : 'Download PDF'}
                   </button>
                   <button
                     onClick={() => setActionSheet('export-scope')}
@@ -4163,7 +4173,7 @@ export default function ProjectsPage() {
                   >
                     Back
                   </button>
-                </>
+                </fieldset>
               ) : (
                 <>
                   {showTrash && (

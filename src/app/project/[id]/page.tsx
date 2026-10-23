@@ -10,6 +10,8 @@ import { loadProjectForExport } from '@/features/export/loadProjectForExport';
 import { applyCheckpointRules } from '@/lib/checkpointRules';
 
 import ReportContentChoice from '@/components/inspection/ReportContentChoice';
+import AreaExportFormatChoice from '@/components/inspection/AreaExportFormatChoice';
+import type { AreaExportFormat } from '@/features/export/selectedAreaExport';
 
 import ResumeInspectionLink from '@/components/inspection/ResumeInspectionLink';
 
@@ -123,7 +125,7 @@ import {
   transferSharedProjectOwnership,
 } from '@/lib/collaboration';
 import type { CollaborationHealthReport, CollaborationProjectMember, CollaborationSnapshotBackup } from '@/lib/collaboration';
-import { getNextOneDriveExportFilename, uploadPdfToOneDrive } from '@/lib/oneDrive';
+import { getNextOneDriveExportFilename, uploadPdfToOneDrive, uploadReportToOneDrive } from '@/lib/oneDrive';
 import {
   formatDateForExport,
   getOneDriveProjectFolderName,
@@ -180,6 +182,8 @@ export default function ProjectDetailPage() {
   const [deleteMode, setDeleteMode] = useState(false);
   const [selectedAreaIds, setSelectedAreaIds] = useState<Set<string>>(new Set());
   const [exportingSelectedAreas, setExportingSelectedAreas] = useState(false);
+  const [areaExportFormat, setAreaExportFormat] = useState<AreaExportFormat>('combined');
+  const [areaExportProgress, setAreaExportProgress] = useState('');
   const [newAreaForm, setNewAreaForm] = useState(getDefaultAreaFormValue());
   const [recentAreaTypeKeys, setRecentAreaTypeKeys] = useState<AreaTypeKey[]>([]);
   const [sortOption, setSortOption] = useState<SortOption>('issues');
@@ -785,7 +789,7 @@ export default function ProjectDetailPage() {
   async function handleExportSelectedAreas(destination: ExportDestination) {
     if (!project || exportingSelectedAreas || selectedAreaIds.size === 0) return;
     setExportingSelectedAreas(true);
-    setActionSheet(null);
+    setAreaExportProgress('Loading selected areas…');
     try {
       const selectedIds = new Set(selectedAreaIds);
       const sortedAreaIds = [...sortedAreas]
@@ -800,30 +804,32 @@ export default function ProjectDetailPage() {
       const projectForExport = token && !project.sharedProjectId
         ? await hydrateProjectMediaFromOneDrive(token, project.id)
         : await loadProjectForExport(project.id, reportContent, sortedAreaIds);
-      const { generateProjectPDF, downloadPDF } = await import('@/lib/pdfExport');
       if (!projectForExport) throw new Error('This project could not be loaded for export.');
-      const blob = await generateProjectPDF(projectForExport, reportContent, { areaIds: sortedAreaIds });
-      if (destination === 'local') {
-        const filename = `${sanitizeExportNamePart(project.projectName)}_Selected_Areas_${formatDateForExport()}.pdf`;
-        downloadPDF(blob, filename);
-      }
+      const { generateSelectedAreaExport } = await import('@/features/export/selectedAreaExport');
+      const { downloadPDF } = await import('@/lib/pdfExport');
+      const report = await generateSelectedAreaExport(projectForExport, sortedAreaIds, reportContent, areaExportFormat, setAreaExportProgress);
+      if (destination === 'local') downloadPDF(report.blob, report.filename);
       if (token && shouldSaveToDrive) {
+        setAreaExportProgress('Saving to OneDrive…');
         const projectFolderName = getOneDriveProjectFolderName(project);
         const filename = await getNextOneDriveExportFilename(
           token,
           [`${project.projectName}_Selected_Areas_${reportContent === 'issues' ? 'Issues' : 'Inspection_Record'}`],
           new Date(),
-          projectFolderName
+          projectFolderName,
+          report.extension
         );
-        await uploadPdfToOneDrive(token, filename, blob, projectFolderName);
+        await uploadReportToOneDrive(token, filename, report.blob, projectFolderName, report.extension);
       }
+      setSelectedAreaIds(new Set());
+      setDeleteMode(false);
+      setActionSheet(null);
     } catch (error) {
       console.error('Failed to export selected areas:', error);
       showMessage(error instanceof Error ? error.message : 'Failed to export selected areas. Please try again.');
     } finally {
       setExportingSelectedAreas(false);
-      setDeleteMode(false);
-      setSelectedAreaIds(new Set());
+      setAreaExportProgress('');
     }
   }
 
@@ -2009,7 +2015,7 @@ export default function ProjectDetailPage() {
       {actionSheet && (
         <div className="modal-overlay fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="w-full max-w-md">
-            <div className="modal-panel overflow-hidden rounded-[1.8rem] p-2">
+            <div className="modal-panel max-h-[calc(100dvh-2rem)] overflow-y-auto rounded-[1.8rem] p-2">
               {actionSheet === 'export-scope' ? (
                 <>
                   <div className="px-4 pb-2 pt-3 text-center">
@@ -2047,10 +2053,14 @@ export default function ProjectDetailPage() {
                   </button>
                 </>
               ) : actionSheet === 'export' ? (
-                <>
+                <fieldset disabled={exportingSelectedAreas} className="min-w-0">
                   <div className="px-4 pb-2 pt-3 text-center">
                     <div className="text-sm font-semibold text-gray-900 dark:text-white">Export PDF</div>
                     <ReportContentChoice value={reportContent} onChange={setReportContent} />
+                    {exportScope === 'selected-areas' && (
+                      <AreaExportFormatChoice value={areaExportFormat} onChange={setAreaExportFormat} />
+                    )}
+                    {areaExportProgress && <p role="status" className="my-2 text-sm text-gray-600 dark:text-gray-300">{areaExportProgress}</p>}
                     <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">
                       {exportScope === 'selected-areas'
                         ? 'Save selected areas to this device or OneDrive.'
@@ -2079,7 +2089,7 @@ export default function ProjectDetailPage() {
                     }}
                     className="w-full rounded-[1.1rem] px-4 py-3 text-center text-[17px] text-gray-900 transition hover:bg-black/[0.04] dark:text-white dark:hover:bg-white/[0.05]"
                   >
-                    Download PDF
+                    {exportScope === 'selected-areas' && areaExportFormat === 'individual' ? 'Download ZIP' : 'Download PDF'}
                   </button>
                   <button
                     onClick={() => setActionSheet('export-scope')}
@@ -2087,7 +2097,7 @@ export default function ProjectDetailPage() {
                   >
                     Back
                   </button>
-                </>
+                </fieldset>
               ) : (
                 <>
                   <button

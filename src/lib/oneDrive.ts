@@ -691,6 +691,16 @@ export async function uploadPdfToOneDrive(
   blob: Blob,
   projectFolderName?: string
 ) {
+  return uploadReportToOneDrive(token, filename, blob, projectFolderName, 'pdf');
+}
+
+export async function uploadReportToOneDrive(
+  token: OneDriveToken,
+  filename: string,
+  blob: Blob,
+  projectFolderName?: string,
+  extension: 'pdf' | 'zip' = 'pdf',
+) {
   await ensurePunchListFolders(token);
   const exportPath = projectFolderName
     ? getProjectExportsPath(projectFolderName)
@@ -704,7 +714,7 @@ export async function uploadPdfToOneDrive(
   return graphFetch<DriveItem>(token, `/me/drive/root:/${encodeURI(exportPath)}/${encodeURI(filename)}:/content`, {
     method: 'PUT',
     headers: {
-      'Content-Type': 'application/pdf',
+      'Content-Type': extension === 'zip' ? 'application/zip' : 'application/pdf',
     },
     body: blob,
   });
@@ -714,7 +724,8 @@ export async function getNextOneDriveExportFilename(
   token: OneDriveToken,
   projectNames: string[],
   now = new Date(),
-  projectFolderName?: string
+  projectFolderName?: string,
+  extension: 'pdf' | 'zip' = 'pdf',
 ): Promise<string> {
   await ensurePunchListFolders(token);
   const base = projectNames.map(sanitizeExportNamePart).join('_') || 'PunchList';
@@ -735,13 +746,13 @@ export async function getNextOneDriveExportFilename(
   const prefix = `${base}_${date}_`;
   const matchingVersions = (existingFiles.value ?? [])
     .map((item) => item.name)
-    .filter((name) => name.startsWith(prefix) && name.toLowerCase().endsWith('.pdf'))
+    .filter((name) => name.startsWith(prefix) && name.toLowerCase().endsWith(`.${extension}`))
     .map((name) => name.slice(prefix.length, -4))
     .map((rawVersion) => Number.parseInt(rawVersion, 10))
     .filter((version) => Number.isFinite(version) && version > 0);
 
   const nextVersion = (matchingVersions.length > 0 ? Math.max(...matchingVersions) : 0) + 1;
-  return `${base}_${date}_${nextVersion}.pdf`;
+  return `${base}_${date}_${nextVersion}.${extension}`;
 }
 
 export async function deleteDriveItem(token: OneDriveToken, id: string): Promise<void> {

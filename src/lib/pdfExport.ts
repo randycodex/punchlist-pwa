@@ -1619,7 +1619,11 @@ export async function generateProjectPDF(project: Project, mode: PdfExportMode =
   const summaryPages = hasRenderableContent(exportProject, mode)
     ? await renderProjectDetailPages(pdf, exportProject, mode, logo, layout, forceReportDate)
     : (() => {
-        const messageY = renderCoverPage(pdf, exportProject, logo, layout, forceReportDate);
+        let messageY = renderCoverPage(pdf, exportProject, logo, layout, forceReportDate);
+        const selectedAreas = getActiveAreas(project, options);
+        if (options?.areaIds && selectedAreas.length === 1) {
+          messageY = drawAreaHeader(pdf, selectedAreas[0], messageY, layout);
+        }
         renderEmptyIssuesMessage(pdf, layout, messageY, getEmptyProjectMessage(mode));
         return new Set<number>();
       })();
