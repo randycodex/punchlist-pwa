@@ -17,7 +17,6 @@ import { useState, useEffect, useLayoutEffect, useMemo, useRef, useCallback } fr
 import { useRouter, useParams } from 'next/navigation';
 import { Area, Project, checkpointHasIssue, getReviewMetrics } from '@/types';
 import {
-  clearPendingSharedSyncsForProject,
   getPendingSharedAreaSyncsForProject,
   getProject,
   getProjectMetadata,
@@ -31,6 +30,7 @@ import AreaEditorModal from '@/components/AreaEditorModal';
 import ProjectEditModal from '@/components/ProjectEditModal';
 import AppMessageDialog from '@/components/AppMessageDialog';
 import AppConfirmDialog from '@/components/AppConfirmDialog';
+import { disconnectSavedProject, getDisconnectProjectProgress, type DisconnectProjectStage } from '@/features/collaboration/disconnectProject';
 import TeamBackupCard from '@/components/TeamBackupCard';
 import AppPromptDialog from '@/components/AppPromptDialog';
 import CollaborationHealthDialog from '@/components/CollaborationHealthDialog';
@@ -67,7 +67,6 @@ import {
 } from '@/features/collaboration/pushQueuedSharedChanges';
 import {
   clearDetachedSharedProjectMetadata,
-  detachLocalSharedProject,
 } from '@/features/collaboration/detachedSharedProject';
 import { AreaCard,
   type AreaCardMetrics as AreaMetrics,
@@ -95,7 +94,6 @@ import {
   captureSharedProjectBackup,
   claimSharedProjectArea,
   createSharedProjectFromLocalProject,
-  disconnectSharedProject,
   generateSharedProjectJoinCode,
   getActiveSharedProjectAreaClaimSummaries,
   getCollaborationErrorMessage,
@@ -222,6 +220,8 @@ export default function ProjectDetailPage() {
   const [disconnectSharedProjectIsOwner, setDisconnectSharedProjectIsOwner] = useState(false);
   const [disconnectSharedProjectLocalOnly, setDisconnectSharedProjectLocalOnly] = useState(false);
   const [disconnectingSharedProject, setDisconnectingSharedProject] = useState(false);
+  const [disconnectStage, setDisconnectStage] = useState<DisconnectProjectStage | null>(null);
+  const [disconnectError, setDisconnectError] = useState('');
   const projectRef = useRef<Project | null>(cachedProject);
   const backgroundAreaClaimKeysRef = useRef(new Set<string>());
   const topMenuActionHandlerRef = useRef<((event: Event) => void) | null>(null);
@@ -1290,6 +1290,7 @@ export default function ProjectDetailPage() {
       return;
     }
 
+    setDisconnectError('');
     setDisconnectSharedProjectLocalOnly(false);
     setDisconnectSharedProjectIsOwner(isOwner);
     setDisconnectSharedProjectConfirm(project);
@@ -1301,6 +1302,7 @@ export default function ProjectDetailPage() {
       return;
     }
 
+    setDisconnectError('');
     setDisconnectSharedProjectLocalOnly(true);
     setDisconnectSharedProjectIsOwner(false);
     setDisconnectSharedProjectConfirm(project);
@@ -1312,27 +1314,12 @@ export default function ProjectDetailPage() {
     if (!targetProject || !sharedProjectId || disconnectingSharedProject) return;
 
     setDisconnectingSharedProject(true);
+    setDisconnectError('');
     try {
-      const fullProject = await getProject(targetProject.id);
-      if (!fullProject) {
-        throw new Error('Could not load this project.');
-      }
-
-      fullProject.sharedProjectId = targetProject.sharedProjectId;
-      fullProject.sharedProjectLinkedAt = targetProject.sharedProjectLinkedAt;
-      let disconnectAction: 'archived' | 'left' | 'local-only' = 'local-only';
-      if (!disconnectSharedProjectLocalOnly) {
-        await captureSharedProjectBackup(
-          fullProject,
-          'manual',
-          'Local data before stopping shared project access.'
-        );
-        const result = await disconnectSharedProject(sharedProjectId);
-        disconnectAction = result.action;
-      }
-      const localProject = detachLocalSharedProject(fullProject);
-      await clearPendingSharedSyncsForProject(localProject.id);
-      await saveProject(localProject);
+      const { localProject, action: disconnectAction } = await disconnectSavedProject(targetProject, {
+        localOnly: disconnectSharedProjectLocalOnly,
+        onStage: setDisconnectStage,
+      });
       scheduleSync(localProject.id);
       clearSharedUpdateAvailable(localProject.id);
       setProject({ ...localProject, areas: [...localProject.areas] });
@@ -1346,9 +1333,10 @@ export default function ProjectDetailPage() {
       );
     } catch (error) {
       console.error('Failed to stop sharing project:', error);
-      showMessage(getCollaborationErrorMessage(error, 'Failed to stop sharing this project. Please try again.'));
+      setDisconnectError(error instanceof Error ? error.message : getCollaborationErrorMessage(error, 'Failed to stop sharing this project. Please try again.'));
     } finally {
       setDisconnectingSharedProject(false);
+      setDisconnectStage(null);
     }
   }
 
@@ -1901,7 +1889,7 @@ export default function ProjectDetailPage() {
             ? `Stop sharing "${disconnectSharedProjectConfirm.projectName}"?\n\nThis will save a shared backup first, archive the shared project for everyone, and disconnect this device's local copy. Your local inspection data will stay on this device.`
             : `Leave "${disconnectSharedProjectConfirm.projectName}"?\n\nThis will save a shared backup first, remove your membership, and disconnect this device's local copy. Other members will keep access, and your local inspection data will stay on this device.`}
           confirmLabel={disconnectingSharedProject
-            ? disconnectSharedProjectLocalOnly ? 'Disconnecting...' : disconnectSharedProjectIsOwner ? 'Stopping...' : 'Leaving...'
+            ? getDisconnectProjectProgress(disconnectStage, disconnectSharedProjectIsOwner)?.label ?? 'Preparing…'
             : disconnectSharedProjectLocalOnly ? 'Keep Local Copy' : disconnectSharedProjectIsOwner ? 'Stop Sharing' : 'Leave Project'}
           danger
           onCancel={() => {
@@ -1909,6 +1897,9 @@ export default function ProjectDetailPage() {
               setDisconnectSharedProjectConfirm(null);
             }
           }}
+          busy={disconnectingSharedProject}
+          statusMessage={getDisconnectProjectProgress(disconnectStage, disconnectSharedProjectIsOwner)?.message}
+          errorMessage={disconnectError}
           onConfirm={() => void confirmDisconnectSharedProject()}
         />
       )}

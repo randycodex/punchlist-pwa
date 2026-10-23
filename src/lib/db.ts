@@ -18,6 +18,7 @@ import type { AreaTypeKey, ApartmentUnitType, FacadeOrientation } from '@/lib/ar
 import { v4 as uuidv4 } from 'uuid';
 import { deleteProjectCaptureDrafts, hasProjectCaptureDrafts } from '@/lib/captureJournal';
 import { tryLocalMediaRecovery } from '@/lib/localMediaRecovery';
+import { detachLocalSharedProject } from '@/features/collaboration/detachedSharedProject';
 
 type StoredPhotoAttachment = Omit<PhotoAttachment, 'imageData' | 'thumbnail'> & {
   imageData: string | Blob;
@@ -2346,6 +2347,36 @@ export async function clearPendingSharedAreaSyncsForProject(
     await Promise.all(keys.map((key) => store.delete(key)));
   }
   await tx.done;
+  reportSharedSyncQueueChanged();
+}
+
+/** Detach the latest stored metadata atomically; never rewrite saved media or
+ * overwrite edits made while the remote backup/access change was in flight. */
+export async function detachSavedSharedProject(localProjectId: string, sharedProjectId: string) {
+  await runLocalPersistence(async () => {
+    const db = await getDB();
+    const tx = db.transaction(['projects', 'syncMetadata', 'sharedAreaSyncQueue', 'sharedProjectMetadataSyncQueue'], 'readwrite');
+    try {
+      const project = await tx.objectStore('projects').get(localProjectId);
+      if (!project || project.deletedAt || project.sharedProjectId !== sharedProjectId) {
+        throw new Error('The local project or its team link changed. Your current data was kept.');
+      }
+      const detached = detachLocalSharedProject(project);
+      detached.updatedAt = new Date();
+      await tx.objectStore('projects').put(detached);
+      await markPendingProjectInStore(tx.objectStore('syncMetadata'), localProjectId);
+      for (const name of ['sharedAreaSyncQueue', 'sharedProjectMetadataSyncQueue'] as const) {
+        const store = tx.objectStore(name);
+        const keys = await store.index('by-local-project').getAllKeys(localProjectId);
+        await Promise.all(keys.map((key) => store.delete(key)));
+      }
+      await tx.done;
+    } catch (error) {
+      try { tx.abort(); } catch {}
+      await tx.done.catch(() => {});
+      throw error;
+    }
+  });
   reportSharedSyncQueueChanged();
 }
 

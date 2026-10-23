@@ -414,15 +414,16 @@ export async function removeSharedProjectMember(
   return { projectId, memberEmail: removedEmail, inviteInvalidated };
 }
 
-export async function disconnectSharedProject(sharedProjectId: string): Promise<DisconnectSharedProjectResult> {
+export async function disconnectSharedProject(sharedProjectId: string, signal?: AbortSignal): Promise<DisconnectSharedProjectResult> {
   const supabase = getCollaborationSupabaseClient();
   if (!supabase) {
     throw new Error('Collaboration is not configured.');
   }
 
-  const { data, error } = await supabase.rpc('disconnect_shared_project', {
+  const request = supabase.rpc('disconnect_shared_project', {
     p_project_id: sharedProjectId,
   });
+  const { data, error } = await (signal ? request.abortSignal(signal) : request);
 
   if (error) {
     throw error;

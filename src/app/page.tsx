@@ -60,7 +60,6 @@ import {
 } from '@/features/collaboration/pushQueuedSharedChanges';
 import {
   clearDetachedSharedProjectMetadata,
-  detachLocalSharedProject,
   relinkDetachedSharedProject,
 } from '@/features/collaboration/detachedSharedProject';
 import { findPreferredLocalSharedProject, getInactiveLocalSharedProjects, getSharedProjectDirectoryLocalStatus, planSharedProjectJoin } from '@/features/collaboration/sharedProjectDirectoryLocal';
@@ -94,7 +93,6 @@ import {
   createSharedProjectFromLocalProject,
   captureSharedProjectBackup,
   claimSharedProjectArea,
-  disconnectSharedProject,
   generateSharedProjectJoinCode,
   getActiveSharedProjectAreaClaimSummaries,
   getSharedProjectMembers,
@@ -129,6 +127,7 @@ import ProjectEditModal from '@/components/ProjectEditModal';
 import AreaEditorModal from '@/components/AreaEditorModal';
 import AppMessageDialog from '@/components/AppMessageDialog';
 import AppConfirmDialog from '@/components/AppConfirmDialog';
+import { disconnectSavedProject, getDisconnectProjectProgress, type DisconnectProjectStage, disconnectProjectAccess } from '@/features/collaboration/disconnectProject';
 import AppPromptDialog from '@/components/AppPromptDialog';
 import CollaborationHealthDialog from '@/components/CollaborationHealthDialog';
 import InvitePeopleDialog from '@/components/InvitePeopleDialog';
@@ -253,6 +252,8 @@ export default function ProjectsPage() {
   const [disconnectSharedProjectIsOwner, setDisconnectSharedProjectIsOwner] = useState(false);
   const [disconnectSharedProjectLocalOnly, setDisconnectSharedProjectLocalOnly] = useState(false);
   const [disconnectingSharedProject, setDisconnectingSharedProject] = useState(false);
+  const [disconnectStage, setDisconnectStage] = useState<DisconnectProjectStage | null>(null);
+  const [disconnectError, setDisconnectError] = useState('');
   const [transferringSharedProject, setTransferringSharedProject] = useState(false);
   const [showMySharedProjects, setShowMySharedProjects] = useState(false);
   const [loadingMySharedProjects, setLoadingMySharedProjects] = useState(false);
@@ -2216,6 +2217,7 @@ export default function ProjectsPage() {
       handleDisconnectSharedProject(localProject, isOwner);
       return;
     }
+    setDisconnectError('');
     setDirectoryDisconnectConfirm(entry);
   }
 
@@ -2223,9 +2225,10 @@ export default function ProjectsPage() {
     const entry = directoryDisconnectConfirm;
     if (!entry || disconnectingDirectoryProjectId) return;
 
+    setDisconnectError('');
     setDisconnectingDirectoryProjectId(entry.projectId);
     try {
-      const result = await disconnectSharedProject(entry.projectId);
+      const result = await disconnectProjectAccess(entry.projectId);
       setDirectoryDisconnectConfirm(null);
       setShowMySharedProjects(false);
       setMySharedProjects([]);
@@ -2236,7 +2239,7 @@ export default function ProjectsPage() {
       );
     } catch (error) {
       console.error('Failed to leave shared project from directory:', error);
-      showMessage(getCollaborationErrorMessage(error, 'Failed to leave this shared project. Please try again.'));
+      setDisconnectError(error instanceof Error ? error.message : getCollaborationErrorMessage(error, 'Failed to leave this shared project. Please try again.'));
     } finally {
       setDisconnectingDirectoryProjectId(null);
     }
@@ -2503,6 +2506,7 @@ export default function ProjectsPage() {
       return;
     }
 
+    setDisconnectError('');
     setDisconnectSharedProjectLocalOnly(false);
     setDisconnectSharedProjectIsOwner(isOwner);
     setDisconnectSharedProjectConfirm(project);
@@ -2514,6 +2518,7 @@ export default function ProjectsPage() {
       return;
     }
 
+    setDisconnectError('');
     setDisconnectSharedProjectLocalOnly(true);
     setDisconnectSharedProjectIsOwner(false);
     setDisconnectSharedProjectConfirm(project);
@@ -2525,27 +2530,12 @@ export default function ProjectsPage() {
     if (!targetProject || !sharedProjectId || disconnectingSharedProject) return;
 
     setDisconnectingSharedProject(true);
+    setDisconnectError('');
     try {
-      const fullProject = await getProject(targetProject.id);
-      if (!fullProject) {
-        throw new Error('Could not load this project.');
-      }
-
-      fullProject.sharedProjectId = targetProject.sharedProjectId;
-      fullProject.sharedProjectLinkedAt = targetProject.sharedProjectLinkedAt;
-      let disconnectAction: 'archived' | 'left' | 'local-only' = 'local-only';
-      if (!disconnectSharedProjectLocalOnly) {
-        await captureSharedProjectBackup(
-          fullProject,
-          'manual',
-          'Local data before stopping shared project access.'
-        );
-        const result = await disconnectSharedProject(sharedProjectId);
-        disconnectAction = result.action;
-      }
-      const localProject = detachLocalSharedProject(fullProject);
-      await clearPendingSharedSyncsForProject(localProject.id);
-      await saveProject(localProject);
+      const { localProject, action: disconnectAction } = await disconnectSavedProject(targetProject, {
+        localOnly: disconnectSharedProjectLocalOnly,
+        onStage: setDisconnectStage,
+      });
       scheduleSync(localProject.id);
       clearSharedUpdateAvailable(localProject.id);
       setProjects((prev) =>
@@ -2563,9 +2553,10 @@ export default function ProjectsPage() {
       );
     } catch (error) {
       console.error('Failed to stop sharing project:', error);
-      showMessage(getCollaborationErrorMessage(error, 'Failed to stop sharing this project. Please try again.'));
+      setDisconnectError(error instanceof Error ? error.message : getCollaborationErrorMessage(error, 'Failed to stop sharing this project. Please try again.'));
     } finally {
       setDisconnectingSharedProject(false);
+      setDisconnectStage(null);
     }
   }
 
@@ -3578,7 +3569,7 @@ export default function ProjectsPage() {
             ? `Stop sharing "${disconnectSharedProjectConfirm.projectName}"?\n\nThis will save a shared backup first, archive the shared project for everyone, and disconnect this device's local copy. Your local inspection data will stay on this device.`
             : `Leave "${disconnectSharedProjectConfirm.projectName}"?\n\nThis will save a shared backup first, remove your membership, and disconnect this device's local copy. Other members will keep access, and your local inspection data will stay on this device.`}
           confirmLabel={disconnectingSharedProject
-            ? disconnectSharedProjectLocalOnly ? 'Disconnecting...' : disconnectSharedProjectIsOwner ? 'Stopping...' : 'Leaving...'
+            ? getDisconnectProjectProgress(disconnectStage, disconnectSharedProjectIsOwner)?.label ?? 'Preparing…'
             : disconnectSharedProjectLocalOnly ? 'Keep Local Copy' : disconnectSharedProjectIsOwner ? 'Stop Sharing' : 'Leave Project'}
           danger
           onCancel={() => {
@@ -3586,6 +3577,9 @@ export default function ProjectsPage() {
               setDisconnectSharedProjectConfirm(null);
             }
           }}
+          busy={disconnectingSharedProject}
+          statusMessage={getDisconnectProjectProgress(disconnectStage, disconnectSharedProjectIsOwner)?.message}
+          errorMessage={disconnectError}
           onConfirm={() => void confirmDisconnectSharedProject()}
         />
       )}
@@ -3607,6 +3601,8 @@ export default function ProjectsPage() {
               setDirectoryDisconnectConfirm(null);
             }
           }}
+          busy={Boolean(disconnectingDirectoryProjectId)}
+          errorMessage={disconnectError}
           onConfirm={() => void confirmDirectoryDisconnect()}
         />
       )}
