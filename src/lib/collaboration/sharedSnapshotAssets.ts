@@ -631,8 +631,22 @@ async function verifyAssetContent(reference: SharedSnapshotAssetReference, blob:
   }
 }
 
-/** A bounded, disposable cache. Canonical offline media remains in IndexedDB. */
+const MAX_CACHED_SHARED_ASSET_BYTES = 1024 * 1024;
+
 async function downloadVerifiedAsset(reference: SharedSnapshotAssetReference, download: () => Promise<Blob>) {
+  if (reference.sha256 && reference.sizeBytes <= MAX_CACHED_SHARED_ASSET_BYTES && typeof caches !== 'undefined') {
+    // Hold the object lock through cache insertion. A waiting tab must recheck
+    // the verified cache after the first tab finishes downloading this object.
+    return withBrowserLock(
+      localAccountKey(`shared-asset-download:${assetTransferKey(reference.bucket, reference.path)}`),
+      () => downloadOrReuseVerifiedAsset(reference, download)
+    );
+  }
+  return downloadOrReuseVerifiedAsset(reference, download);
+}
+
+/** A bounded, disposable cache. Canonical offline media remains in IndexedDB. */
+async function downloadOrReuseVerifiedAsset(reference: SharedSnapshotAssetReference, download: () => Promise<Blob>) {
   const key = `https://punchlist-cache.invalid/${encodeURIComponent(reference.bucket)}/${reference.path}`;
   let cache: Cache | undefined;
   if (reference.sha256 && typeof caches !== 'undefined') {
@@ -648,7 +662,7 @@ async function downloadVerifiedAsset(reference: SharedSnapshotAssetReference, do
   }
   const blob = await download();
   await verifyAssetContent(reference, blob);
-  if (cache && blob.size <= 1024 * 1024) {
+  if (cache && blob.size <= MAX_CACHED_SHARED_ASSET_BYTES) {
     try {
       const target = cache;
       await withBrowserLock(localAccountKey('shared-asset-cache'), async () => {
