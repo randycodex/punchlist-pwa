@@ -2,6 +2,7 @@ import { isPendingSharedSyncVersionConflict } from '@/lib/collaboration/sharedSy
 import { withBrowserLock } from '@/lib/browserLocks';
 import { localAccountKey } from '@/lib/localAccount';
 import { applyCheckpointRules, mergeCheckpointRules } from '@/lib/checkpointRules';
+import { getCapturedIssueChange } from '@/lib/checkpointCapture';
 import { openDB, DBSchema, IDBPDatabase } from 'idb';
 import {
   Project,
@@ -1528,17 +1529,14 @@ export async function saveCheckpointInspectionChange(
         await tx.done.catch(() => {});
         throw new Error('This checkpoint is no longer available. Your draft is still open.');
       }
+      const previousComments = checkpoint.comments;
+      let hasNewPhoto = false;
       if (options.recoveredNote) {
         const { value, baseValue } = options.recoveredNote;
         const current = checkpoint.comments;
         checkpoint.comments = current === value || (value && current.endsWith(`\n${value}`)) || (options.recoveredVoice && value && current.trimEnd().endsWith(value.trim())) ? current : current === baseValue ? value : `${current.trimEnd()}\n${value}`.trim();
       }
       Object.assign(checkpoint, change, { updatedAt: new Date() });
-      if (photos.length && checkpoint.isCustom) {
-        checkpoint.status = 'needsReview';
-        checkpoint.issueState = 'open';
-        checkpoint.fixStatus = 'pending';
-      }
       if (photos.length || options.removePhotoIds?.length) {
         const store = tx.objectStore('checkpointMedia');
         const media = await store.get([projectId, checkpointId]) ?? { checkpointId, projectId, areaId, photos: [], files: [] };
@@ -1548,14 +1546,19 @@ export async function saveCheckpointInspectionChange(
         media.photos.push(...compactPhotos.filter((photo) => !existingIds.has(photo.id)));
         const metadataIds = new Set(checkpoint.photos.map((photo) => photo.id));
         checkpoint.photos.push(...photos.filter((photo) => !metadataIds.has(photo.id)).map((photo) => ({ ...photo, imageData: '', thumbnail: undefined })));
+        const removed = new Set(options.removePhotoIds);
+        hasNewPhoto = photos.some((photo) => !metadataIds.has(photo.id) && !removed.has(photo.id));
         if (options.removePhotoIds?.length) {
-          const removed = new Set(options.removePhotoIds);
           checkpoint.deletedPhotoIds = [...new Set([...(checkpoint.deletedPhotoIds ?? []), ...removed])];
           media.photos = media.photos.filter((photo) => !removed.has(photo.id));
           checkpoint.photos = checkpoint.photos.filter((photo) => !removed.has(photo.id));
         }
         await store.put(media);
       }
+      Object.assign(checkpoint, getCapturedIssueChange(checkpoint, {
+        hasNewPhoto,
+        hasNewNote: Boolean(checkpoint.comments.trim()) && checkpoint.comments !== previousComments,
+      }));
       area.updatedAt = new Date();
       area.isComplete = isAreaInspectionComplete(area);
       project.updatedAt = new Date();

@@ -11,4 +11,7 @@ mono 16 kHz locally, and never uploaded to an application API. The model is down
 and reused from the browser cache.
 
 Voice transcripts are inserted into the active checkpoint comment and returned to the textarea for
-review. They are not used to change checkpoint status or other inspection data automatically.
+review. Saving a new non-empty checkpoint note (typed or transcribed), or adding a new photo,
+automatically marks an unflagged checkpoint as an open issue. Existing open, resolved, and verified
+issues keep their state. Blank or unchanged notes, photo-save retries, and removing evidence do not
+change the issue state. The evidence, issue state, and pending team sync are saved together.

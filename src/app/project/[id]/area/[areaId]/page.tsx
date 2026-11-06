@@ -115,6 +115,7 @@ import ReadOnlyArea from '@/components/inspection/ReadOnlyArea';
 import InspectionLocationCard from '@/components/inspection/InspectionLocationCard';
 import CaptureRecovery from '@/features/inspection/CaptureRecoveryPanel';
 import { saveRecoverableNote, saveRecoverablePhotos } from '@/features/inspection/captureRecovery';
+import { getCapturedIssueChange } from '@/lib/checkpointCapture';
 import { nextInspectionPosition, type InspectionPosition } from '@/features/inspection/inspectionPosition';
 import {
   ArrowLeft,
@@ -897,8 +898,12 @@ export default function AreaDetailPage() {
     try {
       const committed = await saveRecoverableNote(project.id, area.id, checkpointId, value, checkpoint.comments, { immediate: rememberRecent });
       if (!committed) return;
+      Object.assign(checkpoint, getCapturedIssueChange(checkpoint, {
+        hasNewNote: Boolean(value.trim()) && value !== checkpoint.comments,
+      }));
       checkpoint.comments = value;
       checkpoint.updatedAt = new Date();
+      syncAreaCompletion(area);
       if (pendingNotesRef.current.get(checkpointId)?.value === value) {
         pendingNotesRef.current.delete(checkpointId);
       }
@@ -1509,12 +1514,10 @@ export default function AreaDetailPage() {
     }));
     await saveRecoverablePhotos(project.id, area.id, checkpointId, attachments);
     const existing = new Set(checkpoint.photos.map((photo) => photo.id));
+    Object.assign(checkpoint, getCapturedIssueChange(checkpoint, {
+      hasNewPhoto: attachments.some((photo) => !existing.has(photo.id)),
+    }));
     checkpoint.photos.push(...attachments.filter((photo) => !existing.has(photo.id)));
-    if (attachments.length && checkpoint.isCustom) {
-      checkpoint.status = 'needsReview';
-      checkpoint.issueState = 'open';
-      checkpoint.fixStatus = 'pending';
-    }
     checkpoint.updatedAt = new Date();
     syncAreaCompletion(area);
     scheduleSync(project.id);

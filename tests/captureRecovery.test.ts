@@ -68,6 +68,7 @@ describe('interrupted capture recovery', () => {
     const drafts = await listCaptureDrafts(project.id, area.id); expect(drafts).toHaveLength(1);
     await restoreCaptureDraft(drafts[0]);
     expect((await getProject(project.id))?.areas[0].locations[0].items[0].checkpoints[0].comments).toBe('Adjust hinge');
+    expect((await getProject(project.id))?.areas[0].locations[0].items[0].checkpoints[0]).toMatchObject({ status: 'needsReview', issueState: 'open', fixStatus: 'pending' });
     expect(await listCaptureDrafts(project.id, area.id)).toHaveLength(0);
   });
   it('preserves newer notes when an interrupted note is restored', async () => {
@@ -124,6 +125,7 @@ describe('interrupted capture recovery', () => {
     await restoreCaptureDraft(retained);
     await stageCaptureDraft(draft); await restoreCaptureDraft(draft);
     expect((await getProject(project.id))?.areas[0].locations[0].items[0].checkpoints[0].comments).toBe('Existing observation\nAdjust hinge');
+    expect((await getProject(project.id))?.areas[0].locations[0].items[0].checkpoints[0]).toMatchObject({ status: 'needsReview', issueState: 'open', fixStatus: 'pending' });
     await saveCheckpointInspectionChange(project.id, area.id, checkpoint.id, { comments: 'Existing observation Adjust hinge' });
     await stageCaptureDraft(draft); await restoreCaptureDraft(draft);
     expect((await getProject(project.id))?.areas[0].locations[0].items[0].checkpoints[0].comments).toBe('Existing observation Adjust hinge');
