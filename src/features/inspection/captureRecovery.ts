@@ -1,7 +1,7 @@
 import type { PhotoAttachment } from '@/types';
 import { getProjectForArea, saveAreaNotes, saveCheckpointInspectionChange } from '@/lib/db';
-import { stageCaptureDraft, listCaptureDrafts, clearCaptureDraft, CAPTURE_RECOVERY_EVENT, type CaptureDraft } from '@/lib/captureJournal';
-export { stageCaptureDraft, listCaptureDrafts, clearCaptureDraft, CAPTURE_RECOVERY_EVENT, CAPTURE_CLEARED_EVENT, type CaptureDraft } from '@/lib/captureJournal';
+import { stageCaptureDraft, listCaptureDrafts, clearCaptureDraft, CAPTURE_RECOVERY_EVENT, type CaptureDraft, type StoredCaptureDraft } from '@/lib/captureJournal';
+export { stageCaptureDraft, listCaptureDrafts, clearCaptureDraft, CAPTURE_RECOVERY_EVENT, CAPTURE_CLEARED_EVENT, type CaptureDraft, type StoredCaptureDraft } from '@/lib/captureJournal';
 function notify() { if (typeof window !== 'undefined') window.dispatchEvent(new Event(CAPTURE_RECOVERY_EVENT)); }
 
 const latestNoteRevision = new Map<string, string>();
@@ -52,7 +52,7 @@ export async function saveRecoverablePhotos(projectId: string, areaId: string, c
 
 // Called only after the screen's current edit/claim gate succeeds. Recovery never
 // silently overwrites notes received from another inspector or a later local edit.
-export async function restoreCaptureDraft(draft: CaptureDraft) {
+export async function restoreCaptureDraft(draft: StoredCaptureDraft) {
   const currentDrafts = await listCaptureDrafts(draft.projectId, draft.areaId);
   if (currentDrafts.find((entry) => entry.key === draft.key)?.revision !== draft.revision) throw new Error('This capture has already been saved or changed. Reopen the area to refresh recovery.');
   const project = await getProjectForArea(draft.projectId, draft.areaId);
@@ -67,8 +67,8 @@ export async function restoreCaptureDraft(draft: CaptureDraft) {
   if (draft.kind === 'photo') {
     await saveCheckpointInspectionChange(draft.projectId, draft.areaId, draft.checkpointId, {}, [draft.photo]);
   } else if (draft.kind === 'voice') {
-    if (!draft.transcript?.trim()) throw new Error('Transcribe the retained recording first.');
-    await saveCheckpointInspectionChange(draft.projectId, draft.areaId, draft.checkpointId, {}, [], { recoveredNote: { baseValue: '', value: draft.transcript }, recoveredVoice: true });
+    if (!draft.transcript?.trim()) throw new Error('This older recording has no saved text to restore. Its data is still kept on this device.');
+    await saveCheckpointInspectionChange(draft.projectId, draft.areaId, draft.checkpointId, {}, [], { recoveredNote: { baseValue: '', value: draft.transcript, allowInlineMatch: true } });
   } else {
     await saveCheckpointInspectionChange(draft.projectId, draft.areaId, draft.checkpointId, {}, [], { recoveredNote: draft });
   }

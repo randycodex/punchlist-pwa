@@ -103,10 +103,10 @@ describe('prepared offline application', () => {
   });
   it('rejects mixed-build preparation and keeps unrelated caches on activation', async () => {
     const sw = worker(); await sw.dispatch('install');
-    sw.entries.set('voice-model', new Map()); sw.entries.set('punchlist-site-v1-old-build', new Map());
+    sw.entries.set('unrelated-cache', new Map()); sw.entries.set('punchlist-site-v1-old-build', new Map());
     sw.fetch.mockResolvedValue(new Response('<meta name="punchlist-build" content="different">', { headers: { 'content-type': 'text/html' } }));
     expect((await sw.message('PREPARE', ['/project/id'])).error).toContain('update');
     await sw.dispatch('activate');
-    expect(sw.entries.has('voice-model')).toBe(true); expect(sw.entries.has('punchlist-site-v1-old-build')).toBe(false); expect(sw.claim).toHaveBeenCalled();
+    expect(sw.entries.has('unrelated-cache')).toBe(true); expect(sw.entries.has('punchlist-site-v1-old-build')).toBe(false); expect(sw.claim).toHaveBeenCalled();
   });
 });

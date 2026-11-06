@@ -2,7 +2,7 @@ import {
   captureLocalProjectSaveToken, getSavedProjectMetadata, getPendingSharedAreaSyncsForProject,
   getPendingSharedProjectMetadataSyncForProject,
 } from '@/lib/db';
-import { listCaptureDrafts, type CaptureDraft } from '@/lib/captureJournal';
+import { listCaptureDrafts, type StoredCaptureDraft } from '@/lib/captureJournal';
 import { withBrowserLock } from '@/lib/browserLocks';
 
 /** Read inspection metadata without opening, replacing, or acknowledging media. */
@@ -15,7 +15,7 @@ export async function prepareInspectionRecoveryFile(projectId: string) {
       getPendingSharedAreaSyncsForProject(projectId),
       getPendingSharedProjectMetadataSyncForProject(projectId),
     ]);
-    const captureDrafts: CaptureDraft[] = [];
+    const captureDrafts: StoredCaptureDraft[] = [];
     const unreadableDraftAreas: string[] = [];
     for (const area of project.areas) {
       try { captureDrafts.push(...await listCaptureDrafts(projectId, area.id)); }
@@ -44,7 +44,7 @@ export async function prepareInspectionRecoveryFile(projectId: string) {
       project: copy,
       pendingSync: { areas: pendingAreas, projectDetails: pendingProjectDetails ?? null },
       captureDrafts: captureDrafts.map((draft) => draft.kind === 'voice'
-        ? { ...draft, audio: undefined, omittedAudioSampleCount: draft.audio.length } : draft),
+        ? { ...draft, audio: undefined, omittedAudioSampleCount: draft.audio?.length ?? 0 } : draft),
     };
     const name = project.projectName.replace(/[^a-z0-9_-]+/gi, '_').replace(/^_+|_+$/g, '').slice(0, 80) || 'Punchlist';
     return {

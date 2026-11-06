@@ -3,11 +3,16 @@ import { openDB, type DBSchema } from 'idb';
 import type { PhotoAttachment } from '@/types';
 import { withBrowserLock } from '@/lib/browserLocks';
 
-export type CaptureDraft = {
+type CaptureIdentity = {
   key: string; revision: string; projectId: string; areaId: string; checkpointId: string; savedAt: Date;
-} & ({ kind: 'area-note'; value: string; baseValue: string } | { kind: 'note'; value: string; baseValue: string } | { kind: 'photo'; photo: PhotoAttachment } | { kind: 'voice'; audio: Float32Array; transcript?: string });
+};
+export type CaptureDraft = CaptureIdentity & ({ kind: 'area-note'; value: string; baseValue: string } | { kind: 'note'; value: string; baseValue: string } | { kind: 'photo'; photo: PhotoAttachment });
+// Read compatibility only: older clients may have left an interrupted recording.
+// New captures cannot create these records; never purge them during an app update.
+export type LegacyRecordingDraft = CaptureIdentity & { kind: 'voice'; audio?: Float32Array; transcript?: string };
+export type StoredCaptureDraft = CaptureDraft | LegacyRecordingDraft;
 interface CaptureDB extends DBSchema {
-  drafts: { key: string; value: CaptureDraft; indexes: { 'by-area': [string, string] } };
+  drafts: { key: string; value: StoredCaptureDraft; indexes: { 'by-area': [string, string] } };
 }
 const journal = () => openDB<CaptureDB>(localAccountKey('punchlist-capture-recovery'), 1, {
   upgrade(db) { db.createObjectStore('drafts', { keyPath: 'key' }).createIndex('by-area', ['projectId', 'areaId']); },
@@ -34,7 +39,7 @@ export async function listCaptureDrafts(projectId: string, areaId: string) {
   const db = await journal();
   try { return await db.getAllFromIndex('drafts', 'by-area', [projectId, areaId]); } finally { db.close(); }
 }
-export async function clearCaptureDraft(draft: CaptureDraft) {
+export async function clearCaptureDraft(draft: StoredCaptureDraft) {
   const db = await journal();
   try {
     const tx = db.transaction('drafts', 'readwrite');
@@ -49,8 +54,11 @@ export async function deleteProjectCaptureDrafts(projectId: string) {
   const db = await journal();
   try {
     const tx = db.transaction('drafts', 'readwrite');
-    const keys = await tx.store.getAllKeys();
-    for (const key of keys) if (key.startsWith(`area-note:${projectId}:`) || key.startsWith(`note:${projectId}:`) || key.startsWith(`photo:${projectId}:`) || key.startsWith(`voice:${projectId}:`)) await tx.store.delete(key);
+    let cursor = await tx.store.index('by-area').openKeyCursor(IDBKeyRange.lowerBound([projectId]));
+    while (cursor?.key[0] === projectId) {
+      await tx.store.delete(cursor.primaryKey);
+      cursor = await cursor.continue();
+    }
     await tx.done;
   } finally { db.close(); }
 }

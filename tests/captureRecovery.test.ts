@@ -1,4 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { openDB } from 'idb';
+import { hasProjectCaptureDrafts, type LegacyRecordingDraft } from '@/lib/captureJournal';
+import { localAccountKey } from '@/lib/localAccount';
+import { prepareInspectionRecoveryFile } from '@/features/export/inspectionRecoveryFile';
 import { deleteProject, createProject, createArea, createLocation, createItem, createCheckpoint, createPhotoAttachment, saveProjectPreserveTimestamps, saveCheckpointInspectionChange, getProject } from '@/lib/db';
 import { saveRecoverableNote, saveRecoverablePhotos, listCaptureDrafts, restoreCaptureDraft, stageCaptureDraft, clearCaptureDraft, type CaptureDraft } from '@/features/inspection/captureRecovery';
 import { inspectOfflineProject, isOfflinePage } from '@/features/offline/sitePreparation';
@@ -75,7 +79,7 @@ describe('interrupted capture recovery', () => {
     const { project, area, checkpoint } = await fixture(); const failure = failQueue();
     await expect(saveRecoverableNote(project.id, area.id, checkpoint.id, 'Recovered finding', '')).rejects.toThrow(); failure.mockRestore();
     await saveCheckpointInspectionChange(project.id, area.id, checkpoint.id, { comments: 'Newer team note' });
-    const draft = (await listCaptureDrafts(project.id, area.id))[0];
+    const draft = (await listCaptureDrafts(project.id, area.id)).find((entry) => entry.kind === 'note')!;
     await restoreCaptureDraft(draft);
     // Model termination after the canonical write but before journal deletion.
     await stageCaptureDraft(draft);
@@ -113,28 +117,57 @@ describe('interrupted capture recovery', () => {
   });
 });
 
- describe('retained voice recordings', () => {
-  it('retains audio through a failed note save and restores without duplicating the transcript', async () => {
+// Model records written by an older release, rather than staging new recordings.
+async function seedLegacyRecording(draft: LegacyRecordingDraft) {
+  await listCaptureDrafts(draft.projectId, draft.areaId);
+  const db = await openDB(localAccountKey('punchlist-capture-recovery'), 1);
+  try { await db.put('drafts', draft); } finally { db.close(); }
+}
+
+describe('legacy capture compatibility after recording removal', () => {
+  it('recovers existing text through a failed save without loading a transcription engine', async () => {
     const { project, area, checkpoint } = await fixture();
-    const draft: CaptureDraft = { key: `voice:${project.id}:test`, revision: 'voice-test', projectId: project.id, areaId: area.id, checkpointId: checkpoint.id, savedAt: new Date(), kind: 'voice', audio: new Float32Array([0.2, 0.3]), transcript: 'Adjust hinge' };
-    await stageCaptureDraft(draft);
+    const draft: LegacyRecordingDraft = { key: `voice:${project.id}:test`, revision: 'legacy-test', projectId: project.id, areaId: area.id, checkpointId: checkpoint.id, savedAt: new Date(), kind: 'voice', audio: new Float32Array([0.2, 0.3]), transcript: 'Adjust hinge' };
+    await seedLegacyRecording(draft);
     await saveCheckpointInspectionChange(project.id, area.id, checkpoint.id, { comments: 'Existing observation' });
     const failure = failQueue(); await expect(restoreCaptureDraft(draft)).rejects.toThrow(); failure.mockRestore();
     const retained = (await listCaptureDrafts(project.id, area.id))[0];
-    expect(retained.kind === 'voice' && retained.audio.length).toBe(2);
+    expect(retained.kind === 'voice' && retained.audio?.length).toBe(2);
     await restoreCaptureDraft(retained);
-    await stageCaptureDraft(draft); await restoreCaptureDraft(draft);
+    await seedLegacyRecording(draft); await restoreCaptureDraft(draft);
     expect((await getProject(project.id))?.areas[0].locations[0].items[0].checkpoints[0].comments).toBe('Existing observation\nAdjust hinge');
     expect((await getProject(project.id))?.areas[0].locations[0].items[0].checkpoints[0]).toMatchObject({ status: 'needsReview', issueState: 'open', fixStatus: 'pending' });
     await saveCheckpointInspectionChange(project.id, area.id, checkpoint.id, { comments: 'Existing observation Adjust hinge' });
-    await stageCaptureDraft(draft); await restoreCaptureDraft(draft);
+    await seedLegacyRecording(draft); await restoreCaptureDraft(draft);
     expect((await getProject(project.id))?.areas[0].locations[0].items[0].checkpoints[0].comments).toBe('Existing observation Adjust hinge');
   });
-  it('keeps untranscribed audio for retry and purges it when its project is deleted', async () => {
+  it('leaves older recordings intact without offering transcription, until their project is explicitly deleted', async () => {
     const { project, area, checkpoint } = await fixture();
-    const draft: CaptureDraft = { key: `voice:${project.id}:test`, revision: 'voice-test', projectId: project.id, areaId: area.id, checkpointId: checkpoint.id, savedAt: new Date(), kind: 'voice', audio: new Float32Array([0.2]) };
-    await stageCaptureDraft(draft); await expect(restoreCaptureDraft(draft)).rejects.toThrow('Transcribe');
-    expect(await listCaptureDrafts(project.id, area.id)).toHaveLength(1);
+    const draft: LegacyRecordingDraft = { key: `voice:${project.id}:test`, revision: 'legacy-test', projectId: project.id, areaId: area.id, checkpointId: checkpoint.id, savedAt: new Date(), kind: 'voice', audio: new Float32Array([0.2]) };
+    await seedLegacyRecording(draft);
+    await expect(restoreCaptureDraft(draft)).rejects.toThrow('no saved text to restore');
+    expect(await listCaptureDrafts(project.id, area.id)).toEqual([draft]);
+    expect(await hasProjectCaptureDrafts(project.id)).toBe(true);
     await deleteProject(project.id); expect(await listCaptureDrafts(project.id, area.id)).toHaveLength(0);
+  });
+
+  it('keeps legacy text in recovery exports without exporting or deleting the retained audio', async () => {
+    const { project, area, checkpoint } = await fixture();
+    const draft: LegacyRecordingDraft = { key: `voice:${project.id}:test`, revision: 'legacy-test', projectId: project.id, areaId: area.id, checkpointId: checkpoint.id, savedAt: new Date(), kind: 'voice', audio: new Float32Array([0.2, 0.3]), transcript: 'Keep this saved text' };
+    await seedLegacyRecording(draft);
+    const result = JSON.parse((await prepareInspectionRecoveryFile(project.id)).json);
+    expect(result.captureDrafts).toEqual([expect.objectContaining({ transcript: draft.transcript, omittedAudioSampleCount: 2 })]);
+    expect(result.captureDrafts[0]).not.toHaveProperty('audio');
+    expect(await listCaptureDrafts(project.id, area.id)).toEqual([draft]);
+  });
+
+  it('clears only the explicitly deleted project’s journal records', async () => {
+    const first = await fixture(), second = await fixture();
+    const draft: LegacyRecordingDraft = { key: 'older-capture-key', revision: 'legacy-test', projectId: first.project.id, areaId: first.area.id, checkpointId: first.checkpoint.id, savedAt: new Date(), kind: 'voice', transcript: 'Keep this saved text' };
+    await seedLegacyRecording(draft);
+    await stageCaptureDraft({ key: `note:${second.project.id}:test`, revision: 'other', projectId: second.project.id, areaId: second.area.id, checkpointId: second.checkpoint.id, savedAt: new Date(), kind: 'note', value: 'Other project draft', baseValue: '' });
+    await deleteProject(first.project.id);
+    expect(await listCaptureDrafts(first.project.id, first.area.id)).toHaveLength(0);
+    expect(await listCaptureDrafts(second.project.id, second.area.id)).toHaveLength(1);
   });
 });

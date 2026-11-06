@@ -89,7 +89,7 @@ Renewals are serialized, and release waits for an in-flight renewal before readi
 
 Permanent-deletion recovery now compares the reviewed local project with the current record inside the deletion transaction. A changed record, or a project created while remote deletion evidence was downloading, blocks both local deletion and subsequent OneDrive cleanup for that project. Comparison includes record contents rather than relying on timestamps. Regression tests create and edit local copies during the remote read while preserving their timestamps; both retain the copy and skip cloud deletion. Explicit user deletion retains its existing behavior.
 
-Automatic deletion also checks the separate capture journal while holding the local persistence lock. Draft staging uses that same lock, so notes, photos, or voice work awaiting canonical persistence block automatic deletion. Automatic deletion never clears recovery drafts, preserving a racing draft even on browsers without cross-tab Web Locks. Explicit user deletion still clears its journal. A regression verifies unchanged project metadata does not hide pending recovery work.
+Automatic deletion also checks the separate capture journal while holding the local persistence lock. Draft staging uses that same lock, so notes, photos, or older captures awaiting canonical persistence block automatic deletion. Automatic deletion never clears recovery drafts, preserving a racing draft even on browsers without cross-tab Web Locks. Explicit user deletion still clears its journal. A regression verifies unchanged project metadata does not hide pending recovery work.
 
 ### Backup identity before destructive operations
 

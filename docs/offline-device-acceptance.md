@@ -13,7 +13,7 @@ Use a disposable personal project first. A shared area can also keep local edits
 
 For each supported iPhone/Safari and Android/Chrome version, run in both browser and installed-app mode. Record OS/browser version, starting note text and photo IDs/counts, and the result after reopening.
 
-1. While online, tap Sync Projects and open the areas and media needed on site. Voice transcription needs its separate model download and is not certified ready by this check.
+1. While online, tap Sync Projects and open the areas and media needed on site.
 2. Enable airplane mode, close the app, reopen it, and open the prepared project and several areas. Confirm room/item context, notes, photos, drawings, and files remain accessible.
 3. Type a unique note and take three distinguishable photos. Wait for the saved indicator, force-close, reopen, and confirm the exact text and exactly three photos.
 4. Repeat termination during typing and immediately after the shutter. Open the same area and review any recovery records. A capture is protected only after its journal transaction completes; an image not yet captured or a write rejected by full storage cannot be guaranteed.
