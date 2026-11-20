@@ -25,7 +25,7 @@ export class DisconnectProjectError extends Error {
     const timeout = /timeout|timed out|took too long|\b504\b/i.test(detail);
     const preserved = 'Your saved photos and unsynced work remain on this device.';
     const message = stage === 'backup'
-      ? `${timeout ? 'Saving the shared backup timed out.' : 'The shared backup could not be confirmed.'} We stopped before requesting any access change. ${preserved}\n\n${timeout ? 'Check your connection and try again. The backup is still required before leaving.' : detail}`
+      ? `${timeout ? 'Saving the shared backup timed out.' : 'The shared backup could not be confirmed.'} We stopped before requesting any access change. ${preserved}\n\n${timeout ? 'Check your connection and retry with a backup, or uncheck “Save a shared backup first” to continue without a new backup.' : detail}`
       : stage === 'disconnect'
         ? `${timeout ? 'The team service timed out while confirming the access change.' : 'The access change could not be confirmed.'} Your access may already have changed. Your local copy and pending uploads were not changed. Check Team Projects before trying again.\n\n${detail}`
         : stage === 'local'
@@ -49,7 +49,7 @@ export async function disconnectProjectAccess(sharedProjectId: string) {
 
 export async function disconnectSavedProject(
   target: Project,
-  options: { localOnly?: boolean; onStage: (stage: DisconnectProjectStage) => void }
+  options: { localOnly?: boolean; saveBackup?: boolean; onStage: (stage: DisconnectProjectStage) => void }
 ) {
   const account = localAccountKey('disconnect-project');
   let stage: DisconnectProjectStage = 'loading';
@@ -68,13 +68,15 @@ export async function disconnectSavedProject(
     }
     let action: 'archived' | 'left' | 'local-only' = 'local-only';
     if (!options.localOnly) {
-      advance('backup');
-      // Only the backup runs inside the deadline. A late backup response must
-      // never continue on to membership removal or local queue cleanup.
-      await withCollaborationTimeout(
-        captureSharedProjectBackup(project, 'manual', 'Local data before stopping shared project access.'),
-        'Saving the shared backup', DISCONNECT_BACKUP_TIMEOUT_MS
-      );
+      if (options.saveBackup !== false) {
+        advance('backup');
+        // Only the backup runs inside the deadline. A late backup response must
+        // never continue on to membership removal or local queue cleanup.
+        await withCollaborationTimeout(
+          captureSharedProjectBackup(project, 'manual', 'Local data before stopping shared project access.'),
+          'Saving the shared backup', DISCONNECT_BACKUP_TIMEOUT_MS
+        );
+      }
       advance('disconnect');
       action = (await disconnectProjectAccess(target.sharedProjectId)).action;
     }

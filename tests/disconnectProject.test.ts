@@ -55,6 +55,58 @@ async function state(projectId: string, areaId: string) {
 }
 
 describe('leaving a saved project', () => {
+  it('skips only the new backup when explicitly unchecked, preserving local inspection and recovery work', async () => {
+    const { project, area } = await fixture();
+    const before = await state(project.id, area.id);
+    const unrelated = await fixture();
+    const unrelatedBefore = await state(unrelated.project.id, unrelated.area.id);
+    mocks.backup.mockRejectedValue(new Error('Backup unavailable'));
+    const stages: DisconnectProjectStage[] = [];
+    const result = await disconnectSavedProject(project, { saveBackup: false, onStage: (stage) => { stages.push(stage); } });
+    expect(stages).toEqual(['loading', 'disconnect', 'local']);
+    expect(mocks.backup).not.toHaveBeenCalled();
+    expect(mocks.disconnect).toHaveBeenCalledTimes(1);
+    expect(result.action).toBe('left');
+    expect(result.localProject.areas).toEqual(before.project?.areas);
+    expect(result.localProject.address).toBe('Unsent address');
+    expect(result.localProject.detachedSharedProjectId).toBe(project.sharedProjectId);
+    expect(result.localProject.sharedProjectId).toBeUndefined();
+    expect(await listCaptureDrafts(project.id, area.id)).toEqual(before.drafts);
+    expect(await getPendingSharedAreaSyncsForProject(project.id)).toEqual([]);
+    expect(await getPendingSharedProjectMetadataSyncForProject(project.id)).toBeUndefined();
+    expect(await state(unrelated.project.id, unrelated.area.id)).toEqual(unrelatedBefore);
+  });
+
+  it('preserves local data and queues if access change fails when skipping backup', async () => {
+    const { project, area } = await fixture();
+    const before = await state(project.id, area.id);
+    mocks.disconnect.mockRejectedValue({ message: 'Permission denied', code: '42501' });
+    await expect(disconnectSavedProject(project, { saveBackup: false, onStage() {} })).rejects.toThrow('Permission denied');
+    expect(mocks.backup).not.toHaveBeenCalled();
+    expect(await state(project.id, area.id)).toEqual(before);
+  });
+
+  it('allows retry without a backup after an unsuccessful backup attempt', async () => {
+    const { project } = await fixture();
+    mocks.backup.mockRejectedValue(new CollaborationRequestTimeoutError());
+    await expect(disconnectSavedProject(project, { onStage() {} })).rejects.toThrow('uncheck “Save a shared backup first”');
+    expect(mocks.disconnect).not.toHaveBeenCalled();
+    const result = await disconnectSavedProject(project, { saveBackup: false, onStage() {} });
+    expect(result.action).toBe('left');
+    expect(mocks.backup).toHaveBeenCalledTimes(1);
+    expect(mocks.disconnect).toHaveBeenCalledTimes(1);
+  });
+
+  it('preserves the owner archive action when the owner explicitly skips the backup', async () => {
+    const { project } = await fixture();
+    mocks.disconnect.mockResolvedValue({ action: 'archived', projectId: project.sharedProjectId });
+    const result = await disconnectSavedProject(project, { saveBackup: false, onStage() {} });
+    expect(result.action).toBe('archived');
+    expect(result.localProject.areas).toEqual(project.areas);
+    expect(mocks.backup).not.toHaveBeenCalled();
+    expect(mocks.disconnect).toHaveBeenCalledTimes(1);
+  });
+
   it('reports the backup stage while it waits and does not request leave until the backup succeeds', async () => {
     const { project } = await fixture();
     let finishBackup!: () => void;

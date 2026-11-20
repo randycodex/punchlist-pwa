@@ -32,7 +32,8 @@ import AreaEditorModal from '@/components/AreaEditorModal';
 import ProjectEditModal from '@/components/ProjectEditModal';
 import AppMessageDialog from '@/components/AppMessageDialog';
 import AppConfirmDialog from '@/components/AppConfirmDialog';
-import { disconnectSavedProject, getDisconnectProjectProgress, type DisconnectProjectStage } from '@/features/collaboration/disconnectProject';
+import DisconnectProjectDialog from '@/features/collaboration/DisconnectProjectDialog';
+import { disconnectSavedProject, type DisconnectProjectStage } from '@/features/collaboration/disconnectProject';
 import TeamBackupCard from '@/components/TeamBackupCard';
 import AppPromptDialog from '@/components/AppPromptDialog';
 import CollaborationHealthDialog from '@/components/CollaborationHealthDialog';
@@ -1314,7 +1315,7 @@ export default function ProjectDetailPage() {
     setDisconnectSharedProjectConfirm(project);
   }
 
-  async function confirmDisconnectSharedProject() {
+  async function confirmDisconnectSharedProject(saveBackup: boolean) {
     const targetProject = disconnectSharedProjectConfirm;
     const sharedProjectId = targetProject?.sharedProjectId;
     if (!targetProject || !sharedProjectId || disconnectingSharedProject) return;
@@ -1324,6 +1325,7 @@ export default function ProjectDetailPage() {
     try {
       const { localProject, action: disconnectAction } = await disconnectSavedProject(targetProject, {
         localOnly: disconnectSharedProjectLocalOnly,
+        saveBackup,
         onStage: setDisconnectStage,
       });
       scheduleSync(localProject.id);
@@ -1885,28 +1887,18 @@ export default function ProjectDetailPage() {
       )}
 
       {disconnectSharedProjectConfirm && (
-        <AppConfirmDialog
-          title={disconnectSharedProjectLocalOnly
-            ? 'Keep Local Copy'
-            : disconnectSharedProjectIsOwner ? 'Stop Sharing' : 'Leave Shared Project'}
-          message={disconnectSharedProjectLocalOnly
-            ? `"${disconnectSharedProjectConfirm.projectName}" is no longer available to this account as a shared project.\n\nDisconnect this device's copy from collaboration? Your local inspection data will stay on this device.`
-            : disconnectSharedProjectIsOwner
-            ? `Stop sharing "${disconnectSharedProjectConfirm.projectName}"?\n\nThis will save a shared backup first, archive the shared project for everyone, and disconnect this device's local copy. Your local inspection data will stay on this device.`
-            : `Leave "${disconnectSharedProjectConfirm.projectName}"?\n\nThis will save a shared backup first, remove your membership, and disconnect this device's local copy. Other members will keep access, and your local inspection data will stay on this device.`}
-          confirmLabel={disconnectingSharedProject
-            ? getDisconnectProjectProgress(disconnectStage, disconnectSharedProjectIsOwner)?.label ?? 'Preparing…'
-            : disconnectSharedProjectLocalOnly ? 'Keep Local Copy' : disconnectSharedProjectIsOwner ? 'Stop Sharing' : 'Leave Project'}
-          danger
-          onCancel={() => {
-            if (!disconnectingSharedProject) {
-              setDisconnectSharedProjectConfirm(null);
-            }
-          }}
+        <DisconnectProjectDialog
+          key={disconnectSharedProjectConfirm.id}
+          projectName={disconnectSharedProjectConfirm.projectName}
+          isOwner={disconnectSharedProjectIsOwner}
+          localOnly={disconnectSharedProjectLocalOnly}
           busy={disconnectingSharedProject}
-          statusMessage={getDisconnectProjectProgress(disconnectStage, disconnectSharedProjectIsOwner)?.message}
+          stage={disconnectStage}
           errorMessage={disconnectError}
-          onConfirm={() => void confirmDisconnectSharedProject()}
+          onCancel={() => {
+            if (!disconnectingSharedProject) setDisconnectSharedProjectConfirm(null);
+          }}
+          onConfirm={(saveBackup) => void confirmDisconnectSharedProject(saveBackup)}
         />
       )}
 

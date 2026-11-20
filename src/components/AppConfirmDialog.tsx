@@ -1,7 +1,7 @@
 'use client';
 
 import { createPortal } from 'react-dom';
-import { useSyncExternalStore } from 'react';
+import { useSyncExternalStore, type ReactNode } from 'react';
 
 const subscribe = () => () => {};
 const clientSnapshot = () => true;
@@ -16,6 +16,7 @@ type AppConfirmDialogProps = {
   busy?: boolean;
   statusMessage?: string;
   errorMessage?: string;
+  children?: ReactNode;
   onCancel: () => void;
   onConfirm: () => void;
 };
@@ -29,6 +30,7 @@ export default function AppConfirmDialog({
   busy = false,
   statusMessage,
   errorMessage,
+  children,
   onCancel,
   onConfirm,
 }: AppConfirmDialogProps) {
@@ -43,6 +45,7 @@ export default function AppConfirmDialog({
         <p className="whitespace-pre-line text-sm leading-6 text-gray-600 dark:text-gray-300">
           {message}
         </p>
+        {children}
         {statusMessage && <p role="status" className="mt-4 text-sm leading-6 text-gray-600 dark:text-gray-300">{statusMessage}</p>}
         {errorMessage && <p role="alert" className="mt-4 whitespace-pre-line text-sm leading-6 text-red-700 dark:text-red-300">{errorMessage}</p>}
         <div className="mt-6 flex gap-3">
