@@ -49,4 +49,27 @@ describe('project floor groups', () => {
     expect(markup).toContain('>Cellar</span>');
     expect(markup).not.toContain('Floor -');
   });
+
+  it('shows floor selection before the area count, with a mixed state for partially selected floors', () => {
+    const project = createProject('Tower');
+    project.facadeLevelStart = 10;
+    project.facadeLevelEnd = 12;
+    const areas = ['10A', '10B', '11A'].map((name, index) => createArea(project.id, name, index, {
+      areaTypeKey: 'apartment_unit',
+      areaNumber: name,
+    }));
+    const props = {
+      areas,
+      projectLevelRange: project,
+      selectedAreaIds: new Set([areas[0].id, areas[2].id]),
+      onSelectAreas: () => {},
+      renderArea: (area: (typeof areas)[number]) => createElement('span', { key: area.id }, area.name),
+    };
+
+    const markup = renderToStaticMarkup(createElement(AreaGroupList, { ...props, showFloorSelection: true }));
+    expect(markup).toMatch(/aria-label="Select all areas on Floor 10" aria-pressed="mixed"[^>]*>.*?<\/button><span[^>]*>2 areas<\/span>/);
+    expect(markup).toContain('aria-label="Select all areas on Floor 11" aria-pressed="true"');
+    expect(markup).not.toContain('aria-label="Select all areas on Floor 12"');
+    expect(renderToStaticMarkup(createElement(AreaGroupList, props))).not.toContain('Select all areas on Floor');
+  });
 });

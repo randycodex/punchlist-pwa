@@ -3282,7 +3282,7 @@ export default function ProjectsPage() {
               </div>
             ) : (
               areaViewMode === 'grouped' ? (
-                <AreaGroupList selectedAreaIds={selectedAreaIds} onSelectAreas={deleteMode ? selectAreaGroup : undefined} unitFloorNumbering={singleProject.unitFloorNumbering} projectLevelRange={areaSearch.trim() ? null : singleProject} areas={visibleAreas} renderArea={(area, nested) => {
+                <AreaGroupList selectedAreaIds={selectedAreaIds} onSelectAreas={deleteMode ? selectAreaGroup : undefined} showFloorSelection={deleteMode && exportScope === 'selected-areas'} unitFloorNumbering={singleProject.unitFloorNumbering} projectLevelRange={areaSearch.trim() ? null : singleProject} areas={visibleAreas} renderArea={(area, nested) => {
                 const metric = areaMetrics.get(area.id);
                 const isSelected = selectedAreaIds.has(area.id);
                 return (

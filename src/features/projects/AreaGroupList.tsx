@@ -1,7 +1,7 @@
 'use client';
 
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { ChevronDown, ChevronRight } from 'lucide-react';
+import { useEffect, useId, useMemo, useState, type ReactNode } from 'react';
+import { ChevronDown, ChevronRight, Square, SquareCheck, SquareMinus } from 'lucide-react';
 import { AREA_TYPE_DEFINITIONS, getAreaGroupKey, type AreaGroupKey } from '@/lib/areas';
 import { getAreaStats, type Area, type Project } from '@/types';
 import { formatFloorLabel, getAreaFloor, getProjectFloorLevels, groupAreasByFloor, type UnitFloorNumbering } from '@/lib/unitFloors';
@@ -14,6 +14,7 @@ type AreaGroupListProps = {
   renderArea: (area: Area, nested?: boolean) => ReactNode;
   selectedAreaIds?: ReadonlySet<string>;
   onSelectAreas?: (areaIds: string[], selected: boolean) => void;
+  showFloorSelection?: boolean;
 };
 
 const groupDefinitions: Array<{ key: AreaGroupKey; label: string }> = [
@@ -31,7 +32,70 @@ function getDisplayGroupKey(area: Area): AreaGroupKey {
   return getAreaGroupKey(area) === 'units' || getAreaFloor(area) !== null ? 'units' : getAreaGroupKey(area);
 }
 
-export default function AreaGroupList({ areas, renderArea, unitFloorNumbering, projectLevelRange, selectedAreaIds, onSelectAreas }: AreaGroupListProps) {
+function FloorAreaGroup({
+  floor, areas, renderArea, selectedAreaIds, onSelectAreas, showFloorSelection,
+}: Pick<AreaGroupListProps, 'areas' | 'renderArea' | 'selectedAreaIds' | 'onSelectAreas' | 'showFloorSelection'> & {
+  floor: string | null;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const id = useId();
+  const label = formatFloorLabel(floor);
+  const count = `${areas.length} ${areas.length === 1 ? 'area' : 'areas'}`;
+  const selectedCount = onSelectAreas ? areas.filter((area) => selectedAreaIds?.has(area.id)).length : 0;
+  const allSelected = areas.length > 0 && selectedCount === areas.length;
+  const SelectionIcon = allSelected ? SquareCheck : selectedCount > 0 ? SquareMinus : Square;
+  const Chevron = expanded ? ChevronDown : ChevronRight;
+
+  return (
+    <div className={`inspection-location-surface overflow-hidden rounded-[1.7rem] ${selectedCount ? 'ring-2 ring-orange-500/70' : ''}`}>
+      <div className="relative flex min-h-16 items-center justify-between gap-3 px-4 py-2">
+        <button
+          type="button"
+          className="absolute inset-0 w-full rounded-[inherit] transition hover:bg-black/[0.02] focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-orange-500 dark:hover:bg-white/[0.04]"
+          aria-labelledby={`${id}-label ${id}-count`}
+          aria-expanded={expanded}
+          aria-controls={`${id}-areas`}
+          onClick={() => setExpanded((current) => !current)}
+        />
+        <span id={`${id}-label`} className="pointer-events-none relative text-[1.02rem] font-semibold tracking-[-0.02em] text-gray-900 dark:text-white">
+          {label}
+        </span>
+        <div className="pointer-events-none relative flex shrink-0 items-center gap-2 text-xs font-medium text-gray-500 dark:text-gray-400">
+          {selectedCount > 0 && (
+            <span className="rounded-full bg-orange-500/15 px-2 py-1 font-semibold text-orange-700 dark:text-orange-300">
+              {selectedCount} selected
+            </span>
+          )}
+          {showFloorSelection && onSelectAreas && areas.length > 0 && (
+            <button
+              type="button"
+              aria-label={`Select all areas on ${label}`}
+              aria-pressed={allSelected ? true : selectedCount > 0 ? 'mixed' : false}
+              title={allSelected ? 'Deselect all areas' : 'Select all areas'}
+              onClick={() => onSelectAreas(areas.map((area) => area.id), !allSelected)}
+              className={`pointer-events-auto inline-flex size-11 items-center justify-center rounded-xl transition hover:bg-black/[0.06] focus-visible:outline-2 focus-visible:outline-orange-500 dark:hover:bg-white/10 ${selectedCount ? 'accent-text' : ''}`}
+            >
+              <SelectionIcon aria-hidden="true" className="size-5" />
+            </button>
+          )}
+          <span id={`${id}-count`}>{count}</span>
+          <Chevron aria-hidden="true" className="size-4" />
+        </div>
+      </div>
+      <div id={`${id}-areas`} hidden={!expanded}>
+        <div className="list-stack px-3 pb-3">
+          {areas.length > 0 ? areas.map((area) => renderArea(area, true)) : (
+            <p className="px-2 py-2 text-sm text-gray-500 dark:text-gray-400">No areas yet</p>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default function AreaGroupList({
+  areas, renderArea, unitFloorNumbering, projectLevelRange, selectedAreaIds, onSelectAreas, showFloorSelection,
+}: AreaGroupListProps) {
   const [collapsedGroups, setCollapsedGroups] = useState<Set<AreaGroupKey>>(new Set());
   const projectFloorLevels = getProjectFloorLevels(projectLevelRange);
   const areaCountsByGroup = useMemo(
@@ -143,26 +207,15 @@ export default function AreaGroupList({ areas, renderArea, unitFloorNumbering, p
             {!isCollapsed && (
               <div id={contentId} className="list-stack mt-2">
                 {group.key === 'units' ? groupAreasByFloor(groupedAreas, unitFloorNumbering, projectLevelRange).map(({ floor, areas: floorAreas }) => (
-                  <details key={floor ?? '__unknown'} className={`group/floor inspection-location-surface overflow-hidden rounded-[1.7rem] ${onSelectAreas && floorAreas.some((area) => selectedAreaIds?.has(area.id)) ? 'ring-2 ring-orange-500/70' : ''}`}>
-                    <summary className="flex min-h-16 w-full cursor-pointer list-none items-center justify-between gap-4 px-4 py-4 text-left transition hover:bg-black/[0.02] dark:hover:bg-white/[0.04] [&::-webkit-details-marker]:hidden">
-                      <span className="text-[1.02rem] font-semibold tracking-[-0.02em] text-gray-900 dark:text-white">{formatFloorLabel(floor)}</span>
-                      <span className="flex shrink-0 items-center gap-2 text-xs font-medium text-gray-500 dark:text-gray-400">
-                        {onSelectAreas && floorAreas.some((area) => selectedAreaIds?.has(area.id)) && (
-                          <span className="rounded-full bg-orange-500/15 px-2 py-1 font-semibold text-orange-700 dark:text-orange-300">
-                            {floorAreas.filter((area) => selectedAreaIds?.has(area.id)).length} selected
-                          </span>
-                        )}
-                        {floorAreas.length} {floorAreas.length === 1 ? 'area' : 'areas'}
-                        <ChevronRight aria-hidden="true" className="h-4 w-4 group-open/floor:hidden" />
-                        <ChevronDown aria-hidden="true" className="hidden h-4 w-4 group-open/floor:block" />
-                      </span>
-                    </summary>
-                    <div className="list-stack px-3 pb-3">
-                      {floorAreas.length > 0 ? floorAreas.map((area) => renderArea(area, true)) : (
-                        <p className="px-2 py-2 text-sm text-gray-500 dark:text-gray-400">No areas yet</p>
-                      )}
-                    </div>
-                  </details>
+                  <FloorAreaGroup
+                    key={floor ?? '__unknown'}
+                    floor={floor}
+                    areas={floorAreas}
+                    renderArea={renderArea}
+                    selectedAreaIds={selectedAreaIds}
+                    onSelectAreas={onSelectAreas}
+                    showFloorSelection={showFloorSelection}
+                  />
                 )) : groupedAreas.map((area) => renderArea(area))}
               </div>
             )}
